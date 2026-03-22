@@ -44,10 +44,18 @@ Each stage is a **separate skill** that can be invoked independently or orchestr
 ## Installation
 
 ```bash
-# From GitHub (private or public repo)
-/plugin install https://github.com/<user>/feature-pipeline
+# 1. Add the repo as a marketplace
+/plugin marketplace add <github-user>/feature-pipeline
 
-# From local directory (for development)
+# 2. Install the plugin
+/plugin install feature-pipeline@<github-user>-feature-pipeline
+
+# 3. Activate
+/reload-plugins
+```
+
+For local development:
+```bash
 claude --plugin-dir /path/to/feature-pipeline
 ```
 
