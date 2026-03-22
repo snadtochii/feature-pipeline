@@ -1,7 +1,6 @@
 ---
 name: discovery
 description: Interactive feature discovery for personal projects. Takes a rough idea (text, images, files), explores the codebase, guides through Socratic requirements discovery, and produces a detailed ticket spec ready for /feature-pipeline:feature-flow. Use as step 0 before the pipeline.
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, mcp__serena__find_symbol, mcp__serena__get_symbols_overview, mcp__serena__search_for_pattern, mcp__serena__list_dir
 ---
 
 # Feature Discovery

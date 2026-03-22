@@ -1,12 +1,18 @@
 ---
 name: feature-flow
-description: Agentic feature development pipeline for personal projects. Orchestrates analysis, planning, implementation, review, and testing through specialized agents with human review gates between stages. Supports --from, --to, --only, --skip flags for partial runs.
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_click, mcp__playwright__browser_wait_for, mcp__playwright__browser_fill_form, mcp__chrome-devtools__take_screenshot, mcp__chrome-devtools__navigate_page, mcp__chrome-devtools__list_console_messages, mcp__serena__find_symbol, mcp__serena__get_symbols_overview, mcp__serena__search_for_pattern
+description: Agentic feature development pipeline orchestrator. Sequences analyze, plan, implement, review, and test stage skills with human review gates. Supports --from, --to, --only, --skip, --continue flags for partial runs.
 ---
 
 # Feature Flow Pipeline
 
-Orchestrates feature development for personal projects through specialized agents with human review gates.
+Orchestrates feature development through stage skills with human review gates.
+
+Each stage is a separate skill that can also be invoked directly:
+- `/feature-pipeline:analyze` — codebase exploration + spec analysis
+- `/feature-pipeline:plan` — interactive implementation planning
+- `/feature-pipeline:implement` — code writing + lint + tests
+- `/feature-pipeline:review` — parallel code review (3 reviewers)
+- `/feature-pipeline:test` — UI/E2E testing via Playwright
 
 ## Arguments
 
@@ -39,17 +45,13 @@ Stage names: `analyze`, `plan`, `implement`, `review`, `test`
 /feature-pipeline:feature-flow .tickets/backlog/dark-mode.md     # by file path
 ```
 
-## Pipeline Stages
+## Pipeline Order
 
-The stages run in this order: **analyze → plan → implement → review → test**
-
-Each stage (except implement) runs as a **subagent** to keep the main context clean. Implementation runs in **main context** for direct interaction.
+**analyze → plan → implement → review → test → completion**
 
 ---
 
-## Stage Execution
-
-### SETUP: Resolve Ticket & Create Artifacts Directory
+## SETUP
 
 1. **Find the ticket**:
    - If argument looks like a path (contains `/` or `.md`), read that file directly
@@ -69,7 +71,12 @@ Each stage (except implement) runs as a **subagent** to keep the main context cl
 4. **Save enriched spec**:
    - Write the ticket content to `claudedocs/pipeline/<ticket-id>/01-spec.md`
 
-5. **Determine which stages to run** based on flags (--from, --to, --only, --skip, --continue)
+5. **Determine which stages to run** based on flags:
+   - `--only X` → run only X
+   - `--from X` → run X and everything after
+   - `--to X` → run everything up to and including X
+   - `--skip X` → run all except X
+   - Flags combine: `--from X --to Y --skip Z`
 
 6. **If `--continue` flag is set**, auto-detect the next stage by checking which artifacts exist:
    - Check for artifacts in `claudedocs/pipeline/<ticket-id>/` in reverse order:
@@ -86,199 +93,90 @@ Each stage (except implement) runs as a **subagent** to keep the main context cl
 
 ---
 
-### STAGE 1: ANALYZE (subagent)
+## STAGE EXECUTION
 
-**Agent**: `feature-pipeline:code-explorer` (for codebase context) then `feature-pipeline:requirements-analyst` (for spec analysis)
+For each stage in the determined list, invoke the corresponding stage skill and handle the review gate afterward.
 
-**These two subagents MUST run sequentially** — the analyst needs the explorer's output.
+---
 
-**Process**:
-1. First, spawn `feature-pipeline:code-explorer` subagent:
-   - Prompt: "Explore the codebase for project `<project>` to understand the areas relevant to: `<ticket title + description>`. Focus on: existing patterns, related files, architecture layers, and dependencies. The project root is at `<project-path>`."
-   - Wait for it to complete before proceeding
+### ANALYZE
 
-2. Then, spawn `feature-pipeline:requirements-analyst` subagent:
-   - Prompt: "Analyze this feature specification for completeness and feasibility. Here is the spec: `<ticket content>`. Here is the codebase context: `<explorer output>`. Identify gaps, edge cases, risks, and questions. Assess complexity."
-   - This subagent returns the analysis
-
-3. Save combined output to `claudedocs/pipeline/<ticket-id>/02-analysis.md`
-
-4. **Present to user**:
+1. Invoke the analyze skill: `/feature-pipeline:analyze <ticket-id>`
+2. The skill spawns two sequential subagents and saves `02-analysis.md`
+3. **GATE** — after the skill presents its findings:
    ```
-   ## Analysis Complete
-
-   [Summary of key findings, gaps, questions]
-
-   Artifacts saved to: claudedocs/pipeline/<ticket-id>/02-analysis.md
-
    → Approve to proceed to planning
    → Reject with notes to re-analyze
    ```
-
-5. **GATE**: Wait for user response.
-   - If approved → proceed to Stage 2
-   - If rejected → re-run Stage 1 with user's notes added to the prompt
+4. If rejected → re-invoke `/feature-pipeline:analyze <ticket-id>` (the skill will see the conversation history with user feedback and the existing `02-analysis.md`)
+5. If approved → proceed to next stage
 
 ---
 
-### STAGE 2: PLAN (main context, plan mode)
+### PLAN
 
-**This stage runs in the main conversation using Claude Code's plan mode — NOT as a subagent.**
-
-**IMPORTANT**: The analysis from Stage 1 MUST be read and used as input. The plan must address any gaps, risks, or questions identified in the analysis.
-
-**Process**:
-1. Read the analysis findings from `claudedocs/pipeline/<ticket-id>/02-analysis.md`
-2. Enter plan mode using `EnterPlanMode`
-3. Explore the codebase as needed (read files, search for patterns, understand architecture)
-4. Create an implementation plan that:
-   - Addresses gaps and risks identified in the analysis
-   - Lists specific files to create/modify
-   - Describes component design and data flow
-   - Defines a phased build sequence
-   - Notes key decisions and trade-offs
-5. The user can interactively refine the plan in plan mode — respond to feedback, adjust approach, answer questions
-6. When the user approves the plan (exits plan mode), save it to `claudedocs/pipeline/<ticket-id>/03-plan.md`
-7. Proceed to Stage 3
+1. Invoke the plan skill: `/feature-pipeline:plan <ticket-id>`
+2. The skill enters plan mode for interactive planning — **plan mode itself is the gate**
+3. The user refines the plan interactively until satisfied, then exits plan mode
+4. The skill saves `03-plan.md`
+5. Proceed to next stage
 
 ---
 
-### STAGE 3: IMPLEMENT (main context)
+### IMPLEMENT
 
-**This stage runs directly in the main conversation — NOT as a subagent.**
-
-Follow the `feature-pipeline:implementer` agent behavioral guidelines.
-
-**Process**:
-1. Read the approved plan from `claudedocs/pipeline/<ticket-id>/03-plan.md`
-2. Read the project's CLAUDE.md and existing code patterns
-
-#### 3a. Code Implementation
-3. For each task in the plan:
-   a. Implement the change
-   b. Run lint/typecheck — fix all errors immediately
-   c. Run build (if applicable) — fix all compilation errors immediately
-
-#### 3b. Tests
-4. After all code changes are implemented, write tests for new or modified code:
-   - Follow the project's existing testing conventions (check CLAUDE.md, existing test files)
-   - Run tests as you write them, fix failures immediately
-
-#### 3c. Validation
-5. Run the full test suite
-6. Run lint one final time
-
-#### 3d. Summary
-7. Save implementation summary to `claudedocs/pipeline/<ticket-id>/04-implementation.md`:
-   - Files created/modified (with brief description of each change)
-   - Test files created/modified
-   - Lint results (must be clean)
-   - Test results (pass/fail counts, must all pass)
-   - Any deviations from the plan with rationale
-
-8. **Present to user**:
+1. Invoke the implement skill: `/feature-pipeline:implement <ticket-id>`
+2. The skill writes code, runs lint/tests, and saves `04-implementation.md`
+3. **GATE** — after the skill presents its summary:
    ```
-   ## Implementation Complete
-
-   [Summary: files changed, tests written, all passing, any deviations]
-
-   Artifacts saved to: claudedocs/pipeline/<ticket-id>/04-implementation.md
-
    → Approve to proceed to review
    → Request fixes with specific issues
    ```
-
-9. **GATE**: Wait for user response.
-    - If approved → proceed to Stage 4
-    - If fix → apply fixes, re-run validation, present again
+4. If fixes requested → re-invoke `/feature-pipeline:implement <ticket-id>` (the skill will see conversation history with the fix requests)
+5. If approved → proceed to next stage
 
 ---
 
-### STAGE 4: REVIEW (subagents, parallel)
+### REVIEW
 
-**Agents**: Three reviewers run in parallel as subagents.
-
-**Process**:
-1. Get the diff of all changes: `git diff` (or compare against the branch base)
-
-2. Spawn three subagents in parallel:
-
-   a. **`feature-pipeline:code-reviewer`** (correctness + quality):
-      - Prompt: "Review these code changes for correctness, bugs, logic errors, and adherence to project conventions. Changes: `<git diff or file list>`. Project root: `<project-path>`. Use confidence scoring — only report issues with confidence >= 80."
-
-   b. **`feature-pipeline:security-engineer`** (security):
-      - Prompt: "Review these code changes for security vulnerabilities. Changes: `<git diff or file list>`. Project root: `<project-path>`. Check for: input validation, auth issues, injection risks, data exposure, OWASP Top 10."
-
-   c. **`feature-pipeline:performance-engineer`** (performance):
-      - Prompt: "Review these code changes for performance issues. Changes: `<git diff or file list>`. Project root: `<project-path>`. Check for: N+1 queries, unnecessary re-renders, memory leaks, bundle size impact, algorithm complexity."
-
-3. Merge all findings into `claudedocs/pipeline/<ticket-id>/05-review.md`:
-   - Group by severity (CRITICAL → WARNING → SUGGESTION)
-   - De-duplicate overlapping findings
-   - Note which reviewer flagged each issue
-
-4. **Present to user**:
+1. Invoke the review skill: `/feature-pipeline:review <ticket-id>`
+2. The skill spawns three parallel reviewers and saves `05-review.md`
+3. **GATE** — after the skill presents findings:
    ```
-   ## Review Complete
-
-   [Summary: issue counts by severity, key findings]
-
-   Artifacts saved to: claudedocs/pipeline/<ticket-id>/05-review.md
-
    → Approve to proceed to testing (no critical issues)
-   → Send back for fixes (list which issues to address)
+   → Send back for fixes (specify which issues to address)
    ```
-
-5. **GATE**: Wait for user response.
-   - If approved → proceed to Stage 5
-   - If fix needed → go back to Stage 3 (implement) with review findings as input
-     - Read the review, apply fixes, re-run validation
-     - After fixes, run a quick single-reviewer pass to verify fixes
-     - Present again
+4. If fixes needed → go back to **IMPLEMENT** stage with review findings as input
+   - Re-invoke `/feature-pipeline:implement <ticket-id>` — the skill reads the review from `05-review.md`
+   - After fixes, run a quick single-reviewer pass to verify: invoke `/feature-pipeline:review <ticket-id>` again
+5. If approved → proceed to next stage
 
 ---
 
-### STAGE 5: TEST (subagent)
+### TEST
 
-**Agent**: `feature-pipeline:ui-tester`
-
-**Prerequisite**: The application must be running. Ask the user for the URL if not obvious from the project.
-
-**Process**:
-1. Spawn `feature-pipeline:ui-tester` subagent:
-   - Prompt: "Test this feature through real browser interaction. Spec with acceptance criteria: `<ticket content>`. Implementation summary: `<implementation output>`. Application URL: `<url>`. Test every acceptance criterion, take screenshots, check console for errors. Report bugs with reproduction steps."
-   - The subagent has access to Playwright and Chrome DevTools MCP
-
-2. Save output to `claudedocs/pipeline/<ticket-id>/06-tests.md`
-   - If bugs found, also save individual bug files to `claudedocs/pipeline/<ticket-id>/bugs/`
-
-3. **Present to user**:
+1. Invoke the test skill: `/feature-pipeline:test <ticket-id>`
+2. The skill spawns a UI tester and saves `06-tests.md`
+3. **GATE** — after the skill presents results:
    ```
-   ## Testing Complete
-
-   [Summary: tests passed/failed, bugs found by severity]
-
-   Artifacts saved to: claudedocs/pipeline/<ticket-id>/06-tests.md
-
-   → All pass → Complete the pipeline
-   → Code bug → Send back to implementation (Stage 3) with bug details
-   → Design flaw → Send back to planning (Stage 2) to revise approach
+   → All pass → proceed to completion
+   → Code bug → send back to implementation with bug details
+   → Design flaw → send back to planning to revise approach
    ```
-
-4. **GATE**: Wait for user response.
-   - If all pass → proceed to Completion
-   - If code bug → go back to Stage 3 with bug reports as input
-   - If design flaw → go back to Stage 2 with test findings as input
+4. Route based on user response:
+   - All pass → COMPLETION
+   - Code bug → go back to **IMPLEMENT** stage with bug reports as input
+   - Design flaw → go back to **PLAN** stage with test findings as input
 
 ---
 
-### COMPLETION
+## COMPLETION
 
 **IMPORTANT: All completion steps below are MANDATORY. Do not skip any of them.**
 
 1. Write pipeline summary to `claudedocs/pipeline/<ticket-id>/07-summary.md`:
    - Ticket title and ID
-   - Stages completed and timestamps
+   - Stages completed
    - Files created/modified
    - Review findings addressed
    - Test results
@@ -306,15 +204,15 @@ Follow the `feature-pipeline:implementer` agent behavioral guidelines.
 
 ---
 
-## Artifact Naming Convention
+## Artifact Convention
 
 All artifacts are numbered by stage order:
 
 ```
 claudedocs/pipeline/<ticket-id>/
 ├── 01-spec.md              # Enriched ticket specification
-├── 02-analysis.md          # requirements-analyst + code-explorer output
-├── 03-plan.md              # code-architect / system-architect blueprint
+├── 02-analysis.md          # code-explorer + requirements-analyst output
+├── 03-plan.md              # Implementation blueprint
 ├── 04-implementation.md    # Implementation summary + validation results
 ├── 05-review.md            # Merged review findings (3 reviewers)
 ├── 06-tests.md             # UI test execution results
@@ -335,7 +233,6 @@ This enables:
 
 ## Error Handling
 
-- If a subagent fails or returns an error, report it to the user and ask how to proceed (retry, skip, or abort)
-- If lint/tests fail during implementation, fix them before presenting results — don't punt failures to the user
+- If a stage skill fails or returns an error, report it to the user and ask how to proceed (retry, skip, or abort)
 - If the ticket file can't be found, ask the user for the correct path
 - If the project path can't be determined, ask the user
