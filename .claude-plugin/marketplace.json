@@ -1,0 +1,15 @@
+{
+  "name": "feature-pipeline",
+  "description": "Agentic feature development pipeline with discovery, analysis, planning, implementation, review, and testing stages.",
+  "owner": {
+    "name": "Serhii Nadtochii"
+  },
+  "plugins": [
+    {
+      "name": "feature-pipeline",
+      "description": "Agentic feature development pipeline with specialized agents and human review gates.",
+      "source": ".",
+      "category": "development"
+    }
+  ]
+}
