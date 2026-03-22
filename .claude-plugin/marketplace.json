@@ -8,7 +8,7 @@
     {
       "name": "feature-pipeline",
       "description": "Agentic feature development pipeline with specialized agents and human review gates.",
-      "source": ".",
+      "source": "./",
       "category": "development"
     }
   ]
