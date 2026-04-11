@@ -17,8 +17,8 @@ Orchestrates the full feature lifecycle through specialized AI agents with human
 | **Discovery** | `discovery` | code-explorer | Interactive | Socratic requirements discovery → ticket creation |
 | **Analyze** | `analyze` | code-explorer + requirements-analyst | Subagents (sequential) | Codebase exploration + spec analysis |
 | **Plan** | `plan` | (plan mode) | Interactive | Implementation blueprint with file list and build sequence |
-| **Implement** | `implement` | implementer guidelines | Interactive | Code writing + lint + tests |
-| **Review** | `review` | code-reviewer + security-engineer + performance-engineer | 3 Parallel subagents | Correctness, security, and performance review |
+| **Implement** | `implement` | — (runs in main context) | Interactive | Code writing + lint + tests |
+| **Review** | `review` | code-reviewer + security-engineer + performance-engineer + code-architect | 4 Parallel subagents | Correctness, security, performance, and architectural-fit review |
 | **Test** | `test` | ui-tester | Subagent | Real browser testing via Playwright |
 
 ### Human Gates
@@ -121,7 +121,7 @@ claudedocs/pipeline/BL-1/
 ├── 02-analysis.md          # Requirements analysis + codebase context
 ├── 03-plan.md              # Implementation blueprint
 ├── 04-implementation.md    # Implementation summary + validation results
-├── 05-review.md            # Merged review findings (3 reviewers)
+├── 05-review.md            # Merged review findings (4 reviewers)
 ├── 06-tests.md             # UI test execution results
 ├── 07-summary.md           # Pipeline completion summary
 └── bugs/                   # Bug reports from testing (if any)
@@ -138,10 +138,8 @@ feature-pipeline/
 │   ├── code-architect.md
 │   ├── code-reviewer.md
 │   ├── requirements-analyst.md
-│   ├── system-architect.md
 │   ├── security-engineer.md
 │   ├── performance-engineer.md
-│   ├── implementer.md
 │   └── ui-tester.md
 ├── skills/                 # Skill definitions
 │   ├── feature-flow/       # Orchestrator — sequences stages with gates
@@ -166,15 +164,15 @@ feature-pipeline/
 
 | Agent | Role in Pipeline |
 |-------|-----------------|
-| `code-explorer` | Traces codebase features, maps architecture |
-| `code-architect` | Designs implementation blueprints |
-| `code-reviewer` | Reviews correctness with confidence scoring |
-| `requirements-analyst` | Analyzes specs for completeness and feasibility |
-| `system-architect` | Designs backend/system architecture |
-| `security-engineer` | Reviews for OWASP Top 10, auth, data protection |
-| `performance-engineer` | Reviews for bottlenecks, memory leaks, bundle size |
-| `implementer` | Writes production code, runs lint/tests |
-| `ui-tester` | Tests UI flows via Playwright browser automation |
+| `code-explorer` | Traces codebase features, maps architecture (used in analyze) |
+| `requirements-analyst` | Analyzes specs for completeness and feasibility (used in analyze) |
+| `code-reviewer` | Reviews correctness with confidence scoring (used in review) |
+| `security-engineer` | Reviews for OWASP Top 10, auth, data protection (used in review) |
+| `performance-engineer` | Reviews for bottlenecks, memory leaks, bundle size (used in review) |
+| `code-architect` | Reviews architectural fit against existing patterns; also designs implementation blueprints (used in review, optionally in plan) |
+| `ui-tester` | Tests UI flows via Playwright browser automation (used in test) |
+
+> The `implement` stage does not have a dedicated agent — it runs in the main conversation so the user can interact with it during iterative coding. See `CLAUDE.md` for the rationale.
 
 ## Customization
 

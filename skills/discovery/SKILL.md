@@ -1,6 +1,16 @@
 ---
 name: discovery
-description: Interactive feature discovery for personal projects. Takes a rough idea (text, images, files), explores the codebase, guides through Socratic requirements discovery, and produces a detailed ticket spec ready for /feature-pipeline:feature-flow. Use as step 0 before the pipeline.
+description: "Turn a rough feature idea into a ready-to-implement ticket through interactive Socratic dialogue. Use when user says 'I want to add', 'let's build', 'discover this feature', or 'new feature idea'. NOT for running the pipeline on an existing ticket."
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - Bash
+  - Task
+  - TodoWrite
+argument-hint: "[description] [--project name] [--id XX-N]"
 ---
 
 # Feature Discovery
@@ -10,10 +20,10 @@ Interactive requirements discovery that transforms a rough idea into a detailed,
 ## Arguments
 
 ```
-/feature-pipeline:discovery <description> [--project <name>] [--id <XX-N>]
+/feature-pipeline:discovery $ARGUMENTS
 ```
 
-- `<description>` — the rough idea, feature request, or problem statement (can include pasted text, images, file references)
+- `$ARGUMENTS` — the rough idea, feature request, or problem statement (can include pasted text, images, file references) plus optional flags
 - `--project <name>` — which personal project this is for (used in ticket frontmatter)
 - `--id <XX-N>` — explicit ticket ID (auto-generated if omitted)
 
@@ -86,6 +96,8 @@ Spawn a `feature-pipeline:code-explorer` subagent to understand the relevant cod
 **Prompt**: "Explore the codebase at `<project-root>` to understand the areas relevant to: `<idea summary>`. Focus on: existing related features, patterns used, file structure, tech stack, and any existing implementations that overlap with this idea. Return a concise summary of what exists and how this feature would fit in."
 
 This runs as a **background subagent** — continue to Phase 3 while it explores.
+
+**Preserve the full explorer output** — do not just summarize it for the Socratic questions in Phase 3. The full output gets written to `00-exploration.md` in Phase 4 so that the `analyze` stage can reuse it instead of re-exploring the same codebase.
 
 ---
 
@@ -192,7 +204,19 @@ Use the code explorer results to ask informed questions:
    Useful context for the analyze and plan stages.>
    ```
 
-4. **Present the ticket**:
+4. **Persist the Phase 2 exploration for the analyze stage**:
+   - Create `claudedocs/pipeline/<ticket-id>/` if it doesn't exist
+   - Write the full Phase 2 explorer output to `claudedocs/pipeline/<ticket-id>/00-exploration.md`
+   - Include a short header at the top of the file:
+     ```
+     # Exploration — <ticket-id>
+     **Source**: discovery skill, Phase 2
+     **Date**: <today's date>
+     **Scope**: broad exploration of areas relevant to the feature idea (not yet ticket-scoped — analyze will do targeted follow-up)
+     ```
+   - This artifact is read by `analyze` as a seed for incremental exploration, avoiding a second full codebase sweep. If discovery's exploration was thin (e.g., small or purely-UI feature), still write the file so analyze can see what discovery covered.
+
+5. **Present the ticket**:
    ```
    ## Ticket Created
 
