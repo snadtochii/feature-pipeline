@@ -1,8 +1,8 @@
 ---
 name: plan
-description: "Create an interactive implementation plan for a ticket in plan mode. Use when user says 'plan this ticket', 'create a plan for', 'let's plan', 'design the implementation', 'figure out how to build', or invokes /feature-pipeline:plan. NOT for analysis or coding — use analyze or implement for those."
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, TodoWrite
-argument-hint: [ticket-id]
+description: "Create an interactive implementation plan for a ticket in plan mode. Use when user says 'plan this ticket', 'create a plan for', 'let's plan', or 'design the implementation'. NOT for analysis or coding."
+allowed-tools: Read Write Edit Glob Grep Bash TodoWrite
+argument-hint: "[ticket-id]"
 ---
 
 # Plan Stage

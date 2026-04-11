@@ -1,8 +1,8 @@
 ---
 name: test
-description: "Test a feature through real browser interaction using Playwright, validating acceptance criteria and capturing bugs. Use when user says 'test this feature', 'run UI tests', 'browser test', 'verify the flow', 'E2E test', or invokes /feature-pipeline:test. NOT for unit tests — this is UI/E2E only."
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite
-argument-hint: [ticket-id]
+description: "Test a feature through real browser interaction using Playwright, validating acceptance criteria. Use when user says 'test this feature', 'run UI tests', 'browser test', or 'E2E test'. NOT for unit tests — UI/E2E only."
+allowed-tools: Read Write Edit Glob Grep Bash Task TodoWrite
+argument-hint: "[ticket-id]"
 ---
 
 # Test Stage (UI/E2E)

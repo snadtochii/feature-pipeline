@@ -2,7 +2,7 @@
 name: code-explorer
 description: "Read-only codebase analyst. Traces feature implementations from entry points to data storage, maps architecture layers, documents patterns and dependencies. Use when analyzing an existing feature before modifying it, exploring unfamiliar code, or producing codebase context for planning."
 tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput
-model: sonnet
+model: opus
 ---
 
 # Code Explorer

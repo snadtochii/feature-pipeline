@@ -1,8 +1,8 @@
 ---
 name: implement
-description: "Implement a feature from an approved plan — write code, run lint/tests, iterate until clean. Use when user says 'implement this', 'build the feature', 'execute the plan', 'write the code for', 'start implementing', or invokes /feature-pipeline:implement. NOT for planning or reviewing — use plan or review for those."
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, TodoWrite
-argument-hint: [ticket-id]
+description: "Implement a feature from an approved plan — write code, run lint/tests, iterate until clean. Use when user says 'implement this', 'build the feature', 'execute the plan', or 'start implementing'. NOT for planning or reviewing."
+allowed-tools: Read Write Edit Glob Grep Bash TodoWrite
+argument-hint: "[ticket-id]"
 ---
 
 # Implement Stage

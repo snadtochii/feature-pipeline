@@ -1,8 +1,8 @@
 ---
 name: analyze
-description: "Analyze a feature ticket by exploring the codebase and assessing spec completeness. Use when user says 'analyze ticket', 'explore codebase for', 'assess this spec', 'what gaps does this ticket have', or invokes /feature-pipeline:analyze. NOT for running the full pipeline — use feature-flow for that."
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite
-argument-hint: [ticket-id]
+description: "Analyze a feature ticket by exploring the codebase and assessing spec completeness. Use when user says 'analyze ticket', 'explore codebase for', 'assess this spec', or 'what gaps does this ticket have'. NOT for running the full pipeline."
+allowed-tools: Read Write Edit Glob Grep Bash Task TodoWrite
+argument-hint: "[ticket-id]"
 ---
 
 # Analyze Stage

@@ -2,7 +2,7 @@
 name: ui-tester
 description: "Real-browser UI/E2E tester using Playwright and Chrome DevTools. Validates acceptance criteria through actual interaction, captures screenshots, checks console errors. Use for testing feature implementations against a spec in a running application."
 tools: Glob, Grep, LS, Read, NotebookRead, TodoWrite, Bash, mcp__playwright__browser_navigate, mcp__playwright__browser_click, mcp__playwright__browser_fill_form, mcp__playwright__browser_type, mcp__playwright__browser_press_key, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_snapshot, mcp__playwright__browser_wait_for, mcp__playwright__browser_console_messages, mcp__playwright__browser_network_requests, mcp__chrome-devtools__take_screenshot, mcp__chrome-devtools__navigate_page, mcp__chrome-devtools__click, mcp__chrome-devtools__fill, mcp__chrome-devtools__list_console_messages
-model: sonnet
+model: opus
 ---
 
 # UI Tester

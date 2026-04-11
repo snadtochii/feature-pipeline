@@ -1,8 +1,8 @@
 ---
 name: review
-description: "Run parallel code reviews across correctness, security, performance, and architectural fit. Use when user says 'review these changes', 'check my code', 'run code review', 'parallel review', or invokes /feature-pipeline:review. NOT for PR reviews on GitHub — this is internal, read-only review."
-allowed-tools: Read, Glob, Grep, Bash, Task, TodoWrite
-argument-hint: [ticket-id]
+description: "Run parallel code reviews across correctness, security, performance, and architectural fit. Use when user says 'review these changes', 'check my code', 'run code review', or 'parallel review'. NOT for GitHub PR reviews."
+allowed-tools: Read Glob Grep Bash Task TodoWrite
+argument-hint: "[ticket-id]"
 ---
 
 # Review Stage

@@ -75,150 +75,59 @@ Each stage reads and writes artifacts in `claudedocs/pipeline/<ticket-id>/`. **T
 
 ## Skill authoring conventions
 
-Everything below comes from Anthropic's official skill-authoring guide (verified against `~/.claude/skills/skill-creator/references/`). Deviations need a reason documented in the skill.
+General Claude Code skill-authoring rules — frontmatter fields and gotchas, trigger-phrase policy, variable substitution, progressive disclosure, body structure, validation errors — live in `~/.claude/skills/skill-creator/references/`. That is the source of truth. Do not duplicate its content here.
 
-### Frontmatter — required fields
+This section captures only what's **specific to this plugin** on top of those general rules.
 
-```yaml
----
-name: <kebab-case>
-description: "<WHAT it does>. Use when user says '<phrase1>', '<phrase2>', '<phrase3>'. NOT for <negative trigger>."
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task
-argument-hint: [ticket-id]
----
-```
+### `allowed-tools` budgets for this plugin's skills
 
-### Description rules
-
-- **Must include natural trigger phrases.** "Use when user says 'run the pipeline'" — not "Run with `/xxx`". Users don't type slash-commands when they can speak naturally; undertriggering is the #1 failure mode.
-- **Include a negative trigger** ("NOT for X") when the skill overlaps with a sibling.
-- Keep descriptions ≤160 chars *when possible*. Trigger-phrase density is more important than character count — prefer 200 chars of phrases over 140 chars of vague prose.
-- Forbidden: `<`, `>`, markdown, `system_prompt`, `role`.
-
-### `allowed-tools` policy
-
-**Never omit `allowed-tools`.** Omitting it grants everything by default, which is both a security smell and a clarity miss.
-
-Budget by skill role:
+Space-separated, per the `allowed-tools` format. Reviewers must not include `Write` or `Edit` (review must not mutate the tree).
 
 | Skill role | Typical budget |
 |---|---|
-| Orchestrator (feature-flow) | `Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite, Skill` |
-| Analysis stage (analyze, discovery) | `Read, Glob, Grep, Bash, Task, TodoWrite` |
-| Plan stage | `Read, Write, Glob, Grep, Bash, TodoWrite` (plus plan-mode tools) |
-| Implementation stage | `Read, Write, Edit, Glob, Grep, Bash, TodoWrite` |
-| Review stage | `Read, Glob, Grep, Bash, Task` (**no `Write`/`Edit`** — review shouldn't mutate) |
-| Test stage | `Read, Write, Glob, Grep, Bash, Task` + Playwright/Chrome MCP |
+| Orchestrator (feature-flow) | `Read Write Edit Glob Grep Bash Task TodoWrite Skill` |
+| Analysis/intake stage (discovery, analyze) | `Read Write Edit Glob Grep Bash Task TodoWrite` |
+| Plan stage | `Read Write Edit Glob Grep Bash TodoWrite` (plus plan-mode tools) |
+| Implementation stage | `Read Write Edit Glob Grep Bash TodoWrite` |
+| Review stage | `Read Glob Grep Bash Task TodoWrite` |
+| Test stage | `Read Write Edit Glob Grep Bash Task TodoWrite` + Playwright/Chrome MCP |
 
-If you need a tool *not* in this table, add it explicitly and document why.
+If you need a tool not in this table, add it explicitly and document why.
 
-### Variable substitution
+### Shared references
 
-Use `$ARGUMENTS` and `$1`, `$2`, ... rather than prose placeholders like `<ticket>`. The runtime substitutes these at load time, so the skill sees the literal user input baked in — less ambiguity for Claude across long orchestrations.
-
-```markdown
-## SETUP
-1. The ticket argument is `$1`. If `$1` contains `/` or `.md`, read that file directly.
-```
-
-### Progressive disclosure
-
-- **Level 1 (frontmatter):** always loaded — decides relevance
-- **Level 2 (SKILL.md body):** loaded on activation — keep ≤500 lines
-- **Level 3 (`references/*.md`):** loaded on demand — deep details live here
-
-**If a body block is duplicated across skills, extract it to `references/` and link.** The canonical example is `skills/feature-flow/references/ticket-resolution.md`, referenced from every stage skill that resolves a ticket argument.
-
-### SKILL.md body structure
-
-```
-# Skill Name — one-line purpose
-overview (1–2 sentences)
-
-## Arguments — table
-## <Workflow sections> — numbered steps, decision trees, tables
-## Output — artifact path(s)
-## Error Handling — explicit
-## Examples — 2–6 concrete invocations
-```
-
-Avoid prose paragraphs. Use numbered steps, decision trees, and tables. Put critical rules at the top of each section, not buried at the end.
+When a block would otherwise be duplicated across multiple stage skills, extract it. The canonical example is `skills/feature-flow/references/ticket-resolution.md`, referenced from every stage skill that resolves a ticket argument.
 
 ---
 
 ## Agent authoring conventions
 
-Agents live in `agents/*.md`. Each file is a single agent definition loaded as a subagent type (`feature-pipeline:<agent-name>`).
+General Claude Code agent-authoring rules — frontmatter fields, `tools:` comma-separated format, description policy, optional fields (`permissionMode`, `maxTurns`, `skills`, `hooks`), body template options — live in `~/.claude/skills/skill-creator/references/agent-frontmatter.md`. That is the source of truth. Do not duplicate its content here.
 
-### Frontmatter
+Agents in this plugin live at `agents/*.md` and are loaded as subagent types namespaced `feature-pipeline:<agent-name>`. This section captures only what's **specific to this plugin**.
 
-```yaml
----
-name: <kebab-case>
-description: "<role sentence>. Use when <natural trigger phrases>."
-tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput
-model: sonnet
----
-```
-
-**Always specify `tools` and `model`.** Skill frontmatter uses `allowed-tools:`; **agent frontmatter uses `tools:`** — different field names, do not conflate.
-
-**Optional agent frontmatter fields** (use when needed, don't stuff them in by default):
-- `permissionMode` — override permission mode for this agent
-- `maxTurns` — cap the agent's reasoning turns
-- `skills` — grant the agent access to specific skills
-- `hooks` — lifecycle hooks scoped to this agent
-
-Description must include a role sentence **plus** natural delegation triggers ("Use when…"), same rule as skill descriptions. Agents are selected automatically based on description matching — vague descriptions fail to trigger.
-
-### Tool budgets by agent role
+### Tool budgets for this plugin's agents
 
 | Agent role | Tools | Rationale |
 |---|---|---|
-| Explorer/analyst (`code-explorer`, `requirements-analyst`) | Read-only set | They describe, not mutate |
+| Explorer/analyst (`code-explorer`, `requirements-analyst`) | Read-only set | Describe, don't mutate |
 | Reviewer (`code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect` in review mode) | Read-only set | Reviews must not mutate the tree |
 | Architect in blueprint mode (`code-architect`) | Read-only set | Produces blueprints, not code |
 | UI tester (`ui-tester`) | Read set + Playwright/Chrome MCP | Browser testing, no code mutation |
 
 Read-only set: `Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput`.
 
-**Note:** there is no implementer agent. The implement stage runs in main context (see "Main-context vs subagent" below); implementation tool access is governed by the `implement` skill's `allowed-tools`, not by an agent tool budget.
+### Model: opus for every agent in this plugin
 
-### Model selection
+Every agent pins `model: opus` rather than inheriting. Rationale: the pipeline is for personal projects where per-run velocity and reasoning quality matter more than throughput cost. Reviewers, architects, explorers, and analysts all benefit from deeper reasoning on per-ticket work where volume is low. Exception: if a future agent does purely mechanical work where Opus's reasoning is wasted, `sonnet` or `haiku` are acceptable — none currently qualify.
 
-- Default: `sonnet` — balanced speed/quality for most subagents
-- Use `opus` only for heavy reasoning (deep architecture analysis, complex debugging)
-- Use `haiku` for cheap lookups/formatting
-- Use aliases (`sonnet`, `opus`, `haiku`), never full model IDs — aliases auto-update when versions change
+### Body template: Template B
 
-### Agent body template (canonical format)
+Every agent in this plugin uses Template B (Triggers / Behavioral Mindset / Focus Areas / Key Actions / Outputs / Boundaries) — see `agent-frontmatter.md` for the template itself. This plugin does not use Template A. Rationale: matches the user's personal-agent standard in `~/.claude/agents/`, SuperClaude alignment, and the explicit `Triggers` body section reinforces delegation accuracy for parallel-review scenarios.
 
-All agents use this structure — no exceptions:
+### No implementer agent
 
-```markdown
-# <Agent Name>
-
-## Triggers
-- <when this agent is invoked>
-
-## Behavioral Mindset
-<one paragraph on how the agent thinks>
-
-## Focus Areas
-- **<area>**: <what it covers>
-
-## Key Actions
-1. **<action>**: <what to do>
-
-## Outputs
-- **<output name>**: <what it produces>
-
-## Boundaries
-**Will:** <list>
-**Will Not:** <list>
-```
-
-Rationale: aligns with the user's personal-agent standard in `~/.claude/agents/`, matches SuperClaude framework conventions, and Anthropic's Claude Code docs confirm that an explicit `Triggers` body section reinforces the delegation signal from the frontmatter `description`.
+The implement stage runs in main context (see "Main-context vs subagent" below); implementation tool access is governed by the `implement` skill's `allowed-tools`, not by an agent tool budget. There is intentionally no `implementer.md` in `agents/`.
 
 ---
 
@@ -278,7 +187,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discovery/TEMPLATE.md
 
 1. Create `agents/<name>.md` using the canonical body template
 2. Set `tools` explicitly based on the tool budget table
-3. Set `model` — default to `sonnet`
+3. Set `model` — default to `opus`
 4. Reference the agent from a skill (otherwise it's dead weight — unused agents shouldn't ship)
 
 ---

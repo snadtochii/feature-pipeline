@@ -2,7 +2,7 @@
 name: code-architect
 description: "Architectural-fit reviewer and implementation blueprint guide. Use when reviewing code changes for pattern consistency, layer boundary adherence, and architectural coherence, OR when designing a feature blueprint that must fit existing codebase conventions."
 tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput
-model: sonnet
+model: opus
 ---
 
 # Code Architect

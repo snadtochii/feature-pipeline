@@ -1,8 +1,8 @@
 ---
 name: feature-flow
-description: "Run the full feature pipeline (analyze → plan → implement → review → test) on a ticket. Use when user says 'run the pipeline', 'feature flow', 'build this ticket end-to-end', 'do the full flow for', or invokes /feature-pipeline:feature-flow. NOT for single-stage runs — those have their own skills."
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite, Skill
-argument-hint: [ticket-id] [--from|--to|--only|--skip|--continue]
+description: "Run the full feature pipeline (analyze → plan → implement → review → test) on a ticket with human review gates. Use when user says 'run the pipeline', 'feature flow', or 'build this ticket end-to-end'. NOT for single-stage runs."
+allowed-tools: Read Write Edit Glob Grep Bash Task TodoWrite Skill
+argument-hint: "[ticket-id] [--from|--to|--only|--skip|--continue]"
 ---
 
 # Feature Flow Pipeline

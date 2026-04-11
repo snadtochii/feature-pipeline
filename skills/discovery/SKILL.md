@@ -1,8 +1,8 @@
 ---
 name: discovery
-description: "Turn a rough feature idea into a ready-to-implement ticket through interactive Socratic dialogue. Use when user says 'I want to add', 'let's build', 'discover this feature', 'create a ticket for', 'new feature idea', or invokes /feature-pipeline:discovery. NOT for running the pipeline on an existing ticket — use feature-flow for that."
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite
-argument-hint: [description] [--project name] [--id XX-N]
+description: "Turn a rough feature idea into a ready-to-implement ticket through interactive Socratic dialogue. Use when user says 'I want to add', 'let's build', 'discover this feature', or 'new feature idea'. NOT for running the pipeline on an existing ticket."
+allowed-tools: Read Write Edit Glob Grep Bash Task TodoWrite
+argument-hint: "[description] [--project name] [--id XX-N]"
 ---
 
 # Feature Discovery
