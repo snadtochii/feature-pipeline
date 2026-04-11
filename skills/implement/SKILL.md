@@ -1,7 +1,14 @@
 ---
 name: implement
 description: "Implement a feature from an approved plan — write code, run lint/tests, iterate until clean. Use when user says 'implement this', 'build the feature', 'execute the plan', or 'start implementing'. NOT for planning or reviewing."
-allowed-tools: Read Write Edit Glob Grep Bash TodoWrite
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - Bash
+  - TodoWrite
 argument-hint: "[ticket-id]"
 ---
 
@@ -92,10 +99,11 @@ This is a **live** file — you'll update it after every step.
 
 For each step in the plan, in order:
 
-a. **Implement the change** following the plan's "Files" and "Pattern to follow" fields
-b. **Run lint / typecheck** — fix any errors immediately before moving on
-c. **Run build** (if applicable) — fix compilation errors immediately
-d. **Update `04-implementation.md`** with:
+a. **Re-read the current step from `03-plan.md`** — use `Read` with `offset`/`limit` to load just the relevant step's section, not the whole plan. On long implementations the plan drifts out of working context by step 4 or 5; re-reading each step against its source is nearly free and prevents the most common long-session failure mode (plan drift). Do this *every* step, even if the previous one felt fresh.
+b. **Implement the change** following the plan's "Files" and "Pattern to follow" fields
+c. **Run lint / typecheck** — fix any errors immediately before moving on
+d. **Run build** (if applicable) — fix compilation errors immediately
+e. **Update `04-implementation.md`** with:
    - Files created/modified for this step
    - Brief description of what was done
    - Any deviations from the plan (with rationale)
@@ -114,6 +122,12 @@ After all code changes are in place:
 
 - Run the full test suite — all must pass
 - Run lint one final time — must be clean
+- **Scope check** — compare the actual diff against the plan's file list:
+  - Run `git diff --stat <base-branch>...HEAD` (plus unstaged) to get the real set of touched files and line counts
+  - Extract the planned file list from `03-plan.md`'s "Files" fields across all steps
+  - Compare: if the actual touched-file count exceeds the planned count by more than 2x, OR if files outside the planned scope were touched without being flagged as deviations in earlier steps, **record a scope deviation notice** in `04-implementation.md` under a `## Scope Deviations` section with the specific files that drifted and a short rationale
+  - This is a **flag, not a block** — the implementation still proceeds to step 6, but the deviation is surfaced in the implement gate so feature-flow and the user can decide whether to approve
+  - Skip this check if `03-plan.md` doesn't list specific files (shouldn't happen if the plan passed its own quality checklist, but degrade gracefully)
 - Update `04-implementation.md` with final validation results
 
 ### 6. Finalize the artifact
@@ -123,7 +137,8 @@ The complete `04-implementation.md` should contain:
 - **Test files** created/modified
 - **Lint results** (must be clean)
 - **Test results** (pass/fail counts, must all pass)
-- **Deviations** from the plan with rationale
+- **Deviations** from the plan with rationale (per-step inline deviations)
+- **Scope Deviations** (conditional — only written if step 5 flagged the actual diff as materially larger than the plan's file list). Lists the out-of-plan files and why they were touched.
 - **Re-run notes** — what review/test feedback was addressed, if applicable
 
 ---

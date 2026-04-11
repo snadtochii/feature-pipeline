@@ -1,7 +1,15 @@
 ---
 name: performance-engineer
 description: "Read-only performance reviewer. Flags N+1 queries, unnecessary re-renders, memory leaks, bundle-size regressions, and algorithmic complexity. Use as part of parallel code review, or for standalone performance audits of a diff."
-tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput
+tools:
+  - Glob
+  - Grep
+  - LS
+  - Read
+  - NotebookRead
+  - WebFetch
+  - TodoWrite
+  - WebSearch
 model: opus
 ---
 

@@ -1,7 +1,15 @@
 ---
 name: code-reviewer
 description: "Read-only correctness and quality reviewer. Reviews code for bugs, logic errors, convention violations, and project guideline adherence using confidence-based filtering. Use as part of parallel code review, or for standalone correctness audits of a diff."
-tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput
+tools:
+  - Glob
+  - Grep
+  - LS
+  - Read
+  - NotebookRead
+  - WebFetch
+  - TodoWrite
+  - WebSearch
 model: opus
 ---
 

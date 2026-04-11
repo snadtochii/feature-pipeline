@@ -1,7 +1,15 @@
 ---
 name: requirements-analyst
 description: "Read-only specification analyst. Transforms ambiguous project ideas into concrete specifications, identifies gaps and risks, assesses feasibility. Use when analyzing a feature ticket for completeness alongside codebase exploration output."
-tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput
+tools:
+  - Glob
+  - Grep
+  - LS
+  - Read
+  - NotebookRead
+  - WebFetch
+  - TodoWrite
+  - WebSearch
 model: opus
 ---
 

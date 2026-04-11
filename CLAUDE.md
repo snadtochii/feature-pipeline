@@ -14,6 +14,18 @@ The primary audience for edits to this repo is Claude working on the plugin's ow
 
 ---
 
+## Dev loop
+
+Editing a skill or agent while another Claude Code session is open:
+
+1. Make your edit in `skills/<name>/SKILL.md` or `agents/<name>.md`
+2. In the consuming Claude Code session (not this repo — see below), run `/reload-plugins` — the updated skill/agent takes effect without a restart
+3. Invoke the skill or trigger the agent to verify the change
+
+**Keep the plugin repo separate from any consuming project** used for testing. Pick a throwaway project (or a real one), create a small ticket via `/feature-pipeline:discovery`, then run `/feature-pipeline:feature-flow <id>`. Running the pipeline against this plugin repo itself creates confusion about which `.tickets/` and `claudedocs/` artifacts belong where.
+
+---
+
 ## Repository layout
 
 ```
@@ -36,7 +48,7 @@ feature-pipeline/
 
 ---
 
-## Pipeline flow (canonical)
+## Pipeline flow (conceptual)
 
 ```
 discovery → ticket → feature-flow → analyze → plan → implement → review → test → completion
@@ -49,27 +61,21 @@ discovery → ticket → feature-flow → analyze → plan → implement → rev
 - **feature-flow** orchestrates analyze → plan → implement → review → test with a human review gate after every stage.
 - Failures loop backward: review failures re-run `implement`; test failures can re-run either `implement` (code bug) or `plan` (design flaw).
 
-### Stage contract — inputs and outputs
+### Runtime source of truth
 
-Each stage reads and writes artifacts in `claudedocs/pipeline/<ticket-id>/`. **This contract is load-bearing — don't break it without updating every consumer.**
+**Operational details live in `skills/feature-flow/SKILL.md`**, not here. That file is loaded by Claude Code when a consumer runs the pipeline; this `CLAUDE.md` is only loaded when editing the plugin repo itself. If you move operational rules out of the skill and into this file, consumers lose visibility.
 
-| Stage | Reads | Writes | Re-run reads |
-|---|---|---|---|
-| `analyze` | `01-spec.md` | `02-analysis.md` | (same) |
-| `plan` | `01-spec.md`, `02-analysis.md` | `03-plan.md` | (same) |
-| `implement` | `01-spec.md`, `03-plan.md` | `04-implementation.md` | **also** `05-review.md` (review loop-back), `bugs/*.md` (test loop-back) |
-| `review` | Working tree diff | `05-review.md` | (same) |
-| `test` | `01-spec.md`, `04-implementation.md` | `06-tests.md`, `bugs/*.md` | (same) |
-| `feature-flow` (completion) | all above | `07-summary.md` | — |
+Canonical sources in `skills/feature-flow/SKILL.md`:
+- **Stage Contract** — reads/writes per stage, re-run inputs
+- **Artifact Convention** — numbering rules, reserved prefixes, `.stale/` and `.iterations.json` semantics
+- **Loop-back iteration budget** — counter shape, budgets, escalation rules
+- **Artifact invalidation** — `.stale/<timestamp>/` policy on deliberate re-runs
 
-**Rule:** when adding a new input to a stage, document it in the stage's `Required Input` section *and* update feature-flow's description of the loop-back path.
+Individual stage skills (`skills/<stage>/SKILL.md`) own their own `Required Input` and `Output` sections, which are the authoritative per-stage contracts. feature-flow's Stage Contract table is a consolidated summary of those.
 
-### Artifact naming
+### Dev-side rule
 
-- Sequential: `NN-name.md` where `NN` is the stage order (01–07)
-- `01`–`07` are reserved for the canonical stages in the order above. Don't reuse numbers.
-- Bug reports from the test stage go in `bugs/BUG-NNN.md` (zero-padded to 3)
-- The ticket spec is ALWAYS `01-spec.md` — the ticket-resolution logic writes it if missing
+When adding a new input to a stage, document it in the stage's `Required Input` section *and* update feature-flow's Stage Contract table *and* its loop-back path description. All three live in skill files, not in this `CLAUDE.md`.
 
 ---
 
@@ -81,18 +87,38 @@ This section captures only what's **specific to this plugin** on top of those ge
 
 ### `allowed-tools` budgets for this plugin's skills
 
-Space-separated, per the `allowed-tools` format. Reviewers must not include `Write` or `Edit` (review must not mutate the tree).
+Typical budget per role, expressed as unordered tool sets. The review *skill* may write to `claudedocs/` to save its merged artifact, but its *reviewer agents* are read-only — they must not mutate the tree they review.
 
 | Skill role | Typical budget |
 |---|---|
-| Orchestrator (feature-flow) | `Read Write Edit Glob Grep Bash Task TodoWrite Skill` |
-| Analysis/intake stage (discovery, analyze) | `Read Write Edit Glob Grep Bash Task TodoWrite` |
-| Plan stage | `Read Write Edit Glob Grep Bash TodoWrite` (plus plan-mode tools) |
-| Implementation stage | `Read Write Edit Glob Grep Bash TodoWrite` |
-| Review stage | `Read Glob Grep Bash Task TodoWrite` |
-| Test stage | `Read Write Edit Glob Grep Bash Task TodoWrite` + Playwright/Chrome MCP |
+| Orchestrator (feature-flow) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite, Skill |
+| Analysis/intake stage (discovery, analyze) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite |
+| Plan stage | Read, Write, Edit, Glob, Grep, Bash, TodoWrite (plus plan-mode tools) |
+| Implementation stage | Read, Write, Edit, Glob, Grep, Bash, TodoWrite |
+| Review stage | Read, Write, Glob, Grep, Bash, Task, TodoWrite (Write is for the merged `05-review.md` artifact only — no `Edit`, reviewer agents stay read-only) |
+| Test stage | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite + Playwright/Chrome MCP |
 
 If you need a tool not in this table, add it explicitly and document why.
+
+### Frontmatter format — YAML list, always
+
+**This plugin's convention:** all `allowed-tools` (skills) and `tools` (agents) use the **YAML list form**, not the inline string form. One tool per line, 2-space indent under the field:
+
+```yaml
+# Skills
+allowed-tools:
+  - Read
+  - Write
+  - Glob
+
+# Agents
+tools:
+  - Read
+  - Glob
+  - Grep
+```
+
+**Why:** skill `allowed-tools` is space-separated and agent `tools` is comma-separated in their inline string forms — opposite separators in two fields that do the same thing. Using the wrong separator silently fails (one malformed tool name, no error raised). The YAML list form works unambiguously for both and eliminates the asymmetry at the source. All 14 skills and agents in this plugin use it; if you're adding a new one, match the convention.
 
 ### Shared references
 
@@ -110,12 +136,15 @@ Agents in this plugin live at `agents/*.md` and are loaded as subagent types nam
 
 | Agent role | Tools | Rationale |
 |---|---|---|
-| Explorer/analyst (`code-explorer`, `requirements-analyst`) | Read-only set | Describe, don't mutate |
-| Reviewer (`code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect` in review mode) | Read-only set | Reviews must not mutate the tree |
-| Architect in blueprint mode (`code-architect`) | Read-only set | Produces blueprints, not code |
+| Explorer (`code-explorer`) | Read-only set + Serena semantic tools | Describe, don't mutate; Serena adds symbol-level leverage |
+| Analyst (`requirements-analyst`) | Read-only set | Describe, don't mutate; purely spec/analysis work — no codebase navigation |
+| Reviewer (`code-reviewer`, `security-engineer`, `performance-engineer`) | Read-only set | Reviews must not mutate the tree; work on diffs, not codebase navigation |
+| Architect (`code-architect`, in both review and blueprint modes) | Read-only set + Serena semantic tools | Pattern comparison across sibling code is this agent's core work |
 | UI tester (`ui-tester`) | Read set + Playwright/Chrome MCP | Browser testing, no code mutation |
 
-Read-only set: `Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput`.
+**Read-only set:** `Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch`. (`KillShell` and `BashOutput` are deliberately excluded — they only make sense paired with `Bash`, which read-only agents don't have.)
+
+**Serena semantic tools** (optional enhancement — additive, agents fall back to Grep/Glob/Read when Serena MCP is unavailable): `mcp__serena__find_symbol`, `mcp__serena__find_referencing_symbols`, `mcp__serena__get_symbols_overview`. Added to agents whose core work is symbol-level navigation or cross-file pattern recognition. Not added to reviewers — they work on diffs, not codebase navigation, and the tools would be noise.
 
 ### Model: opus for every agent in this plugin
 
@@ -177,11 +206,13 @@ Tickets are markdown with YAML frontmatter — see `skills/discovery/TEMPLATE.md
 ## Adding a new stage
 
 1. Create `skills/<stage>/SKILL.md` following the skill body template above
-2. Reserve the next artifact number (`08-*.md`) — update the artifact convention in feature-flow
+2. Reserve the next artifact number (`08-*.md`) — update the "Artifact Convention" section in `skills/feature-flow/SKILL.md`
 3. Add stage to feature-flow's pipeline order, stage list, and flag handling (`--from`, `--to`, `--only`, `--skip`)
 4. Add `--continue` detection: when to resume from this stage
-5. Document the stage's input/output contract in the stage contract table above
-6. If the stage spawns subagents, create them in `agents/` and wire them up
+5. Document the stage's input/output contract in the stage's `Required Input`/`Output` sections *and* in feature-flow's Stage Contract table
+6. If the new stage introduces a loop-back, add a counter to `.iterations.json` and wire it into the loop-back iteration budget section of `skills/feature-flow/SKILL.md`
+7. Update `skills/feature-flow/SKILL.md`'s Artifact invalidation downstream table for the new stage
+8. If the stage spawns subagents, create them in `agents/` and wire them up
 
 ## Adding a new agent
 
@@ -200,7 +231,7 @@ Before committing changes to skills or agents:
 2. **Check tool budget** against the table above — reviewers must not have write access
 3. **Check trigger phrases** — every skill description must include natural trigger phrases
 4. **Run the skill-creator review mode** on the changed skill: `/skill-creator <name> --review`
-5. **Walk the stage contract** — if you changed inputs/outputs, update every consumer
+5. **Walk the stage contract in `skills/feature-flow/SKILL.md`** — if you changed inputs/outputs, update the Stage Contract table *and* every consuming stage's `Required Input` section
 
 There's no automated test suite for the plugin itself. Validation is by skill-creator review + manual pipeline runs on real tickets.
 

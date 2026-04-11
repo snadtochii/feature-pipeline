@@ -1,7 +1,14 @@
 ---
 name: review
 description: "Run parallel code reviews across correctness, security, performance, and architectural fit. Use when user says 'review these changes', 'check my code', 'run code review', or 'parallel review'. NOT for GitHub PR reviews."
-allowed-tools: Read Glob Grep Bash Task TodoWrite
+allowed-tools:
+  - Read
+  - Write
+  - Glob
+  - Grep
+  - Bash
+  - Task
+  - TodoWrite
 argument-hint: "[ticket-id]"
 ---
 
@@ -24,8 +31,26 @@ Use the canonical logic in [`../feature-flow/references/ticket-resolution.md`](.
 ## Required Input
 
 - Code changes in the working tree (branch diff + unstaged changes)
+- Project `CLAUDE.md` — read for lint/typecheck/build commands used by the deterministic validation step
 
 ## Process
+
+### 0. Deterministic validation (fast-fail gate)
+
+Cheap, deterministic checks run *before* spawning the expensive LLM reviewers. If any check fails, skip the parallel review entirely — there is no point asking 4 agents to review code that doesn't lint or compile.
+
+1. **Read the project's `CLAUDE.md`** and look for lint / typecheck / build / test commands. Common locations: a `## Commands` section, a `Validation` section, or inline references to `npm run lint` / `pnpm test` / `cargo check` / `pytest` / etc.
+2. **If no validation commands are documented**, log a single-line warning ("No validation commands found in project CLAUDE.md — proceeding to AI review without deterministic gate") and continue to step 1. Graceful degradation — the skill still works on projects without a documented setup.
+3. **Run each documented check** via Bash, in order: lint first, then typecheck, then build. Stop on the first failure — later checks would pile on noise.
+4. **If any check fails**, do NOT spawn the parallel reviewers. Instead:
+   - Write a validation-failed `05-review.md` with this shape (single CRITICAL finding tagged `[validation]`):
+     - **Verdict line:** "FAILED deterministic validation — AI review skipped"
+     - **Summary counts:** `CRITICAL: 1 (validation)`, `WARNING: 0`, `SUGGESTION: 0`
+     - **Finding body:** name of the failed check, the exact command run, and a trimmed excerpt of the failure output (roughly the first 30 lines)
+     - **Fix guidance line:** "Re-run `/feature-pipeline:implement <ticket-id>` to address the failing check before requesting AI review"
+   - Present the failure to the user with the guidance: "Deterministic validation failed — re-run implement to fix before AI review."
+   - Exit the skill. feature-flow treats this as a review gate failure with 1 CRITICAL finding, so its loop-back routing (and iteration budget) apply normally — this is a feature, not a bug: it means broken builds still count against the review ↔ implement budget, which keeps the feedback loop tight.
+5. **If all checks pass**, proceed to step 1 below.
 
 ### 1. Collect the diff
 

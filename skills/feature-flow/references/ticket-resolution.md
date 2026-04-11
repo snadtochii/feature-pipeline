@@ -24,12 +24,11 @@ Given the ticket argument (typically `$1`):
 
 The artifacts directory is: `claudedocs/pipeline/<ticket-id>/`
 
-1. **If the directory does not exist**:
-   - Create it
-   - Write the full ticket content to `claudedocs/pipeline/<ticket-id>/01-spec.md`
-2. **If the directory exists**:
-   - Read `01-spec.md` for the spec (it may have been enriched beyond the original ticket)
-   - Read other existing artifacts that are relevant to the current stage
+The discovery skill may create this folder pre-emptively (to save `00-exploration.md`), so "directory exists" no longer guarantees "`01-spec.md` exists". Handle the two concerns independently:
+
+1. **Ensure the directory exists** — create it if missing.
+2. **Ensure `01-spec.md` exists** — if missing (fresh ticket, or discovery created the folder but didn't write the spec), write the full ticket content to `claudedocs/pipeline/<ticket-id>/01-spec.md`. If it already exists, read it for the spec (it may have been enriched beyond the original ticket).
+3. **Read other existing artifacts** relevant to the current stage — `02-analysis.md`, `03-plan.md`, etc., and `00-exploration.md` if the stage uses it. Ignore anything under `.stale/`.
 
 ## Step 3 — Determine project root
 
