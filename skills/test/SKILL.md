@@ -1,6 +1,8 @@
 ---
 name: test
-description: Test a feature through real browser interaction using Playwright. Spawns ui-tester agent to verify acceptance criteria and produces 06-tests.md. Can run standalone or as part of feature-flow pipeline.
+description: "Test a feature through real browser interaction using Playwright, validating acceptance criteria and capturing bugs. Use when user says 'test this feature', 'run UI tests', 'browser test', 'verify the flow', 'E2E test', or invokes /feature-pipeline:test. NOT for unit tests — this is UI/E2E only."
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite
+argument-hint: [ticket-id]
 ---
 
 # Test Stage (UI/E2E)
@@ -10,32 +12,18 @@ Test the feature through real browser interaction.
 ## Arguments
 
 ```
-/feature-pipeline:test <ticket>
+/feature-pipeline:test $ARGUMENTS
 ```
 
-- `<ticket>` — ticket ID (e.g. `BL-1`) or path to ticket file
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file.
 
 ## Prerequisites
 
-The application must be running. Ask the user for the URL if not obvious from the project.
+The application must be running. Ask the user for the URL if not obvious from the project's `CLAUDE.md` or ticket frontmatter.
 
-## Ticket Resolution
+## Ticket Resolution & Artifacts Setup
 
-1. If argument contains `/` or `.md`, read that file directly
-2. If it looks like an ID (e.g. `BL-1`), search for it:
-   - Check `.tickets/backlog/<id>.md`
-   - Check `.tickets/in-progress/<id>.md`
-   - Check `.tickets/review/<id>.md`
-   - Try case-insensitive glob: `.tickets/**/*<id>*.md`
-3. If not found, ask the user for the ticket path
-4. Read the ticket content and extract frontmatter (id, title, project, tags)
-5. Determine `<ticket-id>` from frontmatter `id` field, or slugified filename
-
-## Artifacts Directory
-
-- Path: `claudedocs/pipeline/<ticket-id>/`
-- If it doesn't exist, create it and save the ticket content to `01-spec.md`
-- If it exists, read existing artifacts for context
+Use the canonical logic in [`../feature-flow/references/ticket-resolution.md`](../feature-flow/references/ticket-resolution.md). The ticket argument is `$1`.
 
 ## Required Input
 
@@ -49,7 +37,7 @@ The application must be running. Ask the user for the URL if not obvious from th
    - The subagent has access to Playwright and Chrome DevTools MCP
 
 2. Save output to `claudedocs/pipeline/<ticket-id>/06-tests.md`
-   - If bugs found, also save individual bug files to `claudedocs/pipeline/<ticket-id>/bugs/`
+   - If bugs found, also save individual bug files to `claudedocs/pipeline/<ticket-id>/bugs/BUG-NNN.md` (zero-padded to 3 digits)
 
 ## Output
 

@@ -1,6 +1,8 @@
 ---
 name: performance-engineer
-description: Optimize system performance through measurement-driven analysis and bottleneck elimination
+description: "Read-only performance reviewer. Flags N+1 queries, unnecessary re-renders, memory leaks, bundle-size regressions, and algorithmic complexity. Use as part of parallel code review, or for standalone performance audits of a diff."
+tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput
+model: sonnet
 ---
 
 # Performance Engineer

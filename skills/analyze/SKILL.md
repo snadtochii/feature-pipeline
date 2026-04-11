@@ -1,6 +1,8 @@
 ---
 name: analyze
-description: Analyze a feature ticket by exploring the codebase and assessing spec completeness. Spawns code-explorer then requirements-analyst sequentially. Saves 02-analysis.md artifact. Can run standalone or as part of feature-flow pipeline.
+description: "Analyze a feature ticket by exploring the codebase and assessing spec completeness. Use when user says 'analyze ticket', 'explore codebase for', 'assess this spec', 'what gaps does this ticket have', or invokes /feature-pipeline:analyze. NOT for running the full pipeline — use feature-flow for that."
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite
+argument-hint: [ticket-id]
 ---
 
 # Analyze Stage
@@ -10,32 +12,18 @@ Explore the codebase and analyze the feature specification for completeness and 
 ## Arguments
 
 ```
-/feature-pipeline:analyze <ticket>
+/feature-pipeline:analyze $ARGUMENTS
 ```
 
-- `<ticket>` — ticket ID (e.g. `BL-1`) or path to ticket file (e.g. `.tickets/backlog/dark-mode.md`)
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file.
 
-## Ticket Resolution
+## Ticket Resolution & Artifacts Setup
 
-1. If argument contains `/` or `.md`, read that file directly
-2. If it looks like an ID (e.g. `BL-1`), search for it:
-   - Check `.tickets/backlog/<id>.md`
-   - Check `.tickets/in-progress/<id>.md`
-   - Check `.tickets/review/<id>.md`
-   - Try case-insensitive glob: `.tickets/**/*<id>*.md`
-3. If not found, ask the user for the ticket path
-4. Read the ticket content and extract frontmatter (id, title, project, tags)
-5. Determine `<ticket-id>` from frontmatter `id` field, or slugified filename
-
-## Artifacts Directory
-
-- Path: `claudedocs/pipeline/<ticket-id>/`
-- If it doesn't exist, create it and save the ticket content to `01-spec.md`
-- If it exists, read `01-spec.md` for the spec
+Use the canonical logic in [`../feature-flow/references/ticket-resolution.md`](../feature-flow/references/ticket-resolution.md). The ticket argument is `$1`.
 
 ## Required Input
 
-- `01-spec.md` — the ticket specification (created above if missing)
+- `01-spec.md` — the ticket specification (created by resolution logic if missing)
 
 ## Process
 

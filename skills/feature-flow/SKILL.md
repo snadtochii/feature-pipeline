@@ -1,6 +1,8 @@
 ---
 name: feature-flow
-description: Agentic feature development pipeline orchestrator. Sequences analyze, plan, implement, review, and test stage skills with human review gates. Supports --from, --to, --only, --skip, --continue flags for partial runs.
+description: "Run the full feature pipeline (analyze → plan → implement → review → test) on a ticket. Use when user says 'run the pipeline', 'feature flow', 'build this ticket end-to-end', 'do the full flow for', or invokes /feature-pipeline:feature-flow. NOT for single-stage runs — those have their own skills."
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite, Skill
+argument-hint: [ticket-id] [--from|--to|--only|--skip|--continue]
 ---
 
 # Feature Flow Pipeline
@@ -11,16 +13,17 @@ Each stage is a separate skill that can also be invoked directly:
 - `/feature-pipeline:analyze` — codebase exploration + spec analysis
 - `/feature-pipeline:plan` — interactive implementation planning
 - `/feature-pipeline:implement` — code writing + lint + tests
-- `/feature-pipeline:review` — parallel code review (3 reviewers)
+- `/feature-pipeline:review` — parallel code review (4 reviewers)
 - `/feature-pipeline:test` — UI/E2E testing via Playwright
 
 ## Arguments
 
 ```
-/feature-pipeline:feature-flow <ticket> [flags]
+/feature-pipeline:feature-flow $ARGUMENTS
 ```
 
-- `<ticket>` — ticket ID (e.g. `BL-1`) or path to ticket file (e.g. `.tickets/backlog/dark-mode.md`)
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file (e.g. `.tickets/backlog/dark-mode.md`)
+Remaining args = pipeline flags (see table below)
 
 ### Flags
 
@@ -53,43 +56,27 @@ Stage names: `analyze`, `plan`, `implement`, `review`, `test`
 
 ## SETUP
 
-1. **Find the ticket**:
-   - If argument looks like a path (contains `/` or `.md`), read that file directly
-   - If argument looks like an ID (e.g. `BL-1`), search for it:
-     - Check `.tickets/backlog/<id>.md`
-     - Check `.tickets/in-progress/<id>.md`
-     - Check `.tickets/review/<id>.md`
-     - Try case-insensitive glob: `.tickets/**/*<id>*.md`
-   - If not found, ask the user for the ticket path
+1. **Resolve the ticket** using the canonical logic in [`references/ticket-resolution.md`](references/ticket-resolution.md). The ticket argument is `$1`.
 
-2. **Read the ticket content** and extract frontmatter (id, title, project, tags, etc.)
-
-3. **Create artifacts directory**:
-   - Path: `claudedocs/pipeline/<ticket-id>/` (use the id from frontmatter, or slugified filename)
-   - If the directory already exists, this is a continuation — read existing artifacts to understand previous progress
-
-4. **Save enriched spec**:
-   - Write the ticket content to `claudedocs/pipeline/<ticket-id>/01-spec.md`
-
-5. **Determine which stages to run** based on flags:
+2. **Determine which stages to run** based on flags:
    - `--only X` → run only X
    - `--from X` → run X and everything after
    - `--to X` → run everything up to and including X
    - `--skip X` → run all except X
    - Flags combine: `--from X --to Y --skip Z`
 
-6. **If `--continue` flag is set**, auto-detect the next stage by checking which artifacts exist:
-   - Check for artifacts in `claudedocs/pipeline/<ticket-id>/` in reverse order:
-     - `06-tests.md` exists → all stages done, go to COMPLETION
-     - `05-review.md` exists → resume from `test`
-     - `04-implementation.md` exists → resume from `review`
-     - `03-plan.md` exists → resume from `implement`
-     - `02-analysis.md` exists → resume from `plan`
-     - `01-spec.md` exists (or nothing) → resume from `analyze`
-   - This is equivalent to `--from <next-stage>` — other flags like `--to` and `--skip` can still be combined with it
+3. **If `--continue` flag is set**, auto-detect the next stage by checking which artifacts exist in `claudedocs/pipeline/<ticket-id>/`:
+   - `07-summary.md` exists → **pipeline already complete**. Print: "Pipeline already complete for `<ticket-id>`. Run with `--from <stage>` to re-run a specific stage." and exit without re-running anything.
+   - `06-tests.md` exists → resume at completion (write `07-summary.md`, finalize ticket)
+   - `05-review.md` exists → resume from `test`
+   - `04-implementation.md` exists → resume from `review`
+   - `03-plan.md` exists → resume from `implement`
+   - `02-analysis.md` exists → resume from `plan`
+   - `01-spec.md` exists (or nothing) → resume from `analyze`
+   - `--continue` is equivalent to `--from <next-stage>` — other flags like `--to` and `--skip` can still be combined
    - Print which stage is being resumed: "Artifacts found through `<last-stage>`. Resuming from `<next-stage>`."
 
-7. **Move ticket** from `backlog/` to `in-progress/` (if not already there — skip if ticket is already in `in-progress/`)
+4. **Move ticket** from `backlog/` to `in-progress/` (if not already there — skip if ticket is already in `in-progress/`)
 
 ---
 
@@ -126,7 +113,7 @@ For each stage in the determined list, invoke the corresponding stage skill and 
 ### IMPLEMENT
 
 1. Invoke the implement skill: `/feature-pipeline:implement <ticket-id>`
-2. The skill writes code, runs lint/tests, and saves `04-implementation.md`
+2. The skill writes code, runs lint/tests, and saves `04-implementation.md` incrementally as it goes
 3. **GATE** — after the skill presents its summary:
    ```
    → Approve to proceed to review
@@ -140,15 +127,15 @@ For each stage in the determined list, invoke the corresponding stage skill and 
 ### REVIEW
 
 1. Invoke the review skill: `/feature-pipeline:review <ticket-id>`
-2. The skill spawns three parallel reviewers and saves `05-review.md`
+2. The skill spawns **four parallel reviewers** (correctness, security, performance, architectural-fit) and saves `05-review.md`
 3. **GATE** — after the skill presents findings:
    ```
    → Approve to proceed to testing (no critical issues)
    → Send back for fixes (specify which issues to address)
    ```
 4. If fixes needed → go back to **IMPLEMENT** stage with review findings as input
-   - Re-invoke `/feature-pipeline:implement <ticket-id>` — the skill reads the review from `05-review.md`
-   - After fixes, run a quick single-reviewer pass to verify: invoke `/feature-pipeline:review <ticket-id>` again
+   - Re-invoke `/feature-pipeline:implement <ticket-id>` — the skill reads the review from `05-review.md` automatically
+   - After fixes, run a quick pass to verify: invoke `/feature-pipeline:review <ticket-id>` again
 5. If approved → proceed to next stage
 
 ---
@@ -165,7 +152,7 @@ For each stage in the determined list, invoke the corresponding stage skill and 
    ```
 4. Route based on user response:
    - All pass → COMPLETION
-   - Code bug → go back to **IMPLEMENT** stage with bug reports as input
+   - Code bug → go back to **IMPLEMENT** stage — the skill reads bug reports from `bugs/*.md` automatically
    - Design flaw → go back to **PLAN** stage with test findings as input
 
 ---
@@ -213,8 +200,8 @@ claudedocs/pipeline/<ticket-id>/
 ├── 01-spec.md              # Enriched ticket specification
 ├── 02-analysis.md          # code-explorer + requirements-analyst output
 ├── 03-plan.md              # Implementation blueprint
-├── 04-implementation.md    # Implementation summary + validation results
-├── 05-review.md            # Merged review findings (3 reviewers)
+├── 04-implementation.md    # Implementation summary + validation results (live — updated per step)
+├── 05-review.md            # Merged review findings (4 reviewers)
 ├── 06-tests.md             # UI test execution results
 ├── 07-summary.md           # Pipeline completion summary
 └── bugs/                   # Bug reports from testing (if any)
@@ -230,6 +217,7 @@ This enables:
 - Resuming a pipeline that was interrupted
 - Re-running a single stage with `--only` using existing artifacts from earlier stages
 - Skipping stages that were already completed
+- Detecting fully-complete pipelines via `07-summary.md` presence (see SETUP step 3)
 
 ## Error Handling
 

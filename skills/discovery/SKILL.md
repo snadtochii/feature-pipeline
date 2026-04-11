@@ -1,6 +1,8 @@
 ---
 name: discovery
-description: Interactive feature discovery for personal projects. Takes a rough idea (text, images, files), explores the codebase, guides through Socratic requirements discovery, and produces a detailed ticket spec ready for /feature-pipeline:feature-flow. Use as step 0 before the pipeline.
+description: "Turn a rough feature idea into a ready-to-implement ticket through interactive Socratic dialogue. Use when user says 'I want to add', 'let's build', 'discover this feature', 'create a ticket for', 'new feature idea', or invokes /feature-pipeline:discovery. NOT for running the pipeline on an existing ticket — use feature-flow for that."
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite
+argument-hint: [description] [--project name] [--id XX-N]
 ---
 
 # Feature Discovery
@@ -10,10 +12,10 @@ Interactive requirements discovery that transforms a rough idea into a detailed,
 ## Arguments
 
 ```
-/feature-pipeline:discovery <description> [--project <name>] [--id <XX-N>]
+/feature-pipeline:discovery $ARGUMENTS
 ```
 
-- `<description>` — the rough idea, feature request, or problem statement (can include pasted text, images, file references)
+- `$ARGUMENTS` — the rough idea, feature request, or problem statement (can include pasted text, images, file references) plus optional flags
 - `--project <name>` — which personal project this is for (used in ticket frontmatter)
 - `--id <XX-N>` — explicit ticket ID (auto-generated if omitted)
 
