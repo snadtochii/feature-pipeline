@@ -1,6 +1,8 @@
 ---
 id: XX-1
 title: Feature Title
+parent: ""              # optional — links to epic/parent ticket (e.g. FP-1)
+children: []            # optional — populated by decompose skill
 priority: medium        # low | medium | high | critical
 complexity: M           # S | M | L | XL
 status: backlog         # backlog | in-progress | review | done | cancelled

@@ -4,3 +4,4 @@
 # (see skills/feature-flow/SKILL.md "Artifact invalidation" section)
 claudedocs/pipeline/**/.stale/
 claudedocs/
+.tickets/
