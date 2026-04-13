@@ -70,6 +70,7 @@ Each stage reads and writes artifacts in `claudedocs/pipeline/<ticket-id>/`. Thi
 | Stage | Reads | Writes | Re-run reads |
 |---|---|---|---|
 | `discovery` (step 0, not part of feature-flow) | ticket draft from user | `.tickets/backlog/<id>-<slug>.md`, `claudedocs/pipeline/<id>/00-exploration.md` | — |
+| `decompose` (step 0b, not part of feature-flow) | `01-spec.md`, `02-analysis.md` | child tickets in `.tickets/backlog/`, `02b-decomposition.md`, updated parent frontmatter (`children` field), `00-exploration.md` copied to each child's artifact dir | — |
 | `analyze` | `01-spec.md`, `00-exploration.md` (optional seed — used for incremental exploration if present) | `02-analysis.md` | (same) |
 | `plan` | `01-spec.md`, `02-analysis.md` | `03-plan.md` | (same) |
 | `implement` | `01-spec.md`, `03-plan.md` | `04-implementation.md` | **also** `05-review.md` (review loop-back), `bugs/*.md` (test loop-back) |

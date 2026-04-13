@@ -37,6 +37,7 @@ feature-pipeline/
 ├── skills/                  # Skill definitions (folder per skill, SKILL.md inside)
 │   ├── feature-flow/        # Orchestrator
 │   ├── discovery/           # Step 0 — ticket creation
+│   ├── decompose/           # Step 0b — epic decomposition into child tickets
 │   ├── analyze/             # Stage 1
 │   ├── plan/                # Stage 2
 │   ├── implement/           # Stage 3
@@ -52,12 +53,17 @@ feature-pipeline/
 
 ```
 discovery → ticket → feature-flow → analyze → plan → implement → review → test → completion
-                                        ↑          ↓         ↓         ↓
-                                        └──────────┴─────────┴─────────┘
-                                             (human-gated loop-backs)
+               │                        ↑          ↓         ↓         ↓
+               │                        └──────────┴─────────┴─────────┘
+               │                             (human-gated loop-backs)
+               │
+               └→ decompose (optional, for L/XL tickets)
+                      │
+                      └→ child tickets → each child: feature-flow → analyze → plan → ... → done
 ```
 
 - **discovery** is step 0 — creates the ticket in `.tickets/backlog/`. It is not part of feature-flow.
+- **decompose** is step 0b — optional, for L/XL tickets. Runs after analyze, breaks the parent into smaller child tickets that each go through the full pipeline. Not part of feature-flow.
 - **feature-flow** orchestrates analyze → plan → implement → review → test with a human review gate after every stage.
 - Failures loop backward: review failures re-run `implement`; test failures can re-run either `implement` (code bug) or `plan` (design flaw).
 
@@ -93,6 +99,7 @@ Typical budget per role, expressed as unordered tool sets. The review *skill* ma
 |---|---|
 | Orchestrator (feature-flow) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite, Skill |
 | Analysis/intake stage (discovery, analyze) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite |
+| Decomposition (decompose) | Read, Write, Edit, Glob, Grep, Bash, TodoWrite |
 | Plan stage | Read, Write, Edit, Glob, Grep, Bash, TodoWrite (plus plan-mode tools) |
 | Implementation stage | Read, Write, Edit, Glob, Grep, Bash, TodoWrite |
 | Review stage | Read, Write, Glob, Grep, Bash, Task, TodoWrite (Write is for the merged `05-review.md` artifact only — no `Edit`, reviewer agents stay read-only) |
@@ -200,6 +207,10 @@ Tickets are markdown with YAML frontmatter — see `skills/discovery/TEMPLATE.md
 - **Filename:** `<PREFIX>-<N>-<slug>.md`
 - **Status flow:** `backlog → in-progress → review → done` (folders match)
 - Tickets move between folders as the pipeline advances. `feature-flow` moves `backlog → in-progress` at setup; completion moves `in-progress → done` and updates the `status` frontmatter field.
+- **Parent/child relationships** (optional, used by `decompose`):
+  - `parent: <id>` — links a child ticket to its epic/parent. Added by decompose.
+  - `children: [<id>, ...]` — lists child ticket IDs on the parent. Added by decompose.
+  - Both fields are optional. Tickets without them are standalone (the common case for S/M tickets).
 
 ---
 
@@ -254,5 +265,4 @@ Decisions made during the current conventions pass that were evaluated and expli
 - **Ticket-folder structure** with `meta.md` + `description.md` + `images/` (from the user's production `jira-describe`/`describe`/`prepare` flow). Deferred because feature-pipeline's current separation — flat ticket `.md` in `.tickets/` vs numbered artifacts in `claudedocs/pipeline/<id>/` — is actually cleaner. Reconsider if image handling becomes a hard requirement.
 - **Code-explorer output caching** across discovery, analyze, and plan stages. Current flow runs `code-explorer` twice (once in discovery, once in analyze), which is a real inefficiency — but the fix is structural (shared memory layer or explicit artifact reuse) and worth its own pass.
 - **Step-type routing** in plan/implement (`figma-ui`, `component`, `service`, etc.) — valuable in the user's production flow but too project-specific to generalize. Plan skill now annotates step content explicitly instead.
-- **`breakdown` as a new pipeline stage**. Research was unambiguous: too much sprint-planning ceremony for personal projects. The valuable patterns (per-step edge cases, technical notes, 2–4h task atomicity, pre-plan quality checklist) were folded into the plan skill's Plan Structure instead.
 - **PR-workflow integration** with the user's `code-review` and `address-review` skills. Those skills assume GitHub + `gh` CLI; feature-pipeline is general-purpose. Users working on GitHub projects can pair feature-pipeline with those separate skills without embedding the dependency.
