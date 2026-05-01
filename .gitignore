@@ -1,6 +1,4 @@
 .DS_Store
 
-# Superseded pipeline artifacts — moved here when feature-flow re-runs an earlier stage
-# (see skills/feature-flow/SKILL.md "Artifact invalidation" section)
-claudedocs/pipeline/**/.stale/
+# Pipeline artifacts and tickets are local working state, not for the plugin repo
 claudedocs/

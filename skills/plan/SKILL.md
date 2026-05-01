@@ -38,15 +38,15 @@ Use the canonical logic in [`../feature-flow/references/ticket-resolution.md`](.
 ## Process
 
 1. Read all existing context:
-   - `claudedocs/pipeline/<ticket-id>/01-spec.md` — the spec
-   - `claudedocs/pipeline/<ticket-id>/02-analysis.md` — gaps, risks, codebase context (if present)
+   - `<ticket-folder>/01-spec.md` — the spec
+   - `<ticket-folder>/02-analysis.md` — gaps, risks, codebase context (if present)
    - Project `CLAUDE.md` — conventions, lint/test commands, architectural rules
 2. Enter plan mode using `EnterPlanMode`
 3. Explore the codebase — find existing patterns with concrete file:line references before designing anything new
 4. Create an implementation plan following the **Plan Structure** below
 5. Refine the plan interactively — respond to user feedback, adjust the approach, answer questions
 6. Validate against the **Pre-exit quality checklist** before exiting plan mode
-7. When the user approves (exits plan mode), save the plan to `claudedocs/pipeline/<ticket-id>/03-plan.md`
+7. When the user approves (exits plan mode), save the plan to `<ticket-folder>/03-plan.md`
 
 ---
 
@@ -116,7 +116,7 @@ If any item fails, refine the plan before exiting plan mode.
 
 ## Output
 
-- **Artifact**: `claudedocs/pipeline/<ticket-id>/03-plan.md`
+- **Artifact**: `<ticket-folder>/03-plan.md`
 
 ## Presentation
 
@@ -127,5 +127,5 @@ After saving the plan:
 
 [Brief summary: architecture decision, step count, key files to change, build phases]
 
-Artifacts saved to: claudedocs/pipeline/<ticket-id>/03-plan.md
+Artifacts saved to: <ticket-folder>/03-plan.md
 ```

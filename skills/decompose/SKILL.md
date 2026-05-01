@@ -27,7 +27,7 @@ Break an analyzed L/XL ticket into smaller child tickets (S/M complexity) that e
 ### Examples
 ```
 /feature-pipeline:decompose FP-1
-/feature-pipeline:decompose claudedocs/tickets/backlog/FP-1-pipeline-board-ui.md
+/feature-pipeline:decompose claudedocs/tickets/backlog/FP-1/
 ```
 
 ## Ticket Resolution & Artifacts Setup
@@ -143,7 +143,7 @@ Once approved:
 
 2. **Determine next ticket IDs**. Scan `claudedocs/tickets/` for existing IDs to find the highest number, then assign sequentially: `<PREFIX>-<N+1>`, `<PREFIX>-<N+2>`, etc.
 
-3. **Create each child ticket** at `claudedocs/tickets/backlog/<PREFIX>-<N>-<slug>.md`:
+3. **Create each child ticket folder + spec** at `claudedocs/tickets/backlog/<PREFIX>-<N>/01-spec.md` (folder name is just the ID — no slug; the spec file inside the folder IS the ticket):
 
    ```yaml
    ---
@@ -166,24 +166,22 @@ Once approved:
    - **Technical Notes**: Informed by `02-analysis.md` — specific patterns, files, and integration points for this child's scope.
    - **Out of Scope**: What this child does NOT cover (handled by sibling tickets). Reference siblings by ID.
 
-4. **Set up artifact directories for each child**:
-   - Create `claudedocs/pipeline/<child-id>/`
-   - Copy the parent's `00-exploration.md` to each child's directory (as a starting seed for analyze). Add a header note:
-     ```
-     # Exploration — <child-id>
-     **Source**: inherited from parent <parent-id> discovery/analysis
-     **Date**: <original date>
-     **Note**: This exploration was done for the parent epic. The analyze stage
-     for this child should do targeted incremental exploration for the child's
-     specific scope.
-     ```
+4. **Seed each child's exploration** by copying the parent's `00-exploration.md` into each child's ticket folder at `claudedocs/tickets/backlog/<child-id>/00-exploration.md`. Add a header note:
+   ```
+   # Exploration — <child-id>
+   **Source**: inherited from parent <parent-id> discovery/analysis
+   **Date**: <original date>
+   **Note**: This exploration was done for the parent epic. The analyze stage
+   for this child should do targeted incremental exploration for the child's
+   specific scope.
+   ```
 
-5. **Update the parent ticket** — add `children` field to frontmatter:
+5. **Update the parent ticket** — add `children` field to the frontmatter of `01-spec.md` in the parent's ticket folder:
    ```yaml
    children: [<child-1-id>, <child-2-id>, ...]
    ```
 
-6. **Write the decomposition artifact** to `claudedocs/pipeline/<parent-id>/02b-decomposition.md`:
+6. **Write the decomposition artifact** to the parent's ticket folder as `02b-decomposition.md`:
    ```markdown
    # Decomposition — <parent-id>
    **Date**: <today's date>
@@ -221,26 +219,25 @@ Once approved:
 **Parent**: <parent-id> — <title>
 **Children created**: <N>
 
-| ID | Title | Complexity | File |
+| ID | Title | Complexity | Folder |
 |---|---|---|---|
-| <id> | <title> | <X> | claudedocs/tickets/backlog/<slug>.md |
+| <id> | <title> | <X> | claudedocs/tickets/backlog/<id>/ |
 ...
 
-**Decomposition artifact**: claudedocs/pipeline/<parent-id>/02b-decomposition.md
+**Decomposition artifact**: claudedocs/tickets/<parent-state>/<parent-id>/02b-decomposition.md
 
 ### Next Steps
 → Start the first child: /feature-pipeline:feature-flow <first-child-id>
 → Or analyze first: /feature-pipeline:analyze <first-child-id>
-→ View any child: read the ticket file
-→ View the decomposition rationale: read 02b-decomposition.md
+→ View any child: read its `01-spec.md`
+→ View the decomposition rationale: read 02b-decomposition.md in the parent's folder
 ```
 
 ## Output
 
-- **Child tickets**: `claudedocs/tickets/backlog/<PREFIX>-<N>-<slug>.md` (one per child)
-- **Updated parent**: `children` field added to parent ticket frontmatter
-- **Decomposition artifact**: `claudedocs/pipeline/<parent-id>/02b-decomposition.md`
-- **Inherited explorations**: `claudedocs/pipeline/<child-id>/00-exploration.md` (copied from parent)
+- **Child ticket folders**: `claudedocs/tickets/backlog/<PREFIX>-<N>/` (one per child, each containing `01-spec.md` and an inherited `00-exploration.md`)
+- **Updated parent spec**: `children` field added to the parent's `01-spec.md` frontmatter
+- **Decomposition artifact**: `02b-decomposition.md` in the parent's ticket folder
 
 ## Error Handling
 

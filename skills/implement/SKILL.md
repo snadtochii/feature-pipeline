@@ -88,7 +88,7 @@ Read every relevant input upfront:
 
 ### 2. Initialize the implementation artifact
 
-Create or update `claudedocs/pipeline/<ticket-id>/04-implementation.md` with:
+Create or update `<ticket-folder>/04-implementation.md` with:
 - Header (ticket, date, re-run feedback source if applicable)
 - Empty section for each plan step
 - Empty sections for tests, validation results, deviations
@@ -145,7 +145,7 @@ The complete `04-implementation.md` should contain:
 
 ## Output
 
-- **Artifact**: `claudedocs/pipeline/<ticket-id>/04-implementation.md` (updated incrementally throughout the process, finalized at the end)
+- **Artifact**: `<ticket-folder>/04-implementation.md` (updated incrementally throughout the process, finalized at the end)
 
 ## Presentation
 
@@ -156,7 +156,7 @@ Present to the user:
 
 [Summary: files changed, tests written, all passing, any deviations, re-run feedback addressed if applicable]
 
-Artifacts saved to: claudedocs/pipeline/<ticket-id>/04-implementation.md
+Artifacts saved to: <ticket-folder>/04-implementation.md
 ```
 
 ## Error Handling

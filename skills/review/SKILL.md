@@ -96,7 +96,7 @@ All four run **concurrently** — launch them in a single message.
 
 ### 3. Merge findings
 
-Combine all four reviewers' output into `claudedocs/pipeline/<ticket-id>/05-review.md`:
+Combine all four reviewers' output into `<ticket-folder>/05-review.md`:
 
 - **Group by severity**: CRITICAL → WARNING → SUGGESTION
 - **De-duplicate** overlapping findings (e.g., if both code-reviewer and code-architect flag the same issue)
@@ -105,7 +105,7 @@ Combine all four reviewers' output into `claudedocs/pipeline/<ticket-id>/05-revi
 
 ## Output
 
-- **Artifact**: `claudedocs/pipeline/<ticket-id>/05-review.md`
+- **Artifact**: `<ticket-folder>/05-review.md`
 
 ## Presentation
 
@@ -116,7 +116,7 @@ Present findings to the user:
 
 [Summary: issue counts by severity + by reviewer, key findings]
 
-Artifacts saved to: claudedocs/pipeline/<ticket-id>/05-review.md
+Artifacts saved to: <ticket-folder>/05-review.md
 ```
 
 ## Error Handling

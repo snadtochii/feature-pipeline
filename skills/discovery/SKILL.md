@@ -51,7 +51,6 @@ The skill runs in **main context** (interactive) through these phases:
      claudedocs/tickets/
      ├── backlog/
      ├── in-progress/
-     ├── review/
      └── done/
      ```
    - Write the config to `claudedocs/tickets/config.yaml` so future runs don't need to ask again. Initial content:
@@ -167,12 +166,9 @@ Use the code explorer results to ask informed questions:
    - Read prefix from `claudedocs/tickets/config.yaml` (`prefix` field)
    - Format: `<PREFIX>-<N>` (no leading zeros, e.g., `BL-1`, `BL-2`, `BL-15`)
 
-2. **Generate ticket filename**:
-   - Prefix with the ticket ID, then slugify the title: lowercase, hyphens, no special chars
-   - Format: `<PREFIX>-<N>-<slug>.md`
-   - Example: `BL-1-dark-mode-toggle.md`, `SY-12-task-list-filtering.md`
+2. **Create the ticket folder** at `claudedocs/tickets/backlog/<PREFIX>-<N>/` (folder name is just the ID — no slug). The folder is the unit of organization; everything for this ticket (spec, artifacts, bugs, state) lives inside.
 
-3. **Write the ticket** to `claudedocs/tickets/backlog/<PREFIX>-<N>-<slug>.md`:
+3. **Write the spec** to `claudedocs/tickets/backlog/<PREFIX>-<N>/01-spec.md`. The spec file IS the ticket — frontmatter for metadata, body for the content:
 
    ```markdown
    ---
@@ -221,8 +217,7 @@ Use the code explorer results to ask informed questions:
    ```
 
 4. **Persist the Phase 2 exploration for the analyze stage**:
-   - Create `claudedocs/pipeline/<ticket-id>/` if it doesn't exist
-   - Write the full Phase 2 explorer output to `claudedocs/pipeline/<ticket-id>/00-exploration.md`
+   - Write the full Phase 2 explorer output to `claudedocs/tickets/backlog/<PREFIX>-<N>/00-exploration.md` (same folder as the spec)
    - Include a short header at the top of the file:
      ```
      # Exploration — <ticket-id>
@@ -236,7 +231,7 @@ Use the code explorer results to ask informed questions:
    ```
    ## Ticket Created
 
-   **File**: claudedocs/tickets/backlog/<slug>.md
+   **Folder**: claudedocs/tickets/backlog/<ticket-id>/
    **ID**: <ticket-id>
    **Title**: <title>
    **Complexity**: <S/M/L/XL>

@@ -67,7 +67,7 @@ claude --plugin-dir /path/to/feature-pipeline
 /feature-pipeline:discovery I want to add dark mode to the app --project my-app
 ```
 
-This guides you through interactive requirements discovery and produces a ticket in `claudedocs/tickets/backlog/`.
+This guides you through interactive requirements discovery and produces a ticket folder in `claudedocs/tickets/backlog/<id>/`.
 
 ### Step 1: Run the Pipeline
 
@@ -99,33 +99,33 @@ Each stage reads its input from the artifacts directory, so you can run them ind
 
 ## Ticket System
 
-Tickets are markdown files in `claudedocs/tickets/`:
+Tickets and pipeline artifacts share a single tree under `claudedocs/tickets/`. Each ticket is a folder; everything for that ticket — spec, stage artifacts, bug reports, loop-back state — lives inside.
 
 ```
 claudedocs/tickets/
 ├── backlog/          # Tickets waiting to be worked on
 ├── in-progress/      # Currently in the pipeline
-├── review/           # (optional) In review
-└── done/             # Completed
+└── done/             # Completed (cancellation expressed via frontmatter `status: cancelled`)
 ```
 
-Each ticket has YAML frontmatter with id, title, priority, complexity, status, project, and tags.
-
-## Pipeline Artifacts
-
-Each run produces artifacts in `claudedocs/pipeline/<ticket-id>/`:
+Inside any ticket folder:
 
 ```
-claudedocs/pipeline/BL-1/
-├── 01-spec.md              # Enriched ticket specification
+claudedocs/tickets/<state>/BL-1/
+├── 01-spec.md              # The ticket — frontmatter (id, title, priority, complexity, status, project, tags) + spec body
+├── 00-exploration.md       # Discovery-time codebase exploration (optional)
 ├── 02-analysis.md          # Requirements analysis + codebase context
+├── 02b-decomposition.md    # Decomposition rationale (only on decomposed parent epics)
 ├── 03-plan.md              # Implementation blueprint
 ├── 04-implementation.md    # Implementation summary + validation results
 ├── 05-review.md            # Merged review findings (4 reviewers)
 ├── 06-tests.md             # UI test execution results
 ├── 07-summary.md           # Pipeline completion summary
+├── .iterations.json        # Loop-back counter state
 └── bugs/                   # Bug reports from testing (if any)
 ```
+
+The ticket folder moves between `backlog/`, `in-progress/`, and `done/` as the pipeline advances — all contents move with it as a unit.
 
 ## Plugin Structure
 

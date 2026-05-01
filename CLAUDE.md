@@ -22,7 +22,7 @@ Editing a skill or agent while another Claude Code session is open:
 2. In the consuming Claude Code session (not this repo — see below), run `/reload-plugins` — the updated skill/agent takes effect without a restart
 3. Invoke the skill or trigger the agent to verify the change
 
-**Keep the plugin repo separate from any consuming project** used for testing. Pick a throwaway project (or a real one), create a small ticket via `/feature-pipeline:discovery`, then run `/feature-pipeline:feature-flow <id>`. Running the pipeline against this plugin repo itself creates confusion about which `claudedocs/tickets/` and `claudedocs/` artifacts belong where.
+**Keep the plugin repo separate from any consuming project** used for testing. Pick a throwaway project (or a real one), create a small ticket via `/feature-pipeline:discovery`, then run `/feature-pipeline:feature-flow <id>`. Running the pipeline against this plugin repo itself creates confusion about which `claudedocs/tickets/` artifacts belong where.
 
 ---
 
@@ -62,7 +62,7 @@ discovery → ticket → feature-flow → analyze → plan → implement → rev
                       └→ child tickets → each child: feature-flow → analyze → plan → ... → done
 ```
 
-- **discovery** is step 0 — creates the ticket in `claudedocs/tickets/backlog/`. It is not part of feature-flow.
+- **discovery** is step 0 — creates the ticket folder at `claudedocs/tickets/backlog/<id>/` with `01-spec.md` (the ticket itself) and optionally `00-exploration.md`. It is not part of feature-flow.
 - **decompose** is step 0b — optional, for L/XL tickets. Runs after analyze, breaks the parent into smaller child tickets that each go through the full pipeline. Not part of feature-flow.
 - **feature-flow** orchestrates analyze → plan → implement → review → test with a human review gate after every stage.
 - Failures loop backward: review failures re-run `implement`; test failures can re-run either `implement` (code bug) or `plan` (design flaw).
@@ -191,10 +191,10 @@ Every stage skill resolves a ticket argument identically. Canonical logic lives 
 **Do not duplicate the resolution logic inline** in a stage skill — link to the reference. If the resolution rules change, update the reference once.
 
 Quick summary (full version in the reference):
-- Path-like argument → read directly
-- ID argument → search `backlog/`, `in-progress/`, `review/`, then glob
+- Path-like argument → read directly (folder path or `01-spec.md` path inside the folder)
+- ID argument → search `backlog/`, `in-progress/`, `done/`, then glob across `claudedocs/tickets/**/<id>/`
 - Not found → ask the user
-- Artifacts dir: `claudedocs/pipeline/<ticket-id>/` with `01-spec.md` as the canonical spec copy
+- Resolves to the ticket folder `claudedocs/tickets/<state>/<id>/` containing `01-spec.md` (the ticket) and all stage artifacts
 
 ---
 
@@ -205,8 +205,8 @@ Tickets are markdown with YAML frontmatter — see `skills/discovery/TEMPLATE.md
 - **Prefix** per project (`BL` for big-leaves, `SY` for symphony). Stored as the `prefix` field in `claudedocs/tickets/config.yaml`. Discovery creates the file on first run and infers from existing tickets if it's missing. `config.yaml` is the canonical home for tickets-system configuration — future fields (status flow customization, complexity scale, etc.) go here, not in new dotfiles.
 - **ID format:** `<PREFIX>-<N>` — no leading zeros.
 - **Filename:** `<PREFIX>-<N>-<slug>.md`
-- **Status flow:** `backlog → in-progress → review → done` (folders match)
-- Tickets move between folders as the pipeline advances. `feature-flow` moves `backlog → in-progress` at setup; completion moves `in-progress → done` and updates the `status` frontmatter field.
+- **Status flow:** `backlog → in-progress → done` (folders match). Cancellation is expressed via frontmatter `status: cancelled` inside `done/`, not a separate folder.
+- Ticket *folders* move between state folders as the pipeline advances — the entire folder (spec, artifacts, `bugs/`, `.iterations.json`, `.stale/`) moves as a unit. `feature-flow` moves `backlog → in-progress` at setup; completion moves `in-progress → done` and updates the `status` frontmatter field.
 - **Parent/child relationships** (optional, used by `decompose`):
   - `parent: <id>` — links a child ticket to its epic/parent. Added by decompose.
   - `children: [<id>, ...]` — lists child ticket IDs on the parent. Added by decompose.
@@ -262,7 +262,7 @@ There's no automated test suite for the plugin itself. Validation is by skill-cr
 Decisions made during the current conventions pass that were evaluated and explicitly *not* adopted. Kept here so future maintenance has context on why the code looks the way it does.
 
 - **Design-match reviewer as 5th parallel reviewer** in the `review` stage. Deferred because it assumes design artifacts (Figma, wireframes) that not every personal-project ticket has. Reconsider when a ticket workflow routinely includes design references.
-- **Ticket-folder structure** with `meta.md` + `description.md` + `images/` (from the user's production `jira-describe`/`describe`/`prepare` flow). Deferred because feature-pipeline's current separation — flat ticket `.md` in `claudedocs/tickets/` vs numbered artifacts in `claudedocs/pipeline/<id>/` — is actually cleaner. Reconsider if image handling becomes a hard requirement.
+- **Legacy `meta.md` + `description.md` + `images/` layout** (from the user's production `jira-describe`/`describe`/`prepare` flow). Not adopted: frontmatter on `01-spec.md` already carries metadata, so a separate `meta.md` would be a redundant file. `images/` could be added inside the ticket folder if image handling becomes a need — defer until then.
 - **Code-explorer output caching** across discovery, analyze, and plan stages. Current flow runs `code-explorer` twice (once in discovery, once in analyze), which is a real inefficiency — but the fix is structural (shared memory layer or explicit artifact reuse) and worth its own pass.
 - **Step-type routing** in plan/implement (`figma-ui`, `component`, `service`, etc.) — valuable in the user's production flow but too project-specific to generalize. Plan skill now annotates step content explicitly instead.
 - **PR-workflow integration** with the user's `code-review` and `address-review` skills. Those skills assume GitHub + `gh` CLI; feature-pipeline is general-purpose. Users working on GitHub projects can pair feature-pipeline with those separate skills without embedding the dependency.
