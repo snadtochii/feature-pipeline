@@ -7,7 +7,7 @@ A Claude Code plugin that provides an agentic feature development pipeline for p
 Orchestrates the full feature lifecycle through specialized AI agents with human review gates between every stage:
 
 ```
-/discovery → ticket → /feature-flow → analyze → plan → implement → review → test → done
+/discovery → ticket → /flow → analyze → plan → implement → review → test → done
 ```
 
 ### Pipeline Stages
@@ -27,11 +27,11 @@ You review and approve/reject after every stage. Rejected work loops back to the
 
 ### Modular Architecture
 
-Each stage is a **separate skill** that can be invoked independently or orchestrated through `feature-flow`:
+Each stage is a **separate skill** that can be invoked independently or orchestrated through `flow`:
 
 ```bash
 # Full pipeline (orchestrator calls each stage skill in sequence)
-/feature-pipeline:feature-flow BL-1
+/feature-pipeline:flow BL-1
 
 # Individual stages (standalone, using existing artifacts)
 /feature-pipeline:analyze BL-1
@@ -73,13 +73,13 @@ This guides you through interactive requirements discovery and produces a ticket
 
 ```bash
 # Full pipeline
-/feature-pipeline:feature-flow BL-1
+/feature-pipeline:flow BL-1
 
 # Partial runs
-/feature-pipeline:feature-flow BL-1 --only analyze        # just analysis
-/feature-pipeline:feature-flow BL-1 --from implement       # skip analysis + planning
-/feature-pipeline:feature-flow BL-1 --skip test            # everything except testing
-/feature-pipeline:feature-flow BL-1 --continue             # resume from where it left off
+/feature-pipeline:flow BL-1 --only analyze        # just analysis
+/feature-pipeline:flow BL-1 --from implement       # skip analysis + planning
+/feature-pipeline:flow BL-1 --skip test            # everything except testing
+/feature-pipeline:flow BL-1 --continue             # resume from where it left off
 ```
 
 ### Run Individual Stages
@@ -142,7 +142,7 @@ feature-pipeline/
 │   ├── performance-engineer.md
 │   └── ui-tester.md
 ├── skills/                 # Skill definitions
-│   ├── feature-flow/       # Orchestrator — sequences stages with gates
+│   ├── flow/       # Orchestrator — sequences stages with gates
 │   │   └── SKILL.md
 │   ├── discovery/          # Step 0 — requirements discovery
 │   │   ├── SKILL.md

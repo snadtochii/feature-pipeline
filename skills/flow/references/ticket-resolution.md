@@ -1,6 +1,6 @@
 # Ticket Resolution — Shared Logic
 
-Canonical logic for resolving a ticket argument to a **ticket folder** and ensuring the spec is in place. Referenced by every stage skill (`analyze`, `plan`, `implement`, `review`, `test`) and by the `feature-flow` orchestrator itself.
+Canonical logic for resolving a ticket argument to a **ticket folder** and ensuring the spec is in place. Referenced by every stage skill (`analyze`, `plan`, `implement`, `review`, `test`) and by the `flow` orchestrator itself.
 
 `discovery` does **not** use this reference — it handles the intake/creation variant with prefix logic inline.
 
@@ -22,7 +22,7 @@ claudedocs/tickets/<state>/<id>/
 ├── 06-tests.md           ← test stage
 ├── 07-summary.md         ← completion
 ├── bugs/                 ← test-stage bug reports
-├── .iterations.json      ← loop-back counter state (feature-flow)
+├── .iterations.json      ← loop-back counter state (flow)
 └── .stale/               ← superseded artifacts after deliberate re-runs
 ```
 

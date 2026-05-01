@@ -28,7 +28,7 @@ Create an implementation plan through interactive plan mode.
 
 ## Ticket Resolution & Artifacts Setup
 
-Use the canonical logic in [`../feature-flow/references/ticket-resolution.md`](../feature-flow/references/ticket-resolution.md). The ticket argument is `$1`.
+Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md). The ticket argument is `$1`.
 
 ## Required Input
 

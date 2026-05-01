@@ -240,8 +240,8 @@ Use the code explorer results to ask informed questions:
    [Show the full ticket content]
 
    → Edit if you want to adjust anything
-   → Run `/feature-pipeline:feature-flow <ticket-id>` to start the pipeline
-   → Run `/feature-pipeline:feature-flow <ticket-id> --only analyze` to just analyze first
+   → Run `/feature-pipeline:flow <ticket-id>` to start the pipeline
+   → Run `/feature-pipeline:flow <ticket-id> --only analyze` to just analyze first
    ```
 
 ---

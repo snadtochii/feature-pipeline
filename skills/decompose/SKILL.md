@@ -32,7 +32,7 @@ Break an analyzed L/XL ticket into smaller child tickets (S/M complexity) that e
 
 ## Ticket Resolution & Artifacts Setup
 
-Use the canonical logic in [`../feature-flow/references/ticket-resolution.md`](../feature-flow/references/ticket-resolution.md). The ticket argument is `$1`.
+Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md). The ticket argument is `$1`.
 
 ## Required Input
 
@@ -206,8 +206,8 @@ Once approved:
 
    ## Execution Plan
    Run each child through the pipeline in order:
-   1. /feature-pipeline:feature-flow <child-1-id>
-   2. /feature-pipeline:feature-flow <child-2-id>
+   1. /feature-pipeline:flow <child-1-id>
+   2. /feature-pipeline:flow <child-2-id>
    ...
    ```
 
@@ -227,7 +227,7 @@ Once approved:
 **Decomposition artifact**: claudedocs/tickets/<parent-state>/<parent-id>/02b-decomposition.md
 
 ### Next Steps
-→ Start the first child: /feature-pipeline:feature-flow <first-child-id>
+→ Start the first child: /feature-pipeline:flow <first-child-id>
 → Or analyze first: /feature-pipeline:analyze <first-child-id>
 → View any child: read its `01-spec.md`
 → View the decomposition rationale: read 02b-decomposition.md in the parent's folder

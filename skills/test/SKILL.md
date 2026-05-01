@@ -33,7 +33,7 @@ The project's `CLAUDE.md` is also read to extract a **test framework hint** for 
 
 ## Ticket Resolution & Artifacts Setup
 
-Use the canonical logic in [`../feature-flow/references/ticket-resolution.md`](../feature-flow/references/ticket-resolution.md). The ticket argument is `$1`.
+Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md). The ticket argument is `$1`.
 
 ## Required Input
 
@@ -50,7 +50,7 @@ Use the canonical logic in [`../feature-flow/references/ticket-resolution.md`](.
 
 3. Save output to `<ticket-folder>/06-tests.md`
    - If bugs found, also save individual bug files to `<ticket-folder>/bugs/BUG-NNN.md` (zero-padded to 3 digits)
-   - If specs were codified, the `06-tests.md` should list their paths under a "Codified specs" section so feature-flow and the user can see what landed in the project tree
+   - If specs were codified, the `06-tests.md` should list their paths under a "Codified specs" section so flow and the user can see what landed in the project tree
 
 ## Output
 
