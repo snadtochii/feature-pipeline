@@ -31,7 +31,7 @@ Each stage is a separate skill that can also be invoked directly:
 /feature-pipeline:feature-flow $ARGUMENTS
 ```
 
-`$1` = ticket ID (e.g. `BL-1`) or path to ticket file (e.g. `.tickets/backlog/dark-mode.md`)
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file (e.g. `claudedocs/tickets/backlog/dark-mode.md`)
 Remaining args = pipeline flags (see table below)
 
 ### Flags
@@ -54,7 +54,7 @@ Stage names: `analyze`, `plan`, `implement`, `review`, `test`
 /feature-pipeline:feature-flow BL-1 --from implement --to review # implement + review
 /feature-pipeline:feature-flow BL-1 --skip test                  # everything except testing
 /feature-pipeline:feature-flow BL-1 --continue                   # resume from where it left off
-/feature-pipeline:feature-flow .tickets/backlog/dark-mode.md     # by file path
+/feature-pipeline:feature-flow claudedocs/tickets/backlog/dark-mode.md     # by file path
 ```
 
 ## Pipeline Order
@@ -69,8 +69,8 @@ Each stage reads and writes artifacts in `claudedocs/pipeline/<ticket-id>/`. Thi
 
 | Stage | Reads | Writes | Re-run reads |
 |---|---|---|---|
-| `discovery` (step 0, not part of feature-flow) | ticket draft from user | `.tickets/backlog/<id>-<slug>.md`, `claudedocs/pipeline/<id>/00-exploration.md` | — |
-| `decompose` (step 0b, not part of feature-flow) | `01-spec.md`, `02-analysis.md` | child tickets in `.tickets/backlog/`, `02b-decomposition.md`, updated parent frontmatter (`children` field), `00-exploration.md` copied to each child's artifact dir | — |
+| `discovery` (step 0, not part of feature-flow) | ticket draft from user | `claudedocs/tickets/backlog/<id>-<slug>.md`, `claudedocs/pipeline/<id>/00-exploration.md` | — |
+| `decompose` (step 0b, not part of feature-flow) | `01-spec.md`, `02-analysis.md` | child tickets in `claudedocs/tickets/backlog/`, `02b-decomposition.md`, updated parent frontmatter (`children` field), `00-exploration.md` copied to each child's artifact dir | — |
 | `analyze` | `01-spec.md`, `00-exploration.md` (optional seed — used for incremental exploration if present) | `02-analysis.md` | (same) |
 | `plan` | `01-spec.md`, `02-analysis.md` | `03-plan.md` | (same) |
 | `implement` | `01-spec.md`, `03-plan.md` | `04-implementation.md` | **also** `05-review.md` (review loop-back), `bugs/*.md` (test loop-back) |
@@ -303,7 +303,7 @@ For each stage in the determined list, invoke the corresponding stage skill and 
    - Create descriptive commit message referencing the ticket ID
 
 5. **After commit (or if user declines commit), ALWAYS finalize the ticket**:
-   - Move ticket file from `.tickets/in-progress/` to `.tickets/done/`
+   - Move ticket file from `claudedocs/tickets/in-progress/` to `claudedocs/tickets/done/`
    - Update the `status` field in frontmatter from `in-progress` to `done`
    - This step is mandatory — do not end the pipeline without it
 

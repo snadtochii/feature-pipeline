@@ -67,7 +67,7 @@ claude --plugin-dir /path/to/feature-pipeline
 /feature-pipeline:discovery I want to add dark mode to the app --project my-app
 ```
 
-This guides you through interactive requirements discovery and produces a ticket in `.tickets/backlog/`.
+This guides you through interactive requirements discovery and produces a ticket in `claudedocs/tickets/backlog/`.
 
 ### Step 1: Run the Pipeline
 
@@ -99,10 +99,10 @@ Each stage reads its input from the artifacts directory, so you can run them ind
 
 ## Ticket System
 
-Tickets are markdown files in `.tickets/`:
+Tickets are markdown files in `claudedocs/tickets/`:
 
 ```
-.tickets/
+claudedocs/tickets/
 ├── backlog/          # Tickets waiting to be worked on
 ├── in-progress/      # Currently in the pipeline
 ├── review/           # (optional) In review

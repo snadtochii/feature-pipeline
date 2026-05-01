@@ -43,20 +43,24 @@ The skill runs in **main context** (interactive) through these phases:
 
 ### PHASE 0: ENSURE TICKET INFRASTRUCTURE
 
-1. **Check if `.tickets/` directory exists** in the project root
+1. **Check if `claudedocs/tickets/` directory exists** in the project root
 2. If not:
    - Ask the user for a **ticket prefix** for this project (e.g., `BL` for big-leaves, `SY` for symphony)
    - Create the full structure:
      ```
-     .tickets/
+     claudedocs/tickets/
      ├── backlog/
      ├── in-progress/
      ├── review/
      └── done/
      ```
-   - Save the prefix to `.tickets/.prefix` (plain text, just the prefix string) so future runs don't need to ask again
-3. If `.tickets/` already exists, read the prefix from `.tickets/.prefix`
-   - If `.prefix` file is missing, scan existing ticket filenames to infer the prefix, or ask the user
+   - Write the config to `claudedocs/tickets/config.yaml` so future runs don't need to ask again. Initial content:
+     ```yaml
+     prefix: <PREFIX>
+     ```
+     This file is the source of truth for tickets-system configuration. Future fields go here too — do not introduce new dotfiles for additional config.
+3. If `claudedocs/tickets/` already exists, read the prefix from `claudedocs/tickets/config.yaml` (parse the YAML and extract the `prefix` field)
+   - If `config.yaml` is missing, scan existing ticket filenames to infer the prefix, or ask the user. Once known, write `config.yaml` so the next run doesn't repeat the inference.
 4. Read the ticket template from this plugin's directory: find the `TEMPLATE.md` file co-located with this SKILL.md
    - This template defines the frontmatter schema and section structure
    - Use it as the base format for ticket generation in Phase 4
@@ -159,8 +163,8 @@ Use the code explorer results to ask informed questions:
 ### PHASE 4: GENERATE THE TICKET
 
 1. **Generate ticket ID** (if not provided via `--id`):
-   - Scan `.tickets/` for existing IDs to determine next number
-   - Read prefix from `.tickets/.prefix`
+   - Scan `claudedocs/tickets/` for existing IDs to determine next number
+   - Read prefix from `claudedocs/tickets/config.yaml` (`prefix` field)
    - Format: `<PREFIX>-<N>` (no leading zeros, e.g., `BL-1`, `BL-2`, `BL-15`)
 
 2. **Generate ticket filename**:
@@ -168,7 +172,7 @@ Use the code explorer results to ask informed questions:
    - Format: `<PREFIX>-<N>-<slug>.md`
    - Example: `BL-1-dark-mode-toggle.md`, `SY-12-task-list-filtering.md`
 
-3. **Write the ticket** to `.tickets/backlog/<PREFIX>-<N>-<slug>.md`:
+3. **Write the ticket** to `claudedocs/tickets/backlog/<PREFIX>-<N>-<slug>.md`:
 
    ```markdown
    ---
@@ -232,7 +236,7 @@ Use the code explorer results to ask informed questions:
    ```
    ## Ticket Created
 
-   **File**: .tickets/backlog/<slug>.md
+   **File**: claudedocs/tickets/backlog/<slug>.md
    **ID**: <ticket-id>
    **Title**: <title>
    **Complexity**: <S/M/L/XL>

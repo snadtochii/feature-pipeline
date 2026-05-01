@@ -27,7 +27,7 @@ Break an analyzed L/XL ticket into smaller child tickets (S/M complexity) that e
 ### Examples
 ```
 /feature-pipeline:decompose FP-1
-/feature-pipeline:decompose .tickets/backlog/FP-1-pipeline-board-ui.md
+/feature-pipeline:decompose claudedocs/tickets/backlog/FP-1-pipeline-board-ui.md
 ```
 
 ## Ticket Resolution & Artifacts Setup
@@ -139,11 +139,11 @@ Iterate with the user until they approve.
 
 Once approved:
 
-1. **Read the prefix** from `.tickets/.prefix`
+1. **Read the prefix** from `claudedocs/tickets/config.yaml` (`prefix` field)
 
-2. **Determine next ticket IDs**. Scan `.tickets/` for existing IDs to find the highest number, then assign sequentially: `<PREFIX>-<N+1>`, `<PREFIX>-<N+2>`, etc.
+2. **Determine next ticket IDs**. Scan `claudedocs/tickets/` for existing IDs to find the highest number, then assign sequentially: `<PREFIX>-<N+1>`, `<PREFIX>-<N+2>`, etc.
 
-3. **Create each child ticket** at `.tickets/backlog/<PREFIX>-<N>-<slug>.md`:
+3. **Create each child ticket** at `claudedocs/tickets/backlog/<PREFIX>-<N>-<slug>.md`:
 
    ```yaml
    ---
@@ -223,7 +223,7 @@ Once approved:
 
 | ID | Title | Complexity | File |
 |---|---|---|---|
-| <id> | <title> | <X> | .tickets/backlog/<slug>.md |
+| <id> | <title> | <X> | claudedocs/tickets/backlog/<slug>.md |
 ...
 
 **Decomposition artifact**: claudedocs/pipeline/<parent-id>/02b-decomposition.md
@@ -237,7 +237,7 @@ Once approved:
 
 ## Output
 
-- **Child tickets**: `.tickets/backlog/<PREFIX>-<N>-<slug>.md` (one per child)
+- **Child tickets**: `claudedocs/tickets/backlog/<PREFIX>-<N>-<slug>.md` (one per child)
 - **Updated parent**: `children` field added to parent ticket frontmatter
 - **Decomposition artifact**: `claudedocs/pipeline/<parent-id>/02b-decomposition.md`
 - **Inherited explorations**: `claudedocs/pipeline/<child-id>/00-exploration.md` (copied from parent)

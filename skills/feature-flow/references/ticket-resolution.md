@@ -12,10 +12,10 @@ Given the ticket argument (typically `$1`):
 
 1. **If the argument contains `/` or `.md`**, treat it as a path and read that file directly
 2. **Otherwise treat it as a ticket ID** and search in this order:
-   - `.tickets/backlog/<id>.md`
-   - `.tickets/in-progress/<id>.md`
-   - `.tickets/review/<id>.md`
-   - Case-insensitive glob: `.tickets/**/*<id>*.md`
+   - `claudedocs/tickets/backlog/<id>.md`
+   - `claudedocs/tickets/in-progress/<id>.md`
+   - `claudedocs/tickets/review/<id>.md`
+   - Case-insensitive glob: `claudedocs/tickets/**/*<id>*.md`
 3. **If not found**, ask the user for the ticket path — do not guess
 4. **Read the ticket content** and extract frontmatter fields: `id`, `title`, `project`, `tags`, `status`
 5. **Determine `<ticket-id>`** = the frontmatter `id` field, or the slugified filename if no `id`
