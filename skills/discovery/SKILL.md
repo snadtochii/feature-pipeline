@@ -107,28 +107,39 @@ Guide the developer through targeted questions to flesh out requirements. This i
 
 **Approach**: Ask 3-5 questions at a time, grouped by theme. Don't dump 20 questions at once. Iterate based on answers.
 
-#### Round 1: Core Intent
+**Recommend, don't just elicit**: For every question, propose your default answer first — informed by the codebase exploration, the input, and sensible product judgment. The user confirms, overrides, or asks for alternatives. This converts decisions you can reasonably make into confirmations and reserves the user's attention for genuine product/UX trade-offs. Format each question as:
+
+```
+1. <question>
+   **Default**: <your proposed answer> — <one-line rationale>
+```
+
+If a question genuinely has no defensible default (pure product/UX preference, business priority, personal taste), flag it explicitly: `**Default**: (no default — this is your call)`. Don't fabricate a recommendation when you don't have one.
+
+**Themes are guides, not gates**: The themes below are areas to cover, not a fixed sequence. Skip themes that don't apply (e.g., UX for a backend-only feature). Re-enter a theme whenever new information demands it — see "Iteration rules" below.
+
+#### Theme: Core Intent
 Focus on the "what" and "why":
 - What problem does this solve? Who experiences it?
 - What does success look like? How would you know it's working?
 - Is there a specific trigger or user action that starts this feature?
 - Any existing workarounds or partial solutions?
 
-#### Round 2: Scope & Boundaries
+#### Theme: Scope & Boundaries
 Focus on defining edges:
 - What's the simplest version that would be useful? (MVP)
 - What should this explicitly NOT do? (Out of scope)
 - Any related features it needs to work with?
 - Any constraints (performance, accessibility, platform support)?
 
-#### Round 3: User Experience (if UI-facing)
+#### Theme: User Experience (if UI-facing)
 Focus on the user journey:
 - Walk me through the ideal user flow, step by step
 - What happens on error? Empty state? Loading?
 - Any specific design preferences or references?
 - Mobile/responsive requirements?
 
-#### Round 4: Technical Considerations (informed by codebase exploration)
+#### Theme: Technical Considerations (informed by codebase exploration)
 Use the code explorer results to ask informed questions:
 - "I see you're using [pattern X] for similar features — should this follow the same pattern?"
 - "There's an existing [component/service] that does something related — should we extend it or build new?"
@@ -136,11 +147,12 @@ Use the code explorer results to ask informed questions:
 - Any API/data requirements? New endpoints needed?
 
 **Iteration rules**:
-- After each round, synthesize what you've learned before asking more
-- If answers reveal new areas, add focused follow-up questions
-- Stop when you have enough to write a clear spec (usually 2-4 rounds)
-- Don't over-question simple features — match depth to complexity
-- If the developer says "that's enough" or "let's move on", proceed to spec creation
+- **Themes loop, they don't queue**: cover each relevant theme, but re-enter any theme as often as needed. There is no fixed number of batches and no rule that one theme must finish before another begins.
+- **Synthesize then check**: after each batch, restate what you've understood. If the user's answer is ambiguous, contradicts an earlier answer, leaves a hole the spec needs filled, or opens a sub-decision you didn't ask about, run another pass on that theme with clarifying questions before moving on. Don't paper over ambiguity to keep momentum.
+- **Escalate to depth-first grilling on high-coupling branches**: if a single decision has answers that cascade into multiple dependent sub-decisions (e.g., "schema-first vs code-first" each implying different storage / migration / API choices), drop the batched cadence for that branch. Switch to one question at a time, walk the decision tree depth-first, and resolve each fork before backing out. Keep providing your recommended default at every node. Return to themed batching once the branch is resolved.
+- **Stop when coverage is good enough** to write a clear spec — driven by coverage, not by a fixed count. Simple features may need a single batch; high-coupling or ambiguous ones may take many, especially with depth-first detours.
+- **Match depth to complexity** — don't over-question simple features.
+- **Respect "enough"**: if the developer says "that's enough" or "let's move on", proceed to spec creation with the best ticket you can write.
 
 ---
 
@@ -275,7 +287,7 @@ Standard flow — go through all phases.
 - Skip redundant codebase exploration for areas already covered by referenced files
 
 ### Very vague input ("I want to improve things")
-- Spend more time in Phase 3 Round 1 (core intent)
+- Spend more time in the Core Intent theme
 - Ask broader exploratory questions first
 - Help the developer narrow down before going into specifics
 
@@ -288,9 +300,10 @@ Standard flow — go through all phases.
 ## Important Rules
 
 1. **Be conversational, not interrogative** — this is a dialogue, not a survey
-2. **Synthesize as you go** — show what you've understood after each round
-3. **Match depth to complexity** — don't over-discover simple features
-4. **Use codebase context** — make questions specific to the project, not generic
-5. **Create the ticket, don't just discuss** — always end with a concrete artifact
-6. **Respect "enough"** — if the developer wants to move on, create the best ticket you can
-7. **No implementation** — this skill discovers and documents, it does not code
+2. **Lead with a recommendation** — every question carries your proposed default with a one-line rationale; ask the user only when judgment is genuinely theirs (product/UX trade-offs, business priorities, personal preference). Resolve trivial or codebase-driven decisions yourself with a stated default.
+3. **Synthesize as you go** — restate what you've understood after each batch, and re-enter a theme if the synthesis surfaces ambiguity or new questions
+4. **Match depth to complexity** — don't over-discover simple features, and don't under-discover coupled ones (escalate to depth-first grilling when a decision branch cascades)
+5. **Use codebase context** — make questions specific to the project, not generic
+6. **Create the ticket, don't just discuss** — always end with a concrete artifact
+7. **Respect "enough"** — if the developer wants to move on, create the best ticket you can
+8. **No implementation** — this skill discovers and documents, it does not code
