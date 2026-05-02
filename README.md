@@ -61,6 +61,22 @@ claude --plugin-dir /path/to/feature-pipeline
 
 ## Usage
 
+### Optional Step 0a: Explore an Idea First
+
+If your idea isn't yet outcome-committed — you don't know whether to build it, what scope it has, or what shape it should take — start with `/explore`:
+
+```bash
+/feature-pipeline:explore I'm thinking about reworking how rate limiting works
+```
+
+`/explore` is open-ended Socratic dialogue. The agent asks probing questions one at a time (with a recommended answer per question), grounds in the codebase only when relevant, and ends however you want:
+
+- **Leave** — no artifact, just shared understanding.
+- **Save as a note** — `/explore` doesn't write notes itself. If you have a note-saving skill or workflow installed separately, signal it (e.g., "note this", "save the session") and it picks up the conversation directly.
+- **Promote to a ticket** — say "make this a ticket" and `/explore` hands the conversation to `/feature-pipeline:discovery`, which runs its full flow including codebase exploration but only asks gap questions you haven't already covered.
+
+Use `/explore` when the outcome is uncommitted. Use `/discovery` directly when you already know you want a ticket. For stress-testing an already-formed plan, this skill isn't the right fit — use other approaches.
+
 ### Step 0: Discover & Create a Ticket
 
 ```bash
@@ -143,6 +159,8 @@ feature-pipeline/
 │   └── ui-tester.md
 ├── skills/                 # Skill definitions
 │   ├── flow/       # Orchestrator — sequences stages with gates
+│   │   └── SKILL.md
+│   ├── explore/            # Optional Step 0a — outcome-uncommitted idea exploration
 │   │   └── SKILL.md
 │   ├── discovery/          # Step 0 — requirements discovery
 │   │   ├── SKILL.md
