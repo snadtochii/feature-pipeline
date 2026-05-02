@@ -163,7 +163,7 @@ Once approved:
    - **Description**: Scoped to this child's concern. Reference the parent ticket for full context.
    - **User Story**: Derived from the subset of the parent's story this child addresses.
    - **Acceptance Criteria**: Subset of parent's ACs assigned to this child, plus any child-specific criteria.
-   - **Technical Notes**: Informed by `02-analysis.md` — specific patterns, files, and integration points for this child's scope.
+   - **Constraints**: Non-negotiable technical boundaries for this child — existing patterns/services it must use, integration points it can't bypass, cross-cutting requirements. Informed by `02-analysis.md`. Keep out: approach, file list, architecture choices (those belong to the plan stage).
    - **Out of Scope**: What this child does NOT cover (handled by sibling tickets). Reference siblings by ID.
 
 4. **Seed each child's exploration** by copying the parent's `00-exploration.md` into each child's ticket folder at `claudedocs/tickets/backlog/<child-id>/00-exploration.md`. Add a header note:

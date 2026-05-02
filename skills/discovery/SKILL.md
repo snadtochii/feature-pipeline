@@ -199,13 +199,14 @@ Use the code explorer results to ask informed questions:
    <Any wireframes, screenshots, design references, or UI decisions from discovery.
    If images were provided, reference them here.>
 
-   ## Technical Notes
-   <Informed by codebase exploration:
-   - Relevant existing patterns/components to leverage
-   - Architecture decisions
-   - API requirements
-   - Dependencies or integration points
-   - Suggested approach (brief, not a full plan)>
+   ## Constraints
+   <Non-negotiable technical boundaries — what the implementation MUST do, not how it should be done.
+   Informed by codebase exploration; only include items that constrain the design, not items that ARE the design.
+   - Existing patterns/services it must use (with file:line references when relevant)
+   - Integration points it can't bypass
+   - Cross-cutting requirements (a11y level, perf budgets, security needs)
+   - External dependencies that frame the work
+   Approach, file list, and architecture choices belong to the plan stage — do not include them here.>
 
    ## Out of Scope
    <Explicit boundaries from the scope discussion.
