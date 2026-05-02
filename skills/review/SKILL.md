@@ -26,7 +26,7 @@ Run parallel code reviews across four dimensions: correctness, security, perform
 
 ## Ticket Resolution & Artifacts Setup
 
-Use the canonical logic in [`../feature-flow/references/ticket-resolution.md`](../feature-flow/references/ticket-resolution.md). The ticket argument is `$1`.
+Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md). The ticket argument is `$1`.
 
 ## Required Input
 
@@ -49,7 +49,7 @@ Cheap, deterministic checks run *before* spawning the expensive LLM reviewers. I
      - **Finding body:** name of the failed check, the exact command run, and a trimmed excerpt of the failure output (roughly the first 30 lines)
      - **Fix guidance line:** "Re-run `/feature-pipeline:implement <ticket-id>` to address the failing check before requesting AI review"
    - Present the failure to the user with the guidance: "Deterministic validation failed — re-run implement to fix before AI review."
-   - Exit the skill. feature-flow treats this as a review gate failure with 1 CRITICAL finding, so its loop-back routing (and iteration budget) apply normally — this is a feature, not a bug: it means broken builds still count against the review ↔ implement budget, which keeps the feedback loop tight.
+   - Exit the skill. flow treats this as a review gate failure with 1 CRITICAL finding, so its loop-back routing (and iteration budget) apply normally — this is a feature, not a bug: it means broken builds still count against the review ↔ implement budget, which keeps the feedback loop tight.
 5. **If all checks pass**, proceed to step 1 below.
 
 ### 1. Collect the diff
@@ -96,7 +96,7 @@ All four run **concurrently** — launch them in a single message.
 
 ### 3. Merge findings
 
-Combine all four reviewers' output into `claudedocs/pipeline/<ticket-id>/05-review.md`:
+Combine all four reviewers' output into `<ticket-folder>/05-review.md`:
 
 - **Group by severity**: CRITICAL → WARNING → SUGGESTION
 - **De-duplicate** overlapping findings (e.g., if both code-reviewer and code-architect flag the same issue)
@@ -105,7 +105,7 @@ Combine all four reviewers' output into `claudedocs/pipeline/<ticket-id>/05-revi
 
 ## Output
 
-- **Artifact**: `claudedocs/pipeline/<ticket-id>/05-review.md`
+- **Artifact**: `<ticket-folder>/05-review.md`
 
 ## Presentation
 
@@ -116,7 +116,7 @@ Present findings to the user:
 
 [Summary: issue counts by severity + by reviewer, key findings]
 
-Artifacts saved to: claudedocs/pipeline/<ticket-id>/05-review.md
+Artifacts saved to: <ticket-folder>/05-review.md
 ```
 
 ## Error Handling

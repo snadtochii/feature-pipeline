@@ -7,7 +7,7 @@ A Claude Code plugin that provides an agentic feature development pipeline for p
 Orchestrates the full feature lifecycle through specialized AI agents with human review gates between every stage:
 
 ```
-/discovery → ticket → /feature-flow → analyze → plan → implement → review → test → done
+/discovery → ticket → /flow → analyze → plan → implement → review → test → done
 ```
 
 ### Pipeline Stages
@@ -27,11 +27,11 @@ You review and approve/reject after every stage. Rejected work loops back to the
 
 ### Modular Architecture
 
-Each stage is a **separate skill** that can be invoked independently or orchestrated through `feature-flow`:
+Each stage is a **separate skill** that can be invoked independently or orchestrated through `flow`:
 
 ```bash
 # Full pipeline (orchestrator calls each stage skill in sequence)
-/feature-pipeline:feature-flow BL-1
+/feature-pipeline:flow BL-1
 
 # Individual stages (standalone, using existing artifacts)
 /feature-pipeline:analyze BL-1
@@ -61,25 +61,41 @@ claude --plugin-dir /path/to/feature-pipeline
 
 ## Usage
 
+### Optional Step 0a: Explore an Idea First
+
+If your idea isn't yet outcome-committed — you don't know whether to build it, what scope it has, or what shape it should take — start with `/explore`:
+
+```bash
+/feature-pipeline:explore I'm thinking about reworking how rate limiting works
+```
+
+`/explore` is open-ended Socratic dialogue. The agent asks probing questions one at a time (with a recommended answer per question), grounds in the codebase only when relevant, and ends however you want:
+
+- **Leave** — no artifact, just shared understanding.
+- **Save as a note** — `/explore` doesn't write notes itself. If you have a note-saving skill or workflow installed separately, signal it (e.g., "note this", "save the session") and it picks up the conversation directly.
+- **Promote to a ticket** — say "make this a ticket" and `/explore` hands the conversation to `/feature-pipeline:discovery`, which runs its full flow including codebase exploration but only asks gap questions you haven't already covered.
+
+Use `/explore` when the outcome is uncommitted. Use `/discovery` directly when you already know you want a ticket. For stress-testing an already-formed plan, this skill isn't the right fit — use other approaches.
+
 ### Step 0: Discover & Create a Ticket
 
 ```bash
 /feature-pipeline:discovery I want to add dark mode to the app --project my-app
 ```
 
-This guides you through interactive requirements discovery and produces a ticket in `.tickets/backlog/`.
+This guides you through interactive requirements discovery and produces a ticket folder in `claudedocs/tickets/backlog/<id>/`.
 
 ### Step 1: Run the Pipeline
 
 ```bash
 # Full pipeline
-/feature-pipeline:feature-flow BL-1
+/feature-pipeline:flow BL-1
 
 # Partial runs
-/feature-pipeline:feature-flow BL-1 --only analyze        # just analysis
-/feature-pipeline:feature-flow BL-1 --from implement       # skip analysis + planning
-/feature-pipeline:feature-flow BL-1 --skip test            # everything except testing
-/feature-pipeline:feature-flow BL-1 --continue             # resume from where it left off
+/feature-pipeline:flow BL-1 --only analyze        # just analysis
+/feature-pipeline:flow BL-1 --from implement       # skip analysis + planning
+/feature-pipeline:flow BL-1 --skip test            # everything except testing
+/feature-pipeline:flow BL-1 --continue             # resume from where it left off
 ```
 
 ### Run Individual Stages
@@ -99,33 +115,33 @@ Each stage reads its input from the artifacts directory, so you can run them ind
 
 ## Ticket System
 
-Tickets are markdown files in `.tickets/`:
+Tickets and pipeline artifacts share a single tree under `claudedocs/tickets/`. Each ticket is a folder; everything for that ticket — spec, stage artifacts, bug reports, loop-back state — lives inside.
 
 ```
-.tickets/
+claudedocs/tickets/
 ├── backlog/          # Tickets waiting to be worked on
 ├── in-progress/      # Currently in the pipeline
-├── review/           # (optional) In review
-└── done/             # Completed
+└── done/             # Completed (cancellation expressed via frontmatter `status: cancelled`)
 ```
 
-Each ticket has YAML frontmatter with id, title, priority, complexity, status, project, and tags.
-
-## Pipeline Artifacts
-
-Each run produces artifacts in `claudedocs/pipeline/<ticket-id>/`:
+Inside any ticket folder:
 
 ```
-claudedocs/pipeline/BL-1/
-├── 01-spec.md              # Enriched ticket specification
+claudedocs/tickets/<state>/BL-1/
+├── 01-spec.md              # The ticket — frontmatter (id, title, priority, complexity, status, project, tags) + spec body
+├── 00-exploration.md       # Discovery-time codebase exploration (optional)
 ├── 02-analysis.md          # Requirements analysis + codebase context
+├── 02b-decomposition.md    # Decomposition rationale (only on decomposed parent epics)
 ├── 03-plan.md              # Implementation blueprint
 ├── 04-implementation.md    # Implementation summary + validation results
 ├── 05-review.md            # Merged review findings (4 reviewers)
 ├── 06-tests.md             # UI test execution results
 ├── 07-summary.md           # Pipeline completion summary
+├── .iterations.json        # Loop-back counter state
 └── bugs/                   # Bug reports from testing (if any)
 ```
+
+The ticket folder moves between `backlog/`, `in-progress/`, and `done/` as the pipeline advances — all contents move with it as a unit.
 
 ## Plugin Structure
 
@@ -142,7 +158,9 @@ feature-pipeline/
 │   ├── performance-engineer.md
 │   └── ui-tester.md
 ├── skills/                 # Skill definitions
-│   ├── feature-flow/       # Orchestrator — sequences stages with gates
+│   ├── flow/       # Orchestrator — sequences stages with gates
+│   │   └── SKILL.md
+│   ├── explore/            # Optional Step 0a — outcome-uncommitted idea exploration
 │   │   └── SKILL.md
 │   ├── discovery/          # Step 0 — requirements discovery
 │   │   ├── SKILL.md

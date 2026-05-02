@@ -28,7 +28,7 @@ Implement the feature following the approved plan. Writes code, runs lint/tests,
 
 ## Ticket Resolution & Artifacts Setup
 
-Use the canonical logic in [`../feature-flow/references/ticket-resolution.md`](../feature-flow/references/ticket-resolution.md). The ticket argument is `$1`.
+Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md). The ticket argument is `$1`.
 
 ## Required Input
 
@@ -88,7 +88,7 @@ Read every relevant input upfront:
 
 ### 2. Initialize the implementation artifact
 
-Create or update `claudedocs/pipeline/<ticket-id>/04-implementation.md` with:
+Create or update `<ticket-folder>/04-implementation.md` with:
 - Header (ticket, date, re-run feedback source if applicable)
 - Empty section for each plan step
 - Empty sections for tests, validation results, deviations
@@ -126,7 +126,7 @@ After all code changes are in place:
   - Run `git diff --stat <base-branch>...HEAD` (plus unstaged) to get the real set of touched files and line counts
   - Extract the planned file list from `03-plan.md`'s "Files" fields across all steps
   - Compare: if the actual touched-file count exceeds the planned count by more than 2x, OR if files outside the planned scope were touched without being flagged as deviations in earlier steps, **record a scope deviation notice** in `04-implementation.md` under a `## Scope Deviations` section with the specific files that drifted and a short rationale
-  - This is a **flag, not a block** — the implementation still proceeds to step 6, but the deviation is surfaced in the implement gate so feature-flow and the user can decide whether to approve
+  - This is a **flag, not a block** — the implementation still proceeds to step 6, but the deviation is surfaced in the implement gate so flow and the user can decide whether to approve
   - Skip this check if `03-plan.md` doesn't list specific files (shouldn't happen if the plan passed its own quality checklist, but degrade gracefully)
 - Update `04-implementation.md` with final validation results
 
@@ -145,7 +145,7 @@ The complete `04-implementation.md` should contain:
 
 ## Output
 
-- **Artifact**: `claudedocs/pipeline/<ticket-id>/04-implementation.md` (updated incrementally throughout the process, finalized at the end)
+- **Artifact**: `<ticket-folder>/04-implementation.md` (updated incrementally throughout the process, finalized at the end)
 
 ## Presentation
 
@@ -156,7 +156,7 @@ Present to the user:
 
 [Summary: files changed, tests written, all passing, any deviations, re-run feedback addressed if applicable]
 
-Artifacts saved to: claudedocs/pipeline/<ticket-id>/04-implementation.md
+Artifacts saved to: <ticket-folder>/04-implementation.md
 ```
 
 ## Error Handling

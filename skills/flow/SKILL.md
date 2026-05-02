@@ -1,6 +1,6 @@
 ---
-name: feature-flow
-description: "Run the full feature pipeline (analyze → plan → implement → review → test) on a ticket with human review gates. Use when user says 'run the pipeline', 'feature flow', or 'build this ticket end-to-end'. NOT for single-stage runs."
+name: flow
+description: "Run the full feature pipeline (analyze → plan → implement → review → test) on a ticket with human review gates. Use when user says 'run the pipeline', 'flow this ticket', 'flow it', or 'build this ticket end-to-end'. NOT for single-stage runs."
 allowed-tools:
   - Read
   - Write
@@ -28,10 +28,10 @@ Each stage is a separate skill that can also be invoked directly:
 ## Arguments
 
 ```
-/feature-pipeline:feature-flow $ARGUMENTS
+/feature-pipeline:flow $ARGUMENTS
 ```
 
-`$1` = ticket ID (e.g. `BL-1`) or path to ticket file (e.g. `.tickets/backlog/dark-mode.md`)
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket folder (e.g. `claudedocs/tickets/backlog/BL-1/`)
 Remaining args = pipeline flags (see table below)
 
 ### Flags
@@ -48,13 +48,13 @@ Stage names: `analyze`, `plan`, `implement`, `review`, `test`
 
 ### Examples
 ```
-/feature-pipeline:feature-flow BL-1                              # full pipeline
-/feature-pipeline:feature-flow BL-1 --only analyze               # just analysis
-/feature-pipeline:feature-flow BL-1 --from implement             # skip analysis + planning
-/feature-pipeline:feature-flow BL-1 --from implement --to review # implement + review
-/feature-pipeline:feature-flow BL-1 --skip test                  # everything except testing
-/feature-pipeline:feature-flow BL-1 --continue                   # resume from where it left off
-/feature-pipeline:feature-flow .tickets/backlog/dark-mode.md     # by file path
+/feature-pipeline:flow BL-1                              # full pipeline
+/feature-pipeline:flow BL-1 --only analyze               # just analysis
+/feature-pipeline:flow BL-1 --from implement             # skip analysis + planning
+/feature-pipeline:flow BL-1 --from implement --to review # implement + review
+/feature-pipeline:flow BL-1 --skip test                  # everything except testing
+/feature-pipeline:flow BL-1 --continue                   # resume from where it left off
+/feature-pipeline:flow claudedocs/tickets/backlog/BL-1/             # by folder path
 ```
 
 ## Pipeline Order
@@ -65,24 +65,24 @@ Stage names: `analyze`, `plan`, `implement`, `review`, `test`
 
 ## Stage Contract
 
-Each stage reads and writes artifacts in `claudedocs/pipeline/<ticket-id>/`. This contract is load-bearing — every stage depends on the previous stage's outputs landing in the expected place.
+Each stage reads and writes artifacts in `<ticket-folder>/`. This contract is load-bearing — every stage depends on the previous stage's outputs landing in the expected place.
 
 | Stage | Reads | Writes | Re-run reads |
 |---|---|---|---|
-| `discovery` (step 0, not part of feature-flow) | ticket draft from user | `.tickets/backlog/<id>-<slug>.md`, `claudedocs/pipeline/<id>/00-exploration.md` | — |
-| `decompose` (step 0b, not part of feature-flow) | `01-spec.md`, `02-analysis.md` | child tickets in `.tickets/backlog/`, `02b-decomposition.md`, updated parent frontmatter (`children` field), `00-exploration.md` copied to each child's artifact dir | — |
+| `discovery` (step 0, not part of flow) | ticket draft from user | `claudedocs/tickets/backlog/<id>/01-spec.md` + `00-exploration.md` in the same folder | — |
+| `decompose` (step 0b, not part of flow) | `01-spec.md`, `02-analysis.md` | child ticket folders in `claudedocs/tickets/backlog/<child-id>/` (each with its own `01-spec.md` + inherited `00-exploration.md`), `02b-decomposition.md` in the parent's folder, updated parent `01-spec.md` frontmatter (`children` field) | — |
 | `analyze` | `01-spec.md`, `00-exploration.md` (optional seed — used for incremental exploration if present) | `02-analysis.md` | (same) |
 | `plan` | `01-spec.md`, `02-analysis.md` | `03-plan.md` | (same) |
 | `implement` | `01-spec.md`, `03-plan.md` | `04-implementation.md` | **also** `05-review.md` (review loop-back), `bugs/*.md` (test loop-back) |
 | `review` | working tree diff, project `CLAUDE.md` validation commands | `05-review.md` | (same) |
 | `test` | `01-spec.md`, `04-implementation.md`, project `CLAUDE.md` test framework hint | `06-tests.md`, `bugs/*.md`; **conditionally** new spec files in the project's test directory (only when all acceptance criteria pass AND the project has a documented test framework — see the test skill's codification rules) | (same) |
-| `feature-flow` | `.iterations.json` (at every gate) | `.iterations.json` (on loop-backs and reset), `07-summary.md` (on completion), `.stale/` moves on deliberate re-runs | — |
+| `flow` | `.iterations.json` (at every gate) | `.iterations.json` (on loop-backs and reset), `07-summary.md` (on completion), `.stale/` moves on deliberate re-runs | — |
 
 ---
 
 ## Responsibilities
 
-feature-flow owns:
+flow owns:
 1. Sequencing stages according to flags (`--from`, `--to`, `--only`, `--skip`, `--continue`)
 2. Human gate coordination
 3. Loop-back routing (review → implement, test → implement|plan)
@@ -99,7 +99,7 @@ It does NOT own:
 
 ## Artifact invalidation on deliberate re-runs (`.stale/`)
 
-When the user deliberately re-runs an earlier stage (via `--only`, `--from`, or an implicit re-run from `--continue` after editing an upstream artifact), downstream artifacts become silently inconsistent with the re-run state. feature-flow moves them to `claudedocs/pipeline/<ticket-id>/.stale/<timestamp>/` instead of leaving them in place.
+When the user deliberately re-runs an earlier stage (via `--only`, `--from`, or an implicit re-run from `--continue` after editing an upstream artifact), downstream artifacts become silently inconsistent with the re-run state. flow moves them to `<ticket-folder>/.stale/<timestamp>/` instead of leaving them in place.
 
 **Downstream relationships** (derived from the Stage Contract table above — every stage invalidates everything that reads its output, transitively):
 
@@ -115,15 +115,15 @@ When the user deliberately re-runs an earlier stage (via `--only`, `--from`, or 
 1. **Non-destructive.** Move, don't delete. The user can always grep `.stale/` to see what was superseded.
 2. **Timestamped subfolders.** Each re-run gets its own `.stale/<iso-timestamp>/` subfolder so multiple re-runs don't collide.
 3. **Preserve structure.** `bugs/` moves as a unit into `.stale/<timestamp>/bugs/`.
-4. **Automatic loop-backs skip staling.** The `.stale/` policy only fires on *deliberate* re-runs (`--only`, `--from`, manual re-invocation), NOT on review↔implement or test↔implement loop-backs — those are part of the same feature-flow session and the implement skill deliberately reads the prior review/bug reports to address them.
-5. **`--continue` respects staling.** When resuming, feature-flow ignores anything under `.stale/`; artifact-presence detection only considers files at the top level of the pipeline folder.
+4. **Automatic loop-backs skip staling.** The `.stale/` policy only fires on *deliberate* re-runs (`--only`, `--from`, manual re-invocation), NOT on review↔implement or test↔implement loop-backs — those are part of the same flow session and the implement skill deliberately reads the prior review/bug reports to address them.
+5. **`--continue` respects staling.** When resuming, flow ignores anything under `.stale/`; artifact-presence detection only considers files at the top level of the pipeline folder.
 6. **`.stale/` is git-ignored** globally via `.gitignore` — superseded artifacts aren't worth committing.
 
 ---
 
 ## Loop-back iteration budget
 
-To prevent infinite review ↔ implement or test ↔ implement loops, feature-flow tracks loop-back counts in `claudedocs/pipeline/<ticket-id>/.iterations.json`:
+To prevent infinite review ↔ implement or test ↔ implement loops, flow tracks loop-back counts in `<ticket-folder>/.iterations.json`:
 
 ```json
 {
@@ -140,7 +140,7 @@ To prevent infinite review ↔ implement or test ↔ implement loops, feature-fl
 - `test_plan_loops` — max **1** (plan-level loops are more expensive; tighter budget)
 
 **Rules:**
-1. **Initialize** `.iterations.json` with zeros when feature-flow first creates the pipeline folder. If the file already exists on a `--continue`, preserve its state.
+1. **Initialize** `.iterations.json` with zeros when flow first creates the pipeline folder. If the file already exists on a `--continue`, preserve its state.
 2. **Increment before check.** When a loop-back would fire, increment the relevant counter, then compare.
 3. **On budget exceeded**, DO NOT auto-route. Instead, print a summary of what each prior loop attempted (pulled from successive `04-implementation.md` re-run notes or `05-review.md` revisions) and ask the user: force another loop / rewrite plan / abort / accept with known issues.
 4. **Reset on success.** When the pipeline completes (write `07-summary.md`), zero all counters. Record the final totals in `07-summary.md` for historical visibility.
@@ -159,7 +159,7 @@ To prevent infinite review ↔ implement or test ↔ implement loops, feature-fl
    - `--skip X` → run all except X
    - Flags combine: `--from X --to Y --skip Z`
 
-3. **If `--continue` flag is set**, auto-detect the next stage by checking which artifacts exist in `claudedocs/pipeline/<ticket-id>/`:
+3. **If `--continue` flag is set**, auto-detect the next stage by checking which artifacts exist in `<ticket-folder>/`:
    - `07-summary.md` exists → **pipeline already complete**. Print: "Pipeline already complete for `<ticket-id>`. Run with `--from <stage>` to re-run a specific stage." and exit without re-running anything.
    - `06-tests.md` exists → resume at completion (write `07-summary.md`, finalize ticket)
    - `05-review.md` exists → resume from `test`
@@ -170,19 +170,19 @@ To prevent infinite review ↔ implement or test ↔ implement loops, feature-fl
    - `--continue` is equivalent to `--from <next-stage>` — other flags like `--to` and `--skip` can still be combined
    - Print which stage is being resumed: "Artifacts found through `<last-stage>`. Resuming from `<next-stage>`."
 
-4. **Move ticket** from `backlog/` to `in-progress/` (if not already there — skip if ticket is already in `in-progress/`)
+4. **Move the ticket folder** from `claudedocs/tickets/backlog/<id>/` to `claudedocs/tickets/in-progress/<id>/` (if not already there — skip if ticket is already in `in-progress/`). The entire folder moves as a unit, including all artifacts (`01-spec.md`, `00-exploration.md`, `02-analysis.md`, etc.), `bugs/`, `.iterations.json`, and `.stale/`. Update the `status` field in `01-spec.md`'s frontmatter to `in-progress`. After this point, `<ticket-folder>` resolves to the new location for the rest of the run.
 
 5. **Invalidate downstream artifacts** (if this run re-executes a stage whose artifact already exists):
-   - For each stage in the determined list whose artifact already exists at the top level of `claudedocs/pipeline/<ticket-id>/`:
+   - For each stage in the determined list whose artifact already exists at the top level of `<ticket-folder>/`:
      - Look up its downstream set using the invalidation table in the "Artifact invalidation" section above
-     - Move each downstream artifact that exists to `claudedocs/pipeline/<ticket-id>/.stale/<iso-timestamp>/`, preserving folder structure (`bugs/` moves as a unit)
+     - Move each downstream artifact that exists to `<ticket-folder>/.stale/<iso-timestamp>/`, preserving folder structure (`bugs/` moves as a unit)
    - Skip this step if the run is pure forward progress (all artifacts in the determined list are fresh/non-existent)
    - Skip this step on automatic loop-backs — those are handled inside the stage execution section, not here
    - Print which artifacts were staled: "Staled N downstream artifacts under `.stale/<timestamp>/` before re-running `<stage>`."
 
-6. **Initialize `.iterations.json`** at `claudedocs/pipeline/<ticket-id>/.iterations.json`:
+6. **Initialize `.iterations.json`** at `<ticket-folder>/.iterations.json`:
    - If the file does not exist, create it with all counters at 0 and the current timestamp
-   - If it exists (fresh run, not `--continue`, of a ticket that previously ran), reset counters to 0 — a new `feature-flow` invocation is a fresh attempt
+   - If it exists (fresh run, not `--continue`, of a ticket that previously ran), reset counters to 0 — a new `flow` invocation is a fresh attempt
    - On `--continue`, preserve the existing counter state (we're resuming mid-loop)
    - If the user explicitly re-runs an earlier stage via `--only` or `--from`, reset counters for that stage and all downstream stages (see "Loop-back iteration budget" section)
 
@@ -278,7 +278,7 @@ For each stage in the determined list, invoke the corresponding stage skill and 
 
 **IMPORTANT: All completion steps below are MANDATORY. Do not skip any of them.**
 
-1. Write pipeline summary to `claudedocs/pipeline/<ticket-id>/07-summary.md`:
+1. Write pipeline summary to `<ticket-folder>/07-summary.md`:
    - Ticket title and ID
    - Stages completed
    - Files created/modified
@@ -293,7 +293,7 @@ For each stage in the determined list, invoke the corresponding stage skill and 
 
    [Final summary]
 
-   All artifacts: claudedocs/pipeline/<ticket-id>/
+   All artifacts: <ticket-folder>/
 
    Would you like to commit these changes?
    ```
@@ -303,21 +303,22 @@ For each stage in the determined list, invoke the corresponding stage skill and 
    - Create descriptive commit message referencing the ticket ID
 
 5. **After commit (or if user declines commit), ALWAYS finalize the ticket**:
-   - Move ticket file from `.tickets/in-progress/` to `.tickets/done/`
-   - Update the `status` field in frontmatter from `in-progress` to `done`
+   - Move the ticket folder from `claudedocs/tickets/in-progress/<id>/` to `claudedocs/tickets/done/<id>/` (folder moves as a unit, including all artifacts and state files)
+   - Update the `status` field in `01-spec.md`'s frontmatter from `in-progress` to `done`
    - This step is mandatory — do not end the pipeline without it
 
 ---
 
 ## Artifact Convention
 
-All artifacts are numbered by stage order. The canonical layout:
+All artifacts live inside the per-ticket folder, numbered by stage order. The canonical layout:
 
 ```
-claudedocs/pipeline/<ticket-id>/
+claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlog, in-progress, done}
+├── 01-spec.md              # The ticket — frontmatter (id, status, priority, ...) + spec body
 ├── 00-exploration.md       # Discovery-time codebase exploration (optional — only when the ticket went through /feature-pipeline:discovery)
-├── 01-spec.md              # Enriched ticket specification
 ├── 02-analysis.md          # code-explorer + requirements-analyst output
+├── 02b-decomposition.md    # Decomposition rationale (optional — only when the ticket was decomposed via /feature-pipeline:decompose)
 ├── 03-plan.md              # Implementation blueprint
 ├── 04-implementation.md    # Implementation summary + validation results (live — updated per step)
 ├── 05-review.md            # Merged review findings (4 reviewers)
@@ -333,16 +334,18 @@ claudedocs/pipeline/<ticket-id>/
 
 **Naming rules:**
 - Sequential: `NN-name.md` where `NN` is the stage order
-- `01`–`07` are reserved for the canonical stages in order. Don't reuse numbers.
+- `01-spec.md` IS the ticket — it carries frontmatter (live state metadata) and the spec body. There is no separate "ticket file" outside the folder.
+- `02`–`07` are reserved for canonical stages in order. Don't reuse numbers.
 - `00-` is reserved for pre-spec artifacts (currently just `00-exploration.md`)
+- `02b-` is reserved for the decomposition artifact (only present on parent epics that went through `decompose`)
 - Bug reports from the test stage go in `bugs/BUG-NNN.md` (zero-padded to 3)
-- The ticket spec is ALWAYS `01-spec.md` — ticket-resolution writes it if missing
 - `.stale/` is reserved for superseded artifacts after deliberate re-runs; stages ignore anything under it
-- `.iterations.json` is feature-flow state, not a stage artifact
+- `.iterations.json` is flow state, not a stage artifact
+- The ticket folder moves between state folders (`backlog/` → `in-progress/` → `done/`) as the pipeline advances. Everything inside moves with it.
 
 ## Continuation & Partial Runs
 
-When starting a stage, always check if previous stage artifacts exist in the pipeline directory. If they do, use them as input rather than requiring the user to re-run earlier stages.
+When starting a stage, always check if previous stage artifacts exist in the ticket folder. If they do, use them as input rather than requiring the user to re-run earlier stages.
 
 This enables:
 - Resuming a pipeline that was interrupted

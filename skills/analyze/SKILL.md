@@ -27,7 +27,7 @@ Explore the codebase and analyze the feature specification for completeness and 
 
 ## Ticket Resolution & Artifacts Setup
 
-Use the canonical logic in [`../feature-flow/references/ticket-resolution.md`](../feature-flow/references/ticket-resolution.md). The ticket argument is `$1`.
+Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md). The ticket argument is `$1`.
 
 ## Required Input
 
@@ -38,7 +38,7 @@ Use the canonical logic in [`../feature-flow/references/ticket-resolution.md`](.
 
 **These two subagents MUST run sequentially** — the analyst needs the explorer's output.
 
-1. **Check for a discovery-time exploration seed**. Look for `claudedocs/pipeline/<ticket-id>/00-exploration.md`:
+1. **Check for a discovery-time exploration seed**. Look for `<ticket-folder>/00-exploration.md`:
    - **If it exists**, read its full content. Spawn `feature-pipeline:code-explorer` with an incremental prompt:
      > "Prior exploration has already been done for this feature by the discovery stage. Here is that exploration: `<content of 00-exploration.md>`. Your job is **incremental** — do NOT re-explore what's already covered. Instead, read the ticket spec and identify what additional codebase context is needed for ticket-scoped implementation (not idea-scoped): specific files that will be modified, integration points not yet traced, edge cases the existing exploration missed. Focus on: existing patterns relevant to the ticket's acceptance criteria, architecture layers the change will cross, and dependencies the change will touch. The project root is at `<project-path>`. Return *only* the additional context beyond what's already in the prior exploration."
    - **If it does not exist** (the ticket didn't go through discovery, or the file was deleted), spawn code-explorer with the full prompt:
@@ -49,11 +49,11 @@ Use the canonical logic in [`../feature-flow/references/ticket-resolution.md`](.
    - Prompt: "Analyze this feature specification for completeness and feasibility. Here is the spec: `<ticket content>`. Here is the codebase context: `<00-exploration.md content, if present>` + `<incremental explorer output>` (or just the full explorer output if there was no seed). Identify gaps, edge cases, risks, and questions. Assess complexity."
    - This subagent returns the analysis
 
-3. Save combined output to `claudedocs/pipeline/<ticket-id>/02-analysis.md`. The `02-analysis.md` should reference `00-exploration.md` explicitly if it was used, so a reader understands the full picture.
+3. Save combined output to `<ticket-folder>/02-analysis.md`. The `02-analysis.md` should reference `00-exploration.md` explicitly if it was used, so a reader understands the full picture.
 
 ## Output
 
-- **Artifact**: `claudedocs/pipeline/<ticket-id>/02-analysis.md`
+- **Artifact**: `<ticket-folder>/02-analysis.md`
 
 ## Presentation
 
@@ -64,7 +64,7 @@ Present findings to the user:
 
 [Summary of key findings, gaps, questions]
 
-Artifacts saved to: claudedocs/pipeline/<ticket-id>/02-analysis.md
+Artifacts saved to: <ticket-folder>/02-analysis.md
 ```
 
 ## Error Handling
