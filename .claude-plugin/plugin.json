@@ -1,7 +1,7 @@
 {
   "name": "feature-pipeline",
   "description": "Agentic feature development pipeline with discovery, analysis, planning, implementation, review, and testing stages. Includes human review gates, parallel code reviews, and UI testing via Playwright.",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "author": {
     "name": "Serhii Nadtochii"
   },
