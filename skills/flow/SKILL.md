@@ -71,7 +71,6 @@ Each stage reads and writes artifacts in `<ticket-folder>/`. This contract is lo
 | Stage | Reads | Writes | Re-run reads |
 |---|---|---|---|
 | `discover` (step 0, not part of flow) | ticket draft from user | **Single-mode** (N=1): `claudedocs/tickets/backlog/<id>/01-spec.md` + `exploration.md` in the same folder. **Multi-mode** (N>1): `claudedocs/tickets/backlog/<EPIC-ID>/prd.md` (kind: epic) + shared `exploration.md` + `tasks/<CHILD-ID>/01-spec.md` for each child. | — |
-| `decompose` (step 0b, not part of flow) | `01-spec.md`, `02-analysis.md` | child ticket folders in `claudedocs/tickets/backlog/<child-id>/` (each with its own `01-spec.md` + inherited `exploration.md`), `02b-decomposition.md` in the parent's folder, updated parent `01-spec.md` frontmatter (`children` field) | — |
 | `analyze` | `01-spec.md`, `exploration.md` (optional seed — used for incremental exploration if present) | `02-analysis.md` | (same) |
 | `plan` | `01-spec.md`, `02-analysis.md` | `03-plan.md` | (same) |
 | `implement` | `01-spec.md`, `03-plan.md` | `04-implementation.md` | **also** `05-review.md` (review loop-back), `bugs/*.md` (test loop-back) |
@@ -171,7 +170,21 @@ To prevent infinite review ↔ implement or test ↔ implement loops, flow track
    - `--continue` is equivalent to `--from <next-stage>` — other flags like `--to` and `--skip` can still be combined
    - Print which stage is being resumed: "Artifacts found through `<last-stage>`. Resuming from `<next-stage>`."
 
-4. **Move the ticket folder** from `claudedocs/tickets/backlog/<id>/` to `claudedocs/tickets/in-progress/<id>/` (if not already there — skip if ticket is already in `in-progress/`). The entire folder moves as a unit, including all artifacts (`01-spec.md`, `exploration.md`, `02-analysis.md`, etc.), `bugs/`, `.iterations.json`, and `.stale/`. Update the `status` field in `01-spec.md`'s frontmatter to `in-progress`. After this point, `<ticket-folder>` resolves to the new location for the rest of the run.
+4. **Move to `in-progress/`** — behavior depends on whether the ticket is solo or a child of an epic. Detect by inspecting the resolved `<ticket-folder>` path: if its immediate parent directory is named `tasks/`, the ticket is a child of an epic; otherwise it's solo.
+
+   **Solo ticket** (`<ticket-folder>` matches `claudedocs/tickets/<state>/<id>/`):
+   - If folder is in `backlog/` or `done/` (re-run of a completed ticket): move from `<state>/<id>/` to `in-progress/<id>/`.
+   - If already in `in-progress/`: no move.
+   - Update `01-spec.md`'s frontmatter `status` to `in-progress`.
+
+   **Child of an epic** (`<ticket-folder>` matches `claudedocs/tickets/<state>/<EPIC>/tasks/<CHILD>/`):
+   - Identify the epic folder: `claudedocs/tickets/<state>/<EPIC>/` (the deepest ancestor containing `prd.md`).
+   - If the epic folder is in `backlog/` or `done/` (any-child-in-progress rule, or re-run of a completed epic): move the **entire epic subtree** from `<state>/<EPIC>/` to `in-progress/<EPIC>/`. Other children come along inside the subtree; their per-spec `status` fields are NOT touched — only the child currently being flowed has its status updated.
+   - If the epic is already in `in-progress/`: no folder move (a sibling triggered the move earlier).
+   - Update `prd.md`'s frontmatter `status` to `in-progress`.
+   - Update the child's `01-spec.md` frontmatter `status` to `in-progress`.
+
+   The move includes all artifacts (`01-spec.md`/`prd.md`, `exploration.md` if present, `02-analysis.md`, etc.), `bugs/`, `.iterations.json`, `.stale/`, and (for epics) the entire `tasks/` subfolder. After this point, `<ticket-folder>` resolves to the new location for the rest of the run.
 
 5. **Invalidate downstream artifacts** (if this run re-executes a stage whose artifact already exists):
    - For each stage in the determined list whose artifact already exists at the top level of `<ticket-folder>/`:
@@ -305,23 +318,34 @@ For each stage in the determined list, invoke the corresponding stage skill and 
    - Stage relevant files
    - Create descriptive commit message referencing the ticket ID
 
-5. **After commit (or if user declines commit), ALWAYS finalize the ticket**:
-   - Move the ticket folder from `claudedocs/tickets/in-progress/<id>/` to `claudedocs/tickets/done/<id>/` (folder moves as a unit, including all artifacts and state files)
-   - Update the `status` field in `01-spec.md`'s frontmatter from `in-progress` to `done`
-   - This step is mandatory — do not end the pipeline without it
+5. **After commit (or if user declines commit), ALWAYS finalize the ticket** — behavior depends on whether the ticket is solo or a child of an epic.
+
+   **Solo ticket**:
+   - Move the folder from `claudedocs/tickets/in-progress/<id>/` to `claudedocs/tickets/done/<id>/` (folder moves as a unit, including all artifacts and state files).
+   - Update `01-spec.md`'s frontmatter `status` from `in-progress` to `done`.
+
+   **Child of an epic**:
+   - Update **only the child's** `01-spec.md` frontmatter `status` from `in-progress` to `done`. Do NOT move the child's folder out of the epic subtree.
+   - **All-children-done check**: scan every sibling under `<epic-folder>/tasks/*/01-spec.md` and read their `status` field. If every sibling is `done` or `cancelled`:
+     - Move the **entire epic subtree** from `in-progress/<EPIC>/` to `done/<EPIC>/`.
+     - Update `prd.md`'s frontmatter `status` to `done`.
+   - If at least one sibling is still `backlog` or `in-progress`, the epic stays in `in-progress/` — the subtree moves to `done/` only on the last sibling's completion.
+
+   This step is mandatory — do not end the pipeline without it.
 
 ---
 
 ## Artifact Convention
 
-All artifacts live inside the per-ticket folder, numbered by stage order. The canonical layout:
+All artifacts live inside the per-ticket folder, numbered by stage order. There are two layouts depending on whether the ticket is solo or a child of a discover-produced epic.
+
+### Solo ticket layout
 
 ```
 claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlog, in-progress, done}
 ├── 01-spec.md              # The ticket — frontmatter (id, status, priority, ...) + spec body
-├── exploration.md       # Discover-time codebase exploration (optional — only when the ticket went through /feature-pipeline:discover; for child tickets of an epic, this file lives at the epic-folder level instead)
+├── exploration.md          # Discover-time codebase exploration (optional — only when the ticket went through /feature-pipeline:discover)
 ├── 02-analysis.md          # code-explorer + requirements-analyst output
-├── 02b-decomposition.md    # Decomposition rationale (optional — only when the ticket was decomposed via /feature-pipeline:decompose)
 ├── 03-plan.md              # Implementation blueprint
 ├── 04-implementation.md    # Implementation summary + validation results (live — updated per step)
 ├── 05-review.md            # Merged review findings (4 reviewers)
@@ -335,12 +359,32 @@ claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlo
     └── <iso-timestamp>/
 ```
 
+### Epic with children layout (discover multi-mode output)
+
+```
+claudedocs/tickets/<state>/<EPIC-ID>/   # epic folder; <state> follows most-advanced child
+├── prd.md                  # Parent PRD (frontmatter: kind: epic, children: [...]) — non-pipelineable
+├── exploration.md          # Shared exploration, lives once for all siblings
+└── tasks/
+    ├── <CHILD-1-ID>/       # child ticket folder — same internal structure as a solo ticket above
+    │   ├── 01-spec.md      # frontmatter: parent: <EPIC-ID>, blocked_by: [...] (optional)
+    │   ├── 02-analysis.md
+    │   ├── 03-plan.md
+    │   ├── ...
+    │   ├── bugs/
+    │   ├── .iterations.json
+    │   └── .stale/
+    ├── <CHILD-2-ID>/
+    └── <CHILD-3-ID>/
+```
+
+The whole epic subtree moves between `<state>/` folders as a unit (see SETUP step 4 and COMPLETION step 5). Per-child `status` lives in each child's `01-spec.md` frontmatter; epic-level `status` lives in `prd.md` and tracks the folder location.
+
 **Naming rules:**
 - Sequential: `NN-name.md` where `NN` is the stage order
 - `01-spec.md` IS the ticket — it carries frontmatter (live state metadata) and the spec body. There is no separate "ticket file" outside the folder.
 - `02`–`07` are reserved for canonical stages in order. Don't reuse numbers.
 - Plain (un-numbered) filenames at the ticket-folder root are reserved for pre-spec / pre-stage artifacts (currently just `exploration.md`); for child tickets of an epic, the shared `exploration.md` lives one level up at the epic folder, not in the child folder
-- `02b-` is reserved for the decomposition artifact (only present on parent epics that went through `decompose`)
 - Bug reports from the test stage go in `bugs/BUG-NNN.md` (zero-padded to 3)
 - `.stale/` is reserved for superseded artifacts after deliberate re-runs; stages ignore anything under it
 - `.iterations.json` is flow state, not a stage artifact

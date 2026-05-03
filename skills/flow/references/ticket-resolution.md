@@ -17,7 +17,6 @@ claudedocs/tickets/<state>/<id>/
 ├── 01-spec.md            ← THE spec (frontmatter + body — this IS the ticket)
 ├── exploration.md        ← discover output, optional
 ├── 02-analysis.md        ← analyze stage
-├── 02b-decomposition.md  ← decompose, optional
 ├── 03-plan.md            ← plan stage
 ├── 04-implementation.md  ← implement stage (live, updated incrementally)
 ├── 05-review.md          ← review stage
