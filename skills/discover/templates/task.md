@@ -29,7 +29,7 @@ For child tickets, narrow the user story to this child's slice rather than copyi
 - [ ] Criterion 2
 - [ ] Criterion 3
 
-For child tickets, list only the ACs assigned to this child by the discovery checkpoint (or any child-specific criteria added during analyze).
+For child tickets, list only the ACs assigned to this child by the discovery checkpoint (or any child-specific criteria added during plan's Phase 1 synthesis).
 
 ## Design Notes
 Any wireframes, screenshots, or design references.

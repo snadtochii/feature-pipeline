@@ -1,6 +1,6 @@
 # Ticket Resolution — Shared Logic
 
-Canonical logic for resolving a ticket argument to a **ticket folder**, ensuring the spec is in place, locating the shared exploration, and validating that the ticket is actually pipelineable. Referenced by every stage skill (`analyze`, `plan`, `implement`, `review`, `test`) and by the `flow` orchestrator itself.
+Canonical logic for resolving a ticket argument to a **ticket folder**, ensuring the spec is in place, locating the shared exploration, and validating that the ticket is actually pipelineable. Referenced by every stage skill (`plan`, `implement`, `review`, `test`) and by the `flow` orchestrator itself.
 
 `discover` does **not** use this reference — it handles the intake/creation variant with prefix logic inline.
 
@@ -16,12 +16,11 @@ A ticket folder has one of two shapes depending on whether it came from a single
 claudedocs/tickets/<state>/<id>/
 ├── 01-spec.md            ← THE spec (frontmatter + body — this IS the ticket)
 ├── exploration.md        ← discover output, optional
-├── 02-analysis.md        ← analyze stage
-├── 03-plan.md            ← plan stage
-├── 04-implementation.md  ← implement stage (live, updated incrementally)
-├── 05-review.md          ← review stage
-├── 06-tests.md           ← test stage
-├── 07-summary.md         ← completion
+├── 02-plan.md            ← plan stage (includes Phase 1 synthesis: Codebase Context + Open Questions Resolved sections)
+├── 03-implementation.md  ← implement stage (live, updated incrementally)
+├── 04-review.md          ← review stage
+├── 05-tests.md           ← test stage
+├── 06-summary.md         ← completion
 ├── bugs/                 ← test-stage bug reports
 ├── .iterations.json      ← loop-back counter state (flow)
 └── .stale/               ← superseded artifacts after deliberate re-runs
@@ -36,12 +35,11 @@ claudedocs/tickets/<state>/<EPIC-ID>/
 └── tasks/
     ├── <CHILD-1-ID>/
     │   ├── 01-spec.md    ← child ticket — frontmatter (parent, epic, siblings, blocked_by) + body
-    │   ├── 02-analysis.md
-    │   ├── 03-plan.md
-    │   ├── 04-implementation.md
-    │   ├── 05-review.md
-    │   ├── 06-tests.md
-    │   ├── 07-summary.md
+    │   ├── 02-plan.md
+    │   ├── 03-implementation.md
+    │   ├── 04-review.md
+    │   ├── 05-tests.md
+    │   ├── 06-summary.md
     │   ├── bugs/
     │   ├── .iterations.json
     │   └── .stale/
@@ -89,7 +87,7 @@ The ticket folder should always contain `01-spec.md` — that file is the ticket
 1. **Folder exists with `01-spec.md`** — read it. Done.
 2. **Folder exists with `prd.md` but no `01-spec.md`** — this is an epic folder, not a child ticket. See Step 4.
 3. **Folder exists, neither `01-spec.md` nor `prd.md`** — corrupted state. Ask the user before proceeding.
-4. **Read other existing artifacts** relevant to the current stage — `02-analysis.md`, `03-plan.md`, etc., and `exploration.md` if the stage uses it (see Step 5). Ignore anything under `.stale/`.
+4. **Read other existing artifacts** relevant to the current stage — `02-plan.md`, `03-implementation.md`, etc., and `exploration.md` if the stage uses it (see Step 5). Ignore anything under `.stale/`.
 
 ## Step 3 — Determine project root
 
@@ -107,23 +105,23 @@ After reading frontmatter, check the `kind` field:
 
 - If `kind: epic` is present, the resolved item is a parent epic, not a pipelineable ticket. **Abort the stage** with this message:
   ```
-  <ID> is an epic (kind: epic), not a pipelineable ticket. Epics group siblings — they hold the PRD, the shared exploration, and the decomposition table, but they don't go through analyze/plan/implement/review/test themselves.
+  <ID> is an epic (kind: epic), not a pipelineable ticket. Epics group siblings — they hold the PRD, the shared exploration, and the decomposition table, but they don't go through plan/implement/review/test themselves.
 
   Run the pipeline against one of its children instead:
   <list the IDs from the epic's `children:` frontmatter field>
   ```
 - If `kind` is absent or has any other value, the ticket is pipelineable. Proceed.
 
-This is the centralized epic-refusal rule. Stage skills (`analyze`, `plan`, `implement`, `review`, `test`) inherit it via this reference and don't need to duplicate the check.
+This is the centralized epic-refusal rule. Stage skills (`plan`, `implement`, `review`, `test`) inherit it via this reference and don't need to duplicate the check.
 
 ## Step 5 — Locate exploration (when the stage needs it)
 
-`analyze` reads `exploration.md` as a seed for incremental codebase exploration. Other stages may also reference it. The file lives in different places depending on the ticket shape:
+`plan`'s Phase 1 synthesis reads `exploration.md` as a seed for incremental codebase exploration. Other stages may also reference it. The file lives in different places depending on the ticket shape:
 
 - **Solo ticket** (`<ticket-folder>` matches `claudedocs/tickets/<state>/<id>/`): exploration is at `<ticket-folder>/exploration.md`.
 - **Child of an epic** (`<ticket-folder>` matches `claudedocs/tickets/<state>/<EPIC-ID>/tasks/<CHILD-ID>/`): exploration is at `<epic-folder>/exploration.md`, where `<epic-folder>` is `<ticket-folder>/../..` (the deepest ancestor containing `prd.md`).
 
-If `exploration.md` is missing entirely (solo ticket created outside `discover`, or an epic that never ran exploration), proceed without a seed — `analyze` falls back to a full codebase exploration in that case.
+If `exploration.md` is missing entirely (solo ticket created outside `discover`, or an epic that never ran exploration), proceed without a seed — `plan`'s Phase 1 falls back to a full ticket-scoped codebase exploration in that case.
 
 ## Step 6 — Validate blockers
 
@@ -134,17 +132,16 @@ After reading frontmatter, check the `blocked_by` field. If it's missing or empt
 
 The stage's behavior depends on which stage is running:
 
-- **`analyze`, `plan`** — do NOT refuse on unfinished blockers. Auto-load each blocker's available artifacts (`01-spec.md`, `02-analysis.md`, `03-plan.md` — whichever exist) and pass them to the stage as **Blocker Context**, so the stage reasons against the planned dependency rather than a blind codebase. Print a one-line note per blocker:
+- **`plan`** — does NOT refuse on unfinished blockers. Auto-loads each blocker's available artifacts (`01-spec.md`, `02-plan.md` — whichever exist) and uses them as **Blocker Context** during Phase 1 synthesis and plan mode, so the plan reasons against the planned dependency rather than a blind codebase. Print a one-line note per blocker:
   ```
   Loaded blocker context from <blocker-id> (status: <status>, artifacts: <comma-separated list>).
   ```
-  The Blocker Context section format passed to subagents (analyze) or read inline (plan):
+  The Blocker Context section format passed to subagents during Phase 1 synthesis or read inline during plan mode:
   ```
   ## Blocker Context
   This ticket is blocked by <blocker-id> (status: <status>).
   <blocker-id>'s spec: <full content of blocker's 01-spec.md>
-  <blocker-id>'s analysis: <full content of blocker's 02-analysis.md, if present>
-  <blocker-id>'s plan: <full content of blocker's 03-plan.md, if present>
+  <blocker-id>'s plan: <full content of blocker's 02-plan.md, if present>
 
   Factor this into your <analysis|plan> — assume the blocker will deliver what its plan/spec describes; do NOT flag as gaps things the blocker is already designed to provide.
   ```
@@ -166,7 +163,7 @@ When the stage is invoked with `--ignore-blockers` (either directly via the stag
   ```
   ⚠ Bypassing blocker check for <ticket-id>. Unfinished blockers: <list>. Proceeding anyway.
   ```
-- For `analyze`/`plan`: the flag is a no-op (these stages don't refuse anyway), but blocker-context loading still happens.
+- For `plan`: the flag is a no-op (plan doesn't refuse anyway), but blocker-context loading still happens.
 
 This rule is centralized here so stage skills inherit it via reference and don't duplicate the check.
 

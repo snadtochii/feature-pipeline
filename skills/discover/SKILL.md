@@ -100,7 +100,7 @@ Spawn a `feature-pipeline:code-explorer` subagent to understand the relevant cod
 
 This runs as a **background subagent** — continue to Phase 3 while it explores.
 
-**Preserve the full explorer output** — do not just summarize it for the Socratic questions in Phase 3. The full output gets written to `exploration.md` in Phase 4 so that the `analyze` stage can reuse it instead of re-exploring the same codebase. The file lives at the epic-folder level when discovery emits multiple siblings (so it's shared and lives once, not duplicated per child) and at the ticket-folder level when discovery emits a single ticket.
+**Preserve the full explorer output** — do not just summarize it for the Socratic questions in Phase 3. The full output gets written to `exploration.md` in Phase 4 so that the `plan` stage's Phase 1 synthesis can reuse it instead of re-exploring the same codebase. The file lives at the epic-folder level when discovery emits multiple siblings (so it's shared and lives once, not duplicated per child) and at the ticket-folder level when discovery emits a single ticket.
 
 ---
 
@@ -250,9 +250,9 @@ Scan `claudedocs/tickets/` for existing IDs to determine the next available numb
    # Exploration — <TICKET-ID>
    **Source**: discover skill, Phase 2
    **Date**: <today's date>
-   **Scope**: broad exploration of areas relevant to the feature idea (not yet ticket-scoped — analyze will do targeted follow-up)
+   **Scope**: broad exploration of areas relevant to the feature idea (not yet ticket-scoped — plan's Phase 1 synthesis will do targeted follow-up)
    ```
-   Then the full Phase 2 explorer output verbatim. This artifact is read by `analyze` as a seed for incremental exploration, avoiding a second full codebase sweep. If exploration was thin (e.g., small or purely-UI feature), still write the file so analyze can see what discovery covered.
+   Then the full Phase 2 explorer output verbatim. This artifact is read by `plan`'s Phase 1 synthesis as a seed for incremental exploration, avoiding a second full codebase sweep. If exploration was thin (e.g., small or purely-UI feature), still write the file so plan can see what discovery covered.
 
 4. **Present the ticket**:
    ```
@@ -268,7 +268,7 @@ Scan `claudedocs/tickets/` for existing IDs to determine the next available numb
 
    → Edit if you want to adjust anything
    → Run `/feature-pipeline:flow <TICKET-ID>` to start the pipeline
-   → Run `/feature-pipeline:flow <TICKET-ID> --only analyze` to just analyze first
+   → Run `/feature-pipeline:flow <TICKET-ID> --only plan` to just plan first (Phase 1 synthesis surfaces gaps and patterns before implement)
    ```
 
 #### Multi-mode (N>1)
@@ -279,7 +279,7 @@ Scan `claudedocs/tickets/` for existing IDs to determine the next available numb
 
 3. **Write the parent PRD** to `claudedocs/tickets/backlog/<EPIC-ID>/prd.md` using `templates/prd.md`. The PRD captures feature-level content — problem, goals, end-to-end user journey, cross-cutting constraints, decomposition table, discovery rationale. Frontmatter must include:
    - `id: <EPIC-ID>`
-   - `kind: epic` — **required**, marks this as non-pipelineable; `analyze`/`plan`/`implement`/`review`/`test` will refuse to run against it
+   - `kind: epic` — **required**, marks this as non-pipelineable; `plan`/`implement`/`review`/`test` will refuse to run against it
    - `epic: <epic-slug>`
    - `children: [<CHILD-1-ID>, <CHILD-2-ID>, ...]`
    - `status: backlog`, `created`, `project`, `priority`, `tags`
@@ -326,7 +326,7 @@ Scan `claudedocs/tickets/` for existing IDs to determine the next available numb
 
    → Edit any spec or the PRD to adjust
    → Start the first child: /feature-pipeline:flow <CHILD-1-ID>
-   → Or analyze first: /feature-pipeline:analyze <CHILD-1-ID>
+   → Or plan first: /feature-pipeline:plan <CHILD-1-ID>
    ```
 
 ---
@@ -391,7 +391,7 @@ Standard flow — go through all phases.
 6. **One checkpoint, only when N>1** — single-ticket discoveries skip Phase 3.5 entirely; multi-sibling discoveries always show the proposal before creating tickets
 7. **PRD is feature-level, children are task-level** — the PRD is not a duplicate of children's specs combined; it captures only what spans siblings (problem, cross-cutting constraints, decomposition, discovery notes)
 8. **Exploration lives once per discovery session** — at the epic-folder level for multi-sibling, at the ticket-folder level for single. No per-child duplication.
-9. **Epics are non-pipelineable** — `kind: epic` in PRD frontmatter; `analyze`/`plan`/`implement`/`review`/`test` will refuse to run against an epic ID. Children are the pipelineable items.
+9. **Epics are non-pipelineable** — `kind: epic` in PRD frontmatter; `plan`/`implement`/`review`/`test` will refuse to run against an epic ID. Children are the pipelineable items.
 10. **No `breakdown.md` artifact** — decomposition rationale and AC coverage live as sections inside `prd.md`, not in a separate file
 11. **Create the artifact(s), don't just discuss** — always end with concrete tickets on disk
 12. **Respect "enough"** — if the developer wants to move on, create the best ticket(s) you can

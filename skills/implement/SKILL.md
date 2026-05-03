@@ -33,7 +33,7 @@ Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/r
 ## Required Input
 
 - `01-spec.md` — the ticket specification (for acceptance criteria)
-- `03-plan.md` — the approved implementation plan (**required** — if not found, ask the user)
+- `02-plan.md` — the approved implementation plan (**required** — if not found, ask the user)
 
 ## Epic refusal
 
@@ -46,7 +46,7 @@ Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/refere
 ## Re-run Inputs
 
 When invoked after a review or test failure, **also read**:
-- `05-review.md` — apply review fixes (critical first, then warnings)
+- `04-review.md` — apply review fixes (critical first, then warnings)
 - `bugs/*.md` — apply test-stage bug fixes (by severity)
 
 Log which feedback source is being addressed at the top of the implementation summary.
@@ -63,7 +63,7 @@ Ship working code, not scaffolding. Follow the plan precisely — if the plan sa
 - **Code Quality**: Write production-ready code matching existing project conventions, patterns, and style
 - **Validation Loop**: Run linter, type checker, and test suite after each step; fix failures before moving on
 - **Convention Adherence**: Read project `CLAUDE.md` and existing code patterns before writing; match import style, naming, error handling
-- **Incremental Progress**: Update `04-implementation.md` after each plan step completes — turn the artifact into a live checkpoint, not a post-hoc summary
+- **Incremental Progress**: Update `03-implementation.md` after each plan step completes — turn the artifact into a live checkpoint, not a post-hoc summary
 
 ## Boundaries
 
@@ -86,17 +86,16 @@ Ship working code, not scaffolding. Follow the plan precisely — if the plan sa
 ### 1. Load context comprehensively (before writing any code)
 
 Read every relevant input upfront:
-- `03-plan.md` — the approved plan (required)
+- `02-plan.md` — the approved plan (required) — includes Codebase Context and Open Questions Resolved sections from the plan stage's Phase 1 synthesis
 - `01-spec.md` — the original spec for acceptance criteria
-- `02-analysis.md` — gaps and risks identified during analysis
-- `05-review.md` — if re-running after review feedback
+- `04-review.md` — if re-running after review feedback
 - `bugs/*.md` — if re-running after test failures
 - Project `CLAUDE.md` — conventions, commands, architectural rules
 - Existing code patterns mentioned in the plan's "Pattern to follow" references
 
 ### 2. Initialize the implementation artifact
 
-Create or update `<ticket-folder>/04-implementation.md` with:
+Create or update `<ticket-folder>/03-implementation.md` with:
 - Header (ticket, date, re-run feedback source if applicable)
 - Empty section for each plan step
 - Empty sections for tests, validation results, deviations
@@ -107,11 +106,11 @@ This is a **live** file — you'll update it after every step.
 
 For each step in the plan, in order:
 
-a. **Re-read the current step from `03-plan.md`** — use `Read` with `offset`/`limit` to load just the relevant step's section, not the whole plan. On long implementations the plan drifts out of working context by step 4 or 5; re-reading each step against its source is nearly free and prevents the most common long-session failure mode (plan drift). Do this *every* step, even if the previous one felt fresh.
+a. **Re-read the current step from `02-plan.md`** — use `Read` with `offset`/`limit` to load just the relevant step's section, not the whole plan. On long implementations the plan drifts out of working context by step 4 or 5; re-reading each step against its source is nearly free and prevents the most common long-session failure mode (plan drift). Do this *every* step, even if the previous one felt fresh.
 b. **Implement the change** following the plan's "Files" and "Pattern to follow" fields
 c. **Run lint / typecheck** — fix any errors immediately before moving on
 d. **Run build** (if applicable) — fix compilation errors immediately
-e. **Update `04-implementation.md`** with:
+e. **Update `03-implementation.md`** with:
    - Files created/modified for this step
    - Brief description of what was done
    - Any deviations from the plan (with rationale)
@@ -124,7 +123,7 @@ Do not move to the next step until the current step's validation is clean.
 After all code changes are in place:
 - Write tests for new or modified code following project test conventions
 - Run tests as you write them; fix failures immediately
-- Update `04-implementation.md` with the test files created/modified
+- Update `03-implementation.md` with the test files created/modified
 
 ### 5. Final validation
 
@@ -132,15 +131,15 @@ After all code changes are in place:
 - Run lint one final time — must be clean
 - **Scope check** — compare the actual diff against the plan's file list:
   - Run `git diff --stat <base-branch>...HEAD` (plus unstaged) to get the real set of touched files and line counts
-  - Extract the planned file list from `03-plan.md`'s "Files" fields across all steps
-  - Compare: if the actual touched-file count exceeds the planned count by more than 2x, OR if files outside the planned scope were touched without being flagged as deviations in earlier steps, **record a scope deviation notice** in `04-implementation.md` under a `## Scope Deviations` section with the specific files that drifted and a short rationale
+  - Extract the planned file list from `02-plan.md`'s "Files" fields across all steps
+  - Compare: if the actual touched-file count exceeds the planned count by more than 2x, OR if files outside the planned scope were touched without being flagged as deviations in earlier steps, **record a scope deviation notice** in `03-implementation.md` under a `## Scope Deviations` section with the specific files that drifted and a short rationale
   - This is a **flag, not a block** — the implementation still proceeds to step 6, but the deviation is surfaced in the implement gate so flow and the user can decide whether to approve
-  - Skip this check if `03-plan.md` doesn't list specific files (shouldn't happen if the plan passed its own quality checklist, but degrade gracefully)
-- Update `04-implementation.md` with final validation results
+  - Skip this check if `02-plan.md` doesn't list specific files (shouldn't happen if the plan passed its own quality checklist, but degrade gracefully)
+- Update `03-implementation.md` with final validation results
 
 ### 6. Finalize the artifact
 
-The complete `04-implementation.md` should contain:
+The complete `03-implementation.md` should contain:
 - **Files created/modified** (per step, with brief description of each change)
 - **Test files** created/modified
 - **Lint results** (must be clean)
@@ -153,7 +152,7 @@ The complete `04-implementation.md` should contain:
 
 ## Output
 
-- **Artifact**: `<ticket-folder>/04-implementation.md` (updated incrementally throughout the process, finalized at the end)
+- **Artifact**: `<ticket-folder>/03-implementation.md` (updated incrementally throughout the process, finalized at the end)
 
 ## Presentation
 
@@ -164,7 +163,7 @@ Present to the user:
 
 [Summary: files changed, tests written, all passing, any deviations, re-run feedback addressed if applicable]
 
-Artifacts saved to: <ticket-folder>/04-implementation.md
+Artifacts saved to: <ticket-folder>/03-implementation.md
 ```
 
 ## Error Handling

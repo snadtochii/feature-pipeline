@@ -1,6 +1,6 @@
 ---
 name: flow
-description: "Run the full feature pipeline (analyze → plan → implement → review → test) on a ticket with human review gates. Use when user says 'run the pipeline', 'flow this ticket', 'flow it', or 'build this ticket end-to-end'. NOT for single-stage runs."
+description: "Run the full feature pipeline (plan → implement → review → test) on a ticket with human review gates. Use when user says 'run the pipeline', 'flow this ticket', 'flow it', or 'build this ticket end-to-end'. NOT for single-stage runs."
 allowed-tools:
   - Read
   - Write
@@ -19,8 +19,7 @@ argument-hint: "[ticket-id] [--from|--to|--only|--skip|--continue]"
 Orchestrates feature development through stage skills with human review gates.
 
 Each stage is a separate skill that can also be invoked directly:
-- `/feature-pipeline:analyze` — codebase exploration + spec analysis
-- `/feature-pipeline:plan` — interactive implementation planning
+- `/feature-pipeline:plan` — pre-plan synthesis (codebase exploration + open-questions surfacing) followed by interactive plan mode
 - `/feature-pipeline:implement` — code writing + lint + tests
 - `/feature-pipeline:review` — parallel code review (4 reviewers)
 - `/feature-pipeline:test` — UI/E2E testing via Playwright
@@ -45,12 +44,12 @@ Remaining args = pipeline flags (see table below)
 | `--continue` | Auto-detect last completed stage and resume from the next one | `--continue` |
 | `--ignore-blockers` | Bypass `blocked_by` validation in `implement`/`review`/`test`; prints a warning and proceeds | `--ignore-blockers` |
 
-Stage names: `analyze`, `plan`, `implement`, `review`, `test`
+Stage names: `plan`, `implement`, `review`, `test`
 
 ### Examples
 ```
 /feature-pipeline:flow BL-1                              # full pipeline
-/feature-pipeline:flow BL-1 --only analyze               # just analysis
+/feature-pipeline:flow BL-1 --only plan                  # just the plan stage (Phase 1 synthesis + plan mode)
 /feature-pipeline:flow BL-1 --from implement             # skip analysis + planning
 /feature-pipeline:flow BL-1 --from implement --to review # implement + review
 /feature-pipeline:flow BL-1 --skip test                  # everything except testing
@@ -60,7 +59,9 @@ Stage names: `analyze`, `plan`, `implement`, `review`, `test`
 
 ## Pipeline Order
 
-**analyze → plan → implement → review → test → completion**
+**plan → implement → review → test → completion**
+
+(`plan` includes pre-plan synthesis — codebase exploration + open-questions surfacing — before entering plan mode.)
 
 ---
 
@@ -71,12 +72,11 @@ Each stage reads and writes artifacts in `<ticket-folder>/`. This contract is lo
 | Stage | Reads | Writes | Re-run reads |
 |---|---|---|---|
 | `discover` (step 0, not part of flow) | ticket draft from user | **Single-mode** (N=1): `claudedocs/tickets/backlog/<id>/01-spec.md` + `exploration.md` in the same folder. **Multi-mode** (N>1): `claudedocs/tickets/backlog/<EPIC-ID>/prd.md` (kind: epic) + shared `exploration.md` + `tasks/<CHILD-ID>/01-spec.md` for each child. | — |
-| `analyze` | `01-spec.md`, `exploration.md` (optional seed — used for incremental exploration if present) | `02-analysis.md` | (same) |
-| `plan` | `01-spec.md`, `02-analysis.md` | `03-plan.md` | (same) |
-| `implement` | `01-spec.md`, `03-plan.md` | `04-implementation.md` | **also** `05-review.md` (review loop-back), `bugs/*.md` (test loop-back) |
-| `review` | working tree diff, project `CLAUDE.md` validation commands | `05-review.md` | (same) |
-| `test` | `01-spec.md`, `04-implementation.md`, project `CLAUDE.md` test framework hint | `06-tests.md`, `bugs/*.md`; **conditionally** new spec files in the project's test directory (only when all acceptance criteria pass AND the project has a documented test framework — see the test skill's codification rules) | (same) |
-| `flow` | `.iterations.json` (at every gate) | `.iterations.json` (on loop-backs and reset), `07-summary.md` (on completion), `.stale/` moves on deliberate re-runs | — |
+| `plan` | `01-spec.md`, `exploration.md` (optional seed — used for incremental exploration if present) | `02-plan.md` (includes Codebase Context + Open Questions Resolved sections from Phase 1 synthesis) | (same) |
+| `implement` | `01-spec.md`, `02-plan.md` | `03-implementation.md` | **also** `04-review.md` (review loop-back), `bugs/*.md` (test loop-back) |
+| `review` | working tree diff, project `CLAUDE.md` validation commands | `04-review.md` | (same) |
+| `test` | `01-spec.md`, `03-implementation.md`, project `CLAUDE.md` test framework hint | `05-tests.md`, `bugs/*.md`; **conditionally** new spec files in the project's test directory (only when all acceptance criteria pass AND the project has a documented test framework — see the test skill's codification rules) | (same) |
+| `flow` | `.iterations.json` (at every gate) | `.iterations.json` (on loop-backs and reset), `06-summary.md` (on completion), `.stale/` moves on deliberate re-runs | — |
 
 ---
 
@@ -93,7 +93,7 @@ flow owns:
 It does NOT own:
 - Stage-level logic — that lives in each stage skill
 - Agent coordination — stage skills spawn their own subagents
-- Direct code/artifact writes to the project tree — only `07-summary.md` and `.iterations.json`
+- Direct code/artifact writes to the project tree — only `06-summary.md` and `.iterations.json`
 
 ---
 
@@ -105,11 +105,10 @@ When the user deliberately re-runs an earlier stage (via `--only`, `--from`, or 
 
 | Re-run stage | Downstream (invalidated) |
 |---|---|
-| `analyze` | `02-analysis.md`, `03-plan.md`, `04-implementation.md`, `05-review.md`, `06-tests.md`, `bugs/`, `07-summary.md` |
-| `plan` | `03-plan.md`, `04-implementation.md`, `05-review.md`, `06-tests.md`, `bugs/`, `07-summary.md` |
-| `implement` | `04-implementation.md`, `05-review.md`, `06-tests.md`, `bugs/`, `07-summary.md` |
-| `review` | `05-review.md`, `06-tests.md`, `bugs/`, `07-summary.md` |
-| `test` | `06-tests.md`, `bugs/`, `07-summary.md` |
+| `plan` | `02-plan.md`, `03-implementation.md`, `04-review.md`, `05-tests.md`, `bugs/`, `06-summary.md` |
+| `implement` | `03-implementation.md`, `04-review.md`, `05-tests.md`, `bugs/`, `06-summary.md` |
+| `review` | `04-review.md`, `05-tests.md`, `bugs/`, `06-summary.md` |
+| `test` | `05-tests.md`, `bugs/`, `06-summary.md` |
 
 **Rules:**
 1. **Non-destructive.** Move, don't delete. The user can always grep `.stale/` to see what was superseded.
@@ -142,8 +141,8 @@ To prevent infinite review ↔ implement or test ↔ implement loops, flow track
 **Rules:**
 1. **Initialize** `.iterations.json` with zeros when flow first creates the pipeline folder. If the file already exists on a `--continue`, preserve its state.
 2. **Increment before check.** When a loop-back would fire, increment the relevant counter, then compare.
-3. **On budget exceeded**, DO NOT auto-route. Instead, print a summary of what each prior loop attempted (pulled from successive `04-implementation.md` re-run notes or `05-review.md` revisions) and ask the user: force another loop / rewrite plan / abort / accept with known issues.
-4. **Reset on success.** When the pipeline completes (write `07-summary.md`), zero all counters. Record the final totals in `07-summary.md` for historical visibility.
+3. **On budget exceeded**, DO NOT auto-route. Instead, print a summary of what each prior loop attempted (pulled from successive `03-implementation.md` re-run notes or `04-review.md` revisions) and ask the user: force another loop / rewrite plan / abort / accept with known issues.
+4. **Reset on success.** When the pipeline completes (write `06-summary.md`), zero all counters. Record the final totals in `06-summary.md` for historical visibility.
 5. **Reset on deliberate re-run.** When the user explicitly re-runs an earlier stage (`--only plan`, `--from plan`), reset all downstream counters — that's a fresh attempt, not a loop.
 
 ---
@@ -160,13 +159,12 @@ To prevent infinite review ↔ implement or test ↔ implement loops, flow track
    - Flags combine: `--from X --to Y --skip Z`
 
 3. **If `--continue` flag is set**, auto-detect the next stage by checking which artifacts exist in `<ticket-folder>/`:
-   - `07-summary.md` exists → **pipeline already complete**. Print: "Pipeline already complete for `<ticket-id>`. Run with `--from <stage>` to re-run a specific stage." and exit without re-running anything.
-   - `06-tests.md` exists → resume at completion (write `07-summary.md`, finalize ticket)
-   - `05-review.md` exists → resume from `test`
-   - `04-implementation.md` exists → resume from `review`
-   - `03-plan.md` exists → resume from `implement`
-   - `02-analysis.md` exists → resume from `plan`
-   - `01-spec.md` exists (or nothing) → resume from `analyze`
+   - `06-summary.md` exists → **pipeline already complete**. Print: "Pipeline already complete for `<ticket-id>`. Run with `--from <stage>` to re-run a specific stage." and exit without re-running anything.
+   - `05-tests.md` exists → resume at completion (write `06-summary.md`, finalize ticket)
+   - `04-review.md` exists → resume from `test`
+   - `03-implementation.md` exists → resume from `review`
+   - `02-plan.md` exists → resume from `implement`
+   - `01-spec.md` exists (or nothing) → resume from `plan`
    - `--continue` is equivalent to `--from <next-stage>` — other flags like `--to` and `--skip` can still be combined
    - Print which stage is being resumed: "Artifacts found through `<last-stage>`. Resuming from `<next-stage>`."
 
@@ -184,7 +182,7 @@ To prevent infinite review ↔ implement or test ↔ implement loops, flow track
    - Update `prd.md`'s frontmatter `status` to `in-progress`.
    - Update the child's `01-spec.md` frontmatter `status` to `in-progress`.
 
-   The move includes all artifacts (`01-spec.md`/`prd.md`, `exploration.md` if present, `02-analysis.md`, etc.), `bugs/`, `.iterations.json`, `.stale/`, and (for epics) the entire `tasks/` subfolder. After this point, `<ticket-folder>` resolves to the new location for the rest of the run.
+   The move includes all artifacts (`01-spec.md`/`prd.md`, `exploration.md` if present, `02-plan.md`, etc.), `bugs/`, `.iterations.json`, `.stale/`, and (for epics) the entire `tasks/` subfolder. After this point, `<ticket-folder>` resolves to the new location for the rest of the run.
 
 5. **Invalidate downstream artifacts** (if this run re-executes a stage whose artifact already exists):
    - For each stage in the determined list whose artifact already exists at the top level of `<ticket-folder>/`:
@@ -200,7 +198,7 @@ To prevent infinite review ↔ implement or test ↔ implement loops, flow track
    - On `--continue`, preserve the existing counter state (we're resuming mid-loop)
    - If the user explicitly re-runs an earlier stage via `--only` or `--from`, reset counters for that stage and all downstream stages (see "Loop-back iteration budget" section)
 
-7. **Validate blockers** per [`references/ticket-resolution.md`](references/ticket-resolution.md) Step 6. If the determined stage list includes any of `implement`, `review`, `test` AND the ticket has `blocked_by` entries that aren't done, abort flow with the Step 6 message (unless `--ignore-blockers` was passed; in that case print the warning and proceed). For analyze/plan-only runs, blocker validation does not refuse — analyze/plan stages auto-load blocker context themselves. Propagate `--ignore-blockers` to each stage skill invocation that needs it.
+7. **Validate blockers** per [`references/ticket-resolution.md`](references/ticket-resolution.md) Step 6. If the determined stage list includes any of `implement`, `review`, `test` AND the ticket has `blocked_by` entries that aren't done, abort flow with the Step 6 message (unless `--ignore-blockers` was passed; in that case print the warning and proceed). For plan-only runs, blocker validation does not refuse — plan auto-loads blocker context itself in Phase 1. Propagate `--ignore-blockers` to each stage skill invocation that needs it.
 
 ---
 
@@ -210,34 +208,20 @@ For each stage in the determined list, invoke the corresponding stage skill and 
 
 ---
 
-### ANALYZE
-
-1. Invoke the analyze skill: `/feature-pipeline:analyze <ticket-id>`
-2. The skill spawns two sequential subagents and saves `02-analysis.md`
-3. **GATE** — after the skill presents its findings:
-   ```
-   → Approve to proceed to planning
-   → Reject with notes to re-analyze
-   ```
-4. If rejected → re-invoke `/feature-pipeline:analyze <ticket-id>` (the skill will see the conversation history with user feedback and the existing `02-analysis.md`)
-5. If approved → proceed to next stage
-
----
-
 ### PLAN
 
 1. Invoke the plan skill: `/feature-pipeline:plan <ticket-id>`
-2. The skill enters plan mode for interactive planning — **plan mode itself is the gate**
-3. The user refines the plan interactively until satisfied, then exits plan mode
-4. The skill saves `03-plan.md`
-5. Proceed to next stage
+2. The skill runs Phase 1 (pre-plan synthesis — spawns code-explorer + requirements-analyst subagents) and presents the synthesis: codebase patterns, open questions with proposed defaults, and a complexity check.
+3. If the synthesis surfaces a complexity overflow (spec sized M, analysis suggests XL), the skill pauses for a user choice (proceed / cancel + re-discover). Flow respects the user's call: on cancel, abort the run; on proceed, continue.
+4. The skill enters plan mode for interactive design — **plan mode itself is the gate**. The user refines the plan, addresses open questions inline, and exits plan mode when satisfied.
+5. The skill saves `02-plan.md`. Proceed to next stage.
 
 ---
 
 ### IMPLEMENT
 
 1. Invoke the implement skill: `/feature-pipeline:implement <ticket-id>`
-2. The skill writes code, runs lint/tests, and saves `04-implementation.md` incrementally as it goes
+2. The skill writes code, runs lint/tests, and saves `03-implementation.md` incrementally as it goes
 3. **GATE** — after the skill presents its summary:
    ```
    → Approve to proceed to review
@@ -251,7 +235,7 @@ For each stage in the determined list, invoke the corresponding stage skill and 
 ### REVIEW
 
 1. Invoke the review skill: `/feature-pipeline:review <ticket-id>`
-2. The skill first runs deterministic validation (lint/typecheck/build) and short-circuits to a validation-failed `05-review.md` if any check fails. Otherwise it spawns **four parallel reviewers** (correctness, security, performance, architectural-fit) and saves `05-review.md`.
+2. The skill first runs deterministic validation (lint/typecheck/build) and short-circuits to a validation-failed `04-review.md` if any check fails. Otherwise it spawns **four parallel reviewers** (correctness, security, performance, architectural-fit) and saves `04-review.md`.
 3. **GATE** — after the skill presents findings:
    ```
    → Approve to proceed to testing (no critical issues)
@@ -260,10 +244,10 @@ For each stage in the determined list, invoke the corresponding stage skill and 
 4. If fixes needed → **check the iteration budget first**:
    - Read `.iterations.json` and increment `review_implement_loops`
    - If the new value is > 2 (this would be the 3rd loop-back), **do NOT auto-route**. Escalate:
-     - Print a summary of prior attempts (pull deviations/re-run notes from successive `04-implementation.md` revisions and the sequence of `05-review.md` findings)
+     - Print a summary of prior attempts (pull deviations/re-run notes from successive `03-implementation.md` revisions and the sequence of `04-review.md` findings)
      - Ask the user: "We've looped review ↔ implement N times. Options: (a) force another loop, (b) re-plan the approach, (c) accept with known issues and proceed to test, (d) abort."
      - Route according to the user's choice; do not increment further without explicit approval
-   - If the new value is ≤ 2, write the updated counter back to `.iterations.json` and re-invoke `/feature-pipeline:implement <ticket-id>` — the skill reads the review from `05-review.md` automatically
+   - If the new value is ≤ 2, write the updated counter back to `.iterations.json` and re-invoke `/feature-pipeline:implement <ticket-id>` — the skill reads the review from `04-review.md` automatically
    - After fixes, run a quick pass to verify: invoke `/feature-pipeline:review <ticket-id>` again
 5. If approved → proceed to next stage (counter persists; only resets on successful completion)
 
@@ -272,7 +256,7 @@ For each stage in the determined list, invoke the corresponding stage skill and 
 ### TEST
 
 1. Invoke the test skill: `/feature-pipeline:test <ticket-id>`
-2. The skill spawns a UI tester and saves `06-tests.md`
+2. The skill spawns a UI tester and saves `05-tests.md`
 3. **GATE** — after the skill presents results:
    ```
    → All pass → proceed to completion
@@ -294,7 +278,7 @@ For each stage in the determined list, invoke the corresponding stage skill and 
 
 **IMPORTANT: All completion steps below are MANDATORY. Do not skip any of them.**
 
-1. Write pipeline summary to `<ticket-folder>/07-summary.md`:
+1. Write pipeline summary to `<ticket-folder>/06-summary.md`:
    - Ticket title and ID
    - Stages completed
    - Files created/modified
@@ -345,12 +329,11 @@ All artifacts live inside the per-ticket folder, numbered by stage order. There 
 claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlog, in-progress, done}
 ├── 01-spec.md              # The ticket — frontmatter (id, status, priority, ...) + spec body
 ├── exploration.md          # Discover-time codebase exploration (optional — only when the ticket went through /feature-pipeline:discover)
-├── 02-analysis.md          # code-explorer + requirements-analyst output
-├── 03-plan.md              # Implementation blueprint
-├── 04-implementation.md    # Implementation summary + validation results (live — updated per step)
-├── 05-review.md            # Merged review findings (4 reviewers)
-├── 06-tests.md             # UI test execution results
-├── 07-summary.md           # Pipeline completion summary
+├── 02-plan.md              # Implementation blueprint (includes Phase 1 synthesis as Codebase Context + Open Questions Resolved sections)
+├── 03-implementation.md    # Implementation summary + validation results (live — updated per step)
+├── 04-review.md            # Merged review findings (4 reviewers)
+├── 05-tests.md             # UI test execution results
+├── 06-summary.md           # Pipeline completion summary
 ├── .iterations.json        # Loop-back counter state (see "Loop-back iteration budget" section)
 ├── bugs/                   # Bug reports from testing (if any)
 │   ├── BUG-001.md
@@ -368,8 +351,8 @@ claudedocs/tickets/<state>/<EPIC-ID>/   # epic folder; <state> follows most-adva
 └── tasks/
     ├── <CHILD-1-ID>/       # child ticket folder — same internal structure as a solo ticket above
     │   ├── 01-spec.md      # frontmatter: parent: <EPIC-ID>, blocked_by: [...] (optional)
-    │   ├── 02-analysis.md
-    │   ├── 03-plan.md
+    │   ├── 02-plan.md
+    │   ├── 03-implementation.md
     │   ├── ...
     │   ├── bugs/
     │   ├── .iterations.json
@@ -383,7 +366,7 @@ The whole epic subtree moves between `<state>/` folders as a unit (see SETUP ste
 **Naming rules:**
 - Sequential: `NN-name.md` where `NN` is the stage order
 - `01-spec.md` IS the ticket — it carries frontmatter (live state metadata) and the spec body. There is no separate "ticket file" outside the folder.
-- `02`–`07` are reserved for canonical stages in order. Don't reuse numbers.
+- `02`–`06` are reserved for canonical stages in order: `02-plan.md`, `03-implementation.md`, `04-review.md`, `05-tests.md`, `06-summary.md`. Don't reuse numbers.
 - Plain (un-numbered) filenames at the ticket-folder root are reserved for pre-spec / pre-stage artifacts (currently just `exploration.md`); for child tickets of an epic, the shared `exploration.md` lives one level up at the epic folder, not in the child folder
 - Bug reports from the test stage go in `bugs/BUG-NNN.md` (zero-padded to 3)
 - `.stale/` is reserved for superseded artifacts after deliberate re-runs; stages ignore anything under it
@@ -398,7 +381,7 @@ This enables:
 - Resuming a pipeline that was interrupted
 - Re-running a single stage with `--only` using existing artifacts from earlier stages
 - Skipping stages that were already completed
-- Detecting fully-complete pipelines via `07-summary.md` presence (see SETUP step 3)
+- Detecting fully-complete pipelines via `06-summary.md` presence (see SETUP step 3)
 
 ## Error Handling
 

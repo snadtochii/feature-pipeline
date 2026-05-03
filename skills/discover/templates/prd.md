@@ -1,7 +1,7 @@
 ---
 id: XX-1
 title: Epic Title
-kind: epic              # marks this as non-pipelineable — analyze/plan/implement/review/test refuse to run against epics
+kind: epic              # marks this as non-pipelineable — plan/implement/review/test refuse to run against epics
 epic: epic-slug         # human-readable shared identifier across siblings (lowercase, hyphenated)
 children: [XX-2, XX-3, XX-4]
 priority: medium        # low | medium | high | critical
@@ -58,4 +58,4 @@ Brief summary of key decisions and rationale from the discovery dialogue:
 - Why split into N children (which seam was used: vertical slice / horizontal layer / dependency chain)
 - Alternatives considered and why they were rejected
 - Open questions that surfaced and how they were resolved
-- Anything analyze/plan stages should know about the trade-offs that shaped this decomposition
+- Anything the plan stage should know about the trade-offs that shaped this decomposition
