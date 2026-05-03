@@ -43,6 +43,7 @@ Remaining args = pipeline flags (see table below)
 | `--only <stage>` | Run just this one stage | `--only review` |
 | `--skip <stage>` | Skip this stage in the flow | `--skip test` |
 | `--continue` | Auto-detect last completed stage and resume from the next one | `--continue` |
+| `--ignore-blockers` | Bypass `blocked_by` validation in `implement`/`review`/`test`; prints a warning and proceeds | `--ignore-blockers` |
 
 Stage names: `analyze`, `plan`, `implement`, `review`, `test`
 
@@ -69,9 +70,9 @@ Each stage reads and writes artifacts in `<ticket-folder>/`. This contract is lo
 
 | Stage | Reads | Writes | Re-run reads |
 |---|---|---|---|
-| `discovery` (step 0, not part of flow) | ticket draft from user | `claudedocs/tickets/backlog/<id>/01-spec.md` + `00-exploration.md` in the same folder | — |
-| `decompose` (step 0b, not part of flow) | `01-spec.md`, `02-analysis.md` | child ticket folders in `claudedocs/tickets/backlog/<child-id>/` (each with its own `01-spec.md` + inherited `00-exploration.md`), `02b-decomposition.md` in the parent's folder, updated parent `01-spec.md` frontmatter (`children` field) | — |
-| `analyze` | `01-spec.md`, `00-exploration.md` (optional seed — used for incremental exploration if present) | `02-analysis.md` | (same) |
+| `discover` (step 0, not part of flow) | ticket draft from user | **Single-mode** (N=1): `claudedocs/tickets/backlog/<id>/01-spec.md` + `exploration.md` in the same folder. **Multi-mode** (N>1): `claudedocs/tickets/backlog/<EPIC-ID>/prd.md` (kind: epic) + shared `exploration.md` + `tasks/<CHILD-ID>/01-spec.md` for each child. | — |
+| `decompose` (step 0b, not part of flow) | `01-spec.md`, `02-analysis.md` | child ticket folders in `claudedocs/tickets/backlog/<child-id>/` (each with its own `01-spec.md` + inherited `exploration.md`), `02b-decomposition.md` in the parent's folder, updated parent `01-spec.md` frontmatter (`children` field) | — |
+| `analyze` | `01-spec.md`, `exploration.md` (optional seed — used for incremental exploration if present) | `02-analysis.md` | (same) |
 | `plan` | `01-spec.md`, `02-analysis.md` | `03-plan.md` | (same) |
 | `implement` | `01-spec.md`, `03-plan.md` | `04-implementation.md` | **also** `05-review.md` (review loop-back), `bugs/*.md` (test loop-back) |
 | `review` | working tree diff, project `CLAUDE.md` validation commands | `05-review.md` | (same) |
@@ -170,7 +171,7 @@ To prevent infinite review ↔ implement or test ↔ implement loops, flow track
    - `--continue` is equivalent to `--from <next-stage>` — other flags like `--to` and `--skip` can still be combined
    - Print which stage is being resumed: "Artifacts found through `<last-stage>`. Resuming from `<next-stage>`."
 
-4. **Move the ticket folder** from `claudedocs/tickets/backlog/<id>/` to `claudedocs/tickets/in-progress/<id>/` (if not already there — skip if ticket is already in `in-progress/`). The entire folder moves as a unit, including all artifacts (`01-spec.md`, `00-exploration.md`, `02-analysis.md`, etc.), `bugs/`, `.iterations.json`, and `.stale/`. Update the `status` field in `01-spec.md`'s frontmatter to `in-progress`. After this point, `<ticket-folder>` resolves to the new location for the rest of the run.
+4. **Move the ticket folder** from `claudedocs/tickets/backlog/<id>/` to `claudedocs/tickets/in-progress/<id>/` (if not already there — skip if ticket is already in `in-progress/`). The entire folder moves as a unit, including all artifacts (`01-spec.md`, `exploration.md`, `02-analysis.md`, etc.), `bugs/`, `.iterations.json`, and `.stale/`. Update the `status` field in `01-spec.md`'s frontmatter to `in-progress`. After this point, `<ticket-folder>` resolves to the new location for the rest of the run.
 
 5. **Invalidate downstream artifacts** (if this run re-executes a stage whose artifact already exists):
    - For each stage in the determined list whose artifact already exists at the top level of `<ticket-folder>/`:
@@ -185,6 +186,8 @@ To prevent infinite review ↔ implement or test ↔ implement loops, flow track
    - If it exists (fresh run, not `--continue`, of a ticket that previously ran), reset counters to 0 — a new `flow` invocation is a fresh attempt
    - On `--continue`, preserve the existing counter state (we're resuming mid-loop)
    - If the user explicitly re-runs an earlier stage via `--only` or `--from`, reset counters for that stage and all downstream stages (see "Loop-back iteration budget" section)
+
+7. **Validate blockers** per [`references/ticket-resolution.md`](references/ticket-resolution.md) Step 6. If the determined stage list includes any of `implement`, `review`, `test` AND the ticket has `blocked_by` entries that aren't done, abort flow with the Step 6 message (unless `--ignore-blockers` was passed; in that case print the warning and proceed). For analyze/plan-only runs, blocker validation does not refuse — analyze/plan stages auto-load blocker context themselves. Propagate `--ignore-blockers` to each stage skill invocation that needs it.
 
 ---
 
@@ -316,7 +319,7 @@ All artifacts live inside the per-ticket folder, numbered by stage order. The ca
 ```
 claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlog, in-progress, done}
 ├── 01-spec.md              # The ticket — frontmatter (id, status, priority, ...) + spec body
-├── 00-exploration.md       # Discovery-time codebase exploration (optional — only when the ticket went through /feature-pipeline:discovery)
+├── exploration.md       # Discover-time codebase exploration (optional — only when the ticket went through /feature-pipeline:discover; for child tickets of an epic, this file lives at the epic-folder level instead)
 ├── 02-analysis.md          # code-explorer + requirements-analyst output
 ├── 02b-decomposition.md    # Decomposition rationale (optional — only when the ticket was decomposed via /feature-pipeline:decompose)
 ├── 03-plan.md              # Implementation blueprint
@@ -336,7 +339,7 @@ claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlo
 - Sequential: `NN-name.md` where `NN` is the stage order
 - `01-spec.md` IS the ticket — it carries frontmatter (live state metadata) and the spec body. There is no separate "ticket file" outside the folder.
 - `02`–`07` are reserved for canonical stages in order. Don't reuse numbers.
-- `00-` is reserved for pre-spec artifacts (currently just `00-exploration.md`)
+- Plain (un-numbered) filenames at the ticket-folder root are reserved for pre-spec / pre-stage artifacts (currently just `exploration.md`); for child tickets of an epic, the shared `exploration.md` lives one level up at the epic folder, not in the child folder
 - `02b-` is reserved for the decomposition artifact (only present on parent epics that went through `decompose`)
 - Bug reports from the test stage go in `bugs/BUG-NNN.md` (zero-padded to 3)
 - `.stale/` is reserved for superseded artifacts after deliberate re-runs; stages ignore anything under it

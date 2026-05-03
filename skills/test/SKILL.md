@@ -40,6 +40,14 @@ Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/r
 - `01-spec.md` — the ticket specification (for acceptance criteria)
 - `04-implementation.md` — implementation summary (recommended, for test context)
 
+## Epic refusal
+
+Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 4 before any work. If the ticket has `kind: epic`, abort and instruct the user to run test against a child ticket instead — epics are non-pipelineable.
+
+## Blocker validation
+
+Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6. If any entry in `blocked_by` is not yet done, abort with the message in Step 6. Bypass with `--ignore-blockers` (prints a warning, proceeds — testing on top of unfinished blocker work usually fails fast, but the option exists).
+
 ## Process
 
 1. **Read the project's `CLAUDE.md` for a test framework hint** — look for a `## Testing` section, a `## Commands` section with a test runner, or inline references like "Playwright specs in `e2e/`" / "Vitest with tests in `__tests__/`". Capture the framework name, test directory, and test command if present. This hint is passed to the ui-tester subagent for the codification step; if no hint is found, note that and let codification degrade gracefully.

@@ -35,6 +35,14 @@ Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/r
 - `01-spec.md` — the ticket specification (for acceptance criteria)
 - `03-plan.md` — the approved implementation plan (**required** — if not found, ask the user)
 
+## Epic refusal
+
+Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 4 before any work. If the ticket has `kind: epic`, abort and instruct the user to run implement against a child ticket instead — epics are non-pipelineable.
+
+## Blocker validation
+
+Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6. If any entry in `blocked_by` is not yet done (frontmatter `status: done` or `cancelled`, or folder under `done/`), abort with the message in Step 6 listing the unblocked blockers. Bypass with `--ignore-blockers` (prints a warning, proceeds at your risk — you may break the build because the blocker's foundational work isn't in place).
+
 ## Re-run Inputs
 
 When invoked after a review or test failure, **also read**:

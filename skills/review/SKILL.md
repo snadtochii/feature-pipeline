@@ -33,6 +33,14 @@ Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/r
 - Code changes in the working tree (branch diff + unstaged changes)
 - Project `CLAUDE.md` — read for lint/typecheck/build commands used by the deterministic validation step
 
+## Epic refusal
+
+Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 4 before any work. If the ticket has `kind: epic`, abort and instruct the user to run review against a child ticket instead — epics are non-pipelineable.
+
+## Blocker validation
+
+Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6. If any entry in `blocked_by` is not yet done, abort with the message in Step 6. Bypass with `--ignore-blockers` (prints a warning, proceeds — useful when reviewing a partial branch that integrates with unfinished blocker work).
+
 ## Process
 
 ### 0. Deterministic validation (fast-fail gate)

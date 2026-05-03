@@ -35,11 +35,20 @@ Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/r
 - `01-spec.md` — the ticket specification
 - `02-analysis.md` — analysis findings (warn if not found, but proceed — the user may have skipped analysis)
 
+## Epic refusal
+
+Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 4 before any work. If the ticket has `kind: epic`, abort and instruct the user to run plan against a child ticket instead — epics are non-pipelineable.
+
+## Blocker-aware context loading
+
+Per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6, if the ticket has `blocked_by` entries, locate each blocker and load its available artifacts (`01-spec.md`, `02-analysis.md`, `03-plan.md`). Plan does NOT refuse on unfinished blockers — it reads the blocker artifacts alongside this ticket's spec and analysis when entering plan mode, so the plan reasons against the planned dependency. The blocker context becomes part of the inputs the user can reference when refining the plan ("BL-15 will call `usePlantStore` from BL-13's plan step 3"). Print one line per blocker loaded.
+
 ## Process
 
 1. Read all existing context:
    - `<ticket-folder>/01-spec.md` — the spec
    - `<ticket-folder>/02-analysis.md` — gaps, risks, codebase context (if present)
+   - **Blocker artifacts** — for each `blocked_by` entry, read the blocker's `01-spec.md` and (if present) `02-analysis.md` and `03-plan.md`; treat as additional design context per the "Blocker-aware context loading" section above
    - Project `CLAUDE.md` — conventions, lint/test commands, architectural rules
 2. Enter plan mode using `EnterPlanMode`
 3. Explore the codebase — find existing patterns with concrete file:line references before designing anything new

@@ -166,10 +166,10 @@ Once approved:
    - **Constraints**: Non-negotiable technical boundaries for this child — existing patterns/services it must use, integration points it can't bypass, cross-cutting requirements. Informed by `02-analysis.md`. Keep out: approach, file list, architecture choices (those belong to the plan stage).
    - **Out of Scope**: What this child does NOT cover (handled by sibling tickets). Reference siblings by ID.
 
-4. **Seed each child's exploration** by copying the parent's `00-exploration.md` into each child's ticket folder at `claudedocs/tickets/backlog/<child-id>/00-exploration.md`. Add a header note:
+4. **Seed each child's exploration** by copying the parent's `exploration.md` into each child's ticket folder at `claudedocs/tickets/backlog/<child-id>/exploration.md`. Add a header note:
    ```
    # Exploration — <child-id>
-   **Source**: inherited from parent <parent-id> discovery/analysis
+   **Source**: inherited from parent <parent-id> discover/analysis
    **Date**: <original date>
    **Note**: This exploration was done for the parent epic. The analyze stage
    for this child should do targeted incremental exploration for the child's
@@ -235,7 +235,7 @@ Once approved:
 
 ## Output
 
-- **Child ticket folders**: `claudedocs/tickets/backlog/<PREFIX>-<N>/` (one per child, each containing `01-spec.md` and an inherited `00-exploration.md`)
+- **Child ticket folders**: `claudedocs/tickets/backlog/<PREFIX>-<N>/` (one per child, each containing `01-spec.md` and an inherited `exploration.md`)
 - **Updated parent spec**: `children` field added to the parent's `01-spec.md` frontmatter
 - **Decomposition artifact**: `02b-decomposition.md` in the parent's ticket folder
 
@@ -253,6 +253,6 @@ Once approved:
 2. **Every parent AC must be covered** — no gaps allowed; validate before creation
 3. **Children are S or M complexity** — if a child is L/XL, the decomposition isn't granular enough
 4. **Inherit, don't duplicate** — children reference the parent, not copy its full description
-5. **Exploration is inherited, not re-run** — copy `00-exploration.md`, let analyze do incremental work
+5. **Exploration is inherited, not re-run** — copy `exploration.md`, let analyze do incremental work
 6. **Order matters** — first child must have no dependencies on siblings
 7. **This skill does not run children through the pipeline** — it creates the tickets; the user (or board UI) runs each child's pipeline separately
