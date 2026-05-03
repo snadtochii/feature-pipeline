@@ -1,7 +1,7 @@
 {
   "name": "feature-pipeline",
-  "description": "Agentic feature development pipeline with discovery, analysis, planning, implementation, review, and testing stages. Includes human review gates, parallel code reviews, and UI testing via Playwright.",
-  "version": "2.1.0",
+  "description": "Agentic feature development pipeline: Socratic discovery (1..N tickets), interactive planning with pre-plan synthesis, implementation, parallel code review, and UI testing via Playwright. Human review gates between every stage; multi-sibling ticket support for epics with blocker enforcement.",
+  "version": "2.2.0",
   "author": {
     "name": "Serhii Nadtochii"
   },
