@@ -33,6 +33,14 @@ Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/r
 - Code changes in the working tree (branch diff + unstaged changes)
 - Project `CLAUDE.md` — read for lint/typecheck/build commands used by the deterministic validation step
 
+## Epic refusal
+
+Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 4 before any work. If the ticket has `kind: epic`, abort and instruct the user to run review against a child ticket instead — epics are non-pipelineable.
+
+## Blocker validation
+
+Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6. If any entry in `blocked_by` is not yet done, abort with the message in Step 6. Bypass with `--ignore-blockers` (prints a warning, proceeds — useful when reviewing a partial branch that integrates with unfinished blocker work).
+
 ## Process
 
 ### 0. Deterministic validation (fast-fail gate)
@@ -43,7 +51,7 @@ Cheap, deterministic checks run *before* spawning the expensive LLM reviewers. I
 2. **If no validation commands are documented**, log a single-line warning ("No validation commands found in project CLAUDE.md — proceeding to AI review without deterministic gate") and continue to step 1. Graceful degradation — the skill still works on projects without a documented setup.
 3. **Run each documented check** via Bash, in order: lint first, then typecheck, then build. Stop on the first failure — later checks would pile on noise.
 4. **If any check fails**, do NOT spawn the parallel reviewers. Instead:
-   - Write a validation-failed `05-review.md` with this shape (single CRITICAL finding tagged `[validation]`):
+   - Write a validation-failed `04-review.md` with this shape (single CRITICAL finding tagged `[validation]`):
      - **Verdict line:** "FAILED deterministic validation — AI review skipped"
      - **Summary counts:** `CRITICAL: 1 (validation)`, `WARNING: 0`, `SUGGESTION: 0`
      - **Finding body:** name of the failed check, the exact command run, and a trimmed excerpt of the failure output (roughly the first 30 lines)
@@ -96,7 +104,7 @@ All four run **concurrently** — launch them in a single message.
 
 ### 3. Merge findings
 
-Combine all four reviewers' output into `<ticket-folder>/05-review.md`:
+Combine all four reviewers' output into `<ticket-folder>/04-review.md`:
 
 - **Group by severity**: CRITICAL → WARNING → SUGGESTION
 - **De-duplicate** overlapping findings (e.g., if both code-reviewer and code-architect flag the same issue)
@@ -105,7 +113,7 @@ Combine all four reviewers' output into `<ticket-folder>/05-review.md`:
 
 ## Output
 
-- **Artifact**: `<ticket-folder>/05-review.md`
+- **Artifact**: `<ticket-folder>/04-review.md`
 
 ## Presentation
 
@@ -116,7 +124,7 @@ Present findings to the user:
 
 [Summary: issue counts by severity + by reviewer, key findings]
 
-Artifacts saved to: <ticket-folder>/05-review.md
+Artifacts saved to: <ticket-folder>/04-review.md
 ```
 
 ## Error Handling
