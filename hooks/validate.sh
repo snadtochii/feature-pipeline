@@ -157,12 +157,6 @@ run_check() {
     if [ -z "$cmd" ]; then
         return 0
     fi
-    # Reject obviously unparseable commands so a broken validate: block degrades
-    # to a silent warning instead of leaking a shell syntax error to the model.
-    if ! bash -n -c "$cmd" 2>/dev/null; then
-        echo "[validate] ${name} command unparseable (likely malformed config); skipping" >&2
-        return 0
-    fi
     set +e
     output=$(bash -c "$cmd" 2>&1)
     rc=$?

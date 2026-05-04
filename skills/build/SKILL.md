@@ -25,7 +25,9 @@ Build the ticket through one continuous loop with internal checkpoints (implemen
 /feature:build $ARGUMENTS
 ```
 
-`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--continue` (resume from prior artifacts on disk), `--ignore-blockers` (bypass blocker-validation refusal).
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--ignore-blockers` (bypass blocker-validation refusal).
+
+Resumption is auto-detected from on-disk artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build.
 
 ## Ticket Resolution & Artifacts Setup
 
@@ -36,7 +38,7 @@ Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/r
 - `01-spec.md` — the ticket specification (for acceptance criteria)
 - `02-plan.md` — the approved implementation plan (**required** — if not found, refuse with: "Plan stage hasn't run. Run `/feature:plan $1` first.")
 
-When `--continue` is passed, also read whichever of these exist on disk to reconstruct state:
+For auto-resumption, also read whichever of these exist on disk to reconstruct state (see step 5 below for resumption logic):
 - `03-implementation.md` — completed plan steps from a prior build invocation
 - `04-review.md` — review state from a prior build invocation
 - `05-tests.md` — test state from a prior build invocation
@@ -57,7 +59,7 @@ When `blocked_by` is non-empty (whether blockers are done or `--ignore-blockers`
 
 Ship working code in one continuous loop. Implement plan steps incrementally, edit small, verify often. When validation fails, fix in-context — never queue failures for later. When reviewers find issues, apply the high-confidence fixes in the same conversation; don't punt to a separate stage. When tests fail un-fixably, exit with `verdict: partial` — don't fake completion. The loop is the work; rewinding to earlier stages would discard the context the loop was just operating in.
 
-Watch for stuck patterns (action↔observation repetition, agent monologue, ping-pong, repeated context errors). Emit `Turn N/25` at every iteration boundary so the count is recoverable from the transcript. On a stuck pattern or `Turn 26`, exit with `verdict: stuck` — surface the human gate, don't keep spinning.
+Watch for stuck patterns (action↔observation repetition, agent monologue, ping-pong, repeated context errors, plus the outer-loop arbiter for logical oscillation — see `references/stuck-detection.md`). Emit `Turn N/25` at every iteration boundary so the count is recoverable from the transcript. On a stuck pattern or `Turn 26`, exit with `verdict: stuck` — surface the human gate, don't keep spinning.
 
 ## Focus Areas
 
@@ -105,14 +107,32 @@ c. **For each step in `02-plan.md`'s Build Sequence, in order:**
    3. **Run validation** (lint/typecheck via `Bash`) — fix any errors immediately before moving on.
    4. **Update `03-implementation.md`** with files created/modified, brief description, any deviations from the plan with rationale, validation state.
    5. **Emit `Turn N/25`** at the start of the next iteration.
-   6. **Watch the transcript for stuck patterns** (per `references/stuck-detection.md`): action↔observation repetition, action↔error repetition, agent monologue, ping-pong between two states, repeated context errors. On detection, exit with `verdict: stuck` (skip directly to step 4 of this Process — Exit verdict).
-   7. **On hitting `Turn 26`**, exit with `verdict: stuck` regardless of semantic-pattern detection. The hybrid stop rule per the redesign's Q4-b: either trigger fires the verdict.
+   6. **Watch the transcript for stuck patterns** (per `references/stuck-detection.md` patterns 1–5): action↔observation repetition, action↔error repetition, agent monologue, ping-pong between two states, repeated context errors. On detection, exit with `verdict: stuck` (skip directly to step 4 of this Process — Exit verdict).
+   7. **Outer-loop arbiter check** (per `references/stuck-detection.md` pattern 6). When the current checkpoint has accumulated 4+ turns without exiting, fire the arbiter once via a `Task` call with the prompt in stuck-detection.md §6. Cache the verdict for the rest of the checkpoint. On `status: stuck`, exit with `verdict: stuck` (skip to step 4 — Exit verdict); include the arbiter's `reason` in `06-summary.md`.
+   8. **On hitting `Turn 26`**, exit with `verdict: stuck` regardless of semantic-pattern detection. The hybrid stop rule per the redesign's Q4-b: either trigger fires the verdict.
 
 d. **After all plan steps are implemented**, run final validation across all changes. Fix any cross-cutting failures in-context. Update `03-implementation.md` with the final implementation state. Proceed to the review checkpoint.
 
 ### 2. Review checkpoint
 
-a. **Collect the diff.** Mirror `skills/review/SKILL.md:65-80`'s logic:
+**Pre-check — Triviality short-circuit.** Before spawning reviewer subagents, check whether the diff is small enough that the four-subagent review is overkill (token cost > expected signal):
+
+1. Read `01-spec.md` frontmatter — extract the `complexity` field.
+2. Run `git diff --shortstat <base>...HEAD` (and add unstaged) to count lines and files changed.
+3. If **all three** conditions hold — `complexity: S`, lines changed < 50, files changed < 3 — short-circuit:
+   - Write `<ticket-folder>/04-review.md`:
+     ```
+     verdict: skipped (trivial diff)
+
+     ## Reason
+     Ticket complexity is S; diff is <X> lines across <Y> files (threshold: < 50 lines, < 3 files). Skipping the parallel reviewer subagents — token cost outweighs expected signal on small changes.
+     ```
+   - Proceed directly to the test checkpoint (step 3 of this Process).
+4. Otherwise, proceed to step a below.
+
+The thresholds (`complexity: S`, < 50 lines, < 3 files) are conservative — false-positive risk (a real bug in a 50-line diff) is mitigated because the test checkpoint still runs (or skips per its own logic), and the verdict gate still requires user approval. False-negative risk (real-bug ticket sized M+ but with a 30-line diff) is the more common case and that path runs full review.
+
+a. **Collect the diff.**
 
    ```bash
    # Detect the base branch — prefer origin's HEAD, fall back to main
@@ -156,12 +176,12 @@ c. **Spawn four reviewer subagents in parallel.** All four run **concurrently** 
    >
    > Reference specific files and patterns with file:line. Use the confidence scale above — only report issues with confidence ≥ 80.
 
-d. **Merge findings into `<ticket-folder>/04-review.md`** (mirror `skills/review/SKILL.md:105-112`):
+d. **Merge findings into `<ticket-folder>/04-review.md`**:
    - **Group by severity**: CRITICAL → IMPORTANT → SUGGESTION
    - **De-duplicate** overlapping findings (e.g., if both code-reviewer and code-architect flag the same issue)
    - **Tag each finding** with `[correctness]` / `[security]` / `[performance]` / `[architecture]`
    - **Top-of-file summary** with counts per severity + per reviewer
-   - **Reviewer failure handling**: if a reviewer subagent fails, report it inside the merged artifact and continue with results from the other reviewers (graceful partial-merge per `skills/review/SKILL.md:130-134`). All four failing → write a single error entry in `04-review.md` and exit with `verdict: stuck`.
+   - **Reviewer failure handling**: if a reviewer subagent fails, report it inside the merged artifact and continue with results from the other reviewers (graceful partial-merge). All four failing → write a single error entry in `04-review.md` and exit with `verdict: stuck`.
 
 e. **Apply applicable fixes in-context.** The model uses judgment to apply fixes from the merged findings. **Tiebreak when fixes are mutually exclusive**: `security > correctness > architecture > performance`. **Rationale (called out so future readers don't reverse-engineer it)**: security failures have the largest blast radius (real-world exposure); correctness is the AC contract; architecture is internal consistency that can be repaired later; performance is the most local and most easily revisited.
 
@@ -171,7 +191,7 @@ f. **After fixes are applied**, run validation again (lint/typecheck) and update
 
 ### 3. Test checkpoint
 
-a. **Skip-detection scan.** Read `02-plan.md` and search (case-insensitive substring match) for any of: `component, page, route, screen, form, tsx, jsx, html, view`. Match → run `ui-tester` (step b). No match → skip (step c).
+a. **Skip-detection scan.** Read `02-plan.md` and search (case-insensitive substring match) for any of: `component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial`. Match → run `ui-tester` (step b). No match → skip (step c).
 
 b. **Spawn `feature:ui-tester`** (when not skipped). Read the project's `CLAUDE.md` for a test framework hint (`## Testing` section, `## Commands` section, or inline references like "Playwright specs in `e2e/`"). Single `Task` call:
 
@@ -185,7 +205,7 @@ c. **Skip artifact** (when no UI signals matched). **Important**: `skipped` is a
    verdict: skipped (no UI work in plan)
 
    ## Reason
-   Keyword scan of 02-plan.md found no UI signals (component, page, route, screen, form, tsx, jsx, html, view).
+   Keyword scan of 02-plan.md found no UI signals (component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial).
 
    ## Acceptance Criteria
    - [ ] AC 1 — not-tested (no UI)
@@ -195,7 +215,7 @@ c. **Skip artifact** (when no UI signals matched). **Important**: `skipped` is a
 
 d. **Apply test fixes in-context.** Test failures are observations the loop consumes — fix them inline using the same pattern as the review checkpoint. If fixes succeed, re-run the failing tests. If failures are un-fixable in this run, write the `## Failed Criteria` section to `05-tests.md` and prepare to exit with `verdict: partial`.
 
-e. **Application not running.** If `ui-tester` reports the application is not running, ask the user to start it and provide the URL (matches `skills/test/SKILL.md:82-84` pattern). Persistent inability to reach the app counts as a stuck pattern (repeated context errors) — exit with `verdict: stuck`.
+e. **Application not running.** If `ui-tester` reports the application is not running, ask the user to start it and provide the URL. Persistent inability to reach the app counts as a stuck pattern (repeated context errors) — exit with `verdict: stuck`.
 
 f. **After test fixes are applied** (or skip artifact written), update `03-implementation.md` if any code changed, then proceed to step 4.
 
@@ -217,19 +237,38 @@ Choose one based on loop state:
 
 The uniform always-write contract means downstream readers (and reopened-ticket regressions) never have to handle a "missing summary = unknown verdict" failure mode.
 
-### 5. `--continue` resumption
+**Append a one-line lesson to `claudedocs/tickets/_lessons.md`** at the same time. Format:
 
-When `--continue` is passed:
+```
+## <ticket-id> (<verdict>): <one-sentence lesson>
+```
 
-1. **State reconstruction**. Read whichever artifacts exist on disk:
-   - `03-implementation.md` for completed plan steps
-   - `04-review.md` for review state
-   - `05-tests.md` for test state (including any prior skip artifact or failed criteria)
-2. **Determine where to resume**. If `05-tests.md` exists with failed criteria → re-enter at the test checkpoint. Else if `04-review.md` exists → re-enter at the review checkpoint (re-running the 4 reviewers against the fresh diff). Else if `03-implementation.md` is partial → continue from the next un-implemented plan step. Else → fresh start.
-3. **Reset the turn counter**. Resumed sessions start at `Turn 1/25` — the prior budget is forfeited by design. A resumed session is a fresh attempt, and reusing a stale counter would mislead.
-4. **Surface a user note** if the user provided one with `--continue` (e.g., `--continue --hint "the failing test wants the ARIA label inside the button, not on it"`). The hint becomes part of the resumed loop's context.
+The lesson should be project-specific and actionable for future similar work — not a generic best-practice. Examples:
 
-The user-facing flow surface for `--continue` lives in `flow/SKILL.md`; this section documents the mechanic for direct invocation.
+- `## FP-7 (pass): hooks/validate.sh must stay bash-3.2 compatible (macOS default) — no associative arrays or mapfile.`
+- `## FP-12 (partial): bun's typecheck doesn't surface unused-import errors; ESLint catches them — keep both in validate.lint.`
+- `## FP-15 (stuck): subagents kept failing to find the auth middleware after the lib/ → src/ rename; canonical path is now src/security/auth.ts.`
+
+Skip the append if the lesson would be generic ("apply review fixes carefully") or already captured by an existing entry. The file is project-local context — plan's Phase 1 reads it on subsequent tickets to avoid re-deriving constraints. If `claudedocs/tickets/_lessons.md` doesn't exist, create it with a one-line header (`# Lessons learned across tickets`) and append.
+
+### 5. Auto-resumption from on-disk artifacts
+
+At build start, before the implement checkpoint, inspect on-disk artifacts and route accordingly. The user signals "start fresh" by deleting `03-implementation.md` (and downstream); the build skill itself never asks. Git is the version-history layer if a backup is wanted.
+
+**Routing table** (checked in order, first match wins):
+
+| On disk | Routing |
+|---|---|
+| `06-summary.md` exists with verdict `pass` | Print "Build already complete for `<ticket-id>` (verdict: pass). Delete `03-implementation.md` onward to re-run, or run `/feature:plan` first if you want to revise the plan." Exit. |
+| `05-tests.md` exists with failed criteria (a `## Failed Criteria` section is present) | Re-enter at the test checkpoint with the existing failed criteria as context; attempt fixes in-loop. |
+| `04-review.md` exists, latest implement edit is older than `04-review.md`'s mtime | Review fixes never finished applying. Read `04-review.md`, apply pending fixes in-context, then proceed to the test checkpoint. |
+| `04-review.md` exists, implement files were edited after `04-review.md` was written | Implementation diverged after review. Re-enter at the review checkpoint — re-run the 4 reviewers against the current diff. |
+| `03-implementation.md` is partial (some plan steps not yet checked off) | Continue from the next un-implemented plan step. |
+| Nothing relevant exists | Fresh start: implement step 1, Turn 1/25. |
+
+**Turn-counter reset on resume**. Resumed sessions start at `Turn 1/25` — the prior budget is forfeited by design. A resumed session is a fresh attempt, and reusing an old counter would mislead.
+
+**`--hint` flag**. When present (e.g., `/feature:build BL-1 --hint "the failing test wants the ARIA label inside the button, not on it"`), the hint text becomes part of the resumed (or fresh) loop's context. Used by flow's verdict-gate `continue-with-hint` option to thread user guidance into a follow-up build invocation.
 
 ---
 
@@ -269,4 +308,3 @@ Artifacts saved to: <ticket-folder>/03-implementation.md, 04-review.md, 05-tests
 - **Subagent failure** (reviewer or `ui-tester` crashes/timeouts): report inside the merged artifact and continue with results from the others. All four reviewers failing simultaneously → write degraded `04-review.md` and exit `verdict: stuck`.
 - **Validation commands not documented in project `CLAUDE.md`**: log warning, proceed without skill-body validation. Graceful degradation; the loop continues.
 - **Stuck pattern detected or `Turn 26` reached**: not an error — handled via `verdict: stuck`. Always write `06-summary.md` describing the loop state.
-- **`--continue` passed on a freshly-planned ticket** (no `03-implementation.md` yet): treat as fresh start; warn about the stale flag.

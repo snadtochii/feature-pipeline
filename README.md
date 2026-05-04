@@ -51,7 +51,7 @@ Each stage is a **separate skill** that can be invoked independently or orchestr
 
 # Individual stages (standalone, using existing artifacts)
 /feature:plan BL-1                  # plan stage with Phase 1 synthesis + plan mode
-/feature:build BL-1 --continue      # resume build from the latest on-disk artifact
+/feature:build BL-1                 # build stage; auto-resumes from on-disk artifacts
 ```
 
 ## Installation
@@ -106,10 +106,11 @@ You see and approve the proposal before tickets are created.
 ### Step 1: Run the Pipeline
 
 ```bash
-/feature:flow BL-1                       # full pipeline (plan → build)
-/feature:flow BL-1 --continue            # resume from where it left off
+/feature:flow BL-1                       # full pipeline (plan → build); auto-resumes if artifacts exist
 /feature:flow BL-1 --ignore-blockers     # bypass blocker validation (use with care)
 ```
+
+Resumption is auto-detected from the artifacts on disk — flow skips plan when `02-plan.md` exists, build picks up at the right checkpoint based on which of `03-`/`04-`/`05-` is present, and a completed run (`06-summary.md` with `pass`) is reported as "already complete." To start fresh against a partially-run ticket, delete the relevant artifacts before invoking flow.
 
 ### Run Individual Stages
 
@@ -119,8 +120,8 @@ Each stage reads its input from the ticket folder, so you can run them independe
 # Re-plan with the existing spec (overwrites 02-plan.md)
 /feature:plan BL-1
 
-# Resume the build loop from the latest on-disk artifact (03-implementation.md / 04-review.md / 05-tests.md)
-/feature:build BL-1 --continue
+# Run the build loop; auto-resumes from the latest on-disk artifact (03-implementation.md / 04-review.md / 05-tests.md) if one exists
+/feature:build BL-1
 ```
 
 ### Blocker dependencies between siblings

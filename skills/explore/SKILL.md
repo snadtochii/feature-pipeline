@@ -1,6 +1,13 @@
 ---
 name: explore
 description: "Open-ended Socratic exploration of an idea when you don't yet know the outcome. Asks probing questions one at a time with a recommended answer per question. Grounds in the codebase only when the conversation is about code. Three exits — leave with no artifact, save the conversation as a note, or promote to a feature ticket via /feature:discover. Use when 'let's explore', 'I want to think through X', 'poke holes in this', 'not sure yet'. NOT for features ready to spec — use /feature:discover instead."
+allowed-tools:
+  - Read
+  - Glob
+  - Grep
+  - Bash
+  - TodoWrite
+  - Skill
 argument-hint: "[topic]"
 ---
 

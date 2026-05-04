@@ -279,7 +279,7 @@ Scan `claudedocs/tickets/` for existing IDs to determine the next available numb
 
 3. **Write the parent PRD** to `claudedocs/tickets/backlog/<EPIC-ID>/prd.md` using `templates/prd.md`. The PRD captures feature-level content — problem, goals, end-to-end user journey, cross-cutting constraints, decomposition table, discovery rationale. Frontmatter must include:
    - `id: <EPIC-ID>`
-   - `kind: epic` — **required**, marks this as non-pipelineable; `plan`/`implement`/`review`/`test` will refuse to run against it
+   - `kind: epic` — **required**, marks this as non-pipelineable; `plan`/`build` will refuse to run against it
    - `epic: <epic-slug>`
    - `children: [<CHILD-1-ID>, <CHILD-2-ID>, ...]`
    - `status: backlog`, `created`, `project`, `priority`, `tags`
@@ -391,7 +391,7 @@ Standard flow — go through all phases.
 6. **One checkpoint, only when N>1** — single-ticket discoveries skip Phase 3.5 entirely; multi-sibling discoveries always show the proposal before creating tickets
 7. **PRD is feature-level, children are task-level** — the PRD is not a duplicate of children's specs combined; it captures only what spans siblings (problem, cross-cutting constraints, decomposition, discovery notes)
 8. **Exploration lives once per discovery session** — at the epic-folder level for multi-sibling, at the ticket-folder level for single. No per-child duplication.
-9. **Epics are non-pipelineable** — `kind: epic` in PRD frontmatter; `plan`/`implement`/`review`/`test` will refuse to run against an epic ID. Children are the pipelineable items.
+9. **Epics are non-pipelineable** — `kind: epic` in PRD frontmatter; `plan`/`build` will refuse to run against an epic ID. Children are the pipelineable items.
 10. **No `breakdown.md` artifact** — decomposition rationale and AC coverage live as sections inside `prd.md`, not in a separate file
 11. **Create the artifact(s), don't just discuss** — always end with concrete tickets on disk
 12. **Respect "enough"** — if the developer wants to move on, create the best ticket(s) you can

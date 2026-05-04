@@ -20,8 +20,7 @@ claudedocs/tickets/<state>/<id>/
 ├── 03-implementation.md  ← build (live, updated per plan step)
 ├── 04-review.md          ← build (merged from 4 reviewer subagents)
 ├── 05-tests.md           ← build (UI test results, skip artifact, or Failed Criteria section)
-├── 06-summary.md         ← build exit summary (always written; content varies per verdict)
-└── .stale/               ← superseded artifacts after deliberate re-runs
+└── 06-summary.md         ← build exit summary (always written; content varies per verdict)
 ```
 
 ### Epic with children (multi-mode discover)
@@ -37,8 +36,7 @@ claudedocs/tickets/<state>/<EPIC-ID>/
     │   ├── 03-implementation.md
     │   ├── 04-review.md
     │   ├── 05-tests.md
-    │   ├── 06-summary.md
-    │   └── .stale/
+    │   └── 06-summary.md
     ├── <CHILD-2-ID>/
     └── <CHILD-3-ID>/
 ```
@@ -83,7 +81,7 @@ The ticket folder should always contain `01-spec.md` — that file is the ticket
 1. **Folder exists with `01-spec.md`** — read it. Done.
 2. **Folder exists with `prd.md` but no `01-spec.md`** — this is an epic folder, not a child ticket. See Step 4.
 3. **Folder exists, neither `01-spec.md` nor `prd.md`** — corrupted state. Ask the user before proceeding.
-4. **Read other existing artifacts** relevant to the current stage — `02-plan.md`, `03-implementation.md`, etc., and `exploration.md` if the stage uses it (see Step 5). Ignore anything under `.stale/`.
+4. **Read other existing artifacts** relevant to the current stage — `02-plan.md`, `03-implementation.md`, etc., and `exploration.md` if the stage uses it (see Step 5).
 
 ## Step 3 — Determine project root
 
