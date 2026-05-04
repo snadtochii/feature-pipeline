@@ -59,7 +59,7 @@ When `blocked_by` is non-empty (whether blockers are done or `--ignore-blockers`
 
 Ship working code in one continuous loop. Implement plan steps incrementally, edit small, verify often. When validation fails, fix in-context — never queue failures for later. When reviewers find issues, apply the high-confidence fixes in the same conversation; don't punt to a separate stage. When tests fail un-fixably, exit with `verdict: partial` — don't fake completion. The loop is the work; rewinding to earlier stages would discard the context the loop was just operating in.
 
-Watch for stuck patterns (action↔observation repetition, agent monologue, ping-pong, repeated context errors). Emit `Turn N/25` at every iteration boundary so the count is recoverable from the transcript. On a stuck pattern or `Turn 26`, exit with `verdict: stuck` — surface the human gate, don't keep spinning.
+Watch for stuck patterns (action↔observation repetition, agent monologue, ping-pong, repeated context errors, plus the outer-loop arbiter for logical oscillation — see `references/stuck-detection.md`). Emit `Turn N/25` at every iteration boundary so the count is recoverable from the transcript. On a stuck pattern or `Turn 26`, exit with `verdict: stuck` — surface the human gate, don't keep spinning.
 
 ## Focus Areas
 
@@ -107,12 +107,30 @@ c. **For each step in `02-plan.md`'s Build Sequence, in order:**
    3. **Run validation** (lint/typecheck via `Bash`) — fix any errors immediately before moving on.
    4. **Update `03-implementation.md`** with files created/modified, brief description, any deviations from the plan with rationale, validation state.
    5. **Emit `Turn N/25`** at the start of the next iteration.
-   6. **Watch the transcript for stuck patterns** (per `references/stuck-detection.md`): action↔observation repetition, action↔error repetition, agent monologue, ping-pong between two states, repeated context errors. On detection, exit with `verdict: stuck` (skip directly to step 4 of this Process — Exit verdict).
-   7. **On hitting `Turn 26`**, exit with `verdict: stuck` regardless of semantic-pattern detection. The hybrid stop rule per the redesign's Q4-b: either trigger fires the verdict.
+   6. **Watch the transcript for stuck patterns** (per `references/stuck-detection.md` patterns 1–5): action↔observation repetition, action↔error repetition, agent monologue, ping-pong between two states, repeated context errors. On detection, exit with `verdict: stuck` (skip directly to step 4 of this Process — Exit verdict).
+   7. **Outer-loop arbiter check** (per `references/stuck-detection.md` pattern 6). When the current checkpoint has accumulated 4+ turns without exiting, fire the arbiter once via a `Task` call with the prompt in stuck-detection.md §6. Cache the verdict for the rest of the checkpoint. On `status: stuck`, exit with `verdict: stuck` (skip to step 4 — Exit verdict); include the arbiter's `reason` in `06-summary.md`.
+   8. **On hitting `Turn 26`**, exit with `verdict: stuck` regardless of semantic-pattern detection. The hybrid stop rule per the redesign's Q4-b: either trigger fires the verdict.
 
 d. **After all plan steps are implemented**, run final validation across all changes. Fix any cross-cutting failures in-context. Update `03-implementation.md` with the final implementation state. Proceed to the review checkpoint.
 
 ### 2. Review checkpoint
+
+**Pre-check — Triviality short-circuit.** Before spawning reviewer subagents, check whether the diff is small enough that the four-subagent review is overkill (token cost > expected signal):
+
+1. Read `01-spec.md` frontmatter — extract the `complexity` field.
+2. Run `git diff --shortstat <base>...HEAD` (and add unstaged) to count lines and files changed.
+3. If **all three** conditions hold — `complexity: S`, lines changed < 50, files changed < 3 — short-circuit:
+   - Write `<ticket-folder>/04-review.md`:
+     ```
+     verdict: skipped (trivial diff)
+
+     ## Reason
+     Ticket complexity is S; diff is <X> lines across <Y> files (threshold: < 50 lines, < 3 files). Skipping the parallel reviewer subagents — token cost outweighs expected signal on small changes.
+     ```
+   - Proceed directly to the test checkpoint (step 3 of this Process).
+4. Otherwise, proceed to step a below.
+
+The thresholds (`complexity: S`, < 50 lines, < 3 files) are conservative — false-positive risk (a real bug in a 50-line diff) is mitigated because the test checkpoint still runs (or skips per its own logic), and the verdict gate still requires user approval. False-negative risk (real-bug ticket sized M+ but with a 30-line diff) is the more common case and that path runs full review.
 
 a. **Collect the diff.**
 
@@ -218,6 +236,20 @@ Choose one based on loop state:
 - `stuck`: describes loop state at escalation — the detected stuck pattern (or "turn cap exceeded"), the last 3-5 iterations' actions, a suggested next-move for the user.
 
 The uniform always-write contract means downstream readers (and reopened-ticket regressions) never have to handle a "missing summary = unknown verdict" failure mode.
+
+**Append a one-line lesson to `claudedocs/tickets/_lessons.md`** at the same time. Format:
+
+```
+## <ticket-id> (<verdict>): <one-sentence lesson>
+```
+
+The lesson should be project-specific and actionable for future similar work — not a generic best-practice. Examples:
+
+- `## FP-7 (pass): hooks/validate.sh must stay bash-3.2 compatible (macOS default) — no associative arrays or mapfile.`
+- `## FP-12 (partial): bun's typecheck doesn't surface unused-import errors; ESLint catches them — keep both in validate.lint.`
+- `## FP-15 (stuck): subagents kept failing to find the auth middleware after the lib/ → src/ rename; canonical path is now src/security/auth.ts.`
+
+Skip the append if the lesson would be generic ("apply review fixes carefully") or already captured by an existing entry. The file is project-local context — plan's Phase 1 reads it on subsequent tickets to avoid re-deriving constraints. If `claudedocs/tickets/_lessons.md` doesn't exist, create it with a one-line header (`# Lessons learned across tickets`) and append.
 
 ### 5. Auto-resumption from on-disk artifacts
 

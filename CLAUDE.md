@@ -236,6 +236,12 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
   - `children: [<child-id>, ...]` — populated by discover.
   - `epic: <slug>` — same slug as children.
 
+### Cross-ticket lessons log
+
+`claudedocs/tickets/_lessons.md` is an append-only log of project-specific gotchas captured at the build verdict gate. One header line per ticket: `## <ticket-id> (<verdict>): <one-sentence lesson>`. Build appends after writing `06-summary.md`; plan reads the file in Phase 1 and threads it into the requirements-analyst's open-questions surface.
+
+The file is project-local context — generic best practices don't belong here, only constraints/gotchas that bit a prior ticket and would bite the next one if not surfaced. The leading underscore in the filename keeps it sorted above ticket-state folders (`backlog/`, `in-progress/`, `done/`) when listing `claudedocs/tickets/`.
+
 ---
 
 ## Adding a new stage

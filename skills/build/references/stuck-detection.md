@@ -33,10 +33,36 @@ The model alternates between two near-identical states without converging. Examp
 ### 5. Repeated context errors
 Multiple turns in a row report a context-related error (file not found, function not in scope, can't resolve import) without the model acting to fix the context (refreshing reads, expanding scope, checking the canonical reference). The signal is *the model is operating on stale or wrong context*.
 
+### 6. Logical oscillation (outer-loop arbiter)
+Patterns 1–5 are syntactic — they detect repetition by matching tool/action/error strings. Logical oscillation is the case where each iteration is technically different (no string match) but the work isn't converging on the acceptance criteria. Two reviewers contradict each other; the model alternates between two valid-looking approaches; fixes for finding A break finding B and vice versa. Fingerprint-matching can't see this; a small LLM check can.
+
+**When the arbiter fires.** After any single checkpoint (implement / review / test) accumulates 4+ turns without exiting, build invokes a one-shot arbiter `Task` call with this prompt:
+
+```
+You are reviewing the recent iteration history of a build loop on ticket <ticket-id>.
+
+Acceptance criteria from 01-spec.md:
+<ACs verbatim>
+
+Last <N> entries from 03-implementation.md (most recent first):
+<entries>
+
+Question: is the loop making progress toward the acceptance criteria, or cycling without convergence?
+Respond with strict JSON only: {"status": "progress" | "stuck", "reason": "<one short sentence>"}
+```
+
+The arbiter runs at most once per checkpoint per build invocation; cache the verdict for the rest of that checkpoint's turns.
+
+**On `status: stuck` from the arbiter.** Treat as a stuck-pattern detection — exit the build loop with `verdict: stuck`. Include the arbiter's `reason` field verbatim in `06-summary.md` under "Detected pattern."
+
+**On `status: progress`.** Continue normally. The arbiter will re-fire if the next checkpoint also accumulates 4+ turns.
+
+Cost: roughly one Haiku turn per fired arbiter call. The 4-turn gate keeps it from firing on the happy path (where most checkpoints exit in 1–3 turns).
+
 ## On detection
 
 Exit the build loop with `verdict: stuck`. Write `06-summary.md` describing:
-- The detected pattern (which of the five above, or "turn cap exceeded")
+- The detected pattern (which of the six above, or "turn cap exceeded")
 - The last 3-5 iterations' actions, briefly
 - A suggested next move for the user (e.g., "fix the import path manually then re-run `/feature:build <id>` (auto-resumes from on-disk artifacts)", or "the plan's step N may need a smaller break-down")
 
