@@ -38,6 +38,6 @@ Multiple turns in a row report a context-related error (file not found, function
 Exit the build loop with `verdict: stuck`. Write `06-summary.md` describing:
 - The detected pattern (which of the five above, or "turn cap exceeded")
 - The last 3-5 iterations' actions, briefly
-- A suggested next move for the user (e.g., "fix the import path manually then re-run with `--continue`", or "the plan's step N may need a smaller break-down")
+- A suggested next move for the user (e.g., "fix the import path manually then re-run `/feature:build <id>` (auto-resumes from on-disk artifacts)", or "the plan's step N may need a smaller break-down")
 
 Surface the human gate per `build/SKILL.md`'s Verdict Semantics section. The user picks: accept-as-partial, continue-with-hint (re-enter the loop with a user note, fresh 25-turn budget), or abort.

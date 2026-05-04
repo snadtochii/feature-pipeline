@@ -69,7 +69,7 @@ discover → ticket(s) → flow → plan → build → completion
 
 - **`discover`** is step 0 — interactive Socratic dialogue that creates ticket folders. Emits a single ticket (`claudedocs/tickets/backlog/<id>/01-spec.md` + `exploration.md`) for small/coherent work, or a parent epic + nested child tickets (`claudedocs/tickets/backlog/<EPIC>/prd.md` + `tasks/<CHILD>/01-spec.md` for each) when the scope splits naturally. Not part of flow.
 - **`explore`** is a separate skill for open-ended Socratic exploration; can promote a conversation into `discover` once the user knows they want a ticket.
-- **`flow`** orchestrates `plan → build` with the completion gate. Plan mode is its own gate; build presents one verdict gate at exit (`pass | partial | stuck`). `plan` includes Phase 1 pre-plan synthesis (codebase exploration + open-questions surfacing) before entering plan mode. Flag surface is `--continue` and `--ignore-blockers`.
+- **`flow`** orchestrates `plan → build` with the completion gate. Plan mode is its own gate; build presents one verdict gate at exit (`pass | partial | stuck`). `plan` includes Phase 1 pre-plan synthesis (codebase exploration + open-questions surfacing) before entering plan mode. Flag surface is `--ignore-blockers`; resumption is auto-detected from on-disk artifacts (users delete artifacts to start fresh).
 - **`build`** runs implement → review → test as internal checkpoints in one continuous loop. Validation fires after every edit (PostToolUse hook plus skill-body fallback). Reviewer findings and test failures are fixed in-context; the loop self-monitors for stuck patterns and a 25-turn ceiling.
 
 ### Runtime source of truth
@@ -78,8 +78,8 @@ discover → ticket(s) → flow → plan → build → completion
 
 Canonical sources in `skills/flow/SKILL.md`:
 - **Stage Contract** — reads/writes per stage
-- **Artifact Convention** — numbering rules, layout illustrations (solo + nested epic), `.stale/` semantics
-- **Artifact invalidation** — `.stale/<timestamp>/` policy on deliberate plan re-runs
+- **Artifact Convention** — numbering rules, layout illustrations (solo + nested epic)
+- **Resumption auto-detection** — routing table for on-disk artifacts; users delete artifacts to start fresh
 - **State transitions** (SETUP step 4, COMPLETION) — solo vs nested-child move logic, all-children-done check for epics, verdict-aware completion routing
 
 Centralized cross-stage rules live in `skills/flow/references/ticket-resolution.md`:
@@ -224,7 +224,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 - **ID format:** `<PREFIX>-<N>` — no leading zeros.
 - **Folder name:** just the ID, no slug — `claudedocs/tickets/<state>/<PREFIX>-<N>/` (or for nested children, `<state>/<EPIC>/tasks/<CHILD>/`).
 - **Status flow:** `backlog → in-progress → done` (folders match). Cancellation is expressed via frontmatter `status: cancelled` inside `done/`, not a separate folder.
-- Solo ticket folders move between state folders as the pipeline advances — the entire folder (spec, artifacts, `.stale/`) moves as a unit.
+- Solo ticket folders move between state folders as the pipeline advances — the entire folder (spec, artifacts) moves as a unit.
 - For epics: the **whole subtree** moves between state folders together (rule: any-child-in-progress → in-progress; all-children-done-or-cancelled → done). `prd.md`'s `status` field tracks the folder location; per-child `status` lives in each child's `01-spec.md`. See `flow/SKILL.md` SETUP step 4 and COMPLETION step 5.
 - **Multi-sibling linkage frontmatter** (set on children when discover emits an epic):
   - `parent: <EPIC-ID>` — the epic this child belongs to.
@@ -245,7 +245,7 @@ Build owns artifact slots `03-implementation.md` through `06-summary.md`. The ne
 1. Create `skills/<stage>/SKILL.md` following the skill body template above.
 2. Reserve the next artifact number (`07-*.md`) — update the "Artifact Convention" section in `skills/flow/SKILL.md`.
 3. Add the stage to flow's pipeline order and stage list.
-4. Add `--continue` detection: when to resume from this stage based on which on-disk artifact is present.
+4. Add auto-resumption rules: when this stage is re-invoked on an existing ticket, which on-disk artifact signals "resume from here" vs "start fresh." Document the routing table in the stage skill body and in flow's Resumption auto-detection section.
 5. Document the stage's input/output contract in the stage's `Required Input`/`Output` sections *and* in flow's Stage Contract table.
 6. Update `skills/flow/SKILL.md`'s Artifact invalidation downstream table for the new stage.
 7. If the stage spawns subagents, create them in `agents/` and wire them up.

@@ -25,7 +25,9 @@ Build the ticket through one continuous loop with internal checkpoints (implemen
 /feature:build $ARGUMENTS
 ```
 
-`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--continue` (resume from prior artifacts on disk), `--ignore-blockers` (bypass blocker-validation refusal).
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--ignore-blockers` (bypass blocker-validation refusal).
+
+Resumption is auto-detected from on-disk artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build.
 
 ## Ticket Resolution & Artifacts Setup
 
@@ -36,7 +38,7 @@ Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/r
 - `01-spec.md` — the ticket specification (for acceptance criteria)
 - `02-plan.md` — the approved implementation plan (**required** — if not found, refuse with: "Plan stage hasn't run. Run `/feature:plan $1` first.")
 
-When `--continue` is passed, also read whichever of these exist on disk to reconstruct state:
+For auto-resumption, also read whichever of these exist on disk to reconstruct state (see step 5 below for resumption logic):
 - `03-implementation.md` — completed plan steps from a prior build invocation
 - `04-review.md` — review state from a prior build invocation
 - `05-tests.md` — test state from a prior build invocation
@@ -217,19 +219,24 @@ Choose one based on loop state:
 
 The uniform always-write contract means downstream readers (and reopened-ticket regressions) never have to handle a "missing summary = unknown verdict" failure mode.
 
-### 5. `--continue` resumption
+### 5. Auto-resumption from on-disk artifacts
 
-When `--continue` is passed:
+At build start, before the implement checkpoint, inspect on-disk artifacts and route accordingly. The user signals "start fresh" by deleting `03-implementation.md` (and downstream); the build skill itself never asks. Git is the version-history layer if a backup is wanted.
 
-1. **State reconstruction**. Read whichever artifacts exist on disk:
-   - `03-implementation.md` for completed plan steps
-   - `04-review.md` for review state
-   - `05-tests.md` for test state (including any prior skip artifact or failed criteria)
-2. **Determine where to resume**. If `05-tests.md` exists with failed criteria → re-enter at the test checkpoint. Else if `04-review.md` exists → re-enter at the review checkpoint (re-running the 4 reviewers against the fresh diff). Else if `03-implementation.md` is partial → continue from the next un-implemented plan step. Else → fresh start.
-3. **Reset the turn counter**. Resumed sessions start at `Turn 1/25` — the prior budget is forfeited by design. A resumed session is a fresh attempt, and reusing a stale counter would mislead.
-4. **Surface a user note** if the user provided one with `--continue` (e.g., `--continue --hint "the failing test wants the ARIA label inside the button, not on it"`). The hint becomes part of the resumed loop's context.
+**Routing table** (checked in order, first match wins):
 
-The user-facing flow surface for `--continue` lives in `flow/SKILL.md`; this section documents the mechanic for direct invocation.
+| On disk | Routing |
+|---|---|
+| `06-summary.md` exists with verdict `pass` | Print "Build already complete for `<ticket-id>` (verdict: pass). Delete `03-implementation.md` onward to re-run, or run `/feature:plan` first if you want to revise the plan." Exit. |
+| `05-tests.md` exists with failed criteria (a `## Failed Criteria` section is present) | Re-enter at the test checkpoint with the existing failed criteria as context; attempt fixes in-loop. |
+| `04-review.md` exists, latest implement edit is older than `04-review.md`'s mtime | Review fixes never finished applying. Read `04-review.md`, apply pending fixes in-context, then proceed to the test checkpoint. |
+| `04-review.md` exists, implement files were edited after `04-review.md` was written | Implementation diverged after review. Re-enter at the review checkpoint — re-run the 4 reviewers against the current diff. |
+| `03-implementation.md` is partial (some plan steps not yet checked off) | Continue from the next un-implemented plan step. |
+| Nothing relevant exists | Fresh start: implement step 1, Turn 1/25. |
+
+**Turn-counter reset on resume**. Resumed sessions start at `Turn 1/25` — the prior budget is forfeited by design. A resumed session is a fresh attempt, and reusing an old counter would mislead.
+
+**`--hint` flag**. When present (e.g., `/feature:build BL-1 --hint "the failing test wants the ARIA label inside the button, not on it"`), the hint text becomes part of the resumed (or fresh) loop's context. Used by flow's verdict-gate `continue-with-hint` option to thread user guidance into a follow-up build invocation.
 
 ---
 
@@ -269,4 +276,3 @@ Artifacts saved to: <ticket-folder>/03-implementation.md, 04-review.md, 05-tests
 - **Subagent failure** (reviewer or `ui-tester` crashes/timeouts): report inside the merged artifact and continue with results from the others. All four reviewers failing simultaneously → write degraded `04-review.md` and exit `verdict: stuck`.
 - **Validation commands not documented in project `CLAUDE.md`**: log warning, proceed without skill-body validation. Graceful degradation; the loop continues.
 - **Stuck pattern detected or `Turn 26` reached**: not an error — handled via `verdict: stuck`. Always write `06-summary.md` describing the loop state.
-- **`--continue` passed on a freshly-planned ticket** (no `03-implementation.md` yet): treat as fresh start; warn about the stale flag.
