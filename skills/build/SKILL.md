@@ -80,8 +80,7 @@ Watch for stuck patterns (action↔observation repetition, agent monologue, ping
 
 **Will Not:**
 - Re-invoke `/feature-pipeline:plan` or any other skill mid-loop (build is forward-only)
-- Persist iteration state to disk (`.iterations.json`, hash logs, etc. — turn count and stuck patterns are conversational state)
-- Create `bugs/` or `BUG-NNN.md` files (failed ACs go into `05-tests.md` under "Failed Criteria")
+- Persist iteration state to disk — turn count and stuck patterns are conversational state, observed in-transcript
 - Inline the confidence rubric into reviewer agent bodies (the rubric is build-injected at spawn time, agent bodies must stay rubric-free)
 - Skip validation steps; leave failing tests; add features beyond what `02-plan.md` specifies
 - Exit silently on a stuck pattern or turn-cap hit — always write `06-summary.md` describing the loop state
@@ -178,7 +177,7 @@ b. **Spawn `feature-pipeline:ui-tester`** (when not skipped). Read the project's
 
    > Test this feature through real browser interaction. Spec with acceptance criteria: `<contents of 01-spec.md>`. Implementation summary: `<from 03-implementation.md>`. Application URL: `<URL from project CLAUDE.md or asked from user>`. Project test framework hint: `<from CLAUDE.md, or 'none documented'>`. Test every acceptance criterion, take screenshots, check console for errors. Report any failures with reproduction steps. If ALL acceptance criteria pass AND a test framework hint is available, codify the passing run into an automated spec file in the project's test directory — mirror the conventions of existing specs, never rewrite an existing spec, and never check in a flaky one.
 
-   Save subagent output to `<ticket-folder>/05-tests.md`. Failed criteria become a `## Failed Criteria` section inside `05-tests.md` — no separate `bugs/` folder, no `BUG-NNN.md` files. If specs were codified, list their paths under a `## Codified specs` section.
+   Save subagent output to `<ticket-folder>/05-tests.md`. Failed criteria become a `## Failed Criteria` section inside `05-tests.md`. If specs were codified, list their paths under a `## Codified specs` section.
 
 c. **Skip artifact** (when no UI signals matched). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth build verdict. The build verdict set remains `pass | partial | stuck` per the locked redesign. When the test checkpoint is skipped, build can still exit with `verdict: pass` if the implement and review checkpoints completed cleanly. Write `<ticket-folder>/05-tests.md`:
 
@@ -243,7 +242,7 @@ The build skill writes these artifacts to `<ticket-folder>/` over the course of 
 - **`05-tests.md`** — written once at the end of the test checkpoint (test results, or the skip artifact, or a `## Failed Criteria` section on partial)
 - **`06-summary.md`** — written once at build exit, regardless of verdict (pass / partial / stuck content varies per the Verdict section above)
 
-No `bugs/` folder. No `BUG-NNN.md` files. No `.iterations.json`. Failed test criteria live inside `05-tests.md` under `## Failed Criteria`; turn count and stuck patterns are conversational state, not file state.
+Failed test criteria live inside `05-tests.md` under `## Failed Criteria`; turn count and stuck patterns are conversational state, not file state.
 
 ## Presentation
 

@@ -1,6 +1,6 @@
 # Stuck Detection
 
-Build runs as a single continuous loop with no cross-stage rewinds. To prevent infinite spinning, build watches for the patterns below in its own conversation transcript and enforces a hard turn ceiling as a backup. Stuck detection runs entirely in conversation — no `.iterations.json` file, no hashes on disk.
+Build runs as a single continuous loop with no cross-stage rewinds. To prevent infinite spinning, build watches for the patterns below in its own conversation transcript and enforces a hard turn ceiling as a backup. Stuck detection runs entirely in conversation — turn count and pattern hashes are derived from the transcript, not persisted to disk.
 
 ## What counts as a "turn"
 

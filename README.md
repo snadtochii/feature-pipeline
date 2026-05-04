@@ -4,13 +4,29 @@ A Claude Code plugin that provides an agentic feature development pipeline for p
 
 ## What It Does
 
-Orchestrates the full feature lifecycle through specialized AI agents with human review gates between every stage:
+Orchestrates the full feature lifecycle through specialized AI agents with one human gate at completion (plan mode is its own gate; build's verdict is the second gate):
 
 ```
-[/explore →] /discover → ticket(s) → /flow → plan → implement → review → test → done
+[/explore →] /discover → ticket(s) → /flow → plan → build → done
 ```
 
-`/explore` is an optional precursor for outcome-uncommitted ideas; `/discover` is the entry point when you already know you want a ticket.
+`/explore` is an optional precursor for outcome-uncommitted ideas; `/discover` is the entry point when you already know you want a ticket. Build is one continuous loop — implement, review, and test happen as internal checkpoints with fixes applied in-context, exiting with verdict `pass | partial | stuck`.
+
+```
+                 plan → build → done
+                          ↓
+                  ┌──────┴──────┐
+                  │  build loop │
+                  ├─────────────┤
+                  │  implement  │  (runs in main context; PostToolUse hook + skill-body fallback validate every edit)
+                  │      ↓      │
+                  │  review     │  (4 parallel reviewer subagents; fixes applied in-context)
+                  │      ↓      │
+                  │  test       │  (ui-tester subagent for UI work; skip otherwise)
+                  │      ↓      │
+                  │  exit       │  verdict: pass | partial | stuck
+                  └─────────────┘
+```
 
 ### Pipeline Stages
 
@@ -19,27 +35,23 @@ Orchestrates the full feature lifecycle through specialized AI agents with human
 | **Explore** *(optional pre-pipeline)* | `explore` | — (uses Read/Grep/Glob inline) | Interactive | Open-ended Socratic exploration of an unformed idea; ends by leaving, saving as a note, or promoting to `/discover` |
 | **Discover** | `discover` | code-explorer | Interactive | Socratic requirements discovery → creates 1 ticket, or N sibling tickets under an epic when scope splits |
 | **Plan** | `plan` | code-explorer + requirements-analyst (Phase 1 subagents) | Interactive | Pre-plan synthesis (codebase patterns + open questions) followed by interactive plan mode |
-| **Implement** | `implement` | — (runs in main context) | Interactive | Code writing + lint + tests |
-| **Review** | `review` | code-reviewer + security-engineer + performance-engineer + code-architect | 4 parallel subagents | Correctness, security, performance, and architectural-fit review |
-| **Test** | `test` | ui-tester | Subagent | Real browser testing via Playwright |
+| **Build** | `build` | code-reviewer + security-engineer + performance-engineer + code-architect (review checkpoint) + ui-tester (test checkpoint) | Loop with internal checkpoints | One continuous loop: implement → review (4 parallel reviewers) → test (UI/E2E via Playwright). Validates after every edit, fixes failures in-context, exits with verdict `pass \| partial \| stuck` |
 
 ### Human Gates
 
-You review and approve/reject after every stage. Rejected work loops back to the appropriate stage with iteration budgets to prevent infinite loops.
+Two gates: plan mode (the user refines the plan and exits when satisfied) and build's verdict gate (the user reviews the verdict and either accepts on `pass`, picks `accept-as-partial / continue-with-hint / abort` on `partial`, or picks the same options on `stuck`). No iteration budgets — the build loop self-monitors for stuck patterns and a 25-turn ceiling, then surfaces the gate.
 
 ### Modular Architecture
 
 Each stage is a **separate skill** that can be invoked independently or orchestrated through `flow`:
 
 ```bash
-# Full pipeline (orchestrator calls each stage skill in sequence)
+# Full pipeline (orchestrator calls plan then build)
 /feature-pipeline:flow BL-1
 
 # Individual stages (standalone, using existing artifacts)
-/feature-pipeline:plan BL-1
-/feature-pipeline:implement BL-1
-/feature-pipeline:review BL-1
-/feature-pipeline:test BL-1
+/feature-pipeline:plan BL-1                  # plan stage with Phase 1 synthesis + plan mode
+/feature-pipeline:build BL-1 --continue      # resume build from the latest on-disk artifact
 ```
 
 ## Installation
@@ -94,30 +106,21 @@ You see and approve the proposal before tickets are created.
 ### Step 1: Run the Pipeline
 
 ```bash
-# Full pipeline
-/feature-pipeline:flow BL-1
-
-# Partial runs
-/feature-pipeline:flow BL-1 --only plan             # just the plan stage (Phase 1 synthesis + plan mode)
-/feature-pipeline:flow BL-1 --from implement        # skip plan
-/feature-pipeline:flow BL-1 --skip test             # everything except testing
-/feature-pipeline:flow BL-1 --continue              # resume from where it left off
-/feature-pipeline:flow BL-1 --ignore-blockers       # bypass blocker validation (use with care)
+/feature-pipeline:flow BL-1                       # full pipeline (plan → build)
+/feature-pipeline:flow BL-1 --continue            # resume from where it left off
+/feature-pipeline:flow BL-1 --ignore-blockers     # bypass blocker validation (use with care)
 ```
 
 ### Run Individual Stages
 
-Each stage reads its input from the artifacts directory, so you can run them independently as long as the required artifacts exist:
+Each stage reads its input from the ticket folder, so you can run them independently as long as the required artifacts exist:
 
 ```bash
-# Run just the review on an already-implemented ticket
-/feature-pipeline:review BL-1
-
-# Re-plan with the existing spec
+# Re-plan with the existing spec (overwrites 02-plan.md)
 /feature-pipeline:plan BL-1
 
-# Test a feature that's already implemented
-/feature-pipeline:test BL-1
+# Resume the build loop from the latest on-disk artifact (03-implementation.md / 04-review.md / 05-tests.md)
+/feature-pipeline:build BL-1 --continue
 ```
 
 ### Blocker dependencies between siblings
@@ -125,7 +128,7 @@ Each stage reads its input from the artifacts directory, so you can run them ind
 When `/discover` produces an epic with children, sibling tickets can declare `blocked_by: [<sibling-id>]` in their frontmatter. The pipeline enforces this asymmetrically:
 
 - `plan` runs against blocked tickets normally — its Phase 1 synthesis auto-loads the blocker's spec/plan as context, so you can plan against unfinished foundations.
-- `implement`, `review`, `test` refuse to run until every blocker is `done` (or `cancelled`). Override with `--ignore-blockers` if you accept the risk.
+- `build` refuses to run until every blocker is `done` (or `cancelled`). Override with `--ignore-blockers` if you accept the risk.
 
 This lets you plan ahead while preventing builds on top of unfinished foundations.
 
@@ -146,13 +149,11 @@ claudedocs/tickets/
 claudedocs/tickets/<state>/BL-1/
 ├── 01-spec.md              # The ticket — frontmatter (id, title, priority, complexity, status, project, tags) + spec body
 ├── exploration.md          # Discover-time codebase exploration (optional)
-├── 02-plan.md              # Implementation blueprint (includes Codebase Context + Open Questions Resolved sections)
-├── 03-implementation.md    # Implementation summary + validation results
-├── 04-review.md            # Merged review findings (4 reviewers)
-├── 05-tests.md             # UI test execution results
-├── 06-summary.md           # Pipeline completion summary
-├── .iterations.json        # Loop-back counter state
-└── bugs/                   # Bug reports from testing (if any)
+├── 02-plan.md              # plan — implementation blueprint (includes Codebase Context + Open Questions Resolved sections)
+├── 03-implementation.md    # build — implementation summary + validation results (live, updated per plan step)
+├── 04-review.md            # build — merged review findings (4 reviewer subagents)
+├── 05-tests.md             # build — UI test results, skip artifact, or Failed Criteria section
+└── 06-summary.md           # build — exit summary (always written; content varies per verdict)
 ```
 
 ### Epic with children layout
@@ -168,18 +169,16 @@ claudedocs/tickets/<state>/BL-1/        # epic folder; <state> follows the most-
     │   ├── 03-implementation.md
     │   ├── 04-review.md
     │   ├── 05-tests.md
-    │   ├── 06-summary.md
-    │   ├── .iterations.json
-    │   └── bugs/
+    │   └── 06-summary.md
     ├── BL-3/
     └── BL-4/
 ```
 
 The whole epic subtree moves between `<state>/` folders as a unit:
 - `backlog/` → `in-progress/` when any child enters in-progress.
-- `in-progress/` → `done/` only when every child is `done` or `cancelled`.
+- `in-progress/` → `done/` only when every child is `done`, `cancelled`, or `partial-completion`.
 
-The epic itself is non-pipelineable — `plan`/`implement`/`review`/`test` refuse to run against an epic ID. Run them against a child instead.
+The epic itself is non-pipelineable — `plan`/`build` refuse to run against an epic ID. Run them against a child instead.
 
 ## Plugin Structure
 
@@ -187,6 +186,9 @@ The epic itself is non-pipelineable — `plan`/`implement`/`review`/`test` refus
 feature-pipeline/
 ├── .claude-plugin/
 │   └── plugin.json         # Plugin metadata
+├── hooks/                  # PostToolUse validation hook (auto-discovered by Claude Code)
+│   ├── hooks.json          # PostToolUse declaration for Write|Edit|MultiEdit
+│   └── validate.sh         # Validator script — reads validate: block from claudedocs/tickets/config.yaml
 ├── agents/                 # Specialized agent definitions
 │   ├── code-explorer.md
 │   ├── code-architect.md
@@ -196,8 +198,10 @@ feature-pipeline/
 │   ├── performance-engineer.md
 │   └── ui-tester.md
 ├── skills/                 # Skill definitions
-│   ├── flow/               # Orchestrator — sequences stages with gates
-│   │   └── SKILL.md
+│   ├── flow/               # Orchestrator — sequences plan → build with the completion gate
+│   │   ├── SKILL.md
+│   │   └── references/
+│   │       └── ticket-resolution.md
 │   ├── discover/           # Step 0 — requirements discovery (1..N tickets)
 │   │   ├── SKILL.md
 │   │   └── templates/
@@ -207,13 +211,14 @@ feature-pipeline/
 │   │   └── SKILL.md
 │   ├── plan/               # Stage 1 — pre-plan synthesis + interactive plan mode
 │   │   └── SKILL.md
-│   ├── implement/          # Stage 2 — code + lint + tests
-│   │   └── SKILL.md
-│   ├── review/             # Stage 3 — parallel code review (4 reviewers)
-│   │   └── SKILL.md
-│   └── test/               # Stage 4 — UI/E2E browser testing
-│       └── SKILL.md
-└── README.md
+│   └── build/              # Stage 2 — continuous loop with implement/review/test checkpoints
+│       ├── SKILL.md
+│       └── references/
+│           ├── confidence-scale.md
+│           ├── stuck-detection.md
+│           └── validation-hook.md
+├── README.md
+└── CLAUDE.md
 ```
 
 ## Included Agents
@@ -222,13 +227,13 @@ feature-pipeline/
 |-------|-----------------|
 | `code-explorer` | Traces codebase features, maps architecture (used in plan's Phase 1 synthesis) |
 | `requirements-analyst` | Surfaces open questions and complexity reassessment (used in plan's Phase 1 synthesis) |
-| `code-reviewer` | Reviews correctness with confidence scoring (used in review) |
-| `security-engineer` | Reviews for OWASP Top 10, auth, data protection (used in review) |
-| `performance-engineer` | Reviews for bottlenecks, memory leaks, bundle size (used in review) |
-| `code-architect` | Reviews architectural fit against existing patterns (used in review) |
-| `ui-tester` | Tests UI flows via Playwright browser automation (used in test) |
+| `code-reviewer` | Reviews correctness with confidence scoring (used in build's review checkpoint) |
+| `security-engineer` | Reviews for OWASP Top 10, auth, data protection (used in build's review checkpoint) |
+| `performance-engineer` | Reviews for bottlenecks, memory leaks, bundle size (used in build's review checkpoint) |
+| `code-architect` | Reviews architectural fit against existing patterns (used in build's review checkpoint) |
+| `ui-tester` | Tests UI flows via Playwright browser automation (used in build's test checkpoint) |
 
-> The `implement` stage does not have a dedicated agent — it runs in the main conversation so the user can interact with it during iterative coding.
+> Build runs in main context for its implement checkpoint so the user can interact with iterative coding.
 
 ## Customization
 
@@ -247,15 +252,30 @@ The pipeline reads your project's `CLAUDE.md` for conventions. Add project-speci
 
 On the first run of `/discover` in a project, you'll be asked for a ticket prefix (e.g., `FP`, `MYAPP`, `WEB`). It's saved to `claudedocs/tickets/config.yaml` and reused for all subsequent tickets.
 
+### Validation Hook
+
+The plugin ships an optional `PostToolUse` hook (`hooks/hooks.json` + `hooks/validate.sh`) that runs lint and typecheck after every `Write`/`Edit`/`MultiEdit`. Opt in by adding a `validate:` block to `claudedocs/tickets/config.yaml`:
+
+```yaml
+prefix: FP
+validate:
+  lint: "bun run lint"
+  typecheck: "bun run typecheck"
+```
+
+Without the block, the hook is a silent no-op. The hook auto-detects the project root by walking up from the edited file looking for `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Gemfile`, `composer.json`, `mix.exs`, or `tsconfig.json` (override the marker list via `validate.cwd_markers`). Build's body-level fallback runs the same checks regardless of whether the hook is configured — the two layers are intentionally redundant.
+
+`jq` is required for the hook script; `yq` is recommended for richer YAML support but not required (a grep-based fallback handles the common case).
+
 ### MCP Servers
 
 For full functionality, these MCP servers are recommended (but optional):
-- **Playwright** — required for the test stage (UI testing)
+- **Playwright** — required for build's test checkpoint (UI testing)
 - **Chrome DevTools** — enhanced browser testing
 - **Serena** — semantic code navigation; used by `code-explorer` and `code-architect` agents when available, falls back to Grep/Glob/Read otherwise
 
 ## Requirements
 
 - Claude Code CLI
-- Git (for review stage diffs)
-- Playwright MCP (for UI testing stage)
+- Git (for build's review checkpoint diff)
+- Playwright MCP (for build's UI test checkpoint)

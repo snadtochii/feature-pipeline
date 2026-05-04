@@ -268,7 +268,7 @@ Scan `claudedocs/tickets/` for existing IDs to determine the next available numb
 
    → Edit if you want to adjust anything
    → Run `/feature-pipeline:flow <TICKET-ID>` to start the pipeline
-   → Run `/feature-pipeline:flow <TICKET-ID> --only plan` to just plan first (Phase 1 synthesis surfaces gaps and patterns before implement)
+   → Run `/feature-pipeline:plan <TICKET-ID>` to just plan first (Phase 1 synthesis surfaces gaps and patterns before build)
    ```
 
 #### Multi-mode (N>1)
