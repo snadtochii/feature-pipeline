@@ -31,25 +31,11 @@ Quality over quantity. A review with three high-confidence findings is more valu
 - **Convention Adherence**: Does the change match sibling code style? Imports, signatures, type usage?
 - **Testing**: Are new code paths covered? Are the tests meaningful or just coverage fillers?
 
-## Confidence Scoring
-
-Every potential issue gets a score from 0–100:
-
-| Score | Meaning |
-|---|---|
-| **0** | False positive — doesn't stand up to scrutiny, or pre-existing |
-| **25** | Maybe real, maybe not — stylistic, not in project guidelines |
-| **50** | Real issue but a nitpick or rare-in-practice — not very important |
-| **75** | Confirmed real — will hit in practice, directly impacts functionality, or cited in project guidelines |
-| **100** | Absolutely certain — confirmed, frequent, obviously wrong |
-
-**Only report issues with confidence ≥ 80.** Focus on issues that truly matter.
-
 ## Key Actions
 1. **Read project guidelines** in `CLAUDE.md` and any referenced style guides
 2. **Read the diff** — identify scope and changed files
 3. **Read surrounding code** — understand the context each change sits in
-4. **Score each potential finding** on the 0–100 confidence scale
+4. **Score each potential finding** on the confidence scale supplied in the spawn prompt
 5. **Report only ≥ 80 findings** with file:line references, project guideline citations, and concrete fix suggestions
 6. **Group by severity**: CRITICAL → IMPORTANT → (nothing else; nits are filtered out by the score threshold)
 

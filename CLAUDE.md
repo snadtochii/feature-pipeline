@@ -8,7 +8,7 @@ This file captures invariants and conventions. Anything derivable from reading t
 
 ## What this repo is
 
-A Claude Code plugin that ships an agentic feature-development pipeline: `discover → plan → implement → review → test`. Each stage is a separate **skill** that can run standalone or be sequenced by the **flow** orchestrator. Stages are backed by specialized **agents** (subagents with focused tool budgets and personas).
+A Claude Code plugin that ships an agentic feature-development pipeline: `discover → plan → build`. Each stage is a separate **skill** that can run standalone or be sequenced by the **flow** orchestrator. Build runs implement, review, and test as in-loop checkpoints inside one continuous loop. Stages are backed by specialized **agents** (subagents with focused tool budgets and personas).
 
 The primary audience for edits to this repo is Claude working on the plugin's own skills/agents — not end users. End-user docs live in README.md.
 
@@ -33,15 +33,16 @@ feature-pipeline/
 ├── .claude-plugin/          # Plugin/marketplace metadata
 │   ├── plugin.json
 │   └── marketplace.json
+├── hooks/                   # PostToolUse validation hook (auto-discovered by Claude Code)
+│   ├── hooks.json           # Declares Write|Edit|MultiEdit matcher → validate.sh
+│   └── validate.sh          # Reads validate: block from claudedocs/tickets/config.yaml
 ├── agents/                  # Subagent definitions (one .md per agent)
 ├── skills/                  # Skill definitions (folder per skill, SKILL.md inside)
-│   ├── flow/                # Orchestrator
+│   ├── flow/                # Orchestrator (plan → build with completion gate)
 │   ├── discover/            # Step 0 — ticket creation (Socratic dialogue, may emit 1..N tickets)
 │   ├── explore/             # Open-ended Socratic exploration; can promote to discover
 │   ├── plan/                # Stage 1 (pre-plan synthesis + plan mode)
-│   ├── implement/           # Stage 2
-│   ├── review/              # Stage 3 (4 parallel reviewers)
-│   └── test/                # Stage 4 (UI/E2E)
+│   └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
 ├── README.md                # End-user docs
 └── CLAUDE.md                # This file
 ```
@@ -51,27 +52,35 @@ feature-pipeline/
 ## Pipeline flow (conceptual)
 
 ```
-discover → ticket(s) → flow → plan → implement → review → test → completion
-                                ↑        ↓         ↓        ↓
-                                └────────┴─────────┴────────┘
-                                   (human-gated loop-backs)
+discover → ticket(s) → flow → plan → build → completion
+                                       ↓
+                               ┌──────┴──────┐
+                               │  build loop │
+                               ├─────────────┤
+                               │  implement  │
+                               │      ↓      │
+                               │  review     │ (4 parallel reviewer subagents)
+                               │      ↓      │
+                               │  test       │ (ui-tester subagent or skip)
+                               │      ↓      │
+                               │  exit       │ verdict: pass | partial | stuck
+                               └─────────────┘
 ```
 
 - **`discover`** is step 0 — interactive Socratic dialogue that creates ticket folders. Emits a single ticket (`claudedocs/tickets/backlog/<id>/01-spec.md` + `exploration.md`) for small/coherent work, or a parent epic + nested child tickets (`claudedocs/tickets/backlog/<EPIC>/prd.md` + `tasks/<CHILD>/01-spec.md` for each) when the scope splits naturally. Not part of flow.
 - **`explore`** is a separate skill for open-ended Socratic exploration; can promote a conversation into `discover` once the user knows they want a ticket.
-- **`flow`** orchestrates `plan → implement → review → test` with a human review gate after every stage. `plan` includes Phase 1 pre-plan synthesis (codebase exploration + open-questions surfacing) before entering plan mode.
-- Failures loop backward: review failures re-run `implement`; test failures can re-run either `implement` (code bug) or `plan` (design flaw). Loop-back budgets in `flow`'s `.iterations.json`.
+- **`flow`** orchestrates `plan → build` with the completion gate. Plan mode is its own gate; build presents one verdict gate at exit (`pass | partial | stuck`). `plan` includes Phase 1 pre-plan synthesis (codebase exploration + open-questions surfacing) before entering plan mode. Flag surface is `--continue` and `--ignore-blockers`.
+- **`build`** runs implement → review → test as internal checkpoints in one continuous loop. Validation fires after every edit (PostToolUse hook plus skill-body fallback). Reviewer findings and test failures are fixed in-context; the loop self-monitors for stuck patterns and a 25-turn ceiling.
 
 ### Runtime source of truth
 
 **Operational details live in `skills/flow/SKILL.md`**, not here. That file is loaded by Claude Code when a consumer runs the pipeline; this `CLAUDE.md` is only loaded when editing the plugin repo itself. If you move operational rules out of the skill and into this file, consumers lose visibility.
 
 Canonical sources in `skills/flow/SKILL.md`:
-- **Stage Contract** — reads/writes per stage, re-run inputs
-- **Artifact Convention** — numbering rules, layout illustrations (solo + nested epic), `.stale/` and `.iterations.json` semantics
-- **Loop-back iteration budget** — counter shape, budgets, escalation rules
-- **Artifact invalidation** — `.stale/<timestamp>/` policy on deliberate re-runs
-- **State transitions** (SETUP step 4, COMPLETION step 5) — solo vs nested-child move logic, all-children-done check for epics
+- **Stage Contract** — reads/writes per stage
+- **Artifact Convention** — numbering rules, layout illustrations (solo + nested epic), `.stale/` semantics
+- **Artifact invalidation** — `.stale/<timestamp>/` policy on deliberate plan re-runs
+- **State transitions** (SETUP step 4, COMPLETION) — solo vs nested-child move logic, all-children-done check for epics, verdict-aware completion routing
 
 Centralized cross-stage rules live in `skills/flow/references/ticket-resolution.md`:
 - **Step 1** — ticket-folder resolution (path or ID, including nested children under `tasks/`)
@@ -83,7 +92,7 @@ Individual stage skills (`skills/<stage>/SKILL.md`) own their own `Required Inpu
 
 ### Dev-side rule
 
-When adding a new input to a stage, document it in the stage's `Required Input` section *and* update flow's Stage Contract table *and* its loop-back path description. All three live in skill files, not in this `CLAUDE.md`.
+When adding a new input to a stage, document it in the stage's `Required Input` section *and* update flow's Stage Contract table. Both live in skill files, not in this `CLAUDE.md`.
 
 ---
 
@@ -95,17 +104,15 @@ This section captures only what's **specific to this plugin** on top of those ge
 
 ### `allowed-tools` budgets for this plugin's skills
 
-Typical budget per role, expressed as unordered tool sets. The review *skill* may write to `claudedocs/` to save its merged artifact, but its *reviewer agents* are read-only — they must not mutate the tree they review.
+Typical budget per role, expressed as unordered tool sets. The build *skill* may write to `claudedocs/` to save its merged review artifact and its other in-loop artifacts, but its *reviewer agents* are read-only — they must not mutate the tree they review.
 
 | Skill | Typical budget |
 |---|---|
-| `flow` (orchestrator) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite, Skill |
+| `flow` (orchestrator) | Read, Edit, Glob, Grep, Bash, TodoWrite, Skill |
 | `discover` (intake) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite |
 | `explore` (open-ended dialogue) | Read, Write, Edit, Glob, Grep, Bash, TodoWrite |
 | `plan` (pre-plan synthesis + plan mode) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for Phase 1 subagents) |
-| `implement` | Read, Write, Edit, Glob, Grep, Bash, TodoWrite |
-| `review` | Read, Write, Glob, Grep, Bash, Task, TodoWrite (Write is for the merged `04-review.md` artifact only — no `Edit`, reviewer agents stay read-only) |
-| `test` | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite + Playwright/Chrome MCP |
+| `build` (continuous loop) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for the 4 reviewer subagents at the review checkpoint and the ui-tester subagent at the test checkpoint; Write for `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md`) |
 
 If you need a tool not in this table, add it explicitly and document why.
 
@@ -165,7 +172,7 @@ Every agent in this plugin uses the body structure: **Triggers / Behavioral Mind
 
 ### No implementer agent
 
-The implement stage runs in main context (see "Main-context vs subagent" below); implementation tool access is governed by the `implement` skill's `allowed-tools`, not by an agent tool budget. There is intentionally no `implementer.md` in `agents/`.
+Build's implement checkpoint runs in main context (see "Main-context vs subagent" below); implementation tool access is governed by the `build` skill's `allowed-tools`, not by an agent tool budget. There is intentionally no `implementer.md` in `agents/`.
 
 ---
 
@@ -176,20 +183,20 @@ Not every stage runs as a subagent. The rule:
 | Runs in main context | Runs as subagent |
 |---|---|
 | `flow` (orchestrator) | `code-explorer`, `requirements-analyst` (spawned by `plan` Phase 1) |
-| `discover` (interactive dialogue) | `code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect` (spawned by `review`) |
-| `explore` (open-ended dialogue) | `ui-tester` (spawned by `test`) |
+| `discover` (interactive dialogue) | `code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect` (spawned by `build`'s review checkpoint) |
+| `explore` (open-ended dialogue) | `ui-tester` (spawned by `build`'s test checkpoint) |
 | `plan` (uses `EnterPlanMode`, needs user interaction; spawns subagents in Phase 1) | |
-| `implement` (long interactive coding + validation) | |
+| `build` (long interactive loop with implement/review/test checkpoints) | |
 
 **Rule:** run in main context only when you need *interactivity* or *plan mode*. Otherwise prefer a subagent — it keeps the main context clean.
 
-The `implement` skill folds its behavioral guidelines (mindset, focus areas, boundaries) directly into the SKILL.md body rather than delegating to a subagent — this is intentional, since the stage needs main-context interactivity for iterative coding + validation. See `skills/implement/SKILL.md` for the canonical implementer mindset.
+The `build` skill folds the implementer mindset (focus areas, boundaries) directly into the SKILL.md body rather than delegating to a subagent — this is intentional, since the implement checkpoint needs main-context interactivity for iterative coding + validation. See `skills/build/SKILL.md` for the canonical implementer mindset.
 
 ---
 
 ## Ticket resolution (shared across skills)
 
-Every stage skill resolves a ticket argument identically. Canonical logic lives in **`skills/flow/references/ticket-resolution.md`** and is referenced from `flow`, `plan`, `implement`, `review`, and `test`. `discover` handles the intake/creation variant inline (prefix logic and ID allocation live there).
+Every stage skill resolves a ticket argument identically. Canonical logic lives in **`skills/flow/references/ticket-resolution.md`** and is referenced from `flow`, `plan`, and `build`. `discover` handles the intake/creation variant inline (prefix logic and ID allocation live there).
 
 **Do not duplicate the resolution logic inline** in a stage skill — link to the reference. If the resolution rules change, update the reference once.
 
@@ -200,7 +207,7 @@ Quick summary (full version in the reference):
 - Resolves to a ticket folder. Two shapes:
   - Solo ticket: `claudedocs/tickets/<state>/<id>/` containing `01-spec.md` and stage artifacts.
   - Child of an epic: `claudedocs/tickets/<state>/<EPIC>/tasks/<CHILD>/` containing `01-spec.md` and stage artifacts; the parent epic folder (`<state>/<EPIC>/`) holds `prd.md` and the shared `exploration.md`.
-- Stages refuse to run against an epic (`kind: epic` in `prd.md` frontmatter) — see Step 4 in the reference.
+- `plan` and `build` refuse to run against an epic (`kind: epic` in `prd.md` frontmatter) — see Step 4 in the reference.
 
 ---
 
@@ -209,16 +216,21 @@ Quick summary (full version in the reference):
 Tickets are markdown with YAML frontmatter — see `skills/discover/templates/task.md` (task spec, used for solo and child tickets) and `skills/discover/templates/prd.md` (epic PRD, used when discover emits multiple siblings) for the canonical schemas.
 
 - **Prefix** per project (e.g. `FP`, `MYAPP`, `WEB`). Stored as the `prefix` field in `claudedocs/tickets/config.yaml`. Discover creates the file on first run and infers from existing tickets if it's missing. `config.yaml` is the canonical home for tickets-system configuration — future fields (status flow customization, complexity scale, etc.) go here, not in new dotfiles.
+- **Validation hook config** lives in the same `claudedocs/tickets/config.yaml` under an optional `validate:` block:
+  - `validate.lint` — string, shell command run after each Write/Edit/MultiEdit (e.g. `"bun run lint"`).
+  - `validate.typecheck` — string, shell command run after each Write/Edit/MultiEdit (e.g. `"bun run typecheck"`).
+  - `validate.cwd_markers` — optional list, overrides the default project-root markers (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Gemfile`, `composer.json`, `mix.exs`, `tsconfig.json`). The hook walks up from the edited file looking for any of these to pick the cwd for the lint/typecheck commands.
+  - Missing block, missing keys, or malformed YAML → hook is a silent no-op. `jq` is required for the hook to function; without `jq` the hook logs one line to stderr and exits 0 (the build skill's body-level fallback still runs). `yq` is recommended for richer YAML support but not required.
 - **ID format:** `<PREFIX>-<N>` — no leading zeros.
 - **Folder name:** just the ID, no slug — `claudedocs/tickets/<state>/<PREFIX>-<N>/` (or for nested children, `<state>/<EPIC>/tasks/<CHILD>/`).
 - **Status flow:** `backlog → in-progress → done` (folders match). Cancellation is expressed via frontmatter `status: cancelled` inside `done/`, not a separate folder.
-- Solo ticket folders move between state folders as the pipeline advances — the entire folder (spec, artifacts, `bugs/`, `.iterations.json`, `.stale/`) moves as a unit.
+- Solo ticket folders move between state folders as the pipeline advances — the entire folder (spec, artifacts, `.stale/`) moves as a unit.
 - For epics: the **whole subtree** moves between state folders together (rule: any-child-in-progress → in-progress; all-children-done-or-cancelled → done). `prd.md`'s `status` field tracks the folder location; per-child `status` lives in each child's `01-spec.md`. See `flow/SKILL.md` SETUP step 4 and COMPLETION step 5.
 - **Multi-sibling linkage frontmatter** (set on children when discover emits an epic):
   - `parent: <EPIC-ID>` — the epic this child belongs to.
   - `epic: <slug>` — human-readable shared identifier across siblings (e.g. `dark-mode-rollout`).
   - `siblings: [<child-id>, ...]` — informational cross-references.
-  - `blocked_by: [<child-id>, ...]` — sequencing dependencies. Enforced by `plan`/`implement`/`review`/`test`: implement+ refuse if blockers aren't done; plan auto-loads blocker context. Bypass with `--ignore-blockers`. See ticket-resolution Step 6.
+  - `blocked_by: [<child-id>, ...]` — sequencing dependencies. Enforced by `plan`/`build`: build refuses if blockers aren't done; plan auto-loads blocker context. Bypass with `--ignore-blockers`. See ticket-resolution Step 6.
 - **Epic frontmatter** (on `prd.md`):
   - `kind: epic` — marks as non-pipelineable.
   - `children: [<child-id>, ...]` — populated by discover.
@@ -228,15 +240,16 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 
 ## Adding a new stage
 
+Build owns artifact slots `03-implementation.md` through `06-summary.md`. The next free slot is `07-*.md`.
+
 1. Create `skills/<stage>/SKILL.md` following the skill body template above.
 2. Reserve the next artifact number (`07-*.md`) — update the "Artifact Convention" section in `skills/flow/SKILL.md`.
-3. Add the stage to flow's pipeline order, stage list, and flag handling (`--from`, `--to`, `--only`, `--skip`).
-4. Add `--continue` detection: when to resume from this stage.
+3. Add the stage to flow's pipeline order and stage list.
+4. Add `--continue` detection: when to resume from this stage based on which on-disk artifact is present.
 5. Document the stage's input/output contract in the stage's `Required Input`/`Output` sections *and* in flow's Stage Contract table.
-6. If the new stage introduces a loop-back, add a counter to `.iterations.json` and wire it into the loop-back iteration budget section of `skills/flow/SKILL.md`.
-7. Update `skills/flow/SKILL.md`'s Artifact invalidation downstream table for the new stage.
-8. If the stage spawns subagents, create them in `agents/` and wire them up.
-9. If the stage operates on a ticket (most do), reference `flow/references/ticket-resolution.md` for resolution + epic refusal + blocker validation, and add the stage to the consumer list in that reference.
+6. Update `skills/flow/SKILL.md`'s Artifact invalidation downstream table for the new stage.
+7. If the stage spawns subagents, create them in `agents/` and wire them up.
+8. If the stage operates on a ticket (most do), reference `flow/references/ticket-resolution.md` for resolution + epic refusal + blocker validation, and add the stage to the consumer list in that reference.
 
 ## Adding a new agent
 
@@ -256,6 +269,9 @@ Before committing changes to skills or agents:
 3. **Check trigger phrases** — every skill description must include natural trigger phrases that a user would actually type.
 4. **Walk the stage contract in `skills/flow/SKILL.md`** — if you changed inputs/outputs, update the Stage Contract table *and* every consuming stage's `Required Input` section.
 5. **Sweep for cross-skill drift** — when a filename, skill name, or schema changes, grep across `skills/` and `agents/` for stale references and update them. The "Editing discipline" section below applies.
+6. **Build skill tool-budget audit** — grep `skills/build/SKILL.md` for any tool reference outside its `allowed-tools` (Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite). Should return no matches.
+7. **Reviewer-agent read-only audit** — confirm `agents/code-reviewer.md`, `agents/security-engineer.md`, `agents/performance-engineer.md`, and `agents/code-architect.md` list no `Bash` or `Edit` in their `tools:`. Reviewers must not mutate the tree they review.
+8. **Failed-criteria placement** — failed test criteria live inside `05-tests.md` under a `## Failed Criteria` section. Verify build-skill output stays consistent with this placement.
 
 There's no automated test suite for the plugin itself. Validation is by manual pipeline runs on real tickets.
 
@@ -284,6 +300,9 @@ This applies to skill files, code comments, README sections, frontmatter comment
 
 Decisions evaluated and explicitly *not* adopted, kept here so future maintenance has context on why the code looks the way it does. Each entry references a real, current piece of the codebase — not removed features.
 
-- **Design-match reviewer as 5th parallel reviewer** in the `review` stage. Deferred because it assumes design artifacts (Figma, wireframes) that not every personal-project ticket has. Reconsider when a ticket workflow routinely includes design references.
-- **Step-type routing** in `plan`/`implement` (`figma-ui`, `component`, `service`, etc.) — too project-specific to generalize. The `plan` skill annotates step content explicitly instead of routing by step type.
+- **Design-match reviewer as 5th parallel reviewer** in build's review checkpoint. Deferred because it assumes design artifacts (Figma, wireframes) that not every personal-project ticket has. Reconsider when a ticket workflow routinely includes design references.
+- **Step-type routing** in `plan`/`build` (`figma-ui`, `component`, `service`, etc.) — too project-specific to generalize. The `plan` skill annotates step content explicitly instead of routing by step type.
 - **PR-workflow integration** (auto-review of GitHub PRs, addressing reviewer feedback through PR comments). Out of scope for the core pipeline since it would assume GitHub + `gh` CLI and a specific PR workflow; `feature-pipeline` is general-purpose and ticket-folder-driven, not PR-driven.
+- **Multi-sibling epic-level orchestration** (`flow <EPIC-ID>` walking children in dependency order). Useful but orthogonal to the per-ticket loop. Reconsider when an epic's children are routinely worked on as a batch.
+- **Clean-abort routine for `flow`** (`flow --abort`). Small standalone change; the existing verdict gate's `abort` choice covers the common case (revert folder + reset frontmatter). A dedicated flag would standardize multi-step abort behavior across deeper future flow surfaces.
+- **Validator auto-detection in `hooks/validate.sh`** (project-type detection, e.g., infer "run pyright" from a `pyproject.toml`). Currently the user explicitly declares `validate.lint` and `validate.typecheck`. Auto-detection is too magic for a plugin that should respect existing project conventions; revisit if explicit-config maintenance becomes a real friction.
