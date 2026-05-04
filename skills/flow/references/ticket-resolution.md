@@ -1,6 +1,6 @@
 # Ticket Resolution — Shared Logic
 
-Canonical logic for resolving a ticket argument to a **ticket folder**, ensuring the spec is in place, locating the shared exploration, and validating that the ticket is actually pipelineable. Referenced by every stage skill (`plan`, `implement`, `review`, `test`) and by the `flow` orchestrator itself.
+Canonical logic for resolving a ticket argument to a **ticket folder**, ensuring the spec is in place, locating the shared exploration, and validating that the ticket is actually pipelineable. Referenced by `flow`, `plan`, and `build`.
 
 `discover` does **not** use this reference — it handles the intake/creation variant with prefix logic inline.
 
@@ -16,13 +16,11 @@ A ticket folder has one of two shapes depending on whether it came from a single
 claudedocs/tickets/<state>/<id>/
 ├── 01-spec.md            ← THE spec (frontmatter + body — this IS the ticket)
 ├── exploration.md        ← discover output, optional
-├── 02-plan.md            ← plan stage (includes Phase 1 synthesis: Codebase Context + Open Questions Resolved sections)
-├── 03-implementation.md  ← implement stage (live, updated incrementally)
-├── 04-review.md          ← review stage
-├── 05-tests.md           ← test stage
-├── 06-summary.md         ← completion
-├── bugs/                 ← test-stage bug reports
-├── .iterations.json      ← loop-back counter state (flow)
+├── 02-plan.md            ← plan (includes Phase 1 synthesis: Codebase Context + Open Questions Resolved sections)
+├── 03-implementation.md  ← build (live, updated per plan step)
+├── 04-review.md          ← build (merged from 4 reviewer subagents)
+├── 05-tests.md           ← build (UI test results, skip artifact, or Failed Criteria section)
+├── 06-summary.md         ← build exit summary (always written; content varies per verdict)
 └── .stale/               ← superseded artifacts after deliberate re-runs
 ```
 
@@ -40,8 +38,6 @@ claudedocs/tickets/<state>/<EPIC-ID>/
     │   ├── 04-review.md
     │   ├── 05-tests.md
     │   ├── 06-summary.md
-    │   ├── bugs/
-    │   ├── .iterations.json
     │   └── .stale/
     ├── <CHILD-2-ID>/
     └── <CHILD-3-ID>/
@@ -105,14 +101,14 @@ After reading frontmatter, check the `kind` field:
 
 - If `kind: epic` is present, the resolved item is a parent epic, not a pipelineable ticket. **Abort the stage** with this message:
   ```
-  <ID> is an epic (kind: epic), not a pipelineable ticket. Epics group siblings — they hold the PRD, the shared exploration, and the decomposition table, but they don't go through plan/implement/review/test themselves.
+  <ID> is an epic (kind: epic), not a pipelineable ticket. Epics group siblings — they hold the PRD, the shared exploration, and the decomposition table, but they don't go through plan/build themselves.
 
   Run the pipeline against one of its children instead:
   <list the IDs from the epic's `children:` frontmatter field>
   ```
 - If `kind` is absent or has any other value, the ticket is pipelineable. Proceed.
 
-This is the centralized epic-refusal rule. Stage skills (`plan`, `implement`, `review`, `test`) inherit it via this reference and don't need to duplicate the check.
+This is the centralized epic-refusal rule. Stage skills (`plan`, `build`) inherit it via this reference and don't need to duplicate the check.
 
 ## Step 5 — Locate exploration (when the stage needs it)
 
@@ -146,9 +142,9 @@ The stage's behavior depends on which stage is running:
   Factor this into your <analysis|plan> — assume the blocker will deliver what its plan/spec describes; do NOT flag as gaps things the blocker is already designed to provide.
   ```
 
-- **`implement`, `review`, `test`** — REFUSE if any blocker is not done (or cancelled). Abort with this message:
+- **`build`** — REFUSE if any blocker is not done (or cancelled). Abort with this message:
   ```
-  Cannot run <stage> on <ticket-id>. Blockers not yet done:
+  Cannot run build on <ticket-id>. Blockers not yet done:
   - <blocker-id> (status: <status>, location: claudedocs/tickets/<state>/.../<blocker-id>/)
   - ...
 
@@ -159,7 +155,7 @@ The stage's behavior depends on which stage is running:
 
 When the stage is invoked with `--ignore-blockers` (either directly via the stage skill, or propagated from `flow`):
 
-- For `implement`/`review`/`test`: skip the refusal. Print a one-line warning instead, then proceed:
+- For `build`: skip the refusal. Print a one-line warning instead, then proceed:
   ```
   ⚠ Bypassing blocker check for <ticket-id>. Unfinished blockers: <list>. Proceeding anyway.
   ```
