@@ -112,7 +112,7 @@ d. **After all plan steps are implemented**, run final validation across all cha
 
 ### 2. Review checkpoint
 
-a. **Collect the diff.** Mirror `skills/review/SKILL.md:65-80`'s logic:
+a. **Collect the diff.**
 
    ```bash
    # Detect the base branch — prefer origin's HEAD, fall back to main
@@ -156,12 +156,12 @@ c. **Spawn four reviewer subagents in parallel.** All four run **concurrently** 
    >
    > Reference specific files and patterns with file:line. Use the confidence scale above — only report issues with confidence ≥ 80.
 
-d. **Merge findings into `<ticket-folder>/04-review.md`** (mirror `skills/review/SKILL.md:105-112`):
+d. **Merge findings into `<ticket-folder>/04-review.md`**:
    - **Group by severity**: CRITICAL → IMPORTANT → SUGGESTION
    - **De-duplicate** overlapping findings (e.g., if both code-reviewer and code-architect flag the same issue)
    - **Tag each finding** with `[correctness]` / `[security]` / `[performance]` / `[architecture]`
    - **Top-of-file summary** with counts per severity + per reviewer
-   - **Reviewer failure handling**: if a reviewer subagent fails, report it inside the merged artifact and continue with results from the other reviewers (graceful partial-merge per `skills/review/SKILL.md:130-134`). All four failing → write a single error entry in `04-review.md` and exit with `verdict: stuck`.
+   - **Reviewer failure handling**: if a reviewer subagent fails, report it inside the merged artifact and continue with results from the other reviewers (graceful partial-merge). All four failing → write a single error entry in `04-review.md` and exit with `verdict: stuck`.
 
 e. **Apply applicable fixes in-context.** The model uses judgment to apply fixes from the merged findings. **Tiebreak when fixes are mutually exclusive**: `security > correctness > architecture > performance`. **Rationale (called out so future readers don't reverse-engineer it)**: security failures have the largest blast radius (real-world exposure); correctness is the AC contract; architecture is internal consistency that can be repaired later; performance is the most local and most easily revisited.
 
@@ -171,7 +171,7 @@ f. **After fixes are applied**, run validation again (lint/typecheck) and update
 
 ### 3. Test checkpoint
 
-a. **Skip-detection scan.** Read `02-plan.md` and search (case-insensitive substring match) for any of: `component, page, route, screen, form, tsx, jsx, html, view`. Match → run `ui-tester` (step b). No match → skip (step c).
+a. **Skip-detection scan.** Read `02-plan.md` and search (case-insensitive substring match) for any of: `component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial`. Match → run `ui-tester` (step b). No match → skip (step c).
 
 b. **Spawn `feature:ui-tester`** (when not skipped). Read the project's `CLAUDE.md` for a test framework hint (`## Testing` section, `## Commands` section, or inline references like "Playwright specs in `e2e/`"). Single `Task` call:
 
@@ -185,7 +185,7 @@ c. **Skip artifact** (when no UI signals matched). **Important**: `skipped` is a
    verdict: skipped (no UI work in plan)
 
    ## Reason
-   Keyword scan of 02-plan.md found no UI signals (component, page, route, screen, form, tsx, jsx, html, view).
+   Keyword scan of 02-plan.md found no UI signals (component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial).
 
    ## Acceptance Criteria
    - [ ] AC 1 — not-tested (no UI)
@@ -195,7 +195,7 @@ c. **Skip artifact** (when no UI signals matched). **Important**: `skipped` is a
 
 d. **Apply test fixes in-context.** Test failures are observations the loop consumes — fix them inline using the same pattern as the review checkpoint. If fixes succeed, re-run the failing tests. If failures are un-fixable in this run, write the `## Failed Criteria` section to `05-tests.md` and prepare to exit with `verdict: partial`.
 
-e. **Application not running.** If `ui-tester` reports the application is not running, ask the user to start it and provide the URL (matches `skills/test/SKILL.md:82-84` pattern). Persistent inability to reach the app counts as a stuck pattern (repeated context errors) — exit with `verdict: stuck`.
+e. **Application not running.** If `ui-tester` reports the application is not running, ask the user to start it and provide the URL. Persistent inability to reach the app counts as a stuck pattern (repeated context errors) — exit with `verdict: stuck`.
 
 f. **After test fixes are applied** (or skip artifact written), update `03-implementation.md` if any code changed, then proceed to step 4.
 

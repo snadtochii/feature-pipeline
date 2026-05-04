@@ -110,7 +110,7 @@ Typical budget per role, expressed as unordered tool sets. The build *skill* may
 |---|---|
 | `flow` (orchestrator) | Read, Edit, Glob, Grep, Bash, TodoWrite, Skill |
 | `discover` (intake) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite |
-| `explore` (open-ended dialogue) | Read, Write, Edit, Glob, Grep, Bash, TodoWrite |
+| `explore` (open-ended dialogue) | Read, Glob, Grep, Bash, TodoWrite, Skill |
 | `plan` (pre-plan synthesis + plan mode) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for Phase 1 subagents) |
 | `build` (continuous loop) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for the 4 reviewer subagents at the review checkpoint and the ui-tester subagent at the test checkpoint; Write for `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md`) |
 

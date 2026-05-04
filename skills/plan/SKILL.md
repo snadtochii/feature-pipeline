@@ -120,7 +120,7 @@ If the complexity reassessment is materially off (e.g., spec says M, analysis sa
 ```
 ⚠ Complexity overflow: spec sized this M, analysis suggests XL.
 Options:
-  → Proceed to plan with the larger scope (longer implement/review cycles expected)
+  → Proceed to plan with the larger scope (longer build loop expected)
   → Cancel and re-run /discover with the new understanding to produce an epic + children
   → Type your decision before plan mode entry
 ```

@@ -1,7 +1,7 @@
 ---
 id: XX-1
 title: Epic Title
-kind: epic              # marks this as non-pipelineable — plan/implement/review/test refuse to run against epics
+kind: epic              # marks this as non-pipelineable — plan/build refuse to run against epics
 epic: epic-slug         # human-readable shared identifier across siblings (lowercase, hyphenated)
 children: [XX-2, XX-3, XX-4]
 priority: medium        # low | medium | high | critical
