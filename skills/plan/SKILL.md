@@ -25,7 +25,7 @@ Two phases:
 ## Arguments
 
 ```
-/feature-pipeline:plan $ARGUMENTS
+/feature:plan $ARGUMENTS
 ```
 
 `$1` = ticket ID (e.g. `BL-1`) or path to ticket file.

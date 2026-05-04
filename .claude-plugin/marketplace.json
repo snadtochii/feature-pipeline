@@ -1,13 +1,13 @@
 {
-  "name": "feature-pipeline",
-  "description": "Agentic feature development pipeline: Socratic discovery, planning, implementation, parallel code review, and UI testing with human review gates between every stage.",
+  "name": "feature",
+  "description": "Agentic feature development pipeline.",
   "owner": {
     "name": "Serhii Nadtochii"
   },
   "plugins": [
     {
-      "name": "feature-pipeline",
-      "description": "Agentic feature development pipeline with specialized agents, human review gates, multi-sibling ticket support for epics, and blocker enforcement.",
+      "name": "feature",
+      "description": "Agentic feature development pipeline.",
       "source": "./",
       "category": "development"
     }

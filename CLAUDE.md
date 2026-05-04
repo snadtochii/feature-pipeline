@@ -1,4 +1,4 @@
-# CLAUDE.md — feature-pipeline plugin
+# CLAUDE.md — feature plugin
 
 Guidance for Claude (and humans) working **on this plugin itself**. For usage of the pipeline, see [README.md](README.md).
 
@@ -22,7 +22,7 @@ Editing a skill or agent while another Claude Code session is open:
 2. In the consuming Claude Code session (not this repo — see below), run `/reload-plugins` — the updated skill/agent takes effect without a restart
 3. Invoke the skill or trigger the agent to verify the change
 
-**Keep the plugin repo separate from any consuming project** used for testing. Pick a throwaway project (or a real one), create a small ticket via `/feature-pipeline:discover`, then run `/feature-pipeline:flow <id>`. Running the pipeline against this plugin repo itself creates confusion about which `claudedocs/tickets/` artifacts belong where.
+**Keep the plugin repo separate from any consuming project** used for testing. Pick a throwaway project (or a real one), create a small ticket via `/feature:discover`, then run `/feature:flow <id>`. Running the pipeline against this plugin repo itself creates confusion about which `claudedocs/tickets/` artifacts belong where.
 
 ---
 
@@ -146,7 +146,7 @@ When a block would otherwise be duplicated across multiple stage skills, extract
 
 General Claude Code agent-authoring rules — frontmatter fields, `tools:` format, description policy, optional fields (`permissionMode`, `maxTurns`, `skills`, `hooks`), body template options — are documented in the official Anthropic subagents reference (https://code.claude.com/docs/en/sub-agents). That is the source of truth. Do not duplicate its content here.
 
-Agents in this plugin live at `agents/*.md` and are loaded as subagent types namespaced `feature-pipeline:<agent-name>`. This section captures only what's **specific to this plugin**.
+Agents in this plugin live at `agents/*.md` and are loaded as subagent types namespaced `feature:<agent-name>`. This section captures only what's **specific to this plugin**.
 
 ### Tool budgets for this plugin's agents
 
@@ -302,7 +302,7 @@ Decisions evaluated and explicitly *not* adopted, kept here so future maintenanc
 
 - **Design-match reviewer as 5th parallel reviewer** in build's review checkpoint. Deferred because it assumes design artifacts (Figma, wireframes) that not every personal-project ticket has. Reconsider when a ticket workflow routinely includes design references.
 - **Step-type routing** in `plan`/`build` (`figma-ui`, `component`, `service`, etc.) — too project-specific to generalize. The `plan` skill annotates step content explicitly instead of routing by step type.
-- **PR-workflow integration** (auto-review of GitHub PRs, addressing reviewer feedback through PR comments). Out of scope for the core pipeline since it would assume GitHub + `gh` CLI and a specific PR workflow; `feature-pipeline` is general-purpose and ticket-folder-driven, not PR-driven.
+- **PR-workflow integration** (auto-review of GitHub PRs, addressing reviewer feedback through PR comments). Out of scope for the core pipeline since it would assume GitHub + `gh` CLI and a specific PR workflow; the `feature` plugin is general-purpose and ticket-folder-driven, not PR-driven.
 - **Multi-sibling epic-level orchestration** (`flow <EPIC-ID>` walking children in dependency order). Useful but orthogonal to the per-ticket loop. Reconsider when an epic's children are routinely worked on as a batch.
 - **Clean-abort routine for `flow`** (`flow --abort`). Small standalone change; the existing verdict gate's `abort` choice covers the common case (revert folder + reset frontmatter). A dedicated flag would standardize multi-step abort behavior across deeper future flow surfaces.
 - **Validator auto-detection in `hooks/validate.sh`** (project-type detection, e.g., infer "run pyright" from a `pyproject.toml`). Currently the user explicitly declares `validate.lint` and `validate.typecheck`. Auto-detection is too magic for a plugin that should respect existing project conventions; revisit if explicit-config maintenance becomes a real friction.

@@ -47,11 +47,11 @@ Each stage is a **separate skill** that can be invoked independently or orchestr
 
 ```bash
 # Full pipeline (orchestrator calls plan then build)
-/feature-pipeline:flow BL-1
+/feature:flow BL-1
 
 # Individual stages (standalone, using existing artifacts)
-/feature-pipeline:plan BL-1                  # plan stage with Phase 1 synthesis + plan mode
-/feature-pipeline:build BL-1 --continue      # resume build from the latest on-disk artifact
+/feature:plan BL-1                  # plan stage with Phase 1 synthesis + plan mode
+/feature:build BL-1 --continue      # resume build from the latest on-disk artifact
 ```
 
 ## Installation
@@ -61,7 +61,7 @@ Each stage is a **separate skill** that can be invoked independently or orchestr
 /plugin marketplace add <github-user>/feature-pipeline
 
 # 2. Install the plugin
-/plugin install feature-pipeline@<github-user>-feature-pipeline
+/plugin install feature@<github-user>-feature
 
 # 3. Activate
 /reload-plugins
@@ -79,21 +79,21 @@ claude --plugin-dir /path/to/feature-pipeline
 If your idea isn't yet outcome-committed — you don't know whether to build it, what scope it has, or what shape it should take — start with `/explore`:
 
 ```bash
-/feature-pipeline:explore I'm thinking about reworking how rate limiting works
+/feature:explore I'm thinking about reworking how rate limiting works
 ```
 
 `/explore` is open-ended Socratic dialogue. The agent asks probing questions one at a time (with a recommended answer per question), grounds in the codebase only when relevant, and ends however you want:
 
 - **Leave** — no artifact, just shared understanding.
 - **Save as a note** — `/explore` doesn't write notes itself. If you have a note-saving skill or workflow installed separately, signal it (e.g., "note this", "save the session") and it picks up the conversation directly.
-- **Promote to a ticket** — say "make this a ticket" and `/explore` hands the conversation to `/feature-pipeline:discover`, which runs its full flow including codebase exploration but only asks gap questions you haven't already covered.
+- **Promote to a ticket** — say "make this a ticket" and `/explore` hands the conversation to `/feature:discover`, which runs its full flow including codebase exploration but only asks gap questions you haven't already covered.
 
 Use `/explore` when the outcome is uncommitted. Use `/discover` directly when you already know you want a ticket.
 
 ### Step 0: Discover & Create a Ticket
 
 ```bash
-/feature-pipeline:discover I want to add dark mode to the app --project my-app
+/feature:discover I want to add dark mode to the app --project my-app
 ```
 
 `/discover` runs interactive requirements discovery and produces ticket folders in `claudedocs/tickets/backlog/`. The output depends on scope:
@@ -106,9 +106,9 @@ You see and approve the proposal before tickets are created.
 ### Step 1: Run the Pipeline
 
 ```bash
-/feature-pipeline:flow BL-1                       # full pipeline (plan → build)
-/feature-pipeline:flow BL-1 --continue            # resume from where it left off
-/feature-pipeline:flow BL-1 --ignore-blockers     # bypass blocker validation (use with care)
+/feature:flow BL-1                       # full pipeline (plan → build)
+/feature:flow BL-1 --continue            # resume from where it left off
+/feature:flow BL-1 --ignore-blockers     # bypass blocker validation (use with care)
 ```
 
 ### Run Individual Stages
@@ -117,10 +117,10 @@ Each stage reads its input from the ticket folder, so you can run them independe
 
 ```bash
 # Re-plan with the existing spec (overwrites 02-plan.md)
-/feature-pipeline:plan BL-1
+/feature:plan BL-1
 
 # Resume the build loop from the latest on-disk artifact (03-implementation.md / 04-review.md / 05-tests.md)
-/feature-pipeline:build BL-1 --continue
+/feature:build BL-1 --continue
 ```
 
 ### Blocker dependencies between siblings
