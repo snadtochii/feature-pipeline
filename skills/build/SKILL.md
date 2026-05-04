@@ -22,7 +22,7 @@ Build the ticket through one continuous loop with internal checkpoints (implemen
 ## Arguments
 
 ```
-/feature-pipeline:build $ARGUMENTS
+/feature:build $ARGUMENTS
 ```
 
 `$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--continue` (resume from prior artifacts on disk), `--ignore-blockers` (bypass blocker-validation refusal).
@@ -34,7 +34,7 @@ Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/r
 ## Required Input
 
 - `01-spec.md` — the ticket specification (for acceptance criteria)
-- `02-plan.md` — the approved implementation plan (**required** — if not found, refuse with: "Plan stage hasn't run. Run `/feature-pipeline:plan $1` first.")
+- `02-plan.md` — the approved implementation plan (**required** — if not found, refuse with: "Plan stage hasn't run. Run `/feature:plan $1` first.")
 
 When `--continue` is passed, also read whichever of these exist on disk to reconstruct state:
 - `03-implementation.md` — completed plan steps from a prior build invocation
@@ -79,7 +79,7 @@ Watch for stuck patterns (action↔observation repetition, agent monologue, ping
 - Emit `Turn N/25` lines and self-detect stuck patterns
 
 **Will Not:**
-- Re-invoke `/feature-pipeline:plan` or any other skill mid-loop (build is forward-only)
+- Re-invoke `/feature:plan` or any other skill mid-loop (build is forward-only)
 - Persist iteration state to disk — turn count and stuck patterns are conversational state, observed in-transcript
 - Inline the confidence rubric into reviewer agent bodies (the rubric is build-injected at spawn time, agent bodies must stay rubric-free)
 - Skip validation steps; leave failing tests; add features beyond what `02-plan.md` specifies
@@ -137,16 +137,16 @@ b. **Compose the shared base for reviewer prompts** (single composition, used by
 
 c. **Spawn four reviewer subagents in parallel.** All four run **concurrently** — launch them in a single message with four `Task` tool calls. Each prompt = the shared base from step b + a per-reviewer suffix:
 
-   **a. `feature-pipeline:code-reviewer`** (correctness + quality):
+   **a. `feature:code-reviewer`** (correctness + quality):
    > Review these code changes for correctness, bugs, logic errors, and adherence to project conventions. Use the confidence scale above — only report issues with confidence ≥ 80.
 
-   **b. `feature-pipeline:security-engineer`** (security):
+   **b. `feature:security-engineer`** (security):
    > Review these code changes for security vulnerabilities. Check for: input validation, auth issues, injection risks, data exposure, OWASP Top 10. Use the confidence scale above — only report issues with confidence ≥ 80.
 
-   **c. `feature-pipeline:performance-engineer`** (performance):
+   **c. `feature:performance-engineer`** (performance):
    > Review these code changes for performance issues. Check for: N+1 queries, unnecessary re-renders, memory leaks, bundle size impact, algorithm complexity. Use the confidence scale above — only report issues with confidence ≥ 80.
 
-   **d. `feature-pipeline:code-architect`** (architectural fit):
+   **d. `feature:code-architect`** (architectural fit):
    > Review these code changes for architectural fit. Check for:
    > - Does this change match existing patterns and conventions in the codebase?
    > - Does it respect existing layer boundaries and abstractions?
@@ -173,7 +173,7 @@ f. **After fixes are applied**, run validation again (lint/typecheck) and update
 
 a. **Skip-detection scan.** Read `02-plan.md` and search (case-insensitive substring match) for any of: `component, page, route, screen, form, tsx, jsx, html, view`. Match → run `ui-tester` (step b). No match → skip (step c).
 
-b. **Spawn `feature-pipeline:ui-tester`** (when not skipped). Read the project's `CLAUDE.md` for a test framework hint (`## Testing` section, `## Commands` section, or inline references like "Playwright specs in `e2e/`"). Single `Task` call:
+b. **Spawn `feature:ui-tester`** (when not skipped). Read the project's `CLAUDE.md` for a test framework hint (`## Testing` section, `## Commands` section, or inline references like "Playwright specs in `e2e/`"). Single `Task` call:
 
    > Test this feature through real browser interaction. Spec with acceptance criteria: `<contents of 01-spec.md>`. Implementation summary: `<from 03-implementation.md>`. Application URL: `<URL from project CLAUDE.md or asked from user>`. Project test framework hint: `<from CLAUDE.md, or 'none documented'>`. Test every acceptance criterion, take screenshots, check console for errors. Report any failures with reproduction steps. If ALL acceptance criteria pass AND a test framework hint is available, codify the passing run into an automated spec file in the project's test directory — mirror the conventions of existing specs, never rewrite an existing spec, and never check in a flaky one.
 
@@ -262,7 +262,7 @@ Artifacts saved to: <ticket-folder>/03-implementation.md, 04-review.md, 05-tests
 
 ## Error Handling
 
-- **Plan missing**: `02-plan.md` not found → refuse with: "Plan stage hasn't run. Run `/feature-pipeline:plan $1` first."
+- **Plan missing**: `02-plan.md` not found → refuse with: "Plan stage hasn't run. Run `/feature:plan $1` first."
 - **Project path unknown**: ask the user.
 - **`origin/HEAD` not configured and `main` doesn't exist**: ask the user for the base branch.
 - **Application URL needed for `ui-tester` but not provided** (and not in project `CLAUDE.md`): ask the user to start the app and provide the URL.

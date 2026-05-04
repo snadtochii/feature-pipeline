@@ -20,7 +20,7 @@ Interactive requirements discovery that transforms a rough idea into one or more
 ## Arguments
 
 ```
-/feature-pipeline:discover $ARGUMENTS
+/feature:discover $ARGUMENTS
 ```
 
 - `$ARGUMENTS` — the rough idea, feature request, or problem statement (can include pasted text, images, file references) plus optional flags
@@ -29,10 +29,10 @@ Interactive requirements discovery that transforms a rough idea into one or more
 
 ### Examples
 ```
-/feature-pipeline:discover I want to add dark mode to the app
-/feature-pipeline:discover I need a way to filter the task list by priority and date range --project big-leaves
-/feature-pipeline:discover The settings page is confusing, users can't find where to change their email --project symphony --id SY-12
-/feature-pipeline:discover (with screenshot pasted) This design needs to be implemented
+/feature:discover I want to add dark mode to the app
+/feature:discover I need a way to filter the task list by priority and date range --project big-leaves
+/feature:discover The settings page is confusing, users can't find where to change their email --project symphony --id SY-12
+/feature:discover (with screenshot pasted) This design needs to be implemented
 ```
 
 ## Discovery Process
@@ -94,7 +94,7 @@ The skill runs in **main context** (interactive) through these phases:
 
 ### PHASE 2: EXPLORE THE CODEBASE
 
-Spawn a `feature-pipeline:code-explorer` subagent to understand the relevant codebase context:
+Spawn a `feature:code-explorer` subagent to understand the relevant codebase context:
 
 **Prompt**: "Explore the codebase at `<project-root>` to understand the areas relevant to: `<idea summary>`. Focus on: existing related features, patterns used, file structure, tech stack, and any existing implementations that overlap with this idea. Return a concise summary of what exists and how this feature would fit in."
 
@@ -267,8 +267,8 @@ Scan `claudedocs/tickets/` for existing IDs to determine the next available numb
    [Show the full ticket content]
 
    → Edit if you want to adjust anything
-   → Run `/feature-pipeline:flow <TICKET-ID>` to start the pipeline
-   → Run `/feature-pipeline:plan <TICKET-ID>` to just plan first (Phase 1 synthesis surfaces gaps and patterns before build)
+   → Run `/feature:flow <TICKET-ID>` to start the pipeline
+   → Run `/feature:plan <TICKET-ID>` to just plan first (Phase 1 synthesis surfaces gaps and patterns before build)
    ```
 
 #### Multi-mode (N>1)
@@ -325,8 +325,8 @@ Scan `claudedocs/tickets/` for existing IDs to determine the next available numb
    **Shared exploration**: claudedocs/tickets/backlog/<EPIC-ID>/exploration.md
 
    → Edit any spec or the PRD to adjust
-   → Start the first child: /feature-pipeline:flow <CHILD-1-ID>
-   → Or plan first: /feature-pipeline:plan <CHILD-1-ID>
+   → Start the first child: /feature:flow <CHILD-1-ID>
+   → Or plan first: /feature:plan <CHILD-1-ID>
    ```
 
 ---

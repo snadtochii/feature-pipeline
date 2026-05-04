@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# feature-pipeline PostToolUse validator.
+# feature PostToolUse validator.
 # Runs lint and typecheck commands declared in claudedocs/tickets/config.yaml's
 # validate: block after every Write/Edit/MultiEdit. Silent no-op outside an
 # FP-managed workspace or when the validate: block is empty/absent.
