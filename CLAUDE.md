@@ -209,6 +209,11 @@ Quick summary (full version in the reference):
 Tickets are markdown with YAML frontmatter — see `skills/discover/templates/task.md` (task spec, used for solo and child tickets) and `skills/discover/templates/prd.md` (epic PRD, used when discover emits multiple siblings) for the canonical schemas.
 
 - **Prefix** per project (e.g. `FP`, `MYAPP`, `WEB`). Stored as the `prefix` field in `claudedocs/tickets/config.yaml`. Discover creates the file on first run and infers from existing tickets if it's missing. `config.yaml` is the canonical home for tickets-system configuration — future fields (status flow customization, complexity scale, etc.) go here, not in new dotfiles.
+- **Validation hook config** lives in the same `claudedocs/tickets/config.yaml` under an optional `validate:` block:
+  - `validate.lint` — string, shell command run after each Write/Edit/MultiEdit (e.g. `"bun run lint"`).
+  - `validate.typecheck` — string, shell command run after each Write/Edit/MultiEdit (e.g. `"bun run typecheck"`).
+  - `validate.cwd_markers` — optional list, overrides the default project-root markers (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Gemfile`, `composer.json`, `mix.exs`, `tsconfig.json`). The hook walks up from the edited file looking for any of these to pick the cwd for the lint/typecheck commands.
+  - Missing block, missing keys, or malformed YAML → hook is a silent no-op. `jq` is required for the hook to function; without `jq` the hook logs one line to stderr and exits 0 (the build skill's body-level fallback still runs). `yq` is recommended for richer YAML support but not required.
 - **ID format:** `<PREFIX>-<N>` — no leading zeros.
 - **Folder name:** just the ID, no slug — `claudedocs/tickets/<state>/<PREFIX>-<N>/` (or for nested children, `<state>/<EPIC>/tasks/<CHILD>/`).
 - **Status flow:** `backlog → in-progress → done` (folders match). Cancellation is expressed via frontmatter `status: cancelled` inside `done/`, not a separate folder.

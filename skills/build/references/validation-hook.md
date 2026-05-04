@@ -4,9 +4,9 @@ Build runs lint and typecheck after every meaningful change. The recommended del
 
 ## Layer 1 — Hook (recommended in Claude Code and Codex)
 
-### Claude Code via plugin (preferred, ships in FP-5)
+### Claude Code via plugin (preferred)
 
-The plugin ships `hooks/hooks.json` declaring a `PostToolUse` entry that matches `Write|Edit`, executes `${CLAUDE_PLUGIN_ROOT}/hooks/validate.sh`, and reads lint/typecheck commands from `claudedocs/tickets/config.yaml`. Users get the hook automatically when they enable the plugin; opt-in is by populating the `validate:` block in `config.yaml`:
+The plugin ships `hooks/hooks.json` declaring a `PostToolUse` entry that matches `Write|Edit|MultiEdit`, executes `${CLAUDE_PLUGIN_ROOT}/hooks/validate.sh`, and reads lint/typecheck commands from `claudedocs/tickets/config.yaml`. Users get the hook automatically when they enable the plugin; opt-in is by populating the `validate:` block in `config.yaml`:
 
 ```yaml
 prefix: FP
@@ -15,7 +15,9 @@ validate:
   typecheck: "bun run typecheck"
 ```
 
-If `validate:` is absent or its keys are empty, the hook is a silent no-op. Hook implementation lives at the plugin root in FP-5.
+The hook auto-detects the project root by walking up from the edited file looking for `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Gemfile`, `composer.json`, `mix.exs`, or `tsconfig.json`, bounded above by the workspace dir (the directory containing `claudedocs/tickets/config.yaml`). It `cd`s to the discovered project root before running the configured commands, so `bun run lint` finds the right `package.json` even when the workspace is a monorepo with the project in a subdir. Override the marker list via `validate.cwd_markers` if your project uses different conventions.
+
+If `validate:` is absent or its keys are empty, the hook is a silent no-op. `jq` is a required dependency for the hook script (without it the hook is also a silent no-op with a one-line stderr warning); `yq` is recommended for richer YAML support but not required.
 
 ### Claude Code via user settings.json (alternative)
 
