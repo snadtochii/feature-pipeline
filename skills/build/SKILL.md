@@ -195,7 +195,16 @@ a. **Skip-detection scan.** Read `02-plan.md` and search (case-insensitive subst
 
 b. **Spawn `feature:ui-tester`** (when not skipped). Read the project's `CLAUDE.md` for a test framework hint (`## Testing` section, `## Commands` section, or inline references like "Playwright specs in `e2e/`"). Single `Task` call:
 
-   > Test this feature through real browser interaction. Spec with acceptance criteria: `<contents of 01-spec.md>`. Implementation summary: `<from 03-implementation.md>`. Application URL: `<URL from project CLAUDE.md or asked from user>`. Project test framework hint: `<from CLAUDE.md, or 'none documented'>`. Test every acceptance criterion, take screenshots, check console for errors. Report any failures with reproduction steps. If ALL acceptance criteria pass AND a test framework hint is available, codify the passing run into an automated spec file in the project's test directory — mirror the conventions of existing specs, never rewrite an existing spec, and never check in a flaky one.
+   > Test this feature through real browser interaction. Spec with acceptance criteria: `<contents of 01-spec.md>`. Implementation summary: `<from 03-implementation.md>`. Application URL: `<URL — see discovery rules below>`. Project test framework hint: `<from CLAUDE.md, or 'none documented'>`.
+   >
+   > **Verification is unconditional.** Every UI ticket gets browser-driven AC verification — regardless of whether a test framework is documented, regardless of `Out of Scope` tags in the spec. Out-of-scope governs what gets *built and checked in*, not what gets *verified live*. Test every acceptance criterion, take screenshots, check console for errors. Report failures with reproduction steps.
+   >
+   > **Codification is a separate, conditional output.** Only codify into a checked-in spec file when ALL of: (a) a project test framework is documented, (b) every AC passed, (c) the spec's `Out of Scope` does NOT exclude adding tests for this app. Otherwise emit the verification report and skip codification.
+   >
+   > **URL discovery — try in order, don't ask the user until 1–2 fail:**
+   > 1. URL from project `CLAUDE.md` (e.g., `npm start # http://localhost:4200`).
+   > 2. Probe common dev ports with `curl -s -o /dev/null -w "%{http_code}" http://localhost:<PORT>` (4200, 4321, 3000, 5173, 8080, 5000) — accept 200 / 302 / 401 (the last two indicate an auth-gated app, still reachable).
+   > 3. Only if both fail, ask the user to start the server and provide the URL.
 
    Save subagent output to `<ticket-folder>/05-tests.md`. Failed criteria become a `## Failed Criteria` section inside `05-tests.md`. If specs were codified, list their paths under a `## Codified specs` section.
 
