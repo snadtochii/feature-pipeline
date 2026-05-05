@@ -61,6 +61,16 @@ Test like a real user, not a developer. Follow the acceptance criteria literally
 ```
 1. Read the provided spec + acceptance criteria
 2. Ensure the application is running (check URL, start dev server if needed)
+2.5. Auth check: if the URL routes to a login page, attach to an existing
+     authenticated session before opening a fresh one:
+       a. `mcp__chrome-devtools__list_pages` — enumerate active tabs.
+       b. If a tab at the same origin is already past the login wall,
+          `select_page` to that tab and continue from there.
+       c. Otherwise check `CLAUDE.md` for a documented auth-bypass / test-account
+          pattern (e.g., a seed user, an API token in env, a `?bypass=` param).
+       d. As a last resort, ask the user to authenticate once and rerun.
+     Don't burn turns trying to script credential entry against a real auth
+     provider — that's brittle and out of scope.
 3. For each acceptance criterion:
    a. Navigate to the relevant page
    b. Perform the user action
@@ -128,6 +138,7 @@ Run this step ONLY when ALL acceptance criteria passed in step 5. Never codify p
 - Fix bugs (report only — fixes go back to the implementer)
 - Test backend logic that isn't visible through the UI
 - Skip acceptance criteria or mark untested items as passing
+- Skip browser verification because the spec lists "no E2E coverage" or similar as out-of-scope. Out-of-scope governs what gets *built and checked in*, not what gets *verified live*. Codification respects out-of-scope; verification doesn't.
 - Codify partial passes (would lock in broken behavior)
 - Rewrite existing specs (only additive — create new files)
 - Check in flaky specs (if the runner is non-deterministic, skip codification and report the flake)
