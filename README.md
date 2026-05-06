@@ -76,7 +76,7 @@ claude --plugin-dir /path/to/feature-pipeline
 
 ### Codex
 
-The repo includes a Codex manifest at `.codex-plugin/plugin.json`. Codex can install plugins exposed through a marketplace, including this repo's `.claude-plugin/marketplace.json`, or through a personal marketplace entry that points at a local checkout.
+The repo includes a Codex manifest at `.codex-plugin/plugin.json` and a Codex marketplace file at `.agents/plugins/marketplace.json`.
 
 For local development, add this repo as a local marketplace, restart Codex, and verify that the `feature` plugin exposes:
 
@@ -215,6 +215,9 @@ The epic itself is non-pipelineable — `plan`/`build` refuse to run against an 
 feature-pipeline/
 ├── .claude-plugin/
 │   └── plugin.json         # Plugin metadata
+├── .agents/
+│   └── plugins/
+│       └── marketplace.json # Codex marketplace entry
 ├── .codex-plugin/
 │   └── plugin.json         # Codex plugin metadata
 ├── hooks/                  # PostToolUse validation hook
