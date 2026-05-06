@@ -8,7 +8,7 @@ This file captures invariants and conventions. Anything derivable from reading t
 
 ## What this repo is
 
-A Claude Code plugin that ships an agentic feature-development pipeline: `discover → plan → build`. Each stage is a separate **skill** that can run standalone or be sequenced by the **flow** orchestrator. Build runs implement, review, and test as in-loop checkpoints inside one continuous loop. Stages are backed by specialized **agents** (subagents with focused tool budgets and personas).
+A Claude Code and Codex plugin that ships an agentic feature-development pipeline: `discover → plan → build`. Each stage is a separate **skill** that can run standalone or be sequenced by the **flow** orchestrator. Build runs implement, review, and test as in-loop checkpoints inside one continuous loop. Stages are backed by specialized **agents** (subagents with focused tool budgets and personas).
 
 The primary audience for edits to this repo is Claude working on the plugin's own skills/agents — not end users. End-user docs live in README.md.
 
@@ -33,8 +33,10 @@ feature-pipeline/
 ├── .claude-plugin/          # Plugin/marketplace metadata
 │   ├── plugin.json
 │   └── marketplace.json
-├── hooks/                   # PostToolUse validation hook (auto-discovered by Claude Code)
-│   ├── hooks.json           # Declares Write|Edit|MultiEdit matcher → validate.sh
+├── .codex-plugin/           # Codex plugin metadata
+│   └── plugin.json
+├── hooks/                   # PostToolUse validation hook
+│   ├── hooks.json           # Declares file-edit matcher → validate.sh
 │   └── validate.sh          # Reads validate: block from claudedocs/tickets/config.yaml
 ├── agents/                  # Subagent definitions (one .md per agent)
 ├── skills/                  # Skill definitions (folder per skill, SKILL.md inside)
