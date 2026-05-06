@@ -1,0 +1,20 @@
+{
+  "name": "feature",
+  "interface": {
+    "displayName": "Feature Pipeline"
+  },
+  "plugins": [
+    {
+      "name": "feature",
+      "source": {
+        "source": "local",
+        "path": "."
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
