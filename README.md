@@ -1,6 +1,6 @@
 # Feature Pipeline
 
-A Claude Code plugin that provides an agentic feature development pipeline for personal projects.
+A Claude Code and Codex plugin that provides an agentic feature development pipeline for personal projects.
 
 ## What It Does
 
@@ -56,6 +56,8 @@ Each stage is a **separate skill** that can be invoked independently or orchestr
 
 ## Installation
 
+### Claude Code
+
 ```bash
 # 1. Add the repo as a marketplace
 /plugin marketplace add <github-user>/feature-pipeline
@@ -70,6 +72,32 @@ Each stage is a **separate skill** that can be invoked independently or orchestr
 For local development:
 ```bash
 claude --plugin-dir /path/to/feature-pipeline
+```
+
+### Codex
+
+The repo includes a Codex manifest at `.codex-plugin/plugin.json`. Codex can install plugins exposed through a marketplace, including this repo's `.claude-plugin/marketplace.json`, or through a personal marketplace entry that points at a local checkout.
+
+For local development, add this repo as a local marketplace, restart Codex, and verify that the `feature` plugin exposes:
+
+```bash
+codex plugin marketplace add /path/to/feature-pipeline
+```
+
+```bash
+/feature:discover
+/feature:explore
+/feature:plan
+/feature:build
+/feature:flow
+```
+
+The validation hook uses Codex's hook system. Enable both hook feature flags in Codex config before expecting bundled plugin hooks to execute:
+
+```toml
+[features]
+codex_hooks = true
+plugin_hooks = true
 ```
 
 ## Usage
@@ -187,8 +215,10 @@ The epic itself is non-pipelineable — `plan`/`build` refuse to run against an 
 feature-pipeline/
 ├── .claude-plugin/
 │   └── plugin.json         # Plugin metadata
-├── hooks/                  # PostToolUse validation hook (auto-discovered by Claude Code)
-│   ├── hooks.json          # PostToolUse declaration for Write|Edit|MultiEdit
+├── .codex-plugin/
+│   └── plugin.json         # Codex plugin metadata
+├── hooks/                  # PostToolUse validation hook
+│   ├── hooks.json          # PostToolUse declaration for file-edit tools
 │   └── validate.sh         # Validator script — reads validate: block from claudedocs/tickets/config.yaml
 ├── agents/                 # Specialized agent definitions
 │   ├── code-explorer.md
@@ -255,7 +285,7 @@ On the first run of `/discover` in a project, you'll be asked for a ticket prefi
 
 ### Validation Hook
 
-The plugin ships an optional `PostToolUse` hook (`hooks/hooks.json` + `hooks/validate.sh`) that runs lint and typecheck after every `Write`/`Edit`/`MultiEdit`. Opt in by adding a `validate:` block to `claudedocs/tickets/config.yaml`:
+The plugin ships an optional `PostToolUse` hook (`hooks/hooks.json` + `hooks/validate.sh`) that runs lint and typecheck after file-edit tools. It matches `Write|Edit|MultiEdit|apply_patch` so the same hook covers Claude Code edit tools and Codex patch edits. Opt in by adding a `validate:` block to `claudedocs/tickets/config.yaml`:
 
 ```yaml
 prefix: FP
@@ -265,6 +295,8 @@ validate:
 ```
 
 Without the block, the hook is a silent no-op. The hook auto-detects the project root by walking up from the edited file looking for `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Gemfile`, `composer.json`, `mix.exs`, or `tsconfig.json` (override the marker list via `validate.cwd_markers`). Build's body-level fallback runs the same checks regardless of whether the hook is configured — the two layers are intentionally redundant.
+
+For Codex, hooks require `[features] codex_hooks = true` in `config.toml`; bundled plugin hooks also require `plugin_hooks = true`. The plugin hook command resolves either `PLUGIN_ROOT` (Codex) or `CLAUDE_PLUGIN_ROOT` (Claude Code), so the same `hooks/hooks.json` is shared by both runtimes.
 
 `jq` is required for the hook script; `yq` is recommended for richer YAML support but not required (a grep-based fallback handles the common case).
 
@@ -277,6 +309,6 @@ For full functionality, these MCP servers are recommended (but optional):
 
 ## Requirements
 
-- Claude Code CLI
+- Claude Code CLI or Codex CLI
 - Git (for build's review checkpoint diff)
 - Playwright MCP (for build's UI test checkpoint)

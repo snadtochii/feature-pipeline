@@ -6,7 +6,7 @@ Build runs lint and typecheck after every meaningful change. The recommended del
 
 ### Claude Code via plugin (preferred)
 
-The plugin ships `hooks/hooks.json` declaring a `PostToolUse` entry that matches `Write|Edit|MultiEdit`, executes `${CLAUDE_PLUGIN_ROOT}/hooks/validate.sh`, and reads lint/typecheck commands from `claudedocs/tickets/config.yaml`. Users get the hook automatically when they enable the plugin; opt-in is by populating the `validate:` block in `config.yaml`:
+The plugin ships `hooks/hooks.json` declaring a `PostToolUse` entry that matches `Write|Edit|MultiEdit|apply_patch`, executes `hooks/validate.sh` through the plugin root environment, and reads lint/typecheck commands from `claudedocs/tickets/config.yaml`. Users get the hook automatically when they enable the plugin; opt-in is by populating the `validate:` block in `config.yaml`:
 
 ```yaml
 prefix: FP
@@ -45,7 +45,25 @@ Substitute the project's actual lint/typecheck commands. Plugin-shipped and user
 
 ### Codex
 
-Codex supports the same `PostToolUse` event name. Configure in `~/.codex/hooks.json` or `~/.codex/config.toml`. Requires the `codex_hooks = true` feature flag (per https://developers.openai.com/codex/hooks).
+Codex supports the same `PostToolUse` event name. Requires the `codex_hooks = true` feature flag for hooks and `plugin_hooks = true` for hooks bundled by plugins.
+
+```toml
+[features]
+codex_hooks = true
+plugin_hooks = true
+```
+
+The Codex plugin manifest points to the bundled lifecycle file:
+
+```json
+{
+  "hooks": "./hooks/hooks.json"
+}
+```
+
+Codex applies the matcher to the tool name. The shared `Write|Edit|MultiEdit|apply_patch` matcher covers Codex patch edits while preserving Claude Code's `Write`, `Edit`, and `MultiEdit` matchers. The hook command resolves `PLUGIN_ROOT` for Codex and `CLAUDE_PLUGIN_ROOT` for Claude Code.
+
+Users who prefer their own configuration can add an equivalent hook to `~/.codex/hooks.json` or `.codex/hooks.json`:
 
 ```json
 {

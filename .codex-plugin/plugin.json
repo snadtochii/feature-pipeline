@@ -1,0 +1,42 @@
+{
+  "name": "feature",
+  "displayName": "Feature Pipeline",
+  "description": "Agentic feature development pipeline.",
+  "version": "2.5.1",
+  "author": {
+    "name": "Serhii Nadtochii",
+    "url": "https://github.com/snadtochii"
+  },
+  "homepage": "https://github.com/snadtochii/feature-pipeline",
+  "repository": "https://github.com/snadtochii/feature-pipeline",
+  "license": "MIT",
+  "keywords": [
+    "feature",
+    "pipeline",
+    "planning",
+    "tickets",
+    "agents"
+  ],
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "Feature Pipeline",
+    "shortDescription": "Plan and build ticketed features with agentic checkpoints.",
+    "longDescription": "A ticket-based feature development pipeline with discovery, planning, implementation, review, validation, and completion artifacts.",
+    "developerName": "Serhii Nadtochii",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Interactive"
+    ],
+    "websiteURL": "https://github.com/snadtochii/feature-pipeline",
+    "defaultPrompt": [
+      "Use feature:discover to turn this idea into a ticket.",
+      "Use feature:flow to plan and build this ticket.",
+      "Use feature:build to resume implementation."
+    ],
+    "brandColor": "#2F6B4F"
+  }
+}
