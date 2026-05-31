@@ -134,8 +134,9 @@ You see and approve the proposal before tickets are created.
 ### Step 1: Run the Pipeline
 
 ```bash
-/feature:flow BL-1                       # full pipeline (plan → build); auto-resumes if artifacts exist
+/feature:flow BL-1                       # single ticket: plan → build; auto-resumes if artifacts exist
 /feature:flow BL-1 --ignore-blockers     # bypass blocker validation (use with care)
+/feature:flow EPIC-1                     # epic: walks children in blocked_by topological order
 ```
 
 Resumption is auto-detected from the artifacts on disk — flow skips plan when `02-plan.md` exists, build picks up at the right checkpoint based on which of `03-`/`04-`/`05-` is present, and a completed run (`06-summary.md` with `pass`) is reported as "already complete." To start fresh against a partially-run ticket, delete the relevant artifacts before invoking flow.
@@ -207,7 +208,7 @@ The whole epic subtree moves between `<state>/` folders as a unit:
 - `backlog/` → `in-progress/` when any child enters in-progress.
 - `in-progress/` → `done/` only when every child is `done`, `cancelled`, or `partial-completion`.
 
-The epic itself is non-pipelineable — `plan`/`build` refuse to run against an epic ID. Run them against a child instead.
+Running an epic: `/feature:flow <EPIC-ID>` walks the children in `blocked_by` topological order, invoking flow recursively per child. The epic subtree moves to `done/` automatically when the last child finalizes. `/feature:plan` and `/feature:build` still refuse to run directly against an epic ID — run them against a child instead, or use flow.
 
 ## Plugin Structure
 
