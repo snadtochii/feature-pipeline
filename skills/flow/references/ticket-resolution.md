@@ -93,20 +93,23 @@ Needed for codebase operations during the stage.
    - Otherwise check common paths — ask the user if ambiguous
 3. If the project root can't be determined, ask the user before proceeding.
 
-## Step 4 — Validate kind (epic refusal)
+## Step 4 — Validate kind (per-consumer behavior)
 
-After reading frontmatter, check the `kind` field:
+After reading frontmatter, check the `kind` field. Behavior depends on the consumer:
 
-- If `kind: epic` is present, the resolved item is a parent epic, not a pipelineable ticket. **Abort the stage** with this message:
+- **`plan` and `build`** — refuse if `kind: epic`. Epics don't go through plan or build themselves; only their children are pipelineable. Abort with this message:
   ```
   <ID> is an epic (kind: epic), not a pipelineable ticket. Epics group siblings — they hold the PRD, the shared exploration, and the decomposition table, but they don't go through plan/build themselves.
 
   Run the pipeline against one of its children instead:
   <list the IDs from the epic's `children:` frontmatter field>
   ```
-- If `kind` is absent or has any other value, the ticket is pipelineable. Proceed.
 
-This is the centralized epic-refusal rule. Stage skills (`plan`, `build`) inherit it via this reference and don't need to duplicate the check.
+- **`flow`** — branches to **epic-mode** when `kind: epic` is present. The epic walker iterates over `children` in `blocked_by` topological order and recursively invokes `Skill flow <CHILD-ID>` per child. See `flow/SKILL.md` EPIC-MODE EXECUTION section. Flow does NOT refuse on epics.
+
+- If `kind` is absent or has any other value, the ticket is pipelineable for all consumers. Proceed normally.
+
+This is the centralized epic-handling rule. Stage skills inherit the refusal behavior via this reference; flow's epic-mode dispatch lives in its own SKILL.md.
 
 ## Step 5 — Locate exploration (when the stage needs it)
 

@@ -82,13 +82,22 @@ Canonical sources in `skills/flow/SKILL.md`:
 - **Stage Contract** — reads/writes per stage
 - **Artifact Convention** — numbering rules, layout illustrations (solo + nested epic)
 - **Resumption auto-detection** — routing table for on-disk artifacts; users delete artifacts to start fresh
-- **State transitions** (SETUP step 4, COMPLETION) — solo vs nested-child move logic, all-children-done check for epics, verdict-aware completion routing
 
-Centralized cross-stage rules live in `skills/flow/references/ticket-resolution.md`:
+Centralized cross-stage rules live in `skills/flow/references/`:
+
+`ticket-resolution.md`:
 - **Step 1** — ticket-folder resolution (path or ID, including nested children under `tasks/`)
 - **Step 4** — `kind: epic` refusal (epics are non-pipelineable)
 - **Step 5** — locating shared `exploration.md` (solo vs child)
 - **Step 6** — blocker validation (`blocked_by`)
+
+`state-transitions.md`:
+- **Transition 1** — Start-of-pipeline (`backlog`/`done` → `in-progress`); invoked by `plan` and `build` at start (idempotent)
+- **Transition 2** — End-of-pipeline (`in-progress` → `done`); invoked by `build` at the verdict gate. Includes the all-children-done check for epic children.
+- **Transition 3** — Abort (`in-progress` → `backlog`); invoked by `build` on `partial`/`stuck` + user choice `abort`. Includes the inverse all-children check for epic children.
+- **Transition 4** — Partial-completion (frontmatter only, no folder move); invoked by `build` on `partial`/`stuck` + `continue-with-hint` (and as a precursor to T2 on `accept-as-partial`).
+- **Decision table** — verdict + user choice → which transitions fire. The contract `build` uses at the verdict gate.
+- **Status query** — read-only inspection for future epic-walker tooling.
 
 Individual stage skills (`skills/<stage>/SKILL.md`) own their own `Required Input` and `Output` sections, which are the authoritative per-stage contracts. Flow's Stage Contract table is a consolidated summary of those.
 
@@ -110,7 +119,7 @@ Typical budget per role, expressed as unordered tool sets. The build *skill* may
 
 | Skill | Typical budget |
 |---|---|
-| `flow` (orchestrator) | Read, Edit, Glob, Grep, Bash, TodoWrite, Skill |
+| `flow` (thin sequencer) | Read, Glob, Grep, TodoWrite, Skill |
 | `discover` (intake) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite |
 | `explore` (open-ended dialogue) | Read, Glob, Grep, Bash, TodoWrite, Skill |
 | `plan` (pre-plan synthesis + plan mode) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for Phase 1 subagents) |
@@ -227,7 +236,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 - **Folder name:** just the ID, no slug — `claudedocs/tickets/<state>/<PREFIX>-<N>/` (or for nested children, `<state>/<EPIC>/tasks/<CHILD>/`).
 - **Status flow:** `backlog → in-progress → done` (folders match). Cancellation is expressed via frontmatter `status: cancelled` inside `done/`, not a separate folder.
 - Solo ticket folders move between state folders as the pipeline advances — the entire folder (spec, artifacts) moves as a unit.
-- For epics: the **whole subtree** moves between state folders together (rule: any-child-in-progress → in-progress; all-children-done-or-cancelled → done). `prd.md`'s `status` field tracks the folder location; per-child `status` lives in each child's `01-spec.md`. See `flow/SKILL.md` SETUP step 4 and COMPLETION step 5.
+- For epics: the **whole subtree** moves between state folders together (rule: any-child-in-progress → in-progress; all-children-done-or-cancelled-or-partial → done). `prd.md`'s `status` field tracks the folder location; per-child `status` lives in each child's `01-spec.md`. See `skills/flow/references/state-transitions.md` for the full transition logic and the all-children-done check.
 - **Multi-sibling linkage frontmatter** (set on children when discover emits an epic):
   - `parent: <EPIC-ID>` — the epic this child belongs to.
   - `epic: <slug>` — human-readable shared identifier across siblings (e.g. `dark-mode-rollout`).
@@ -256,8 +265,9 @@ Build owns artifact slots `03-implementation.md` through `06-summary.md`. The ne
 4. Add auto-resumption rules: when this stage is re-invoked on an existing ticket, which on-disk artifact signals "resume from here" vs "start fresh." Document the routing table in the stage skill body and in flow's Resumption auto-detection section.
 5. Document the stage's input/output contract in the stage's `Required Input`/`Output` sections *and* in flow's Stage Contract table.
 6. Update `skills/flow/SKILL.md`'s Artifact invalidation downstream table for the new stage.
-7. If the stage spawns subagents, create them in `agents/` and wire them up.
-8. If the stage operates on a ticket (most do), reference `flow/references/ticket-resolution.md` for resolution + epic refusal + blocker validation, and add the stage to the consumer list in that reference.
+7. If the stage performs state transitions (folder moves, frontmatter `status` updates), add the relevant transition(s) to `skills/flow/references/state-transitions.md` and invoke them inline from the stage skill body. Do not write state-machine logic inline.
+8. If the stage spawns subagents, create them in `agents/` and wire them up.
+9. If the stage operates on a ticket (most do), reference `flow/references/ticket-resolution.md` for resolution + epic refusal + blocker validation, and add the stage to the consumer list in that reference.
 
 ## Adding a new agent
 
@@ -311,6 +321,5 @@ Decisions evaluated and explicitly *not* adopted, kept here so future maintenanc
 - **Design-match reviewer as 5th parallel reviewer** in build's review checkpoint. Deferred because it assumes design artifacts (Figma, wireframes) that not every personal-project ticket has. Reconsider when a ticket workflow routinely includes design references.
 - **Step-type routing** in `plan`/`build` (`figma-ui`, `component`, `service`, etc.) — too project-specific to generalize. The `plan` skill annotates step content explicitly instead of routing by step type.
 - **PR-workflow integration** (auto-review of GitHub PRs, addressing reviewer feedback through PR comments). Out of scope for the core pipeline since it would assume GitHub + `gh` CLI and a specific PR workflow; the `feature` plugin is general-purpose and ticket-folder-driven, not PR-driven.
-- **Multi-sibling epic-level orchestration** (`flow <EPIC-ID>` walking children in dependency order). Useful but orthogonal to the per-ticket loop. Reconsider when an epic's children are routinely worked on as a batch.
 - **Clean-abort routine for `flow`** (`flow --abort`). Small standalone change; the existing verdict gate's `abort` choice covers the common case (revert folder + reset frontmatter). A dedicated flag would standardize multi-step abort behavior across deeper future flow surfaces.
 - **Validator auto-detection in `hooks/validate.sh`** (project-type detection, e.g., infer "run pyright" from a `pyproject.toml`). Currently the user explicitly declares `validate.lint` and `validate.typecheck`. Auto-detection is too magic for a plugin that should respect existing project conventions; revisit if explicit-config maintenance becomes a real friction.

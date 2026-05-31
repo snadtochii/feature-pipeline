@@ -1,24 +1,27 @@
 ---
 name: flow
-description: "Run the full feature pipeline (plan → build) on a ticket with a completion gate. Use when user says 'run the pipeline', 'flow this ticket', 'flow it', or 'build this ticket end-to-end'. NOT for single-stage runs — use /feature:plan or /feature:build directly for those."
+description: "Run the full feature pipeline on a ticket or an epic. For single tickets: plan → build. For epics (kind: epic): walks children in blocked_by topological order, recursing into per-child flow. Use when user says 'run the pipeline', 'flow this ticket', 'flow this epic', 'flow it', or 'build this ticket end-to-end'. NOT for single-stage runs — use /feature:plan or /feature:build directly for those."
 allowed-tools:
   - Read
-  - Edit
   - Glob
   - Grep
-  - Bash
   - TodoWrite
   - Skill
-argument-hint: "[ticket-id] [--ignore-blockers]"
+argument-hint: "[ticket-id|epic-id] [--ignore-blockers]"
 ---
 
 # Feature Flow Pipeline
 
-Orchestrates feature development through two flow-managed stages — `plan` and `build` — with one completion gate at the end. Build's internal checkpoints (implement, review, test) run as a single continuous loop inside the build skill and are not flow-managed.
+Thin sequencer with two modes:
+
+- **Single-ticket mode** (default): runs `plan → build` on the resolved ticket. Each stage owns its own state transitions (folder moves, frontmatter status) per [`references/state-transitions.md`](references/state-transitions.md); build owns the verdict gate end-to-end.
+- **Epic mode** (when the resolved folder has `kind: epic` on `prd.md`): walks children in `blocked_by` topological order, recursively invoking `Skill flow` per child. Per-child state transitions and the all-children-done epic-subtree move fire inside each child's build verdict gate.
+
+Flow's job in both modes is to resolve, validate, decide what to invoke, and invoke. It does not touch folder state, frontmatter, or artifact files directly.
 
 Each stage is a separate skill that can also be invoked directly:
-- `/feature:plan` — pre-plan synthesis (codebase exploration + open-questions surfacing) followed by interactive plan mode; writes `02-plan.md`
-- `/feature:build` — implement → review → test as in-loop checkpoints; exits with verdict `pass | partial | stuck`; writes `03-implementation.md`, `04-review.md`, `05-tests.md`, `06-summary.md`
+- `/feature:plan` — pre-plan synthesis (codebase exploration + open-questions surfacing) followed by interactive plan mode; writes `02-plan.md`. Performs the start-of-pipeline state transition itself.
+- `/feature:build` — implement → review → test as in-loop checkpoints; exits with verdict `pass | partial | stuck`; writes `03-implementation.md`, `04-review.md`, `05-tests.md`, `06-summary.md`. Owns the verdict gate and the end-of-pipeline transitions.
 
 ## Arguments
 
@@ -39,9 +42,10 @@ Resumption is auto-detected from on-disk artifacts — see "Resumption auto-dete
 
 ### Examples
 ```
-/feature:flow BL-1                              # full pipeline; auto-resumes if artifacts exist
+/feature:flow BL-1                              # single-ticket; auto-resumes if artifacts exist
 /feature:flow BL-1 --ignore-blockers            # exploratory run on a blocked ticket
 /feature:flow claudedocs/tickets/backlog/BL-1/  # by folder path
+/feature:flow EPIC-1                            # epic-mode: walks children in dependency order
 ```
 
 ## Pipeline Order
@@ -66,20 +70,21 @@ Each stage reads and writes artifacts in `<ticket-folder>/`. This contract is lo
 ## Responsibilities
 
 flow owns:
-1. Stage invocation (`/feature:plan` then `/feature:build`) per the SETUP/STAGE EXECUTION/COMPLETION sequence
-2. Pre-stage validation: ticket resolution, epic refusal, blocker pre-check
-3. Folder transitions (`backlog/` ↔ `in-progress/` ↔ `done/`) and frontmatter `status` updates
-4. Resumption auto-detection from on-disk artifacts (see "Resumption auto-detection" below)
-5. Verdict-aware completion routing: `pass` → folder to `done/`; `partial`/`stuck` → capture user choice from build's option menu and route accordingly
+1. Ticket resolution (per `references/ticket-resolution.md`)
+2. Kind validation (epic refusal) and blocker pre-check
+3. Resumption auto-detection from on-disk artifacts (see below) — decides which stages to invoke
+4. Stage invocation via `Skill plan` and `Skill build`
 
 It does NOT own:
-- Stage internals — plan owns plan mode + Phase 1 synthesis; build owns its verdict gate, internal checkpoints, and `06-summary.md` write
+- State transitions (folder moves, frontmatter `status` updates) — plan and build perform these themselves per `references/state-transitions.md`
+- The verdict gate — build owns it end-to-end (verdict, option menu, user-choice capture, transition dispatch)
+- Stage internals — plan owns plan mode + Phase 1 synthesis; build owns its loop and checkpoints
 - Agent coordination — plan and build spawn their own subagents
-- Artifact writes — build writes 03 through 06 itself; flow only mutates frontmatter `status` fields and moves folders
+- Artifact writes — every artifact is written by the stage that produces it
 
 ---
 
-## Resumption auto-detection
+## Resumption auto-detection (single-ticket mode)
 
 Flow inspects on-disk artifacts at start and routes to the right stage automatically. Users who want to start fresh against a partially-run ticket delete the relevant artifacts manually — git is the version-history layer if a backup is wanted.
 
@@ -94,109 +99,148 @@ Flow inspects on-disk artifacts at start and routes to the right stage automatic
 
 The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and downstream `03-`/`04-`/`05-`/`06-` if any). On the next flow invocation, the routing table matches the "neither exists" row and runs from scratch. Internal build checkpoints (implement → review → test inside one build invocation) write directly to the canonical artifacts — no special-casing needed.
 
+**Epic-mode** has its own implicit resumption: the walker skips children whose `status` is already `done`, `partial-completion`, or `cancelled` (per EPIC-MODE EXECUTION step 4a). Each remaining child inherits the single-ticket routing table above via the recursive flow call.
+
 ---
 
 ## SETUP
 
 1. **Resolve the ticket** using the canonical logic in [`references/ticket-resolution.md`](references/ticket-resolution.md). The ticket argument is `$1`.
 
-2. **Validate kind** per [`references/ticket-resolution.md`](references/ticket-resolution.md) Step 4. If `kind: epic`, abort with the epic-refusal message — flow runs against children, not epics.
+2. **Branch on `kind`** (read from frontmatter — `prd.md` if the folder is an epic, `01-spec.md` otherwise):
+   - `kind: epic` → proceed to **EPIC-MODE EXECUTION** below; skip the remaining SETUP steps (epic walker handles per-child blocker validation and artifact invalidation by recursing into single-ticket flow per child).
+   - Otherwise (no `kind` field, or `kind` has a non-`epic` value) → single-ticket mode; continue with steps 3–4.
 
 3. **Validate blockers** per [`references/ticket-resolution.md`](references/ticket-resolution.md) Step 6. If the ticket has `blocked_by` entries that aren't done (and `--ignore-blockers` was not passed), abort with the Step 6 message listing the unblocked blockers. With `--ignore-blockers`, print a one-line warning and propagate the flag to plan + build invocations:
    ```
    ⚠ Bypassing blocker check for <ticket-id>. Unfinished blockers: <list>. Proceeding anyway.
    ```
 
-4. **Move to `in-progress/`** — behavior depends on whether the ticket is solo or a child of an epic. Detect by inspecting the resolved `<ticket-folder>` path: if its immediate parent directory is named `tasks/`, the ticket is a child of an epic; otherwise it's solo.
-
-   **Solo ticket** (`<ticket-folder>` matches `claudedocs/tickets/<state>/<id>/`):
-   - If folder is in `backlog/` or `done/` (re-run of a completed ticket): move from `<state>/<id>/` to `in-progress/<id>/`.
-   - If already in `in-progress/`: no move.
-   - Update `01-spec.md`'s frontmatter `status` to `in-progress`.
-
-   **Child of an epic** (`<ticket-folder>` matches `claudedocs/tickets/<state>/<EPIC>/tasks/<CHILD>/`):
-   - Identify the epic folder: `claudedocs/tickets/<state>/<EPIC>/` (the deepest ancestor containing `prd.md`).
-   - If the epic folder is in `backlog/` or `done/` (any-child-in-progress rule, or re-run of a completed epic): move the **entire epic subtree** from `<state>/<EPIC>/` to `in-progress/<EPIC>/`. Other children come along inside the subtree; their per-spec `status` fields are NOT touched — only the child currently being flowed has its status updated.
-   - If the epic is already in `in-progress/`: no folder move (a sibling triggered the move earlier).
-   - Update `prd.md`'s frontmatter `status` to `in-progress`.
-   - Update the child's `01-spec.md` frontmatter `status` to `in-progress`.
-
-   The move includes all artifacts (`01-spec.md`/`prd.md`, `exploration.md` if present, `02-plan.md`, etc.) and (for epics) the entire `tasks/` subfolder. After this point, `<ticket-folder>` resolves to the new location for the rest of the run.
-
-5. **Invalidate downstream artifacts** if `02-plan.md` is missing AND any of `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` exist on disk:
+4. **Invalidate downstream artifacts** if `02-plan.md` is missing AND any of `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` exist on disk:
    - Delete each existing build artifact (the user signalled "start fresh" by removing `02-plan.md`).
    - Print: "Removed N downstream artifacts before re-running plan."
    - Skip this step on pure forward progress (no build artifacts on disk) or on auto-resumption runs that found `02-plan.md`.
 
 ---
 
-## STAGE EXECUTION
+## STAGE EXECUTION (single-ticket mode)
 
-### PLAN
+Apply the resumption auto-detection routing table (above) to decide which stages to invoke:
 
-1. Decide whether to invoke plan per the Resumption auto-detection table above:
-   - If `02-plan.md` exists on disk → skip plan invocation; proceed directly to BUILD.
-   - Otherwise → invoke `/feature:plan <ticket-id>`.
-2. The plan skill runs Phase 1 (pre-plan synthesis — spawns code-explorer + requirements-analyst subagents) and presents the synthesis: codebase patterns, open questions with proposed defaults, and a complexity check.
-3. If the synthesis surfaces a complexity overflow (spec sized M, analysis suggests XL), the plan skill pauses for a user choice (proceed / cancel + re-discover). Flow respects the user's call: on cancel, abort the run; on proceed, continue.
-4. The plan skill enters plan mode for interactive design — **plan mode itself is the gate**. The user refines the plan, addresses open questions inline, and exits plan mode when satisfied.
-5. The plan skill saves `02-plan.md`. Proceed to BUILD.
+- If `06-summary.md` exists with verdict `pass` — print the "already complete" message and exit.
+- If `02-plan.md` exists (with or without `06-summary.md` reporting `partial`/`stuck`) — skip plan; invoke `Skill build` only. Build auto-resumes from on-disk artifacts per its own logic.
+- Otherwise — invoke `Skill plan`, then (after plan returns) `Skill build`.
 
-No flow-managed gate after PLAN — plan mode is the gate.
+Both invocations propagate `--ignore-blockers` if it was passed to flow.
 
-### BUILD
+Plan and build perform their own state transitions (start-of-pipeline at start, end-of-pipeline at build's verdict gate) per [`references/state-transitions.md`](references/state-transitions.md). Flow does not touch folder state or frontmatter `status` directly.
 
-1. Invoke `/feature:build <ticket-id>` (build auto-resumes from on-disk artifacts per its own logic). Pass `--ignore-blockers` if applicable.
-2. Build runs implement → review → test as one continuous loop with internal checkpoints, validates after every meaningful change, applies review fixes in-context, fixes test failures in-context, and self-monitors for stuck patterns + a 25-turn ceiling.
-3. Build exits with one of three verdicts (`pass | partial | stuck`) and writes `06-summary.md` regardless of verdict. Build presents an exit message of the form:
-   ```
-   ## Build Complete — verdict: <pass|partial|stuck>
-   [summary of work, validation state, verdict-specific options menu]
-   ```
-4. Flow captures the verdict from build's exit message and the user's choice (if applicable) for COMPLETION.
+After build returns, flow's work is done — build owns the verdict gate and has already applied the final transition. Flow exits cleanly.
 
 ---
 
-## COMPLETION
+## EPIC-MODE EXECUTION
 
-**IMPORTANT: All completion steps below are MANDATORY. Do not skip any of them.**
+Entered when SETUP step 2 detects `kind: epic` on the resolved folder. Flow walks the epic's children in `blocked_by` topological order, invoking `/feature:flow <CHILD-ID>` recursively for each child. Per-child state transitions (and the all-children-done check that moves the epic subtree to `done/` on the last child's finalization) fire from each child's build invocation per [`references/state-transitions.md`](references/state-transitions.md) Transition 2 — flow's epic walker doesn't perform any state transitions itself.
 
-1. **Read the verdict** from build's exit message (also recorded in `06-summary.md`'s header).
+### 1. Load epic context
 
-2. **`pass`** — surface the user-facing completion gate:
+a. Read `<epic-folder>/prd.md` frontmatter: `id`, `children` (list), `status`.
+
+b. If `status: done` (epic already complete), print:
    ```
-   ## Pipeline Complete — verdict: pass
-
-   [Summary from 06-summary.md]
-
-   All artifacts: <ticket-folder>/
-
-   Would you like to commit these changes?
+   Epic <EPIC-ID> already complete. Delete artifacts inside individual children or re-run a specific child via `/feature:flow <CHILD-ID>` to redo work.
    ```
-   - If user wants to commit, use the standard git workflow: stage relevant files; create a commit message referencing the ticket ID.
-   - Then run the **finalization** in step 5 below with target state `done`.
+   Exit cleanly.
 
-3. **`partial`** — set frontmatter `status: partial-completion` (folder stays in `in-progress/`); show the user the option menu (already presented by build's exit message) and capture the reply:
-   - `accept-as-partial` → run finalization (step 5) with target state `done`; preserve `status: partial-completion` in frontmatter.
-   - `continue-with-hint` → ask the user for the hint text, then re-invoke `/feature:build <ticket-id> --hint "<text>"` (build auto-resumes from on-disk artifacts and threads the hint into the resumed loop). After build returns, restart this COMPLETION section from step 1 with the new verdict.
-   - `abort` → revert folder `in-progress/` → `backlog/`; reset frontmatter `status` to `backlog`. For epic children: revert only the child's frontmatter status; do NOT move the epic subtree back unless every other child is also `backlog` or `cancelled`.
+c. If `children` is empty or missing, print "Epic `<EPIC-ID>` has no children — nothing to walk." Exit cleanly.
 
-4. **`stuck`** — same option menu and routing as `partial`. The `accept-as-partial` choice is also offered (same effect as the partial path).
+d. For each child ID in `children`, locate the child folder under `<epic-folder>/tasks/<CHILD-ID>/` and read its `01-spec.md` frontmatter: `id`, `title`, `status`, `blocked_by` (defaults to `[]`).
 
-5. **Finalization** (folder transition) — behavior depends on whether the ticket is solo or a child of an epic.
+   If a child folder is missing on disk, warn the user and skip that child (continue with the others). The data is corrupted but the walk is still useful.
 
-   **Solo ticket**:
-   - Move the folder from `claudedocs/tickets/in-progress/<id>/` to `claudedocs/tickets/done/<id>/` (folder moves as a unit, including all artifacts).
-   - Update `01-spec.md`'s frontmatter `status` from `in-progress` to `done` (or preserve `partial-completion` on `accept-as-partial`).
+### 2. Topological sort
 
-   **Child of an epic**:
-   - Update **only the child's** `01-spec.md` frontmatter `status` from `in-progress` to `done` (or preserve `partial-completion` on `accept-as-partial`). Do NOT move the child's folder out of the epic subtree.
-   - **All-children-done check**: scan every sibling under `<epic-folder>/tasks/*/01-spec.md` and read their `status` field. If every sibling is `done`, `cancelled`, or `partial-completion`:
-     - Move the **entire epic subtree** from `in-progress/<EPIC>/` to `done/<EPIC>/`.
-     - Update `prd.md`'s frontmatter `status` to `done`.
-   - If at least one sibling is still `backlog` or `in-progress`, the epic stays in `in-progress/` — the subtree moves to `done/` only on the last sibling's completion.
+a. Build a directed graph from `blocked_by`: an edge points from each blocker TO its dependent. So blockers come BEFORE dependents in topological order.
 
-   This step is mandatory — do not end the pipeline without it.
+b. Sort the `children` list topologically. Ties (children with the same dependency depth) break by the order in `prd.md`'s `children` list — `discover` already chose a sensible order.
+
+c. **Cycle detection**: if the graph has a cycle, abort with an error listing the cycle's children and instruct the user to fix `blocked_by` in the offending specs. Cycles shouldn't occur because `discover` validates first-child-has-no-blockers + DAG shape, but defensive.
+
+### 3. Print initial aggregate progress
+
+```
+## Epic <EPIC-ID> — <epic-slug> (<N>/<M> children complete)
+
+  ✓ <CHILD-1-ID>: <title> (done)
+  ◐ <CHILD-2-ID>: <title> (partial-completion)
+  ► <CHILD-3-ID>: <title> (next — backlog)
+    <CHILD-4-ID>: <title> (backlog)
+    <CHILD-5-ID>: <title> (backlog, blocked_by: <CHILD-3-ID>)
+
+Starting walk through remaining children in dependency order.
+```
+
+**Status icon mapping**:
+- `done` → ✓
+- `partial-completion` → ◐
+- `cancelled` → ⨯
+- `in-progress` → ► (rare on entry; expected only mid-walk or after a crash)
+- `backlog` → (space)
+
+The "next" child gets a ► marker on the line that's about to start. `<M>` = total children; `<N>` = count of children with terminal status (`done`, `partial-completion`, or `cancelled`).
+
+### 4. Walk children
+
+For each child in topologically-sorted order:
+
+a. **Skip if already terminal.** If the child's `status` is `done`, `partial-completion`, or `cancelled`, skip silently to the next child. (Auto-resumption of an in-flight epic relies on this — completed children are passed over.)
+
+b. **Print the running message**:
+   ```
+   → Running <CHILD-ID>: <title>
+   ```
+
+c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs plan + build per the existing logic. Propagate `--ignore-blockers` if the epic-level invocation had it.
+
+d. **Re-read the child's `01-spec.md` frontmatter** after the recursive flow returns. Build's verdict gate (inside the child's flow run) already moved the folder and updated `status` per `state-transitions.md`. The new status determines the walker's next move:
+
+   - `done` or `partial-completion` → child completed cleanly (build verdict `pass` + commit confirmed/declined, or verdict `partial`/`stuck` + user choice `accept-as-partial`). Continue walker silently.
+   - `backlog` → user chose `abort` at the child's verdict gate. The child has been reverted. Stop the walker. Print:
+     ```
+     Child <CHILD-ID> aborted (reverted to backlog/). Stopping epic walk.
+     Run /feature:flow <EPIC-ID> again to resume.
+     ```
+     Exit cleanly.
+   - `in-progress` → shouldn't happen (build always finalizes). Treat as anomaly: warn the user, stop the walker. Print:
+     ```
+     Child <CHILD-ID> is unexpectedly still in-progress after flow returned. Stopping epic walk for safety. Inspect the child's artifacts and re-run when state is consistent.
+     ```
+     Exit cleanly.
+
+e. **Print updated aggregate progress** (same format as Step 3, with the just-completed child now marked terminal).
+
+### 5. Completion
+
+After the loop exits successfully (all children walked, no aborts):
+
+a. The all-children-done check inside the **last child's** build verdict gate (Transition 2's epic variant in `state-transitions.md`) already moved the epic subtree from `in-progress/<EPIC>/` to `done/<EPIC>/` and updated `prd.md`'s `status` to `done`. Flow does NOT repeat this — it has already happened.
+
+b. Print:
+   ```
+   ## Epic <EPIC-ID> — done (<M>/<M> children complete)
+
+   All artifacts: claudedocs/tickets/done/<EPIC-ID>/
+   ```
+
+c. Exit cleanly.
+
+### Error handling (epic-mode specific)
+
+- **Recursive flow crashes on a child**: surface to the user, list which child failed, ask whether to continue with remaining children or abort the walk.
+- **Topological sort detects a cycle**: abort with the cycle listed; user must fix the `blocked_by` chain manually.
+- **`prd.md` malformed or missing**: defer to ticket-resolution.md's error handling.
+- **Child folder missing for a `children` entry**: warn, skip that child, continue with the others.
 
 ---
 
@@ -221,7 +265,7 @@ claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlo
 
 ```
 claudedocs/tickets/<state>/<EPIC-ID>/   # epic folder; <state> follows most-advanced child
-├── prd.md                  # Parent PRD (frontmatter: kind: epic, children: [...]) — non-pipelineable
+├── prd.md                  # Parent PRD (frontmatter: kind: epic, children: [...]) — flow walks children in epic-mode; plan/build refuse to run directly against this
 ├── exploration.md          # Shared exploration, lives once for all siblings
 └── tasks/
     ├── <CHILD-1-ID>/       # child ticket folder — same internal structure as a solo ticket above
@@ -235,7 +279,7 @@ claudedocs/tickets/<state>/<EPIC-ID>/   # epic folder; <state> follows most-adva
     └── <CHILD-3-ID>/
 ```
 
-The whole epic subtree moves between `<state>/` folders as a unit (see SETUP step 4 and COMPLETION step 5). Per-child `status` lives in each child's `01-spec.md` frontmatter; epic-level `status` lives in `prd.md` and tracks the folder location.
+The whole epic subtree moves between `<state>/` folders as a unit per [`references/state-transitions.md`](references/state-transitions.md) (Transitions 1, 2, and 3 each have epic-child variants). Per-child `status` lives in each child's `01-spec.md` frontmatter; epic-level `status` lives in `prd.md` and tracks the folder location.
 
 **Naming rules:**
 - Sequential: `NN-name.md` where `NN` is the stage order
@@ -258,14 +302,13 @@ Stage skills handle their own ticket resolution and blocker validation; flow is 
 
 Resumption is auto-detected — see "Resumption auto-detection" above. The user signals "start fresh" by deleting `02-plan.md` (and downstream artifacts if they want a full reset).
 
-When build exits `partial` or `stuck`, the verdict gate's `continue-with-hint` option re-invokes `/feature:build <id> --hint "<text>"`; build auto-resumes from `03-implementation.md`/`04-review.md`/`05-tests.md` and threads the hint into the resumed loop.
+When build exits `partial` or `stuck`, the verdict gate (owned by build) presents `accept-as-partial | continue-with-hint | abort`. The `continue-with-hint` path continues the build loop in-process with the user's hint added to context — there is no flow-level re-invocation.
 
 ## Error Handling
 
-- **Stage skill failure** (plan or build crashes/returns an error mid-run): report it to the user and ask how to proceed (retry, skip with caveats, or abort).
+- **Stage skill failure** (plan or build crashes/returns an error mid-run): report it to the user and ask how to proceed (retry or abort).
 - **Ticket not found**: defer to `references/ticket-resolution.md`'s error handling — ask the user for the correct path.
 - **Project path can't be determined**: ask the user.
-- **Plan mode cancelled**: abort flow; ticket folder stays in `in-progress/` (already moved by SETUP step 4). User can re-run flow when ready — auto-detection picks up the existing `02-plan.md` if plan completed before cancellation, otherwise a fresh plan run starts.
-- **Build returns a verdict but `06-summary.md` wasn't written** (build crashed mid-exit): log the inconsistency, present the verdict from conversation context, and ask the user before any folder transition.
-- **User reply at the verdict gate is ambiguous**: ask once for clarification; on a second ambiguous reply, default to `abort` (safest for state).
-- **Blocker validation fails** without `--ignore-blockers`: abort before SETUP step 4 (folder move); print the Step 6 message verbatim. The ticket folder stays in `backlog/` and frontmatter `status` is unchanged.
+- **Blocker validation fails** without `--ignore-blockers`: abort at SETUP step 3; print the Step 6 message verbatim. The ticket folder stays in `backlog/` and frontmatter `status` is unchanged (flow has not touched state at this point).
+
+Plan-mode cancellation, verdict-gate ambiguity, and verdict-vs-summary inconsistencies are all handled inside the stages that produce them (plan and build respectively), not in flow.
