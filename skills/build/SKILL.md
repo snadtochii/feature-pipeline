@@ -53,6 +53,12 @@ Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/refere
 
 When `blocked_by` is non-empty (whether blockers are done or `--ignore-blockers` is used), build composes a **blocker context block** and prepends it to the review-checkpoint reviewer prompts (see Step 2). Per resolved Q3, the block uses each blocker's verbatim `01-spec.md` + `06-summary.md`. **Fallback for `--ignore-blockers` runs where a blocker is unfinished**: if `06-summary.md` is missing, use that blocker's `02-plan.md`; if `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker.
 
+## State setup
+
+Before the implement checkpoint, perform the start-of-pipeline transition per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Transition 1 (Start-of-pipeline: `backlog`/`done` → `in-progress`). Idempotent: if plan already ran in this pipeline invocation, the ticket is in `in-progress/` and only frontmatter is touched. If build is invoked directly on a `backlog/` ticket (re-run after manual artifact restoration, or unusual workflows), build moves the folder.
+
+`<ticket-folder>` is rebound to the new location for the rest of this run.
+
 ---
 
 ## Behavioral Mindset
@@ -228,18 +234,21 @@ e. **Application not running.** If `ui-tester` reports the application is not ru
 
 f. **After test fixes are applied** (or skip artifact written), update `03-implementation.md` if any code changed, then proceed to step 4.
 
-### 4. Exit verdict
+### 4. Exit verdict and gate routing
+
+Build owns the verdict gate end-to-end: determine the verdict from loop state, write summary/lessons artifacts, present the gate to the user, capture the user's choice, and execute the resulting folder + frontmatter transition per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Decision Table.
+
+#### 4a. Determine the verdict
 
 Choose one based on loop state:
 
-- **`pass`** — All `02-plan.md` Build Sequence steps implemented; all reviewer findings either applied or marked deferred-by-conflict; all UI tests pass (or skip artifact written). Surface the completion gate to the user; on approval, the ticket folder moves to `done/`. (The folder move happens in flow's COMPLETION step; build returns the verdict.)
-- **`partial`** — Implementation is mostly complete but some acceptance criteria fail un-fixably in this run, or unresolvable review conflicts ended up causing AC failures. Stay in `in-progress/`. Set frontmatter `status: partial-completion`. Surface the human gate with options:
-  - **accept-as-partial** (move to `done/`, keep `status: partial-completion`)
-  - **continue-with-hint** (re-enter the loop with a user note, fresh 25-turn budget)
-  - **abort** (revert folder move, ticket back in `backlog/`)
-- **`stuck`** — Semantic stuck pattern detected, or `Turn 26` reached, or all four reviewers failed, or persistent context errors. Same human-gate options as `partial`. The user reads `06-summary.md` to understand the loop state at escalation and pick.
+- **`pass`** — All `02-plan.md` Build Sequence steps implemented; all reviewer findings either applied or marked deferred-by-conflict; all UI tests pass (or skip artifact written).
+- **`partial`** — Implementation is mostly complete but some acceptance criteria fail un-fixably in this run, or unresolvable review conflicts ended up causing AC failures.
+- **`stuck`** — Semantic stuck pattern detected (per `references/stuck-detection.md`), `Turn 26` reached, all four reviewers failed, or persistent context errors.
 
-**Always write `06-summary.md`** regardless of verdict (resolved Q8). Content varies:
+#### 4b. Write summary and lesson artifacts
+
+**Always write `06-summary.md`** regardless of verdict. Content varies:
 - `pass`: completed work summary, files changed, validation passed, test results.
 - `partial`: references the `## Failed Criteria` section in `05-tests.md`, lists deferred conflicts from `04-review.md`, lists what was completed.
 - `stuck`: describes loop state at escalation — the detected stuck pattern (or "turn cap exceeded"), the last 3-5 iterations' actions, a suggested next-move for the user.
@@ -259,6 +268,62 @@ The lesson should be project-specific and actionable for future similar work —
 - `## FP-15 (stuck): subagents kept failing to find the auth middleware after the lib/ → src/ rename; canonical path is now src/security/auth.ts.`
 
 Skip the append if the lesson would be generic ("apply review fixes carefully") or already captured by an existing entry. The file is project-local context — plan's Phase 1 reads it on subsequent tickets to avoid re-deriving constraints. If `claudedocs/tickets/_lessons.md` doesn't exist, create it with a one-line header (`# Lessons learned across tickets`) and append.
+
+#### 4c. Present the verdict gate
+
+For **`pass`**:
+
+```
+## Build Complete — verdict: pass
+
+[Summary from 06-summary.md]
+
+All artifacts: <ticket-folder>/
+
+Would you like to commit these changes?
+```
+
+Capture the user's reply. Proceed to 4d regardless (commit decision affects git only, not the folder transition).
+
+For **`partial`** or **`stuck`**:
+
+```
+## Build Complete — verdict: <partial|stuck>
+
+[Summary; for stuck, the detected pattern]
+
+Options:
+  - accept-as-partial — finalize as done/ with status: partial-completion
+  - continue-with-hint — keep going with a user note (loop continues here, fresh 25-turn budget)
+  - abort — revert ticket to backlog/, artifacts preserved in the folder
+```
+
+Capture the user's choice. Proceed to 4d.
+
+#### 4d. Apply the transition
+
+Per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Decision Table:
+
+- **`pass`** (any commit decision) → Transition 2 (End-of-pipeline → `done/`).
+  - If the user wants to commit, do the standard git workflow first (stage relevant files; create a commit message referencing the ticket ID).
+  - Then apply Transition 2.
+
+- **`partial`** or **`stuck`** + **`accept-as-partial`** → Transition 4 (status flips to `partial-completion`), then Transition 2 (folder moves to `done/`, preserving `partial-completion` status).
+
+- **`partial`** or **`stuck`** + **`continue-with-hint`** → Transition 4 (status flips to `partial-completion`; folder stays in `in-progress/`). Then:
+  1. Ask the user for the hint text.
+  2. Reset turn counter to `Turn 1/25`.
+  3. Re-enter the build loop **in this same invocation** with the hint added to context.
+  4. After the loop returns with a new verdict, restart this section from 4a.
+
+- **`partial`** or **`stuck`** + **`abort`** → Transition 3 (folder reverts to `backlog/`, status `backlog`; for epic children, only the child's frontmatter reverts unless every sibling is also `backlog` or `cancelled` — the inverse all-children-done check).
+
+#### 4e. Final user-facing message
+
+After the transition fires, print:
+- On `done/` transition: "Ticket moved to `done/`. Run `git log -1` to see the commit (if you confirmed) or `git status` (if you didn't)."
+- On `backlog/` revert: "Ticket reverted to `backlog/`. Artifacts preserved in the folder."
+- On `continue-with-hint`: no additional message — the loop just continues.
 
 ### 5. Auto-resumption from on-disk artifacts
 

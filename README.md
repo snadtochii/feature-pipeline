@@ -232,10 +232,11 @@ feature-pipeline/
 │   ├── performance-engineer.md
 │   └── ui-tester.md
 ├── skills/                 # Skill definitions
-│   ├── flow/               # Orchestrator — sequences plan → build with the completion gate
+│   ├── flow/               # Thin sequencer — runs plan → build; each stage owns its state transitions
 │   │   ├── SKILL.md
 │   │   └── references/
-│   │       └── ticket-resolution.md
+│   │       ├── ticket-resolution.md   # ticket-folder resolution, epic refusal, blocker validation
+│   │       └── state-transitions.md   # folder moves, frontmatter status, verdict decision table
 │   ├── discover/           # Step 0 — requirements discovery (1..N tickets)
 │   │   ├── SKILL.md
 │   │   └── templates/

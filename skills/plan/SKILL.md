@@ -47,6 +47,14 @@ Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/referenc
 
 Per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6, if the ticket has `blocked_by` entries, locate each blocker and load its available artifacts (`01-spec.md`, `02-plan.md`). Plan does NOT refuse on unfinished blockers — it reads the blocker artifacts alongside this ticket's spec when entering plan mode, so the plan reasons against the planned dependency. Print one line per blocker loaded.
 
+## State setup
+
+Before Phase 1 synthesis, perform the start-of-pipeline transition per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Transition 1 (Start-of-pipeline: `backlog`/`done` → `in-progress`). Idempotent: if the ticket folder is already in `in-progress/`, no folder move; frontmatter `status` is still set to `in-progress` (overwriting any stale value).
+
+This makes plan self-sufficient when invoked standalone — the ticket folder ends up in the correct state regardless of whether flow or the user invoked it. When invoked via flow, build's later State setup is a no-op for the folder move (frontmatter overwrite is harmless).
+
+`<ticket-folder>` is rebound to the new location for the rest of this run.
+
 ---
 
 ## PHASE 1 — Pre-plan synthesis
