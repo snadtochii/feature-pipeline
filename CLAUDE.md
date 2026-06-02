@@ -249,7 +249,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 
 ### Cross-ticket lessons log
 
-`claudedocs/tickets/_lessons.md` is an append-only log of project-specific gotchas captured at the build verdict gate. One header line per ticket: `## <ticket-id> (<verdict>): <one-sentence lesson>`. Build appends after writing `06-summary.md`; plan reads the file in Phase 1 and threads it into the requirements-analyst's open-questions surface.
+`claudedocs/tickets/_lessons.md` is a project-local log of gotchas captured at the build verdict gate. One header line per ticket: `## <ticket-id> (<verdict>): <one-sentence lesson>` (a line may carry multiple IDs once entries are merged). Build appends a lesson after writing `06-summary.md`, then reconciles the file — deduping, flagging internal contradictions, and flagging stale path references — behind a user-approval gate (see `skills/build/references/lessons-curation.md`). Plan reads the file in Phase 1 and threads it into the requirements-analyst's open-questions surface.
 
 The file is project-local context — generic best practices don't belong here, only constraints/gotchas that bit a prior ticket and would bite the next one if not surfaced. The leading underscore in the filename keeps it sorted above ticket-state folders (`backlog/`, `in-progress/`, `done/`) when listing `claudedocs/tickets/`.
 

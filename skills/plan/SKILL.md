@@ -68,7 +68,7 @@ Read all upfront inputs:
 - `exploration.md` — discover-time exploration if present (path resolution per ticket-resolution.md Step 5)
 - Project `CLAUDE.md` — conventions, lint/test commands, architectural rules
 - **Blocker artifacts** — for each `blocked_by` entry, the blocker's `01-spec.md` and (if present) `02-plan.md`
-- `claudedocs/tickets/_lessons.md` — cross-ticket lessons learned, if the file exists. This is the append-only log build writes at every verdict gate. The contents become an additional context block passed to the requirements-analyst subagent in Step 1.3, so prior project-specific gotchas (deviating tools, invalidated assumptions, naming gotchas after refactors) inform the open-questions surface. If the file doesn't exist yet, skip — first ticket of the project.
+- `claudedocs/tickets/_lessons.md` — cross-ticket lessons learned, if the file exists. This is the cross-ticket log build appends to and reconciles (dedup / contradiction / stale-flag, user-gated) at every verdict gate. The contents become an additional context block passed to the requirements-analyst subagent in Step 1.3, so prior project-specific gotchas (deviating tools, invalidated assumptions, naming gotchas after refactors) inform the open-questions surface. If the file doesn't exist yet, skip — first ticket of the project.
 
 ### Step 1.2 — Spawn `code-explorer` subagent (incremental)
 

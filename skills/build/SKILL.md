@@ -269,7 +269,15 @@ The lesson should be project-specific and actionable for future similar work —
 
 Skip the append if the lesson would be generic ("apply review fixes carefully") or already captured by an existing entry. The file is project-local context — plan's Phase 1 reads it on subsequent tickets to avoid re-deriving constraints. If `claudedocs/tickets/_lessons.md` doesn't exist, create it with a one-line header (`# Lessons learned across tickets`) and append.
 
-#### 4c. Present the verdict gate
+#### 4c. Curate the lessons log
+
+After the append, reconcile `claudedocs/tickets/_lessons.md` so the accumulated file stays high-signal for `plan`'s Phase 1 (which pastes it verbatim into the `requirements-analyst`). Runs on every verdict. The scan looks for duplicate entries, internal contradictions, and stale entries (path tokens whose referenced files no longer exist). The scan is automatic; any rewrite is gated behind explicit user approval, so curation can never silently corrupt the log.
+
+**Silent no-op when there's nothing to act on** — missing/empty file, or no duplicates/contradictions/stale candidates. Present nothing and proceed to 4d.
+
+When the scan finds something, present a findings summary grouped by category plus a three-way gate (`accept-and-rewrite` / `skip-for-now` / `something-else`), apply the user's choice, then proceed to 4d. The detection criteria, path-token extraction, gate format, and the lossless merge/flag rewrite rules (never deletes a fact, never auto-resolves a contradiction) live in `references/lessons-curation.md`.
+
+#### 4d. Present the verdict gate
 
 For **`pass`**:
 
@@ -283,7 +291,7 @@ All artifacts: <ticket-folder>/
 Would you like to commit these changes?
 ```
 
-Capture the user's reply. Proceed to 4d regardless (commit decision affects git only, not the folder transition).
+Capture the user's reply. Proceed to 4e regardless (commit decision affects git only, not the folder transition).
 
 For **`partial`** or **`stuck`**:
 
@@ -298,9 +306,9 @@ Options:
   - abort — revert ticket to backlog/, artifacts preserved in the folder
 ```
 
-Capture the user's choice. Proceed to 4d.
+Capture the user's choice. Proceed to 4e.
 
-#### 4d. Apply the transition
+#### 4e. Apply the transition
 
 Per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Decision Table:
 
@@ -318,7 +326,7 @@ Per [`../flow/references/state-transitions.md`](../flow/references/state-transit
 
 - **`partial`** or **`stuck`** + **`abort`** → Transition 3 (folder reverts to `backlog/`, status `backlog`; for epic children, only the child's frontmatter reverts unless every sibling is also `backlog` or `cancelled` — the inverse all-children-done check).
 
-#### 4e. Final user-facing message
+#### 4f. Final user-facing message
 
 After the transition fires, print:
 - On `done/` transition: "Ticket moved to `done/`. Run `git log -1` to see the commit (if you confirmed) or `git status` (if you didn't)."
@@ -359,7 +367,7 @@ Failed test criteria live inside `05-tests.md` under `## Failed Criteria`; turn 
 
 ## Presentation
 
-Present to the user at exit:
+Present to the user at exit (when the 4c curation step found something, its findings summary + gate is shown first, before this verdict gate):
 
 ```
 ## Build Complete — verdict: <pass|partial|stuck>
