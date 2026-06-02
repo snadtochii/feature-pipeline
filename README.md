@@ -36,6 +36,7 @@ Orchestrates the full feature lifecycle through specialized AI agents with one h
 | **Discover** | `discover` | code-explorer | Interactive | Socratic requirements discovery → creates 1 ticket, or N sibling tickets under an epic when scope splits |
 | **Plan** | `plan` | code-explorer + requirements-analyst (Phase 1 subagents) | Interactive | Pre-plan synthesis (codebase patterns + open questions) followed by interactive plan mode |
 | **Build** | `build` | code-reviewer + security-engineer + performance-engineer + code-architect (review checkpoint) + ui-tester (test checkpoint) | Loop with internal checkpoints | One continuous loop: implement → review (4 parallel reviewers) → test (UI/E2E via Playwright). Validates after every edit, fixes failures in-context, exits with verdict `pass \| partial \| stuck` |
+| **Debug** *(standalone, reactive)* | `debug` | — (runs inline; optional Playwright/Chrome read tools) | Interactive | Runtime-evidence root-cause debugging: hypothesize → instrument → reproduce → analyze → fix (gated) → verify + strip; exits `fixed \| diagnosed-unfixed \| cannot-reproduce \| exhausted`. Invoked directly — not a pipeline stage |
 
 ### Human Gates
 
@@ -87,6 +88,7 @@ codex plugin marketplace add /path/to/feature-pipeline
 ```bash
 /feature:discover
 /feature:explore
+/feature:debug
 /feature:plan
 /feature:build
 /feature:flow
@@ -244,6 +246,8 @@ feature-pipeline/
 │   │       ├── task.md     # Solo + child ticket spec template
 │   │       └── prd.md      # Epic PRD template
 │   ├── explore/            # Optional Step 0a — outcome-uncommitted idea exploration
+│   │   └── SKILL.md
+│   ├── debug/              # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
 │   │   └── SKILL.md
 │   ├── plan/               # Stage 1 — pre-plan synthesis + interactive plan mode
 │   │   └── SKILL.md

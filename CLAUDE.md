@@ -43,6 +43,7 @@ feature-pipeline/
 │   ├── flow/                # Orchestrator (plan → build with completion gate)
 │   ├── discover/            # Step 0 — ticket creation (Socratic dialogue, may emit 1..N tickets)
 │   ├── explore/             # Open-ended Socratic exploration; can promote to discover
+│   ├── debug/               # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
 │   ├── plan/                # Stage 1 (pre-plan synthesis + plan mode)
 │   └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
 ├── README.md                # End-user docs
@@ -124,6 +125,7 @@ Typical budget per role, expressed as unordered tool sets. The build *skill* may
 | `explore` (open-ended dialogue) | Read, Glob, Grep, Bash, TodoWrite, Skill |
 | `plan` (pre-plan synthesis + plan mode) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for Phase 1 subagents) |
 | `build` (continuous loop) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for the 4 reviewer subagents at the review checkpoint and the ui-tester subagent at the test checkpoint; Write for `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md`) |
+| `debug` (standalone runtime debugger) | Read, Write, Edit, Glob, Grep, Bash, TodoWrite + additive-optional browser-capture MCP subset (Playwright/Chrome read/observe); no Task — this skill spawns no subagents |
 
 If you need a tool not in this table, add it explicitly and document why.
 
@@ -198,6 +200,7 @@ Not every stage runs as a subagent. The rule:
 | `explore` (open-ended dialogue) | `ui-tester` (spawned by `build`'s test checkpoint) |
 | `plan` (uses `EnterPlanMode`, needs user interaction; spawns subagents in Phase 1) | |
 | `build` (long interactive loop with implement/review/test checkpoints) | |
+| `debug` (interactive runtime-debugging loop; spawns no subagents) | |
 
 **Rule:** run in main context only when you need *interactivity* or *plan mode*. Otherwise prefer a subagent — it keeps the main context clean.
 
@@ -249,7 +252,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 
 ### Cross-ticket lessons log
 
-`claudedocs/tickets/_lessons.md` is a project-local log of gotchas captured at the build verdict gate. One header line per ticket: `## <ticket-id> (<verdict>): <one-sentence lesson>` (a line may carry multiple IDs once entries are merged). Build appends a lesson after writing `06-summary.md`, then reconciles the file — deduping, flagging internal contradictions, and flagging stale path references — behind a user-approval gate (see `skills/build/references/lessons-curation.md`). Plan reads the file in Phase 1 and threads it into the requirements-analyst's open-questions surface.
+`claudedocs/tickets/_lessons.md` is a project-local log of gotchas captured at the build verdict gate. One header line per ticket: `## <ticket-id> (<verdict>): <one-sentence lesson>` (a line may carry multiple IDs once entries are merged). Build appends a lesson after writing `06-summary.md`, then reconciles the file — deduping, flagging internal contradictions, and flagging stale path references — behind a user-approval gate (see `skills/build/references/lessons-curation.md`). The standalone `debug` skill is a second producer: on a root cause that's a project-specific would-recur gotcha, it appends a line in the same `^## `-matching format — `## <ticket-id> (debug): …` with a ticket in scope, or `## debug/<slug> (<exit>): …` standalone — without running curation (build's next verdict-gate reconcile absorbs any duplicate or stale entry). Plan reads the file in Phase 1 and threads it into the requirements-analyst's open-questions surface.
 
 The file is project-local context — generic best practices don't belong here, only constraints/gotchas that bit a prior ticket and would bite the next one if not surfaced. The leading underscore in the filename keeps it sorted above ticket-state folders (`backlog/`, `in-progress/`, `done/`) when listing `claudedocs/tickets/`.
 
@@ -257,10 +260,10 @@ The file is project-local context — generic best practices don't belong here, 
 
 ## Adding a new stage
 
-Build owns artifact slots `03-implementation.md` through `06-summary.md`. The next free slot is `07-*.md`.
+Build owns artifact slots `03-implementation.md` through `06-summary.md`. Slot `07-debug.md` is reserved by the standalone `debug` skill (its optional ticket-context report on non-`fixed` exits); `debug` is **not** a flow stage, so it does not follow the checklist below. The next free slot for a new *stage* is `08-*.md`.
 
 1. Create `skills/<stage>/SKILL.md` following the skill body template above.
-2. Reserve the next artifact number (`07-*.md`) — update the "Artifact Convention" section in `skills/flow/SKILL.md`.
+2. Reserve the next free artifact number (`08-*.md` — `07-debug.md` is taken by the standalone `debug` skill) — update the "Artifact Convention" section in `skills/flow/SKILL.md`.
 3. Add the stage to flow's pipeline order and stage list.
 4. Add auto-resumption rules: when this stage is re-invoked on an existing ticket, which on-disk artifact signals "resume from here" vs "start fresh." Document the routing table in the stage skill body and in flow's Resumption auto-detection section.
 5. Document the stage's input/output contract in the stage's `Required Input`/`Output` sections *and* in flow's Stage Contract table.
