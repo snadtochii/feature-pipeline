@@ -44,7 +44,7 @@ feature-pipeline/
 │   ├── discover/            # Step 0 — ticket creation (Socratic dialogue, may emit 1..N tickets)
 │   ├── explore/             # Open-ended Socratic exploration; can promote to discover
 │   ├── debug/               # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
-│   ├── plan/                # Stage 1 (pre-plan synthesis + plan mode)
+│   ├── plan/                # Stage 1 (pre-plan synthesis + plan design)
 │   └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
 ├── README.md                # End-user docs
 └── CLAUDE.md                # This file
@@ -72,7 +72,7 @@ discover → ticket(s) → flow → plan → build → completion
 
 - **`discover`** is step 0 — interactive Socratic dialogue that creates ticket folders. Emits a single ticket (`claudedocs/tickets/backlog/<id>/01-spec.md` + `exploration.md`) for small/coherent work, or a parent epic + nested child tickets (`claudedocs/tickets/backlog/<EPIC>/prd.md` + `tasks/<CHILD>/01-spec.md` for each) when the scope splits naturally. Not part of flow.
 - **`explore`** is a separate skill for open-ended Socratic exploration; can promote a conversation into `discover` once the user knows they want a ticket.
-- **`flow`** orchestrates `plan → build` with the completion gate. Plan mode is its own gate; build presents one verdict gate at exit (`pass | partial | stuck`). `plan` includes Phase 1 pre-plan synthesis (codebase exploration + open-questions surfacing) before entering plan mode. Flag surface is `--ignore-blockers`; resumption is auto-detected from on-disk artifacts (users delete artifacts to start fresh).
+- **`flow`** orchestrates `plan → build` with the completion gate. `plan` runs non-interactively under flow (flow passes the internal `--auto` signal), so build's verdict gate is the only gate; run standalone, `plan` uses interactive plan mode (its own gate). `plan` includes Phase 1 pre-plan synthesis (codebase exploration + open-questions surfacing) before plan design. Flag surface is `--ignore-blockers` (the flow→plan `--auto` signal is internal wiring, not a user-facing flow flag); resumption is auto-detected from on-disk artifacts (users delete artifacts to start fresh).
 - **`build`** runs implement → review → test as internal checkpoints in one continuous loop. Validation fires after every edit (PostToolUse hook plus skill-body fallback). Reviewer findings and test failures are fixed in-context; the loop self-monitors for stuck patterns and a 25-turn ceiling.
 
 ### Runtime source of truth
@@ -123,7 +123,7 @@ Typical budget per role, expressed as unordered tool sets. The build *skill* may
 | `flow` (thin sequencer) | Read, Glob, Grep, TodoWrite, Skill |
 | `discover` (intake) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite |
 | `explore` (open-ended dialogue) | Read, Glob, Grep, Bash, TodoWrite, Skill |
-| `plan` (pre-plan synthesis + plan mode) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for Phase 1 subagents) |
+| `plan` (pre-plan synthesis + plan design) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite, AskUserQuestion (Task for Phase 1 subagents; AskUserQuestion for auto mode's batched no-default open-questions pause) |
 | `build` (continuous loop) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for the 4 reviewer subagents at the review checkpoint and the ui-tester subagent at the test checkpoint; Write for `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md`) |
 | `debug` (standalone runtime debugger) | Read, Write, Edit, Glob, Grep, Bash, TodoWrite + additive-optional browser-capture MCP subset (Playwright/Chrome read/observe); no Task — this skill spawns no subagents |
 
@@ -198,7 +198,7 @@ Not every stage runs as a subagent. The rule:
 | `flow` (orchestrator) | `code-explorer`, `requirements-analyst` (spawned by `plan` Phase 1) |
 | `discover` (interactive dialogue) | `code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect` (spawned by `build`'s review checkpoint) |
 | `explore` (open-ended dialogue) | `ui-tester` (spawned by `build`'s test checkpoint) |
-| `plan` (uses `EnterPlanMode`, needs user interaction; spawns subagents in Phase 1) | |
+| `plan` (needs main-context interactivity — interactive plan mode standalone, or auto mode's batched no-default / complexity-overflow pauses; spawns subagents in Phase 1) | |
 | `build` (long interactive loop with implement/review/test checkpoints) | |
 | `debug` (interactive runtime-debugging loop; spawns no subagents) | |
 

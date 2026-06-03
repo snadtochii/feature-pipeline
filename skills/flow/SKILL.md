@@ -20,7 +20,7 @@ Thin sequencer with two modes:
 Flow's job in both modes is to resolve, validate, decide what to invoke, and invoke. It does not touch folder state, frontmatter, or artifact files directly.
 
 Each stage is a separate skill that can also be invoked directly:
-- `/feature:plan` — pre-plan synthesis (codebase exploration + open-questions surfacing) followed by interactive plan mode; writes `02-plan.md`. Performs the start-of-pipeline state transition itself.
+- `/feature:plan` — pre-plan synthesis (codebase exploration + open-questions surfacing) followed by plan design; writes `02-plan.md`. Performs the start-of-pipeline state transition itself. Flow always invokes it with `--auto` (non-interactive — no plan-mode gate); run directly without flow, it uses interactive plan mode.
 - `/feature:build` — implement → review → test as in-loop checkpoints; exits with verdict `pass | partial | stuck`; writes `03-implementation.md`, `04-review.md`, `05-tests.md`, `06-summary.md`. Owns the verdict gate and the end-of-pipeline transitions.
 
 ## Arguments
@@ -78,7 +78,7 @@ flow owns:
 It does NOT own:
 - State transitions (folder moves, frontmatter `status` updates) — plan and build perform these themselves per `references/state-transitions.md`
 - The verdict gate — build owns it end-to-end (verdict, option menu, user-choice capture, transition dispatch)
-- Stage internals — plan owns plan mode + Phase 1 synthesis; build owns its loop and checkpoints
+- Stage internals — plan owns its Phase 1 synthesis and plan design (interactive plan mode standalone, non-interactive under `--auto`); build owns its loop and checkpoints
 - Agent coordination — plan and build spawn their own subagents
 - Artifact writes — every artifact is written by the stage that produces it
 
@@ -129,9 +129,9 @@ Apply the resumption auto-detection routing table (above) to decide which stages
 
 - If `06-summary.md` exists with verdict `pass` — print the "already complete" message and exit.
 - If `02-plan.md` exists (with or without `06-summary.md` reporting `partial`/`stuck`) — skip plan; invoke `Skill build` only. Build auto-resumes from on-disk artifacts per its own logic.
-- Otherwise — invoke `Skill plan`, then (after plan returns) `Skill build`.
+- Otherwise — invoke `Skill plan` **with `--auto`** (non-interactive plan; this is what makes flow's plan→build handoff seamless — no plan-mode approval gate), then (after plan returns) `Skill build`.
 
-Both invocations propagate `--ignore-blockers` if it was passed to flow.
+Both invocations propagate `--ignore-blockers` if it was passed to flow. Flow additionally always passes `--auto` to `Skill plan` (build has no such flag, so it is not propagated there). `--auto` is internal flow→plan wiring, not a user-facing flow flag — that's why it's absent from the Flags table above.
 
 Plan and build perform their own state transitions (start-of-pipeline at start, end-of-pipeline at build's verdict gate) per [`references/state-transitions.md`](references/state-transitions.md). Flow does not touch folder state or frontmatter `status` directly.
 
@@ -293,7 +293,7 @@ The whole epic subtree moves between `<state>/` folders as a unit per [`referenc
 ## Standalone re-run guidance
 
 To re-run a single stage outside flow, invoke the skill directly:
-- `/feature:plan <id>` — re-runs Phase 1 synthesis + plan mode; overwrites `02-plan.md`.
+- `/feature:plan <id>` — re-runs Phase 1 synthesis + interactive plan mode (standalone has no `--auto`, so the plan-mode gate applies); overwrites `02-plan.md`.
 - `/feature:build <id>` — auto-resumes from the latest on-disk artifact (`03-implementation.md`, `04-review.md`, or `05-tests.md`) per build's own resumption logic.
 
 Stage skills handle their own ticket resolution and blocker validation; flow is not in the call chain when invoked this way.

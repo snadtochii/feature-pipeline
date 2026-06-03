@@ -129,11 +129,11 @@ After reading frontmatter, check the `blocked_by` field. If it's missing or empt
 
 The stage's behavior depends on which stage is running:
 
-- **`plan`** — does NOT refuse on unfinished blockers. Auto-loads each blocker's available artifacts (`01-spec.md`, `02-plan.md` — whichever exist) and uses them as **Blocker Context** during Phase 1 synthesis and plan mode, so the plan reasons against the planned dependency rather than a blind codebase. Print a one-line note per blocker:
+- **`plan`** — does NOT refuse on unfinished blockers. Auto-loads each blocker's available artifacts (`01-spec.md`, `02-plan.md` — whichever exist) and uses them as **Blocker Context** during Phase 1 synthesis and plan design, so the plan reasons against the planned dependency rather than a blind codebase. Print a one-line note per blocker:
   ```
   Loaded blocker context from <blocker-id> (status: <status>, artifacts: <comma-separated list>).
   ```
-  The Blocker Context section format passed to subagents during Phase 1 synthesis or read inline during plan mode:
+  The Blocker Context section format passed to subagents during Phase 1 synthesis or read inline during plan design:
   ```
   ## Blocker Context
   This ticket is blocked by <blocker-id> (status: <status>).
