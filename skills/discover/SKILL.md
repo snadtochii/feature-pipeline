@@ -25,7 +25,7 @@ Interactive requirements discovery that transforms a rough idea into one or more
 
 - `$ARGUMENTS` — the rough idea, feature request, or problem statement (can include pasted text, images, file references) plus optional flags
 - `--project <name>` — which personal project this is for (used in ticket frontmatter)
-- `--id <XX-N>` — explicit ticket ID. In single-ticket mode, this is the ticket's ID. In multi-sibling mode, this is the **parent epic's** ID; children get the next IDs in sequence.
+- `--id <XX-N>` — explicit ticket ID. In single-ticket mode, this is the ticket's ID. In multi-sibling mode, this is the **parent epic's** ID; children get the next available IDs in sequence.
 
 ### Examples
 ```
@@ -233,11 +233,14 @@ Two modes: **single-ticket** (N=1, the default-collapsed output) and **multi-sib
 
 #### Generate ticket IDs
 
-Scan `claudedocs/tickets/` for existing IDs to determine the next available number. Read prefix from `claudedocs/tickets/config.yaml` (`prefix` field). Format: `<PREFIX>-<N>` (no leading zeros, e.g., `BL-1`, `BL-2`, `BL-15`).
+Determine the next available number by scanning the **entire** `claudedocs/tickets/` tree — recursively, not just the top level. Child tickets of an epic live nested under `<state>/<EPIC>/tasks/<CHILD>/` and draw their IDs from the **same single sequential numbering space** as top-level tickets, so a top-level-only scan can hand out an ID a nested child already uses.
 
-- **Single-mode**: allocate one ID for the ticket.
-- **Multi-mode**: allocate `1 + N` IDs sequentially. The first goes to the parent epic, the next N go to the children in checkpoint order.
-- If `--id <XX-N>` was provided: in single-mode, that's the ticket's ID; in multi-mode, that's the parent epic's ID and children continue from `<XX-N+1>`.
+Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` (`prefix` field), then collect every folder anywhere under `claudedocs/tickets/**` whose name matches `<PREFIX>-<N>` — the folder name IS the ID (no slug), so match folder names rather than parsing frontmatter. Ignore folders whose prefix doesn't match the configured one. Parse the numeric `<N>` from each match, take the maximum, and allocate from `max + 1`. If no folder matches (first ticket of the project), start at `<PREFIX>-1`. Format: `<PREFIX>-<N>`, no leading zeros (e.g., `BL-1`, `BL-2`, `BL-15`); IDs need not be contiguous — gaps left by deleted tickets are fine, never backfill them.
+
+- **Single-mode**: allocate one ID — `<PREFIX>-<max+1>`.
+- **Multi-mode**: allocate `N + 1` IDs as `max+1 … max+1+N`. The first (`max+1`) goes to the parent epic, the next `N` go to the children in checkpoint order.
+- If `--id <XX-N>` was provided: in single-mode, that's the ticket's ID; in multi-mode, that's the parent epic's ID, and the children are allocated from the tree-wide scan as the next IDs after `max(existing tree max, supplied epic N)` — not blindly `<XX-N+1>`, which can collide with a higher-numbered nested child.
+- **`--id` collision check**: before using any `--id`-supplied ID, check whether a folder with that ID already exists anywhere in the tree — top-level or nested under `tasks/`. If it does, warn the user and pause for explicit confirmation before reusing it; never silently overwrite or proceed.
 
 #### Single-mode (N=1)
 
