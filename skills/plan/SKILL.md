@@ -1,6 +1,6 @@
 ---
 name: plan
-description: "Create an interactive implementation plan for a ticket. Runs a pre-plan synthesis (codebase exploration + open-questions surfacing) before entering plan mode. Use when user says 'plan this ticket', 'create a plan for', 'let's plan', or 'design the implementation'. NOT for coding."
+description: "Create an implementation plan for a ticket. Runs a pre-plan synthesis (codebase exploration + open-questions surfacing), then designs the plan — interactively in plan mode when run standalone, non-interactively when flow runs it with --auto. Use when user says 'plan this ticket', 'create a plan for', 'let's plan', or 'design the implementation'. NOT for coding."
 allowed-tools:
   - Read
   - Write
@@ -10,6 +10,7 @@ allowed-tools:
   - Bash
   - Task
   - TodoWrite
+  - AskUserQuestion
 argument-hint: "[ticket-id]"
 ---
 
@@ -17,8 +18,8 @@ argument-hint: "[ticket-id]"
 
 Two phases:
 
-1. **Pre-plan synthesis** — automatic codebase exploration + open-questions surfacing, presented to the user before plan mode entry.
-2. **Plan mode** — interactive design, refined against the synthesis.
+1. **Pre-plan synthesis** — automatic codebase exploration + open-questions surfacing, presented to the user before plan design.
+2. **Plan design** — interactive plan mode by default; non-interactive when `flow` runs plan with `--auto` (designs the plan in normal conversation, no plan-mode gate).
 
 **This stage runs in the main conversation — NOT as a subagent.** (The subagents in Phase 1 run from within this stage.)
 
@@ -29,6 +30,8 @@ Two phases:
 ```
 
 `$1` = ticket ID (e.g. `BL-1`) or path to ticket file.
+
+**Optional flag** `--auto` — set by `flow` when it invokes plan; runs plan **non-interactively** (auto mode: skips native plan mode, designs the plan in normal conversation, writes `02-plan.md`, returns). It is an internal flow→plan signal, not a user-facing knob — not advertised in `argument-hint`, but honored if present from any source. Without it (the standalone default), plan runs interactive plan mode.
 
 ## Ticket Resolution & Artifacts Setup
 
@@ -45,7 +48,7 @@ Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/referenc
 
 ## Blocker-aware context loading
 
-Per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6, if the ticket has `blocked_by` entries, locate each blocker and load its available artifacts (`01-spec.md`, `02-plan.md`). Plan does NOT refuse on unfinished blockers — it reads the blocker artifacts alongside this ticket's spec when entering plan mode, so the plan reasons against the planned dependency. Print one line per blocker loaded.
+Per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6, if the ticket has `blocked_by` entries, locate each blocker and load its available artifacts (`01-spec.md`, `02-plan.md`). Plan does NOT refuse on unfinished blockers — it reads the blocker artifacts alongside this ticket's spec when designing the plan, so the plan reasons against the planned dependency. Print one line per blocker loaded.
 
 ## State setup
 
@@ -59,7 +62,7 @@ This makes plan self-sufficient when invoked standalone — the ticket folder en
 
 ## PHASE 1 — Pre-plan synthesis
 
-Spawned automatically before plan mode entry. Produces a tight synthesis the user can react to in 30 seconds, not a 200-line document.
+Spawned automatically before plan design. Produces a tight synthesis the user can react to in 30 seconds, not a 200-line document.
 
 ### Step 1.1 — Load context
 
@@ -120,43 +123,53 @@ Format the output as a tight pre-plan-mode briefing:
 
 **Complexity check**: <complexity reassessment line>
 
-Entering plan mode. You can address questions inline as we plan.
+<closing line — see "Closing line by mode" below>
 ```
 
 If the Open Questions list is empty, say so explicitly: `**Open Questions**: none — the spec and discovery dialogue already resolved everything that's codebase-informed.` Move on.
 
-If the complexity reassessment is materially off (e.g., spec says M, analysis says XL), pause briefly and surface:
+**Closing line by mode:**
+- **Interactive** (no `--auto`): end the briefing with "Entering plan mode. You can address questions inline as we plan."
+- **Auto** (`--auto`): print the synthesis for auditability, then resolve open questions per the next block — do NOT print "Entering plan mode".
+
+**Open-questions resolution by mode:**
+- **Interactive**: questions are resolved inline as the user reacts during plan mode (Phase 2).
+- **Auto** (`--auto`): auto-resolve every question that carries a **Default** (record it in the plan's "Open Questions Resolved" section as `auto-resolved: <default>`). Collect the questions flagged `**Default**: (no default — user call)`; if **one or more** exist, fire a **single** batched `AskUserQuestion` listing only those, then proceed. If **zero** no-default questions exist, fire no prompt at all — auto-resolve everything and continue to plan design. If the user cancels/declines the batched prompt, abort the run cleanly (do not write `02-plan.md`).
+
+**Complexity overflow** (both modes): if the complexity reassessment is materially off (e.g., spec says M, analysis says XL), pause and surface:
 ```
 ⚠ Complexity overflow: spec sized this M, analysis suggests XL.
 Options:
-  → Proceed to plan with the larger scope (longer build loop expected)
+  → Proceed with the larger scope (longer build loop expected)
   → Cancel and re-run /discover with the new understanding to produce an epic + children
-  → Type your decision before plan mode entry
+  → Type your decision before continuing
 ```
+This pause fires in auto mode too — it's a genuine "should we even proceed" gate, not a plan-mode artifact.
 
 ---
 
-## PHASE 2 — Plan mode
+## PHASE 2 — Plan design
 
-### Step 2.1 — Enter plan mode
+Plan design runs in one of two modes, selected by the `--auto` flag (set by `flow`). Both modes produce the same `02-plan.md` following the **Plan Structure** below, and both run the **Plan Quality Checklist** before writing it. They differ only in whether native plan mode (and its approval gate) is used.
 
-Use `EnterPlanMode`. The synthesis from Phase 1 is in conversation context — the user can reference patterns and resolve questions interactively.
+### Interactive mode (default — no `--auto`)
 
-### Step 2.2 — Design the plan
+1. **Enter plan mode** — use `EnterPlanMode`. The Phase 1 synthesis is in conversation context; the user can reference patterns and resolve questions interactively.
+2. **Design the plan** following the **Plan Structure** below, addressing the open questions inline as the user resolves them.
+3. **Refine interactively** — respond to feedback, adjust the approach, answer questions. Iterate until the user exits plan mode.
+4. **Validate** against the **Plan Quality Checklist** below before exiting plan mode.
+5. **Save** — when the user approves (exits plan mode), save the plan to `<ticket-folder>/02-plan.md`.
 
-Create an implementation plan following the **Plan Structure** below, addressing the open questions inline as the user resolves them.
+### Auto mode (`--auto` — set by `flow`)
 
-### Step 2.3 — Refine interactively
+No native plan mode: do NOT call `EnterPlanMode`/`ExitPlanMode` (there is no approval prompt — that's the point).
 
-Respond to user feedback, adjust the approach, answer questions. Iterate until the user exits plan mode.
+1. **Design the plan** in normal conversation following the **Plan Structure** below, using the open-questions resolutions from Phase 1 (auto-resolved defaults + any batched no-default answers).
+2. **Validate** against the **Plan Quality Checklist** below.
+3. **Write** `<ticket-folder>/02-plan.md`.
+4. **Return** — print the non-blocking "Plan Saved" summary (see Presentation) and hand control back to `flow`, which proceeds to build. No approval gate.
 
-### Step 2.4 — Validate against checklist
-
-Validate against the **Pre-exit quality checklist** below before exiting plan mode.
-
-### Step 2.5 — Save the plan
-
-When the user approves (exits plan mode), save the plan to `<ticket-folder>/02-plan.md`.
+**Boundary (both modes):** plan writes only `02-plan.md` (plus its State-setup transition). It does not edit source code — implementation is build's job.
 
 ---
 
@@ -206,9 +219,9 @@ Called out separately because they're easy to miss:
 
 ---
 
-## Pre-exit Quality Checklist
+## Plan Quality Checklist
 
-Before exiting plan mode, verify every item:
+Before writing `02-plan.md`, verify every item (both modes run this gate — interactive mode before exiting plan mode, auto mode before the `Write`):
 
 - [ ] Codebase Context section lists concrete `file:line` references — no abstract pattern names
 - [ ] Open Questions Resolved section has an answer or "plan around it" note for every Phase 1 question
@@ -221,7 +234,7 @@ Before exiting plan mode, verify every item:
 - [ ] Edge cases identified per step, not just "TBD"
 - [ ] Critical Details section covers errors, state, testing, perf, security — even if "N/A"
 
-If any item fails, refine the plan before exiting plan mode.
+If any item fails, refine the plan before writing it.
 
 ---
 
@@ -245,4 +258,5 @@ Artifacts saved to: <ticket-folder>/02-plan.md
 
 - If a Phase 1 subagent fails, report it to the user and ask: retry, skip the failed subagent and proceed with reduced context, or abort
 - If the project path can't be determined from the ticket, ask the user
-- If the synthesis surfaces a complexity overflow and the user chooses to cancel + re-discover, exit the skill cleanly without entering plan mode
+- If the synthesis surfaces a complexity overflow and the user chooses to cancel + re-discover, exit the skill cleanly without designing a plan (in interactive mode, without entering plan mode)
+- In auto mode, if the user cancels the batched no-default open-questions prompt, abort cleanly without writing `02-plan.md`

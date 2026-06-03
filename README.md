@@ -4,7 +4,7 @@ A Claude Code and Codex plugin that provides an agentic feature development pipe
 
 ## What It Does
 
-Orchestrates the full feature lifecycle through specialized AI agents with one human gate at completion (plan mode is its own gate; build's verdict is the second gate):
+Orchestrates the full feature lifecycle through specialized AI agents. Under `/flow` the only stop is build's verdict gate at completion — plan runs non-interactively, so there's no plan-mode prompt mid-pipeline; run `/plan` on its own and you get interactive plan mode with its own gate:
 
 ```
 [/explore →] /discover → ticket(s) → /flow → plan → build → done
@@ -34,13 +34,13 @@ Orchestrates the full feature lifecycle through specialized AI agents with one h
 |-------|-------|----------|-----------|-------------|
 | **Explore** *(optional pre-pipeline)* | `explore` | — (uses Read/Grep/Glob inline) | Interactive | Open-ended Socratic exploration of an unformed idea; ends by leaving, saving as a note, or promoting to `/discover` |
 | **Discover** | `discover` | code-explorer | Interactive | Socratic requirements discovery → creates 1 ticket, or N sibling tickets under an epic when scope splits |
-| **Plan** | `plan` | code-explorer + requirements-analyst (Phase 1 subagents) | Interactive | Pre-plan synthesis (codebase patterns + open questions) followed by interactive plan mode |
+| **Plan** | `plan` | code-explorer + requirements-analyst (Phase 1 subagents) | Interactive standalone / non-interactive under flow | Pre-plan synthesis (codebase patterns + open questions), then plan design — interactive plan mode standalone, or non-interactive when flow runs it with `--auto` |
 | **Build** | `build` | code-reviewer + security-engineer + performance-engineer + code-architect (review checkpoint) + ui-tester (test checkpoint) | Loop with internal checkpoints | One continuous loop: implement → review (4 parallel reviewers) → test (UI/E2E via Playwright). Validates after every edit, fixes failures in-context, exits with verdict `pass \| partial \| stuck` |
 | **Debug** *(standalone, reactive)* | `debug` | — (runs inline; optional Playwright/Chrome read tools) | Interactive | Runtime-evidence root-cause debugging: hypothesize → instrument → reproduce → analyze → fix (gated) → verify + strip; exits `fixed \| diagnosed-unfixed \| cannot-reproduce \| exhausted`. Invoked directly — not a pipeline stage |
 
 ### Human Gates
 
-Two gates: plan mode (the user refines the plan and exits when satisfied) and build's verdict gate (the user reviews the verdict and either accepts on `pass`, picks `accept-as-partial / continue-with-hint / abort` on `partial`, or picks the same options on `stuck`). No iteration budgets — the build loop self-monitors for stuck patterns and a 25-turn ceiling, then surfaces the gate.
+Under `/flow`, the single gate is build's verdict gate (the user reviews the verdict and either accepts on `pass`, picks `accept-as-partial / continue-with-hint / abort` on `partial`, or picks the same options on `stuck`) — plan runs non-interactively, so it adds no gate, though it can pause once if the plan hits an open question with no safe default or a complexity overflow. Run `/plan` standalone and it adds its own interactive plan-mode gate (the user refines the plan and exits when satisfied). No iteration budgets — the build loop self-monitors for stuck patterns and a 25-turn ceiling, then surfaces the gate.
 
 ### Modular Architecture
 
@@ -51,7 +51,7 @@ Each stage is a **separate skill** that can be invoked independently or orchestr
 /feature:flow BL-1
 
 # Individual stages (standalone, using existing artifacts)
-/feature:plan BL-1                  # plan stage with Phase 1 synthesis + plan mode
+/feature:plan BL-1                  # plan stage standalone — Phase 1 synthesis + interactive plan mode
 /feature:build BL-1                 # build stage; auto-resumes from on-disk artifacts
 ```
 
@@ -249,7 +249,7 @@ feature-pipeline/
 │   │   └── SKILL.md
 │   ├── debug/              # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
 │   │   └── SKILL.md
-│   ├── plan/               # Stage 1 — pre-plan synthesis + interactive plan mode
+│   ├── plan/               # Stage 1 — pre-plan synthesis + plan design (interactive plan mode standalone, non-interactive under flow)
 │   │   └── SKILL.md
 │   └── build/              # Stage 2 — continuous loop with implement/review/test checkpoints
 │       ├── SKILL.md
