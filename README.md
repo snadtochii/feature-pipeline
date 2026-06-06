@@ -138,8 +138,15 @@ You see and approve the proposal before tickets are created.
 ```bash
 /feature:flow BL-1                       # single ticket: plan → build; auto-resumes if artifacts exist
 /feature:flow BL-1 --ignore-blockers     # bypass blocker validation (use with care)
+/feature:flow BL-1 --pr                  # on pass, open a GitHub PR and land the ticket in review/
 /feature:flow EPIC-1                     # epic: walks children in blocked_by topological order
 ```
+
+#### Auto-PR (`--pr`)
+
+By default a passing build stops at the verdict gate and asks whether to commit. With `--pr`, build instead ships non-interactively: it detects the base branch, creates a branch (forking from `main` when needed), commits, pushes to `origin`, opens a **GitHub pull request** via `gh`, and finalizes the ticket into a new `review/` state (`status: in-review`) instead of `done/`. You're notified with the PR URL. Once the PR merges, re-run `/feature:flow <id>` (or `/feature:build <id>`) — build detects the merge and finalizes the ticket to `done/`. In epic-mode, `--pr` opens one PR per child.
+
+`--pr` needs the GitHub CLI (`gh`) installed and authenticated and a GitHub `origin` remote. If any is missing, build degrades gracefully — it commits locally, finalizes to `done/`, and prints one line explaining why the PR step was skipped. It never blocks the verdict gate.
 
 Resumption is auto-detected from the artifacts on disk — flow skips plan when `02-plan.md` exists, build picks up at the right checkpoint based on which of `03-`/`04-`/`05-` is present, and a completed run (`06-summary.md` with `pass`) is reported as "already complete." To start fresh against a partially-run ticket, delete the relevant artifacts before invoking flow.
 
@@ -258,7 +265,8 @@ feature-pipeline/
 │       └── references/
 │           ├── confidence-scale.md
 │           ├── stuck-detection.md
-│           └── validation-hook.md
+│           ├── validation-hook.md
+│           └── pr-creation.md
 ├── README.md
 └── CLAUDE.md
 ```
@@ -323,3 +331,4 @@ For full functionality, these MCP servers are recommended (but optional):
 - Claude Code CLI or Codex CLI
 - Git (for build's review checkpoint diff)
 - Playwright MCP (for build's UI test checkpoint)
+- GitHub CLI (`gh`), authenticated, with a GitHub `origin` — only for `--pr` (auto-PR); the pipeline degrades to a local commit without it
