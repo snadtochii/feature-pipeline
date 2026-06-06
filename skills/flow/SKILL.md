@@ -92,6 +92,7 @@ Flow inspects on-disk artifacts at start and routes to the right stage automatic
 
 | On disk | Routing |
 |---|---|
+| Ticket folder is in `review/` (status `in-review`) | PR is open — skip plan; invoke `/feature:build <ticket-id>` (pass-through). Build owns the merge-check: it finalizes the ticket to `done/` via Transition 6 if the PR has merged, else reports the still-open PR. Must be checked **first** so a `review/` ticket whose `06-summary.md` reads `pass` isn't mistaken for "already complete." |
 | `06-summary.md` exists with verdict `pass` | Print "Pipeline already complete for `<ticket-id>` (verdict: pass). To re-run, delete the relevant artifacts (`02-plan.md` onward) or run a stage directly with `/feature:plan <id>` or `/feature:build <id>`." Exit without changes. |
 | `06-summary.md` exists with verdict `partial` or `stuck` | Skip plan; invoke `/feature:build <ticket-id>` (build's own auto-resumption picks up where it left off). |
 | `02-plan.md` exists, no `06-summary.md` | Skip plan; invoke `/feature:build <ticket-id>` (build's own auto-resumption picks up wherever its checkpoints landed). |
@@ -185,6 +186,7 @@ Starting walk through remaining children in dependency order.
 - `done` → ✓
 - `partial-completion` → ◐
 - `cancelled` → ⨯
+- `in-review` → ◓ (PR open, awaiting merge — non-terminal)
 - `in-progress` → ► (rare on entry; expected only mid-walk or after a crash)
 - `backlog` → (space)
 
@@ -206,6 +208,7 @@ c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind:
 d. **Re-read the child's `01-spec.md` frontmatter** after the recursive flow returns. Build's verdict gate (inside the child's flow run) already moved the folder and updated `status` per `state-transitions.md`. The new status determines the walker's next move:
 
    - `done` or `partial-completion` → child completed cleanly (build verdict `pass` + commit confirmed/declined, or verdict `partial`/`stuck` + user choice `accept-as-partial`). Continue walker silently.
+   - `in-review` → child's PR was opened (build ran with `--pr`); the PR is open, awaiting merge. Non-terminal but an expected outcome — the child is "advanced enough." Continue the walker; the child finalizes to `done/` on a future walk once its PR merges (build's `review/` pass-through fires Transition 6).
    - `backlog` → user chose `abort` at the child's verdict gate. The child has been reverted. Stop the walker. Print:
      ```
      Child <CHILD-ID> aborted (reverted to backlog/). Stopping epic walk.
@@ -251,7 +254,7 @@ All artifacts live inside the per-ticket folder, numbered by stage order. There 
 ### Solo ticket layout
 
 ```
-claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlog, in-progress, done}
+claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlog, in-progress, review, done}
 ├── 01-spec.md              # The ticket — frontmatter (id, status, priority, ...) + spec body
 ├── exploration.md          # Discover-time codebase exploration (optional — only when the ticket went through /feature:discover)
 ├── 02-plan.md              # Implementation blueprint (includes Phase 1 synthesis as Codebase Context + Open Questions Resolved sections)
@@ -286,7 +289,7 @@ The whole epic subtree moves between `<state>/` folders as a unit per [`referenc
 - `01-spec.md` IS the ticket — it carries frontmatter (live state metadata) and the spec body. There is no separate "ticket file" outside the folder.
 - `02`–`06` are reserved for canonical stages in order: `02-plan.md`, `03-implementation.md`, `04-review.md`, `05-tests.md`, `06-summary.md`. Don't reuse numbers.
 - Plain (un-numbered) filenames at the ticket-folder root are reserved for pre-spec / pre-stage artifacts (currently just `exploration.md`); for child tickets of an epic, the shared `exploration.md` lives one level up at the epic folder, not in the child folder.
-- The ticket folder moves between state folders (`backlog/` → `in-progress/` → `done/`) as the pipeline advances. Everything inside moves with it.
+- The ticket folder moves between state folders (`backlog/` → `in-progress/` → `review/` → `done/`) as the pipeline advances. Everything inside moves with it. (`review/` is on the path only for `--pr` runs; a non-`--pr` `pass` goes straight `in-progress/` → `done/`.)
 
 ---
 

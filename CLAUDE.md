@@ -93,10 +93,12 @@ Centralized cross-stage rules live in `skills/flow/references/`:
 - **Step 6** — blocker validation (`blocked_by`)
 
 `state-transitions.md`:
-- **Transition 1** — Start-of-pipeline (`backlog`/`done` → `in-progress`); invoked by `plan` and `build` at start (idempotent)
-- **Transition 2** — End-of-pipeline (`in-progress` → `done`); invoked by `build` at the verdict gate. Includes the all-children-done check for epic children.
+- **Transition 1** — Start-of-pipeline (`backlog`/`review`/`done` → `in-progress`); invoked by `plan` and `build` at start (idempotent; the `review/` source is the re-plan path for a ticket whose PR is open)
+- **Transition 2** — End-of-pipeline (`in-progress` → `done`); invoked by `build` at the verdict gate on a `pass` without `--pr`. Includes the all-children-done check for epic children.
 - **Transition 3** — Abort (`in-progress` → `backlog`); invoked by `build` on `partial`/`stuck` + user choice `abort`. Includes the inverse all-children check for epic children.
 - **Transition 4** — Partial-completion (frontmatter only, no folder move); invoked by `build` on `partial`/`stuck` + `continue-with-hint` (and as a precursor to T2 on `accept-as-partial`).
+- **Transition 5** — Open-PR (`in-progress` → `review`, status `in-review`); invoked by `build` at the verdict gate on `pass` + `--pr`. The `--pr` flag and the push/`gh pr create` are part of the `--pr` auto-PR flow; T5 owns the folder move + status.
+- **Transition 6** — Merge (`review` → `done`); invoked when `build` is re-run on a `review/` ticket and the PR is detected merged (the merge check is part of the `--pr` auto-PR flow). T2's body re-pointed at `review/` as source.
 - **Decision table** — verdict + user choice → which transitions fire. The contract `build` uses at the verdict gate.
 - **Status query** — read-only inspection for future epic-walker tooling.
 
@@ -216,7 +218,7 @@ Every stage skill resolves a ticket argument identically. Canonical logic lives 
 
 Quick summary (full version in the reference):
 - Path-like argument → read directly (folder path or `01-spec.md` path inside the folder).
-- ID argument → search `backlog/`, `in-progress/`, `done/`, then glob across `claudedocs/tickets/**/<id>/` to catch nested children under `tasks/`.
+- ID argument → search `backlog/`, `in-progress/`, `review/`, `done/`, then glob across `claudedocs/tickets/**/<id>/` to catch nested children under `tasks/`.
 - Not found → ask the user.
 - Resolves to a ticket folder. Two shapes:
   - Solo ticket: `claudedocs/tickets/<state>/<id>/` containing `01-spec.md` and stage artifacts.
@@ -237,9 +239,9 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
   - Missing block, missing keys, or malformed YAML → hook is a silent no-op. `jq` is required for the hook to function; without `jq` the hook logs one line to stderr and exits 0 (the build skill's body-level fallback still runs). `yq` is recommended for richer YAML support but not required.
 - **ID format:** `<PREFIX>-<N>` — no leading zeros.
 - **Folder name:** just the ID, no slug — `claudedocs/tickets/<state>/<PREFIX>-<N>/` (or for nested children, `<state>/<EPIC>/tasks/<CHILD>/`).
-- **Status flow:** `backlog → in-progress → done` (folders match). Cancellation is expressed via frontmatter `status: cancelled` inside `done/`, not a separate folder.
+- **Status flow:** `backlog → in-progress → done` (folders match), with an optional `review/` hop (`in-progress → review → done`) on `--pr` runs where a PR is opened for review before merge. Cancellation is expressed via frontmatter `status: cancelled` inside `done/`, not a separate folder; the open-PR state is expressed via `status: in-review` inside `review/`.
 - Solo ticket folders move between state folders as the pipeline advances — the entire folder (spec, artifacts) moves as a unit.
-- For epics: the **whole subtree** moves between state folders together (rule: any-child-in-progress → in-progress; all-children-done-or-cancelled-or-partial → done). `prd.md`'s `status` field tracks the folder location; per-child `status` lives in each child's `01-spec.md`. See `skills/flow/references/state-transitions.md` for the full transition logic and the all-children-done check.
+- For epics: the **whole subtree** moves between state folders together under the precedence `in-progress` ⊐ `review` ⊐ `done` (any-child-in-progress → in-progress; else any-child-in-review → review; else all-children-done-or-cancelled-or-partial → done). `prd.md`'s `status` field tracks the folder location; per-child `status` lives in each child's `01-spec.md`. See `skills/flow/references/state-transitions.md` for the full transition logic and the all-children-done check.
 - **Multi-sibling linkage frontmatter** (set on children when discover emits an epic):
   - `parent: <EPIC-ID>` — the epic this child belongs to.
   - `epic: <slug>` — human-readable shared identifier across siblings (e.g. `dark-mode-rollout`).
@@ -254,7 +256,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 
 `claudedocs/tickets/_lessons.md` is a project-local log of gotchas captured at the build verdict gate. One header line per ticket: `## <ticket-id> (<verdict>): <one-sentence lesson>` (a line may carry multiple IDs once entries are merged). Build appends a lesson after writing `06-summary.md`, then reconciles the file — deduping, flagging internal contradictions, and flagging stale path references — behind a user-approval gate (see `skills/build/references/lessons-curation.md`). The standalone `debug` skill is a second producer: on a root cause that's a project-specific would-recur gotcha, it appends a line in the same `^## `-matching format — `## <ticket-id> (debug): …` with a ticket in scope, or `## debug/<slug> (<exit>): …` standalone — without running curation (build's next verdict-gate reconcile absorbs any duplicate or stale entry). Plan reads the file in Phase 1 and threads it into the requirements-analyst's open-questions surface.
 
-The file is project-local context — generic best practices don't belong here, only constraints/gotchas that bit a prior ticket and would bite the next one if not surfaced. The leading underscore in the filename keeps it sorted above ticket-state folders (`backlog/`, `in-progress/`, `done/`) when listing `claudedocs/tickets/`.
+The file is project-local context — generic best practices don't belong here, only constraints/gotchas that bit a prior ticket and would bite the next one if not surfaced. The leading underscore in the filename keeps it sorted above ticket-state folders (`backlog/`, `in-progress/`, `review/`, `done/`) when listing `claudedocs/tickets/`.
 
 ---
 

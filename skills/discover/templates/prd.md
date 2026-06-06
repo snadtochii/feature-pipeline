@@ -5,7 +5,7 @@ kind: epic              # marks this as non-pipelineable — plan/build refuse t
 epic: epic-slug         # human-readable shared identifier across siblings (lowercase, hyphenated)
 children: [XX-2, XX-3, XX-4]
 priority: medium        # low | medium | high | critical
-status: backlog         # backlog | in-progress | done (status follows the most-advanced child; whole subtree moves between state folders together)
+status: backlog         # backlog | in-progress | in-review | done (status follows the most-advanced child; whole subtree moves between state folders together)
 created: 2026-01-01
 project: project-name
 tags: [feature, area]

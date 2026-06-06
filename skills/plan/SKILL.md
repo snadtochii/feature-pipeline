@@ -52,7 +52,7 @@ Per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolu
 
 ## State setup
 
-Before Phase 1 synthesis, perform the start-of-pipeline transition per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Transition 1 (Start-of-pipeline: `backlog`/`done` → `in-progress`). Idempotent: if the ticket folder is already in `in-progress/`, no folder move; frontmatter `status` is still set to `in-progress` (overwriting any stale value).
+Before Phase 1 synthesis, perform the start-of-pipeline transition per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Transition 1 (Start-of-pipeline: `backlog`/`review`/`done` → `in-progress`). Idempotent: if the ticket folder is already in `in-progress/`, no folder move; frontmatter `status` is still set to `in-progress` (overwriting any stale value). Re-planning a `review/` ticket (its PR is open but the code needs revision) is the intended `review/ → in-progress` revise path — plan pulls it back to `in-progress/` so the build loop rebuilds against the revised plan.
 
 This makes plan self-sufficient when invoked standalone — the ticket folder ends up in the correct state regardless of whether flow or the user invoked it. When invoked via flow, build's later State setup is a no-op for the folder move (frontmatter overwrite is harmless).
 

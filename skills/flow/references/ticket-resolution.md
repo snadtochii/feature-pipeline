@@ -41,7 +41,7 @@ claudedocs/tickets/<state>/<EPIC-ID>/
     └── <CHILD-3-ID>/
 ```
 
-`<state>` is one of `backlog`, `in-progress`, `done`. The whole epic subtree moves between state folders together; per-child progress is tracked in each child's frontmatter `status` field.
+`<state>` is one of `backlog`, `in-progress`, `review`, `done`. The whole epic subtree moves between state folders together; per-child progress is tracked in each child's frontmatter `status` field.
 
 The variable `<ticket-folder>` used throughout stage skills resolves to:
 - `claudedocs/tickets/<state>/<id>/` for solo tickets
@@ -63,6 +63,7 @@ Given the ticket argument (typically `$1`):
 2. **Otherwise treat it as a ticket ID** and search in this order:
    - `claudedocs/tickets/backlog/<id>/`
    - `claudedocs/tickets/in-progress/<id>/`
+   - `claudedocs/tickets/review/<id>/`
    - `claudedocs/tickets/done/<id>/`
    - **Nested children**: glob `claudedocs/tickets/**/tasks/<id>/` to catch children of an epic
    - Case-insensitive glob: `claudedocs/tickets/**/<id>/`
@@ -124,8 +125,10 @@ If `exploration.md` is missing entirely (solo ticket created outside `discover`,
 
 After reading frontmatter, check the `blocked_by` field. If it's missing or empty, skip this step. Otherwise, for each blocker ID:
 
-1. **Locate the blocker** using the same Step 1 logic (search `backlog/`, `in-progress/`, `done/`, including nested children under `tasks/`).
+1. **Locate the blocker** using the same Step 1 logic (search `backlog/`, `in-progress/`, `review/`, `done/`, including nested children under `tasks/`).
 2. **Determine completion**: a blocker is "done" if its frontmatter `status` is `done` or `cancelled`, OR its folder is under `claudedocs/tickets/done/`. Frontmatter is authoritative; folder location is the fallback when frontmatter is missing.
+
+   **`review/` / `in-review` is NOT done.** A blocker whose PR is open lives in `review/` with `status: in-review` — the search in step 1 *includes* `review/` so the blocker is findable, but the completion test above deliberately *excludes* it: an open, unmerged PR does not unblock dependents. Do not add `review/` or `in-review` to the done clause — the searched-but-not-done-equivalent asymmetry is intentional.
 
 The stage's behavior depends on which stage is running:
 

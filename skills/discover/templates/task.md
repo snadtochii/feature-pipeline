@@ -8,7 +8,7 @@ title: Feature Title
 # blocked_by: [XX-2]    # sibling IDs that must complete before this one starts (soft now — documentation; enforcement deferred)
 priority: medium        # low | medium | high | critical
 complexity: M           # S | M | L | XL
-status: backlog         # backlog | in-progress | done | cancelled (cancelled lives in done/, expressed via this field)
+status: backlog         # backlog | in-progress | in-review | done | cancelled (in-review lives in review/, cancelled lives in done/, both expressed via this field)
 created: 2026-01-01
 project: project-name   # which personal project
 tags: [ui, settings]
