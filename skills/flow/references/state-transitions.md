@@ -1,6 +1,6 @@
 # State Transitions — Shared Logic
 
-Canonical logic for moving ticket folders between state directories (`backlog/`, `in-progress/`, `review/`, `done/`) and updating frontmatter `status` fields. Referenced by `plan`, `build`, and `flow`.
+Canonical logic for moving ticket folders between state directories (`backlog/`, `in-progress/`, `review/`, `done/`) and updating frontmatter `status` fields. Referenced by `plan`, `build`, `flow`, and the standalone `sync` skill.
 
 This file is the single source of truth for the ticket state machine. Stage skills do not duplicate the logic inline — they invoke the relevant transition from this reference.
 
@@ -188,7 +188,7 @@ Same rule as Transition 2: move the folder first, then update frontmatter. On a 
 ## Transition 6 — Merge (review → done)
 
 **Invoked by**:
-- `build` (or `flow` delegating to `build`) when re-invoked on a `review/` ticket and the ticket's PR is detected merged via the merge predicate in build's `pr-creation.md` reference (`gh pr view <branch> --json state` → `MERGED`). Transition 6 is Transition 2's body re-pointed at `review/` as the source state.
+- `build` (or `flow` delegating to `build`) when re-invoked on a `review/` ticket, **or** the standalone `sync` skill scanning `review/` in batch, when the ticket's PR is detected merged via the shared merge predicate in build's `pr-creation.md` reference (`state == MERGED`; build uses the branch-keyed lookup, sync the ID-keyed one). Transition 6 is Transition 2's body re-pointed at `review/` as the source state.
 
 ### Solo ticket
 

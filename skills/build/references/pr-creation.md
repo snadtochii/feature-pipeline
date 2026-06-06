@@ -86,13 +86,21 @@ gh pr create --base "<base>" --title "$TITLE" --body-file "<06-summary.md path>"
 - **Degradation** (any precondition/push/PR failure) → Transition 2 (`done/`). Record the reason + branch in `06-summary.md`. Print the specific degradation line.
 - The verdict stays `pass` in both cases — degradation is not a build failure.
 
-## Merge predicate (single definition — referenced by build's `review/` resumption row)
+## Merge predicate (single definition — referenced by build's `review/` resumption row and the `sync` skill)
 
-For a ticket in `review/` (status `in-review`), determine whether its PR has merged:
-```bash
-gh pr view "<branch>" --json state --jq '.state'
-```
-- `MERGED` → fire Transition 6 (`review → done`); print `PR merged; <ticket-id> finalized to done/.`
-- anything else (`OPEN`, `CLOSED`, or `gh` unavailable) → treat as not merged: print `PR still open for <ticket-id>; merge it, then re-run to finalize.` and exit without changes.
+For a ticket in `review/` (status `in-review`), determine whether its PR has merged. **The rule is shared; the lookup key depends on the caller:**
 
-`<branch>` is the ticket's pushed branch (recorded in `06-summary.md`) or the current checkout. This check runs on every re-invocation of a `review/` ticket and does NOT require `--pr` on the command line — `--pr` authorizes *opening* a PR; *checking* an already-open one is a pure resumption action.
+- **Branch-keyed** — build's per-ticket `review/` resumption, which has the current checkout:
+  ```bash
+  gh pr view "<branch>" --json state --jq '.state'
+  ```
+  `<branch>` is the ticket's pushed branch (recorded in `06-summary.md`) or the current checkout.
+- **ID-keyed** — the `sync` skill's batch scan, which has no reliable branch (the slug is judgment-distilled and the branch matrix may reuse a non-convention branch). GitHub's title search is tokenized, so anchor on the `<TICKET-ID>:` title convention:
+  ```bash
+  gh pr list --search "<TICKET-ID> in:title" --state all --json number,state,url,createdAt,title --jq '[.[] | select(.title | startswith("<TICKET-ID>:"))] | sort_by(.createdAt) | last'
+  ```
+  Every PR/commit title leads with `<TICKET-ID>:`, so the `startswith` post-filter pins the ticket's own PR; `last` picks the newest. More robust than the branch when the branch isn't recoverable.
+
+**Shared rule** (both lookups): `state == MERGED` → fire Transition 6 (`review → done`), print `PR merged; <ticket-id> finalized to done/.` Anything else (`OPEN`, `CLOSED`, or `gh` unavailable) → treat as not merged: print `PR still open for <ticket-id>; merge it, then re-run to finalize.` and exit without changes.
+
+This check runs on every re-invocation of a `review/` ticket (or every `sync` pass) and does NOT require `--pr` on the command line — `--pr` authorizes *opening* a PR; *checking* an already-open one is a pure read.
