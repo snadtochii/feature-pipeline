@@ -166,12 +166,13 @@ This lets you plan ahead while preventing builds on top of unfinished foundation
 
 ## Ticket System
 
-Tickets and pipeline artifacts share a single tree under `claudedocs/tickets/`. The ticket folder moves between `backlog/`, `in-progress/`, and `done/` as the pipeline advances; all contents move with it as a unit.
+Tickets and pipeline artifacts share a single tree under `claudedocs/tickets/`. The ticket folder moves between `backlog/`, `in-progress/`, `review/`, and `done/` as the pipeline advances; all contents move with it as a unit.
 
 ```
 claudedocs/tickets/
 ├── backlog/          # Tickets waiting to be worked on
 ├── in-progress/      # Currently in the pipeline
+├── review/           # PR open, awaiting merge (only on `--pr` runs; status: in-review)
 └── done/             # Completed (cancellation expressed via frontmatter `status: cancelled`)
 ```
 
@@ -206,9 +207,10 @@ claudedocs/tickets/<state>/BL-1/        # epic folder; <state> follows the most-
     └── BL-4/
 ```
 
-The whole epic subtree moves between `<state>/` folders as a unit:
+The whole epic subtree moves between `<state>/` folders as a unit (precedence `in-progress` ⊐ `review` ⊐ `done`):
 - `backlog/` → `in-progress/` when any child enters in-progress.
-- `in-progress/` → `done/` only when every child is `done`, `cancelled`, or `partial-completion`.
+- `in-progress/` → `review/` when no child is in-progress and at least one is `in-review` (a `--pr` child opened a PR).
+- `→ done/` only when every child is `done`, `cancelled`, or `partial-completion` (`in-review` is non-terminal — an open PR keeps the epic out of `done/`).
 
 Running an epic: `/feature:flow <EPIC-ID>` walks the children in `blocked_by` topological order, invoking flow recursively per child. The epic subtree moves to `done/` automatically when the last child finalizes. `/feature:plan` and `/feature:build` still refuse to run directly against an epic ID — run them against a child instead, or use flow.
 

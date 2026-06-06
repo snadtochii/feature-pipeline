@@ -55,7 +55,9 @@ When `blocked_by` is non-empty (whether blockers are done or `--ignore-blockers`
 
 ## State setup
 
-Before the implement checkpoint, perform the start-of-pipeline transition per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Transition 1 (Start-of-pipeline: `backlog`/`done` → `in-progress`). Idempotent: if plan already ran in this pipeline invocation, the ticket is in `in-progress/` and only frontmatter is touched. If build is invoked directly on a `backlog/` ticket (re-run after manual artifact restoration, or unusual workflows), build moves the folder.
+Before the implement checkpoint, perform the start-of-pipeline transition per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Transition 1 (Start-of-pipeline → `in-progress`). Idempotent: if plan already ran in this pipeline invocation, the ticket is in `in-progress/` and only frontmatter is touched. If build is invoked directly on a `backlog/` ticket (re-run after manual artifact restoration, or unusual workflows), build moves the folder. (Build's own sources are `backlog/` and `in-progress/`; `review/` is handled separately — see the interception note below — and `done/` re-opens are a plan-side re-run.)
+
+**`review/` is intercepted before this transition.** If the ticket is in `review/` (status `in-review`), the step-5 resumption check (first row) runs first: build inspects the PR's merge state and finalizes via Transition 6 (`review → done`) if merged, or reports the still-open PR and exits — it does NOT rebuild. The `review/ → in-progress` re-plan path (revise an open PR's code) belongs to `plan`, not build.
 
 `<ticket-folder>` is rebound to the new location for the rest of this run.
 
@@ -315,6 +317,7 @@ Per [`../flow/references/state-transitions.md`](../flow/references/state-transit
 - **`pass`** (any commit decision) → Transition 2 (End-of-pipeline → `done/`).
   - If the user wants to commit, do the standard git workflow first (stage relevant files; create a commit message referencing the ticket ID).
   - Then apply Transition 2.
+  - *Seam:* when a `pass` build runs with `--pr`, this arm instead opens a PR and applies Transition 5 (→ `review/`) per the Decision Table. That `--pr` ship path is part of the `--pr` auto-PR flow and is not wired here yet — without `--pr`, `pass` always → Transition 2.
 
 - **`partial`** or **`stuck`** + **`accept-as-partial`** → Transition 4 (status flips to `partial-completion`), then Transition 2 (folder moves to `done/`, preserving `partial-completion` status).
 
@@ -341,6 +344,7 @@ At build start, before the implement checkpoint, inspect on-disk artifacts and r
 
 | On disk | Routing |
 |---|---|
+| Ticket folder is in `review/` (status `in-review`) | The PR is open. Check whether it has merged — predicate `<PR-merged? — `gh pr view`, part of the `--pr` auto-PR flow>`; until that flow's merge check lands the predicate evaluates "not merged." **Merged** → fire Transition 6 (`review → done`), print "PR merged; `<ticket-id>` finalized to `done/`." **Still open** → print "PR still open for `<ticket-id>`; merge it, then re-run to finalize." Exit without changes either way (no rebuild). Checked **first** so a `review/` ticket whose `06-summary.md` reads `pass` isn't mistaken for "already complete." |
 | `06-summary.md` exists with verdict `pass` | Print "Build already complete for `<ticket-id>` (verdict: pass). Delete `03-implementation.md` onward to re-run, or run `/feature:plan` first if you want to revise the plan." Exit. |
 | `05-tests.md` exists with failed criteria (a `## Failed Criteria` section is present) | Re-enter at the test checkpoint with the existing failed criteria as context; attempt fixes in-loop. |
 | `04-review.md` exists, latest implement edit is older than `04-review.md`'s mtime | Review fixes never finished applying. Read `04-review.md`, apply pending fixes in-context, then proceed to the test checkpoint. |

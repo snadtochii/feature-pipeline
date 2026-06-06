@@ -1,6 +1,6 @@
 # State Transitions — Shared Logic
 
-Canonical logic for moving ticket folders between state directories (`backlog/`, `in-progress/`, `done/`) and updating frontmatter `status` fields. Referenced by `plan`, `build`, and `flow`.
+Canonical logic for moving ticket folders between state directories (`backlog/`, `in-progress/`, `review/`, `done/`) and updating frontmatter `status` fields. Referenced by `plan`, `build`, and `flow`.
 
 This file is the single source of truth for the ticket state machine. Stage skills do not duplicate the logic inline — they invoke the relevant transition from this reference.
 
@@ -31,7 +31,7 @@ claudedocs/tickets/<state>/<EPIC-ID>/
     └── <CHILD-3-ID>/...
 ```
 
-For epics, the **entire subtree moves between state folders as a unit**. The epic's `<state>/` location follows the most-advanced child (any-child-in-progress → epic in `in-progress/`; all-children-done-or-cancelled-or-partial → epic in `done/`).
+For epics, the **entire subtree moves between state folders as a unit**. The epic's `<state>/` location follows the most-advanced child under the precedence `in-progress` ⊐ `review` ⊐ `done`: any child `in-progress` → epic in `in-progress/`; else any child `in-review` → epic in `review/`; else all children done-or-cancelled-or-partial → epic in `done/`.
 
 Variables used throughout:
 - `<ticket-folder>` — resolves to `claudedocs/tickets/<state>/<id>/` (solo) or `claudedocs/tickets/<state>/<EPIC>/tasks/<CHILD>/` (child).
@@ -39,7 +39,7 @@ Variables used throughout:
 
 ---
 
-## Transition 1 — Start-of-pipeline (backlog/done → in-progress)
+## Transition 1 — Start-of-pipeline (backlog/review/done → in-progress)
 
 **Invoked by**:
 - `plan` at the start of a run, before Phase 1 synthesis.
@@ -48,7 +48,7 @@ Variables used throughout:
 ### Solo ticket
 
 1. **Folder move**:
-   - If `<ticket-folder>` is in `backlog/` or `done/` (re-run of a completed ticket): move from `claudedocs/tickets/<state>/<id>/` to `claudedocs/tickets/in-progress/<id>/`.
+   - If `<ticket-folder>` is in `backlog/`, `review/`, or `done/` (re-run of a completed ticket, or re-plan/re-build of a ticket whose PR is open): move from `claudedocs/tickets/<state>/<id>/` to `claudedocs/tickets/in-progress/<id>/`.
    - If already in `in-progress/`: no folder move.
 
 2. **Frontmatter update**: set `01-spec.md` frontmatter `status` to `in-progress` (overwrites any stale value).
@@ -60,7 +60,7 @@ Variables used throughout:
 1. **Identify the epic folder**: walk up from `<ticket-folder>` to the deepest ancestor containing `prd.md`. That's `<epic-folder>`.
 
 2. **Epic-subtree move**:
-   - If `<epic-folder>` is in `backlog/` or `done/` (first child entering in-progress, or re-run of a completed epic): move the **entire epic subtree** from `claudedocs/tickets/<state>/<EPIC>/` to `claudedocs/tickets/in-progress/<EPIC>/`. Other children come along; their per-spec `status` fields are NOT touched.
+   - If `<epic-folder>` is in `backlog/`, `review/`, or `done/` (first child entering in-progress, or re-run of a completed/under-review epic): move the **entire epic subtree** from `claudedocs/tickets/<state>/<EPIC>/` to `claudedocs/tickets/in-progress/<EPIC>/`. Other children come along; their per-spec `status` fields are NOT touched.
    - If `<epic-folder>` is already in `in-progress/`: no folder move (a sibling triggered the move earlier).
 
 3. **Frontmatter updates**:
@@ -101,10 +101,10 @@ If the ticket is already in `in-progress/` with the expected frontmatter, this t
 3. **All-children-done check** (load-bearing for epic-mode):
    - Scan every sibling under `<epic-folder>/tasks/*/01-spec.md`.
    - Read each sibling's frontmatter `status` field.
-   - If **every** sibling is `done`, `cancelled`, or `partial-completion`:
+   - If **every** sibling is `done`, `cancelled`, or `partial-completion` (`in-review` is NOT terminal — a sibling with an open PR keeps the epic out of `done/`):
      - Move the **entire epic subtree** from `claudedocs/tickets/in-progress/<EPIC>/` to `claudedocs/tickets/done/<EPIC>/`.
      - Set `prd.md` frontmatter `status` to `done`.
-   - Otherwise, the epic stays in `in-progress/` — the subtree only moves to `done/` on the final sibling's finalization.
+   - Otherwise, the epic stays out of `done/` — its location follows the precedence `in-progress` ⊐ `review` ⊐ `done` (any sibling still `in-progress` → `in-progress/`; else any `in-review` → `review/`). The subtree only moves to `done/` on the final sibling's finalization.
 
 ### Folder-move-then-frontmatter atomicity
 
@@ -129,7 +129,9 @@ Always move the folder first, then update frontmatter. If the folder move fails 
 
 2. **Child frontmatter update**: reset the child's `01-spec.md` frontmatter `status` to `backlog`.
 
-3. **Inverse all-children-done check**: scan siblings. If **every** sibling is now `backlog` or `cancelled` (the inverse of the done check), move the epic subtree back from `in-progress/<EPIC>/` to `backlog/<EPIC>/` and set `prd.md` frontmatter `status` to `backlog`. Rare in practice — typically a child abort doesn't trigger this — but the rule keeps the epic's folder location consistent with its children's aggregate state.
+3. **Inverse all-children-done check**: scan siblings. If **every** sibling is now `backlog` or `cancelled` (the inverse of the done check), move the epic subtree back from `in-progress/<EPIC>/` to `backlog/<EPIC>/` and set `prd.md` frontmatter `status` to `backlog`. A sibling that is `done`, `in-progress`, or `in-review` blocks this revert. Rare in practice — typically a child abort doesn't trigger this — but the rule keeps the epic's folder location consistent with its children's aggregate state.
+
+**`review/` is not a Transition 3 source.** A ticket whose PR is open lives in `review/`, and Transition 3 fires only from the `in-progress/` verdict gate. To back out a `review/` ticket, re-build it first (Transition 1 pulls `review/ → in-progress/`), then abort through the normal gate. Closed-unmerged-PR handling is out of scope here.
 
 ---
 
@@ -153,14 +155,71 @@ Always move the folder first, then update frontmatter. If the folder move fails 
 
 ---
 
+## Transition 5 — Open-PR (in-progress → review)
+
+**Invoked by**:
+- `build` at the verdict gate on verdict `pass` when the `--pr` signal is present, after a pull request has been opened for the work. (The `--pr` flag, the branch/push, and the `gh pr create` call are part of the `--pr` auto-PR flow; this transition owns only the folder move + status flag.)
+
+Ticket lands here when its PR is open but not yet merged — a **non-terminal** state. The work is finished from the build loop's perspective, but "done" would misrepresent it: an open PR can be reworked or closed.
+
+### Solo ticket
+
+1. **Folder move**: move from `claudedocs/tickets/in-progress/<id>/` to `claudedocs/tickets/review/<id>/` (create `review/` if absent). Folder moves as a unit; all artifacts come with it.
+
+2. **Frontmatter update**: set `01-spec.md` frontmatter `status` to `in-review`.
+
+### Child of an epic
+
+1. **No child-folder move**: the child stays inside the epic subtree (`tasks/<CHILD>/`).
+
+2. **Child frontmatter update**: set the child's `01-spec.md` frontmatter `status` to `in-review`.
+
+3. **Epic-subtree location check** (precedence `in-progress` ⊐ `review` ⊐ `done`):
+   - Scan every sibling under `<epic-folder>/tasks/*/01-spec.md`.
+   - If **no** sibling is `in-progress` AND **at least one** is `in-review` (the rest done/cancelled/partial-completion): move the **entire epic subtree** from `claudedocs/tickets/in-progress/<EPIC>/` to `claudedocs/tickets/review/<EPIC>/` and set `prd.md` frontmatter `status` to `in-review`.
+   - If any sibling is still `in-progress`: the epic stays in `in-progress/` — `in-progress` outranks `review`.
+
+### Folder-move-then-frontmatter atomicity
+
+Same rule as Transition 2: move the folder first, then update frontmatter. On a move failure the frontmatter still reflects the prior `in-progress` state, so a retry can recover.
+
+---
+
+## Transition 6 — Merge (review → done)
+
+**Invoked by**:
+- `build` (or `flow` delegating to `build`) when re-invoked on a `review/` ticket and the ticket's PR is detected merged. The merge-detection predicate (`gh pr view`) is part of the `--pr` auto-PR flow; until that flow's merge check is in place the predicate evaluates "not merged" and this transition does not fire. Transition 6 is Transition 2's body re-pointed at `review/` as the source state.
+
+### Solo ticket
+
+1. **Folder move**: move from `claudedocs/tickets/review/<id>/` to `claudedocs/tickets/done/<id>/`.
+
+2. **Frontmatter update**: set `01-spec.md` frontmatter `status` to `done`.
+
+### Child of an epic
+
+1. **No child-folder move**: child stays inside the epic subtree.
+
+2. **Child frontmatter update**: set the child's `01-spec.md` frontmatter `status` to `done`.
+
+3. **All-children-done check**: identical to Transition 2's check — if **every** sibling is now `done`, `cancelled`, or `partial-completion` (`in-review` is NOT in this set), move the epic subtree to `done/` and set `prd.md` `status` to `done`. Otherwise the epic stays under the precedence rule (`in-progress/` or `review/`).
+
+### Folder-move-then-frontmatter atomicity
+
+Same as Transition 2.
+
+---
+
 ## Decision table — verdict + user choice → transition(s)
 
 This is the canonical mapping build uses at the verdict gate. The decision table is the load-bearing contract for future epic-walker work: an epic-walker reads the verdict from each child's `06-summary.md` and predicts which transitions fired based on this table.
 
 | Verdict | User choice            | Transitions               | Effect                                                                  |
 |---------|------------------------|---------------------------|-------------------------------------------------------------------------|
-| `pass`  | commit confirmed       | T2                        | Folder → `done/`; status `done`; standard git commit workflow runs.     |
-| `pass`  | commit declined        | T2                        | Folder → `done/`; status `done`; no git commit. Same folder/frontmatter result as above. |
+| `pass` (no `--pr`) | commit confirmed | T2               | Folder → `done/`; status `done`; standard git commit workflow runs.     |
+| `pass` (no `--pr`) | commit declined  | T2               | Folder → `done/`; status `done`; no git commit. Same folder/frontmatter result as above. |
+| `pass` + `--pr` | non-interactive ship | T5             | Folder → `review/`; status `in-review`; branch pushed + PR opened. The `--pr` flag and the push/`gh pr create` are part of the `--pr` auto-PR flow; T5 owns the folder move + status. |
+| in `review/` | re-invocation, PR detected merged | T6 | Folder → `done/`; status `done`. Merge detection (`gh pr view`) is part of the `--pr` auto-PR flow; until then the predicate reads "not merged" and T6 does not fire. |
 | `partial` | `accept-as-partial`  | T4, then T2               | Status flips to `partial-completion`; then folder → `done/`, preserving that status. |
 | `partial` | `continue-with-hint` | T4                        | Status flips to `partial-completion`; folder stays in `in-progress/`; build loop continues with hint in context. |
 | `partial` | `abort`              | T3                        | Folder → `backlog/`; status `backlog`. Epic subtree may move back (inverse all-children check). |
@@ -179,6 +238,7 @@ Used by future tooling (notably the epic-mode flow walker) to inspect aggregate 
 Read `<ticket-folder>/01-spec.md` frontmatter `status` field. Possible values:
 - `backlog` — not yet started.
 - `in-progress` — currently in the pipeline.
+- `in-review` — build passed with `--pr`; PR open, awaiting merge (lives in `review/`). **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking), but included in every folder search and resumption path.
 - `done` — completed cleanly.
 - `partial-completion` — finalized but with un-fixable failures (treated as terminal for aggregate calculations).
 - `cancelled` — abandoned (lives in `done/` per the discover convention; treated as terminal).
@@ -191,8 +251,9 @@ For an epic (`prd.md` present):
 - Read `prd.md` frontmatter `status` field for the epic's own state-folder location.
 - Iterate every child under `<epic-folder>/tasks/*/01-spec.md` and read each child's `status`.
 - Derived states:
-  - **All children done-equivalent** (`done`, `cancelled`, or `partial-completion`): epic should be in `done/` (Transition 2 moves it there on the last child's finalization).
+  - **All children done-equivalent** (`done`, `cancelled`, or `partial-completion`): epic should be in `done/` (Transition 2 / Transition 6 moves it there on the last child's finalization).
   - **Any child in-progress**: epic should be in `in-progress/`.
+  - **Any child in-review, none in-progress**: epic should be in `review/` (precedence `in-progress` ⊐ `review` ⊐ `done`).
   - **All children backlog or cancelled**: epic should be in `backlog/`.
 
 An epic-walker uses this query to:
@@ -210,4 +271,4 @@ This subsection is the read-side contract for epic-mode; the write-side contract
 - **Frontmatter parse error during status update**: warn the user; do not silently corrupt the file. Ask before retrying.
 - **All-children-done check finds a malformed sibling spec** (missing or unparseable `status` frontmatter): treat as `backlog` (worst-case assumption — keeps the epic in `in-progress/` rather than prematurely promoting to `done/`).
 - **Epic-folder identification fails** (no ancestor with `prd.md` when one is expected): treat as a solo ticket and warn — the layout is corrupt but the per-ticket transition is still safe.
-- **Inverse all-children-done check (Transition 3) finds a `done` or `in-progress` sibling**: epic subtree stays in `in-progress/` (correct behavior — only the aborted child reverts).
+- **Inverse all-children-done check (Transition 3) finds a `done`, `in-progress`, or `in-review` sibling**: epic subtree stays in `in-progress/`/`review/` per the precedence rule (correct behavior — only the aborted child reverts).
