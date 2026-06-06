@@ -48,6 +48,7 @@ Branch-decision matrix:
 - **TICKET-ID**: the ticket's frontmatter `id` (uppercase prefix + number, no leading zeros).
 - **slug**: 2–5 words distilled from the ticket title, lowercased, **sanitized to `[a-z0-9-]`** (strip everything else, collapse consecutive dashes, trim to ≤40 chars). Sanitizing is mandatory — the slug is interpolated into a shell command.
 - **commit message**: `<TICKET-ID>: <Imperative subject>`, blank line, then a body (what changed and why, distilled from `06-summary.md`). Build it via a heredoc or a message file (`git commit -F`); never `eval` and never inline arbitrary ticket text into the command string.
+- **message hygiene**: **no `Co-Authored-By` trailer**, no marketing language, one concern per commit.
 
 ## §3 Stage (gitignore-aware — honors the consumer's repo)
 
@@ -66,18 +67,25 @@ Never assume `claudedocs/` is gitignored in the consumer repo — gate on the ac
 
 ```bash
 git push -u origin "<branch>"
-# Load the title from the spec via command substitution — never paste raw title text into a TITLE="..." literal.
+# Load the ID and title from the spec via command substitution — never paste raw text into a "..." literal.
 # A double-quoted assignment does NOT neutralize backticks / $() / quotes; a command-substitution result is not re-evaluated.
-TITLE=$(sed -n 's/^title: *//p' "<01-spec.md path>" | head -1)
-gh pr create --base "<base>" --title "$TITLE" --body-file "<06-summary.md path>"
+TICKET_ID=$(sed -n 's/^id: *//p' "<01-spec.md path>" | head -1)
+SPEC_TITLE=$(sed -n 's/^title: *//p' "<01-spec.md path>" | head -1)
+# Prefix with the ticket ID (matches the commit + repo convention and the §Merge predicate's
+# ID-keyed lookup); skip the prefix if the spec title already carries it, to avoid doubling.
+case "$SPEC_TITLE" in
+  "$TICKET_ID:"*) PR_TITLE="$SPEC_TITLE" ;;
+  *) PR_TITLE="$TICKET_ID: $SPEC_TITLE" ;;
+esac
+gh pr create --base "<base>" --title "$PR_TITLE" --body-file "<06-summary.md path>"
 ```
 - Ready PR (no `--draft`).
-- **Title** = the ticket's `01-spec.md` title. **Body** = `06-summary.md` passed via `--body-file` (no shell interpolation of arbitrary text).
-- **Epic child**: title = the child's title; prepend a one-line lead `Part of epic <EPIC-ID> (<epic-slug>).` to the body file; the commit references the child ID.
+- **Title** = `<TICKET-ID>: <01-spec.md title>` — the `<TICKET-ID>:` prefix mirrors the commit-message convention (§2) and is **required** by the §Merge predicate's ID-keyed lookup, which filters on `title startswith "<TICKET-ID>:"`; a prefix-less title makes `sync` miss the PR. **Body** = `06-summary.md` passed via `--body-file` (no shell interpolation of arbitrary text).
+- **Epic child**: title = `<CHILD-ID>: <child title>` (same ID-prefix rule, using the child's own ID); prepend a one-line lead `Part of epic <EPIC-ID> (<epic-slug>).` to the body file; the commit references the child ID.
 - Capture the PR URL from `gh pr create` stdout.
 - **Push rejected**, or **`gh pr create` fails after a successful push** → degrade: report (branch is pushed; PR not opened, with the reason), finalize `done/`, record in `06-summary.md`.
 
-**Injection discipline**: branch slug sanitized to `[a-z0-9-]`; PR title loaded into a variable via command substitution from `01-spec.md` (NOT pasted into a `TITLE="..."` literal — a double-quoted assignment doesn't neutralize backticks / `$()` / quotes); PR body via `--body-file`; no `eval`. The push is outward-facing and is authorized only by `--pr`.
+**Injection discipline**: branch slug sanitized to `[a-z0-9-]`; PR title and ticket ID loaded into variables via command substitution from `01-spec.md` (NOT pasted into `"..."` literals — a double-quoted assignment doesn't neutralize backticks / `$()` / quotes) and concatenated into `$PR_TITLE`; PR body via `--body-file`; no `eval`. The push is outward-facing and is authorized only by `--pr`.
 
 ## §5 Finalize
 
