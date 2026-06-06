@@ -25,7 +25,7 @@ Build the ticket through one continuous loop with internal checkpoints (implemen
 /feature:build $ARGUMENTS
 ```
 
-`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--ignore-blockers` (bypass blocker-validation refusal).
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--ignore-blockers` (bypass blocker-validation refusal), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)).
 
 Resumption is auto-detected from on-disk artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build.
 
@@ -281,7 +281,7 @@ When the scan finds something, present a findings summary grouped by category pl
 
 #### 4d. Present the verdict gate
 
-For **`pass`**:
+For **`pass`** (without `--pr`):
 
 ```
 ## Build Complete — verdict: pass
@@ -294,6 +294,16 @@ Would you like to commit these changes?
 ```
 
 Capture the user's reply. Proceed to 4e regardless (commit decision affects git only, not the folder transition).
+
+For **`pass` with `--pr`**: skip the interactive commit prompt — `--pr` is the user's authorization to ship. Present a non-interactive summary, then proceed to 4e:
+
+```
+## Build Complete — verdict: pass (--pr)
+
+[Summary from 06-summary.md]
+
+Opening a pull request per --pr (see references/pr-creation.md): branch from base → commit → push → gh pr create → finalize into review/.
+```
 
 For **`partial`** or **`stuck`**:
 
@@ -314,10 +324,10 @@ Capture the user's choice. Proceed to 4e.
 
 Per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Decision Table:
 
-- **`pass`** (any commit decision) → Transition 2 (End-of-pipeline → `done/`).
+- **`pass` without `--pr`** (any commit decision) → Transition 2 (End-of-pipeline → `done/`).
   - If the user wants to commit, do the standard git workflow first (stage relevant files; create a commit message referencing the ticket ID).
   - Then apply Transition 2.
-  - *Seam:* when a `pass` build runs with `--pr`, this arm instead opens a PR and applies Transition 5 (→ `review/`) per the Decision Table. That `--pr` ship path is part of the `--pr` auto-PR flow and is not wired here yet — without `--pr`, `pass` always → Transition 2.
+- **`pass` with `--pr`** → run the [`references/pr-creation.md`](references/pr-creation.md) sequence (preconditions → branch-decision matrix → gitignore-aware stage → commit → push → `gh pr create`). On success: Transition 5 (→ `review/`, status `in-review`) and record the PR URL + branch in `06-summary.md`. On degradation (gh missing/unauthenticated, non-GitHub origin, or push/PR failure): Transition 2 (→ `done/`) and record the reason in `06-summary.md`. The verdict stays `pass` either way. The branch-decision matrix may pause for a safety choice (commits-ahead of base / detached HEAD / stash-pop conflict) — those are safety prompts, not the commit gate that `--pr` skips.
 
 - **`partial`** or **`stuck`** + **`accept-as-partial`** → Transition 4 (status flips to `partial-completion`), then Transition 2 (folder moves to `done/`, preserving `partial-completion` status).
 
@@ -344,7 +354,7 @@ At build start, before the implement checkpoint, inspect on-disk artifacts and r
 
 | On disk | Routing |
 |---|---|
-| Ticket folder is in `review/` (status `in-review`) | The PR is open. Check whether it has merged — predicate `<PR-merged? — `gh pr view`, part of the `--pr` auto-PR flow>`; until that flow's merge check lands the predicate evaluates "not merged." **Merged** → fire Transition 6 (`review → done`), print "PR merged; `<ticket-id>` finalized to `done/`." **Still open** → print "PR still open for `<ticket-id>`; merge it, then re-run to finalize." Exit without changes either way (no rebuild). Checked **first** so a `review/` ticket whose `06-summary.md` reads `pass` isn't mistaken for "already complete." |
+| Ticket folder is in `review/` (status `in-review`) | The PR is open. Run the merge predicate in [`references/pr-creation.md`](references/pr-creation.md) (`gh pr view <branch> --json state`): **`MERGED`** → fire Transition 6 (`review → done`), print "PR merged; `<ticket-id>` finalized to `done/`." **otherwise** (open / closed / `gh` unavailable) → print "PR still open for `<ticket-id>`; merge it, then re-run to finalize." Runs on every re-invocation regardless of whether `--pr` was passed (checking an open PR is a pure resumption action). Exit without changes either way (no rebuild). Checked **first** so a `review/` ticket whose `06-summary.md` reads `pass` isn't mistaken for "already complete." |
 | `06-summary.md` exists with verdict `pass` | Print "Build already complete for `<ticket-id>` (verdict: pass). Delete `03-implementation.md` onward to re-run, or run `/feature:plan` first if you want to revise the plan." Exit. |
 | `05-tests.md` exists with failed criteria (a `## Failed Criteria` section is present) | Re-enter at the test checkpoint with the existing failed criteria as context; attempt fixes in-loop. |
 | `04-review.md` exists, latest implement edit is older than `04-review.md`'s mtime | Review fixes never finished applying. Read `04-review.md`, apply pending fixes in-context, then proceed to the test checkpoint. |
