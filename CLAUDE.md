@@ -44,6 +44,7 @@ feature-pipeline/
 │   ├── discover/            # Step 0 — ticket creation (Socratic dialogue, may emit 1..N tickets)
 │   ├── explore/             # Open-ended Socratic exploration; can promote to discover
 │   ├── debug/               # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
+│   ├── sync/                # Standalone — reconcile review/ tickets with GitHub PR state (not a pipeline stage)
 │   ├── plan/                # Stage 1 (pre-plan synthesis + plan design)
 │   └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
 ├── README.md                # End-user docs
@@ -128,6 +129,7 @@ Typical budget per role, expressed as unordered tool sets. The build *skill* may
 | `plan` (pre-plan synthesis + plan design) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite, AskUserQuestion (Task for Phase 1 subagents; AskUserQuestion for auto mode's batched no-default open-questions pause) |
 | `build` (continuous loop) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for the 4 reviewer subagents at the review checkpoint and the ui-tester subagent at the test checkpoint; Write for `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md`) |
 | `debug` (standalone runtime debugger) | Read, Write, Edit, Glob, Grep, Bash, TodoWrite + additive-optional browser-capture MCP subset (Playwright/Chrome read/observe); no Task — this skill spawns no subagents |
+| `sync` (standalone PR reconciler) | Read, Glob, Grep, Bash, Edit, TodoWrite — `Bash` for `gh` PR-state reads + the Transition 6 folder `mv`, `Edit` for the `status` frontmatter flip; no `Task` — spawns no subagents |
 
 If you need a tool not in this table, add it explicitly and document why.
 
@@ -203,6 +205,7 @@ Not every stage runs as a subagent. The rule:
 | `plan` (needs main-context interactivity — interactive plan mode standalone, or auto mode's batched no-default / complexity-overflow pauses; spawns subagents in Phase 1) | |
 | `build` (long interactive loop with implement/review/test checkpoints) | |
 | `debug` (interactive runtime-debugging loop; spawns no subagents) | |
+| `sync` (standalone PR reconciler; reads PR state via `gh`, performs Transition 6; spawns no subagents) | |
 
 **Rule:** run in main context only when you need *interactivity* or *plan mode*. Otherwise prefer a subagent — it keeps the main context clean.
 
