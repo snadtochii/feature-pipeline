@@ -7,7 +7,7 @@ allowed-tools:
   - Grep
   - TodoWrite
   - Skill
-argument-hint: "[ticket-id|epic-id] [--ignore-blockers]"
+argument-hint: "[ticket-id|epic-id] [--ignore-blockers] [--pr]"
 ---
 
 # Feature Flow Pipeline
@@ -37,6 +37,7 @@ Remaining args = pipeline flags (see table below)
 | Flag | Effect | Example |
 |------|--------|---------|
 | `--ignore-blockers` | Bypass the `blocked_by` validation in flow's SETUP step 3; print a one-line warning and propagate the flag to plan + build invocations. | `--ignore-blockers` |
+| `--pr` | On verdict `pass`, build opens a GitHub PR and finalizes the ticket into `review/` instead of `done/` (see `build/references/pr-creation.md`). Propagated to `build` only; in epic-mode, forwarded per child (one PR per child). Degrades to a local commit + `done/` when GitHub tooling is absent. | `--pr` |
 
 Resumption is auto-detected from on-disk artifacts — see "Resumption auto-detection" below. To start fresh against a partially-run ticket, delete the relevant artifacts before invoking flow.
 
@@ -45,6 +46,7 @@ Resumption is auto-detected from on-disk artifacts — see "Resumption auto-dete
 /feature:flow BL-1                              # single-ticket; auto-resumes if artifacts exist
 /feature:flow BL-1 --ignore-blockers            # exploratory run on a blocked ticket
 /feature:flow claudedocs/tickets/backlog/BL-1/  # by folder path
+/feature:flow BL-1 --pr                         # on pass, open a GitHub PR and land in review/
 /feature:flow EPIC-1                            # epic-mode: walks children in dependency order
 ```
 
@@ -132,7 +134,7 @@ Apply the resumption auto-detection routing table (above) to decide which stages
 - If `02-plan.md` exists (with or without `06-summary.md` reporting `partial`/`stuck`) — skip plan; invoke `Skill build` only. Build auto-resumes from on-disk artifacts per its own logic.
 - Otherwise — invoke `Skill plan` **with `--auto`** (non-interactive plan; this is what makes flow's plan→build handoff seamless — no plan-mode approval gate), then (after plan returns) `Skill build`.
 
-Both invocations propagate `--ignore-blockers` if it was passed to flow. Flow additionally always passes `--auto` to `Skill plan` (build has no such flag, so it is not propagated there). `--auto` is internal flow→plan wiring, not a user-facing flow flag — that's why it's absent from the Flags table above.
+Both invocations propagate `--ignore-blockers` if it was passed to flow. `--pr`, if passed, is propagated to `Skill build` **only** (plan has no PR concept). Flow additionally always passes `--auto` to `Skill plan` (build has no such flag, so it is not propagated there). `--auto` is internal flow→plan wiring, not a user-facing flow flag — that's why it's absent from the Flags table above.
 
 Plan and build perform their own state transitions (start-of-pipeline at start, end-of-pipeline at build's verdict gate) per [`references/state-transitions.md`](references/state-transitions.md). Flow does not touch folder state or frontmatter `status` directly.
 
@@ -203,7 +205,7 @@ b. **Print the running message**:
    → Running <CHILD-ID>: <title>
    ```
 
-c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs plan + build per the existing logic. Propagate `--ignore-blockers` if the epic-level invocation had it.
+c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs plan + build per the existing logic. Propagate `--ignore-blockers` and `--pr` if the epic-level invocation had them (a `--pr` epic run opens one PR per child).
 
 d. **Re-read the child's `01-spec.md` frontmatter** after the recursive flow returns. Build's verdict gate (inside the child's flow run) already moved the folder and updated `status` per `state-transitions.md`. The new status determines the walker's next move:
 
