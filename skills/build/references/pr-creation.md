@@ -48,6 +48,7 @@ Branch-decision matrix:
 - **TICKET-ID**: the ticket's frontmatter `id` (uppercase prefix + number, no leading zeros).
 - **slug**: 2–5 words distilled from the ticket title, lowercased, **sanitized to `[a-z0-9-]`** (strip everything else, collapse consecutive dashes, trim to ≤40 chars). Sanitizing is mandatory — the slug is interpolated into a shell command.
 - **commit message**: `<TICKET-ID>: <Imperative subject>`, blank line, then a body (what changed and why, distilled from `06-summary.md`). Build it via a heredoc or a message file (`git commit -F`); never `eval` and never inline arbitrary ticket text into the command string.
+- **message hygiene**: **no `Co-Authored-By` trailer**, no marketing language, one concern per commit.
 
 ## §3 Stage (gitignore-aware — honors the consumer's repo)
 
