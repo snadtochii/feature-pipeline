@@ -44,7 +44,7 @@ feature-pipeline/
 │   ├── discover/            # Step 0 — ticket creation (Socratic dialogue, may emit 1..N tickets)
 │   ├── explore/             # Open-ended Socratic exploration; can promote to discover
 │   ├── debug/               # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
-│   ├── sync/                # Standalone — reconcile review/ tickets with GitHub PR state (not a pipeline stage)
+│   ├── sync/                # Standalone — reconcile in-review tickets with GitHub PR state (not a pipeline stage)
 │   ├── plan/                # Stage 1 (pre-plan synthesis + plan design)
 │   └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
 ├── README.md                # End-user docs
@@ -99,7 +99,7 @@ Centralized cross-stage rules live in `skills/flow/references/`:
 - **Transition 3** — Abort (`in-progress` → `backlog`); invoked by `build` on `partial`/`stuck` + user choice `abort`. Includes the inverse all-children check for epic children.
 - **Transition 4** — Partial-completion (frontmatter only, no folder move); invoked by `build` on `partial`/`stuck` + `continue-with-hint` (and as a precursor to T2 on `accept-as-partial`).
 - **Transition 5** — Open-PR (`in-progress` → `review`, status `in-review`); invoked by `build` at the verdict gate on `pass` + `--pr`. The `--pr` flag and the push/`gh pr create` are part of the `--pr` auto-PR flow; T5 owns the folder move + status.
-- **Transition 6** — Merge (`review` → `done`); invoked when `build` is re-run on a `review/` ticket and the PR is detected merged (the merge check is part of the `--pr` auto-PR flow). T2's body re-pointed at `review/` as source.
+- **Transition 6** — Merge (`review` → `done`); invoked when `build` is re-run on a `review/` ticket, or when `sync` scans an `in-review` ticket (by status, wherever it sits), and the PR is detected merged (the merge check is part of the `--pr` auto-PR flow). T2's body re-pointed at the ticket's current state folder as source (`review/` for a solo ticket or an at-review epic; `in-progress/` for an epic child that `sync` promotes in place while a sibling is still mid-build).
 - **Decision table** — verdict + user choice → which transitions fire. The contract `build` uses at the verdict gate.
 - **Status query** — read-only inspection for future epic-walker tooling.
 

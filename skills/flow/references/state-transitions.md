@@ -188,21 +188,21 @@ Same rule as Transition 2: move the folder first, then update frontmatter. On a 
 ## Transition 6 — Merge (review → done)
 
 **Invoked by**:
-- `build` (or `flow` delegating to `build`) when re-invoked on a `review/` ticket, **or** the standalone `sync` skill scanning `review/` in batch, when the ticket's PR is detected merged via the shared merge predicate in build's `pr-creation.md` reference (`state == MERGED`; build uses the branch-keyed lookup, sync the ID-keyed one). Transition 6 is Transition 2's body re-pointed at `review/` as the source state.
+- `build` (or `flow` delegating to `build`) when re-invoked on a `review/` ticket, **or** the standalone `sync` skill scanning in-review tickets in batch, when the ticket's PR is detected merged via the shared merge predicate in build's `pr-creation.md` reference (`state == MERGED`; build uses the branch-keyed lookup, sync the ID-keyed one). Transition 6 is Transition 2's body re-pointed at the ticket's **current** state folder as the source — `review/` for a solo ticket or an epic whose subtree reached `review/`, but `in-progress/` for an epic child that `sync` promotes while a sibling is still mid-build (that child's `in-review → done` flip happens in place; see the child path below).
 
 ### Solo ticket
 
-1. **Folder move**: move from `claudedocs/tickets/review/<id>/` to `claudedocs/tickets/done/<id>/`.
+1. **Folder move**: move from `claudedocs/tickets/review/<id>/` to `claudedocs/tickets/done/<id>/`. A solo ticket reaches `in-review` only via Transition 5's solo path, which moves the folder to `review/` *before* flipping the status — so a solo `in-review` ticket is always in `review/`, and this source stays `review/`-specific (unlike the epic-child path, where the subtree can still be in `in-progress/`).
 
 2. **Frontmatter update**: set `01-spec.md` frontmatter `status` to `done`.
 
 ### Child of an epic
 
-1. **No child-folder move**: child stays inside the epic subtree.
+1. **No child-folder move**: child stays inside the epic subtree. The subtree may be in `review/` or still in `in-progress/` (a sibling is mid-build) — the child's status flips in place either way.
 
 2. **Child frontmatter update**: set the child's `01-spec.md` frontmatter `status` to `done`.
 
-3. **All-children-done check**: identical to Transition 2's check — if **every** sibling is now `done`, `cancelled`, or `partial-completion` (`in-review` is NOT in this set), move the epic subtree to `done/` and set `prd.md` `status` to `done`. Otherwise the epic stays under the precedence rule (`in-progress/` or `review/`).
+3. **All-children-done check**: identical to Transition 2's check — if **every** sibling is now `done`, `cancelled`, or `partial-completion` (`in-review` is NOT in this set), move the epic subtree to `done/` — from its **current** folder (`in-progress/<EPIC>` or `review/<EPIC>`, whichever it sits in under the precedence rule, **not** a hardcoded `review/` source) — and set `prd.md` `status` to `done`. Otherwise the epic stays under the precedence rule (`in-progress/` or `review/`). When `sync` promotes a merged child whose epic is still in `in-progress/`, this check finds the non-terminal sibling and does not fire: the child's `in-review → done` flip stands, and the epic stays put.
 
 ### Folder-move-then-frontmatter atomicity
 
@@ -238,7 +238,7 @@ Used by future tooling (notably the epic-mode flow walker) to inspect aggregate 
 Read `<ticket-folder>/01-spec.md` frontmatter `status` field. Possible values:
 - `backlog` — not yet started.
 - `in-progress` — currently in the pipeline.
-- `in-review` — build passed with `--pr`; PR open, awaiting merge (lives in `review/`). **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking), but included in every folder search and resumption path.
+- `in-review` — build passed with `--pr`; PR open, awaiting merge. A **solo** ticket lives in `review/`; an **epic child** can be `in-review` while its subtree is still in `in-progress/` (a sibling is mid-build, so the precedence rule keeps the epic out of `review/`). So `in-review` is found by frontmatter `status`, not by folder location alone. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking), but included in every folder search and resumption path.
 - `done` — completed cleanly.
 - `partial-completion` — finalized but with un-fixable failures (treated as terminal for aggregate calculations).
 - `cancelled` — abandoned (lives in `done/` per the discover convention; treated as terminal).
