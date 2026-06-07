@@ -308,6 +308,7 @@ There's no automated test suite for the plugin itself. Validation is by manual p
 - No marketing language in commit messages ("magnificent", "blazingly fast", etc.).
 - Reference the issue/feature the commit addresses.
 - Keep commits small — one concern per commit.
+- **Bump the plugin version every PR.** Update `version` in BOTH `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two manifests must stay in lockstep. The discover → plan → build pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/build step.
 
 ## Editing discipline
 
