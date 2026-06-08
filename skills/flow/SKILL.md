@@ -15,7 +15,7 @@ argument-hint: "[ticket-id|epic-id] [--ignore-blockers] [--pr]"
 Thin sequencer with two modes:
 
 - **Single-ticket mode** (default): runs `plan → build` on the resolved ticket. Each stage owns its own state transitions (folder moves, frontmatter status) per [`references/state-transitions.md`](references/state-transitions.md); build owns the verdict gate end-to-end.
-- **Epic mode** (when the resolved folder has `kind: epic` on `prd.md`): walks children in `blocked_by` topological order, recursively invoking `Skill flow` per child. Per-child state transitions and the all-children-done epic-subtree move fire inside each child's build verdict gate.
+- **Epic mode** (when the resolved folder has `kind: epic` on `prd.md`): walks children in `blocked_by` topological order, recursively invoking `Skill flow` per child. Per-child state transitions and the Epic-completion-predicate-gated epic-subtree move fire inside each child's build verdict gate.
 
 Flow's job in both modes is to resolve, validate, decide what to invoke, and invoke. It does not touch folder state, frontmatter, or artifact files directly.
 
@@ -144,7 +144,7 @@ After build returns, flow's work is done — build owns the verdict gate and has
 
 ## EPIC-MODE EXECUTION
 
-Entered when SETUP step 2 detects `kind: epic` on the resolved folder. Flow walks the epic's children in `blocked_by` topological order, invoking `/feature:flow <CHILD-ID>` recursively for each child. Per-child state transitions (and the all-children-done check that moves the epic subtree to `done/` on the last child's finalization) fire from each child's build invocation per [`references/state-transitions.md`](references/state-transitions.md) Transition 2 — flow's epic walker doesn't perform any state transitions itself.
+Entered when SETUP step 2 detects `kind: epic` on the resolved folder. Flow walks the epic's children in `blocked_by` topological order, invoking `/feature:flow <CHILD-ID>` recursively for each child. Per-child state transitions (and the Epic-completion predicate that moves the epic subtree to `done/` once the last declared child is materialized and terminal) fire from each child's build invocation per [`references/state-transitions.md`](references/state-transitions.md) Transition 2 — flow's epic walker doesn't perform any state transitions itself.
 
 ### 1. Load epic context
 
@@ -229,7 +229,7 @@ e. **Print updated aggregate progress** (same format as Step 3, with the just-co
 
 After the loop exits successfully (all children walked, no aborts):
 
-a. The all-children-done check inside the **last child's** build verdict gate (Transition 2's epic variant in `state-transitions.md`) already moved the epic subtree from `in-progress/<EPIC>/` to `done/<EPIC>/` and updated `prd.md`'s `status` to `done`. Flow does NOT repeat this — it has already happened.
+a. The Epic-completion predicate inside the **last child's** build verdict gate (Transition 2's epic variant in `state-transitions.md`) already moved the epic subtree from `in-progress/<EPIC>/` to `done/<EPIC>/` and updated `prd.md`'s `status` to `done` — in epic-mode the walker runs every declared child, so by the final child the predicate's roster check is satisfied. Flow does NOT repeat this — it has already happened.
 
 b. Print:
    ```

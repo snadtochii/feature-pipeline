@@ -218,7 +218,7 @@ claudedocs/tickets/<state>/BL-1/        # epic folder; <state> follows the most-
 The whole epic subtree moves between `<state>/` folders as a unit (precedence `in-progress` ⊐ `review` ⊐ `done`):
 - `backlog/` → `in-progress/` when any child enters in-progress.
 - `in-progress/` → `review/` when no child is in-progress and at least one is `in-review` (a `--pr` child opened a PR).
-- `→ done/` only when every child is `done`, `cancelled`, or `partial-completion` (`in-review` is non-terminal — an open PR keeps the epic out of `done/`).
+- `→ done/` only when every child **declared in the epic's `children:` roster** is materialized and terminal (`done`, `cancelled`, or `partial-completion`). `in-review` is non-terminal — an open PR keeps the epic out of `done/`. A declared child not yet authored also keeps the epic out of `done/`, so a just-in-time epic (full roster declared upfront, child specs written as the pipeline reaches each phase) isn't marked complete early.
 
 Running an epic: `/feature:flow <EPIC-ID>` walks the children in `blocked_by` topological order, invoking flow recursively per child. The epic subtree moves to `done/` automatically when the last child finalizes. `/feature:plan` and `/feature:build` still refuse to run directly against an epic ID — run them against a child instead, or use flow.
 

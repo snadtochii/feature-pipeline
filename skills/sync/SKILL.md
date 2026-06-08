@@ -74,7 +74,7 @@ Run Step 2's PR lookup only for the **actionable** tickets from Step 1. Inconsis
 
 - **`MERGED`** → finalize via **Transition 6** (`review → done`) per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) — invoke it, don't reimplement the move logic:
   - *Solo ticket*: move the folder first — `mv "claudedocs/tickets/review/<id>" "claudedocs/tickets/done/<id>"` — then `Edit` its `01-spec.md` frontmatter `status` → `done`. A solo `in-review` ticket always lives in `review/` (Transition 5's solo path moves the folder before flipping the status), so this path stays `review/`-specific — do not unify it with the epic-child path below.
-  - *Epic child*: no child-folder move — `Edit` the child's `status` → `done`. The child's subtree may be in `review/` **or** still in `in-progress/` (a sibling is mid-build); either way the child flips in place. **Defer** Transition 6's **all-children-done check** to once per affected epic at the end of the pass: collect the epics whose children you promoted this pass; for each, re-resolve `<epic-folder>` (the deepest ancestor containing `prd.md`, at its **current** location) and read every sibling under `<epic-folder>/tasks/*/01-spec.md` *after* all in-pass child flips are written. If every sibling is now `done`/`cancelled`/`partial-completion`, `mv` the whole epic subtree from its current folder — `<epic-folder> → done/<EPIC>` (source is wherever the epic currently sits, `in-progress/` or `review/`, **not** a hardcoded `review/<EPIC>`) — and set `prd.md` `status` → `done`. Otherwise leave the epic where it is: the child flip stands and the epic stays put under the precedence rule. (Deferring once per epic avoids re-scanning all siblings per merged child, where only the last child's check can succeed.)
+  - *Epic child*: no child-folder move — `Edit` the child's `status` → `done`. The child's subtree may be in `review/` **or** still in `in-progress/` (a sibling is mid-build); either way the child flips in place. **Defer** Transition 6's **Epic-completion predicate** to once per affected epic at the end of the pass: collect the epics whose children you promoted this pass; for each, re-resolve `<epic-folder>` (the deepest ancestor containing `prd.md`, at its **current** location) and apply the **Epic-completion predicate** (see [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md)) *after* all in-pass child flips are written — invoke it, don't reimplement the roster/sibling scan. On `promote`, `mv` the whole epic subtree from its current folder — `<epic-folder> → done/<EPIC>` (source is wherever the epic currently sits, `in-progress/` or `review/`, **not** a hardcoded `review/<EPIC>`) — and set `prd.md` `status` → `done`. On `stay`, leave the epic where it is: the child flip stands and the epic stays put under the precedence rule. The predicate gates on the epic's **declared `children:` roster**, so a just-in-time epic whose later-phase children aren't materialized yet correctly stays put even when every authored child is terminal. Render any predicate warnings (roster-unknown when `children:` can't be read; roster-drift when a materialized child isn't in the roster) as `⚠ Needs attention` report lines (Step 4). (Deferring once per epic avoids re-applying the predicate per merged child, where only the last child's check can succeed.)
   - Record `✓ promoted → done/` + the PR URL (and the epic move, if it fired).
 - **`OPEN`** → record `… open` + the PR URL; change nothing.
 - **`CLOSED`** (unmerged) → record `⚠ closed unmerged — needs your call`; change nothing. Do NOT auto-revert — reverting `review → backlog` is a judgment call (you may reopen or rework).
@@ -100,7 +100,7 @@ Print a grouped summary with counts; omit empty groups:
   - <id> — <reason>
 ```
 
-The `⚠ Needs attention` group carries both closed-unmerged PRs and inconsistent-state tickets (Step 1's inconsistent bucket), each tagged inline — no separate section. If a promotion finalized an epic's last child, add a line noting the epic subtree moved to `done/`.
+The `⚠ Needs attention` group carries closed-unmerged PRs, inconsistent-state tickets (Step 1's inconsistent bucket), and any Epic-completion-predicate warnings (roster-unknown / roster-drift) raised while finalizing an epic, each tagged inline — no separate section. If a promotion finalized an epic's last child, add a line noting the epic subtree moved to `done/`.
 
 ## Under /loop
 
@@ -110,7 +110,7 @@ Nothing special — sync is a normal invocable skill. Its idempotency (re-scan e
 
 **Will:**
 - Scan in-review tickets (all, or one when `$1` is given), find each PR by ticket ID, and report.
-- Promote `MERGED`-PR tickets to `done/` via Transition 6, including the epic all-children-done promotion.
+- Promote `MERGED`-PR tickets to `done/` via Transition 6, including the epic promotion gated by the Epic-completion predicate (declared `children:` roster reconciliation).
 - Degrade fail-closed when `gh`/auth/origin is unavailable — change nothing, report why.
 
 **Will Not:**
