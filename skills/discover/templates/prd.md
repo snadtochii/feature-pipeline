@@ -3,7 +3,7 @@ id: XX-1
 title: Epic Title
 kind: epic              # marks this as non-pipelineable — plan/build refuse to run against epics
 epic: epic-slug         # human-readable shared identifier across siblings (lowercase, hyphenated)
-children: [XX-2, XX-3, XX-4]
+children: [XX-2, XX-3, XX-4]   # authoritative roster — epic finalizes to done/ only when every listed child is materialized AND terminal (see Roster contract below)
 priority: medium        # low | medium | high | critical
 status: backlog         # backlog | in-progress | in-review | done (status follows the most-advanced child; whole subtree moves between state folders together)
 created: 2026-01-01
@@ -49,6 +49,8 @@ Things this whole epic does NOT do. (Each child has its own out-of-scope for sli
 | XX-2 | <child title> | M | 1, 2 | — |
 | XX-3 | <child title> | M | 3, 4 | XX-2 |
 | XX-4 | <child title> | S | 5 | XX-2 |
+
+> **Roster contract.** The frontmatter `children:` list is authoritative for epic finalization: the epic moves to `done/` only once every listed child is materialized as a `tasks/<id>/` ticket **and** terminal (`done` / `cancelled` / `partial-completion`). For a just-in-time epic (child specs authored as the pipeline reaches each phase), declare the full roster here upfront — the completion check reconciles against it, so the epic won't be marked done while later-phase children are still unwritten. To **descope** a child that will never be built, either remove its ID from `children:` or materialize its `tasks/<id>/01-spec.md` as a `cancelled` stub; otherwise it blocks completion indefinitely.
 
 ### Ordering Rationale
 Why this dependency chain — what foundational work each early child unlocks for later siblings.

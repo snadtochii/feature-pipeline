@@ -31,11 +31,50 @@ claudedocs/tickets/<state>/<EPIC-ID>/
     └── <CHILD-3-ID>/...
 ```
 
-For epics, the **entire subtree moves between state folders as a unit**. The epic's `<state>/` location follows the most-advanced child under the precedence `in-progress` ⊐ `review` ⊐ `done`: any child `in-progress` → epic in `in-progress/`; else any child `in-review` → epic in `review/`; else all children done-or-cancelled-or-partial → epic in `done/`.
+For epics, the **entire subtree moves between state folders as a unit**. The epic's `<state>/` location follows the most-advanced child under the precedence `in-progress` ⊐ `review` ⊐ `done`: any child `in-progress` → epic in `in-progress/`; else any child `in-review` → epic in `review/`; else every declared child materialized-and-terminal (the Epic-completion predicate) → epic in `done/`.
 
 Variables used throughout:
 - `<ticket-folder>` — resolves to `claudedocs/tickets/<state>/<id>/` (solo) or `claudedocs/tickets/<state>/<EPIC>/tasks/<CHILD>/` (child).
 - `<epic-folder>` (child only) — `claudedocs/tickets/<state>/<EPIC>/` (the deepest ancestor containing `prd.md`).
+
+---
+
+## Epic-completion predicate (shared)
+
+The single definition of "is this epic finished?" Both end-state transitions (Transition 2 §3 in-progress → done, Transition 6 §3 review → done), the read-only Status query, and the standalone `sync` skill invoke this predicate by name rather than restating the sibling scan. Changing the completion rule means editing **here** — there are no per-transition copies to keep in step.
+
+**Inputs**: `<epic-folder>` (the epic's current location, under `in-progress/` or `review/`) and its `prd.md`.
+
+**Output**: a decision — `promote` or `stay` — plus zero or more warnings. The predicate reads only: it never moves folders or writes frontmatter. The invoking transition performs the move (always from the epic's **current** folder, never a hardcoded source) and sets `prd.md` status; the invoking caller renders the warnings in its own channel (`build` inline at the verdict gate, `sync` as `⚠` report lines).
+
+**Definitions**:
+- `declared` = the set of child IDs listed in `prd.md`'s `children:` field. This is the **authoritative roster contract** for the epic.
+- A child is **materialized** when `<epic-folder>/tasks/<id>/01-spec.md` exists and has parseable `status` frontmatter. A bare `tasks/<id>/` folder with no readable spec is **not** materialized.
+- `materialized` = the set of child IDs with a materialized spec under `tasks/*/`.
+- A child is **terminal** when its `status` is `done`, `cancelled`, or `partial-completion`. `in-review` is **not** terminal — an open PR keeps the epic out of `done/`.
+
+**Decision — return `promote` iff all three hold**:
+1. **(R) roster present** — `prd.md` has a parseable `children:` list.
+2. **(C) coverage** — every ID in `declared` is in `materialized` (`declared ⊆ materialized`).
+3. **(T) terminal** — every child in `materialized` is terminal.
+
+Otherwise return `stay`: the epic is not promoted and remains at its precedence-derived location (`in-progress` ⊐ `review` ⊐ `done`).
+
+Why coverage (C) matters: a **just-in-time / expanding epic** declares its full `children:` roster upfront but authors child specs later, as the pipeline reaches each phase. Without (C), the check sees only the materialized subset and promotes the epic to `done/` the moment those are terminal — while later-phase children remain unwritten. Reconciling against `declared` closes that hole; it reuses an already-populated signal, so no new frontmatter or lifecycle step is needed.
+
+**Warnings** (surface them, but they block promotion only when they also break R/C/T):
+- **roster-unknown** — `children:` is missing, has no key, or is unparseable → return `stay` + warn. Fail safe: never auto-promote an epic whose roster can't be read.
+- **roster-drift** — a materialized child is **not** in `declared` → warn. The extra child still counts toward (T): it must itself be terminal for the epic to promote, but its presence alone does not block a fully-delivered epic.
+
+A declared child with **no** materialized folder is the **expected** mid-flight state of a just-in-time epic. It fails (C) → `stay`, with no warning — that is normal, not an anomaly.
+
+**Fail-safe composition**: a materialized child whose spec is present but whose `status` is missing or unparseable is treated as `backlog` (non-terminal) → fails (T) → `stay`. This preserves the existing malformed-sibling rule (worst-case assumption keeps the epic out of `done/`) and composes with the roster rules above rather than replacing it.
+
+**Descope escape hatch**: a declared child that will never be built must be reflected in the roster, or it blocks (C) indefinitely. Two manual operator remediations:
+- Remove the child's ID from `prd.md`'s `children:` (shrinks `declared`), **or**
+- Materialize `tasks/<id>/01-spec.md` as a stub with `status: cancelled` (adds it to `materialized` as a terminal child).
+
+Either satisfies the predicate. There is no automated roster mutation — descoping is a deliberate human edit.
 
 ---
 
@@ -98,13 +137,10 @@ If the ticket is already in `in-progress/` with the expected frontmatter, this t
    - On verdict `pass`: set the child's `01-spec.md` frontmatter `status` to `done`.
    - On `accept-as-partial`: set the child's `01-spec.md` frontmatter `status` to `partial-completion`.
 
-3. **All-children-done check** (load-bearing for epic-mode):
-   - Scan every sibling under `<epic-folder>/tasks/*/01-spec.md`.
-   - Read each sibling's frontmatter `status` field.
-   - If **every** sibling is `done`, `cancelled`, or `partial-completion` (`in-review` is NOT terminal — a sibling with an open PR keeps the epic out of `done/`):
-     - Move the **entire epic subtree** from `claudedocs/tickets/in-progress/<EPIC>/` to `claudedocs/tickets/done/<EPIC>/`.
-     - Set `prd.md` frontmatter `status` to `done`.
-   - Otherwise, the epic stays out of `done/` — its location follows the precedence `in-progress` ⊐ `review` ⊐ `done` (any sibling still `in-progress` → `in-progress/`; else any `in-review` → `review/`). The subtree only moves to `done/` on the final sibling's finalization.
+3. **Epic-completion check** (load-bearing for epic-mode): apply the **Epic-completion predicate** (above).
+   - On `promote`: move the **entire epic subtree** from `claudedocs/tickets/in-progress/<EPIC>/` to `claudedocs/tickets/done/<EPIC>/`, and set `prd.md` frontmatter `status` to `done`.
+   - On `stay`: the epic stays out of `done/` — its location follows the precedence `in-progress` ⊐ `review` ⊐ `done` (any sibling still `in-progress` → `in-progress/`; else any `in-review` → `review/`). The subtree only moves to `done/` once the predicate returns `promote` — i.e. the full declared `children:` roster is materialized and every materialized child is terminal.
+   - Surface any predicate warnings (roster-unknown, roster-drift) inline at build's verdict gate.
 
 ### Folder-move-then-frontmatter atomicity
 
@@ -202,7 +238,7 @@ Same rule as Transition 2: move the folder first, then update frontmatter. On a 
 
 2. **Child frontmatter update**: set the child's `01-spec.md` frontmatter `status` to `done`.
 
-3. **All-children-done check**: identical to Transition 2's check — if **every** sibling is now `done`, `cancelled`, or `partial-completion` (`in-review` is NOT in this set), move the epic subtree to `done/` — from its **current** folder (`in-progress/<EPIC>` or `review/<EPIC>`, whichever it sits in under the precedence rule, **not** a hardcoded `review/` source) — and set `prd.md` `status` to `done`. Otherwise the epic stays under the precedence rule (`in-progress/` or `review/`). When `sync` promotes a merged child whose epic is still in `in-progress/`, this check finds the non-terminal sibling and does not fire: the child's `in-review → done` flip stands, and the epic stays put.
+3. **Epic-completion check**: apply the **Epic-completion predicate** (above). On `promote`, move the epic subtree to `done/` — from its **current** folder (`in-progress/<EPIC>` or `review/<EPIC>`, whichever it sits in under the precedence rule, **not** a hardcoded `review/` source) — and set `prd.md` `status` to `done`. On `stay`, the epic stays under the precedence rule (`in-progress/` or `review/`). When `sync` promotes a merged child whose epic still has a non-terminal sibling, an unmaterialized declared child, or an unreadable roster, the predicate returns `stay`: the child's `in-review → done` flip stands, and the epic stays put. Surface predicate warnings (roster-unknown, roster-drift) in the caller's channel (`sync` as `⚠` report lines).
 
 ### Folder-move-then-frontmatter atomicity
 
@@ -251,7 +287,7 @@ For an epic (`prd.md` present):
 - Read `prd.md` frontmatter `status` field for the epic's own state-folder location.
 - Iterate every child under `<epic-folder>/tasks/*/01-spec.md` and read each child's `status`.
 - Derived states:
-  - **All children done-equivalent** (`done`, `cancelled`, or `partial-completion`): epic should be in `done/` (Transition 2 / Transition 6 moves it there on the last child's finalization).
+  - **Epic-completion predicate returns `promote`** (the full declared `children:` roster is materialized and every materialized child is terminal): epic should be in `done/` (Transition 2 / Transition 6 moves it there on the last child's finalization). A roster that outruns the materialized set — some declared child not yet authored — does NOT qualify; the epic stays under the precedence rule below.
   - **Any child in-progress**: epic should be in `in-progress/`.
   - **Any child in-review, none in-progress**: epic should be in `review/` (precedence `in-progress` ⊐ `review` ⊐ `done`).
   - **All children backlog or cancelled**: epic should be in `backlog/`.
@@ -269,6 +305,9 @@ This subsection is the read-side contract for epic-mode; the write-side contract
 
 - **Folder move fails (permission, disk error)**: surface the failure to the user immediately; leave frontmatter at its previous value (move first, frontmatter second — never optimistic). The user can investigate and either retry or fix manually.
 - **Frontmatter parse error during status update**: warn the user; do not silently corrupt the file. Ask before retrying.
-- **All-children-done check finds a malformed sibling spec** (missing or unparseable `status` frontmatter): treat as `backlog` (worst-case assumption — keeps the epic in `in-progress/` rather than prematurely promoting to `done/`).
+- **Epic-completion predicate finds a malformed materialized sibling spec** (missing or unparseable `status` frontmatter): treat as `backlog` (worst-case assumption — non-terminal, so the epic stays in `in-progress/` rather than prematurely promoting to `done/`).
+- **Epic-completion predicate can't read the roster** (`prd.md` `children:` missing, keyless, or unparseable): return `stay` + a roster-unknown warning — never auto-promote an epic whose declared roster can't be read. Same conservative instinct as the malformed-sibling rule.
+- **Epic-completion predicate finds a declared child with no materialized folder**: return `stay` (fails the coverage check). This is the expected mid-flight state of a just-in-time epic and is **not** warned — only the unreadable-roster and drift cases warn.
+- **Epic-completion predicate finds a materialized child absent from `children:`**: emit a roster-drift warning. The extra child still must be terminal to satisfy the terminal check, but its presence alone does not block a fully-delivered epic.
 - **Epic-folder identification fails** (no ancestor with `prd.md` when one is expected): treat as a solo ticket and warn — the layout is corrupt but the per-ticket transition is still safe.
 - **Inverse all-children-done check (Transition 3) finds a `done`, `in-progress`, or `in-review` sibling**: epic subtree stays in `in-progress/`/`review/` per the precedence rule (correct behavior — only the aborted child reverts).

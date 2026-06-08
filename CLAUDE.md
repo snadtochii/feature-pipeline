@@ -95,7 +95,7 @@ Centralized cross-stage rules live in `skills/flow/references/`:
 
 `state-transitions.md`:
 - **Transition 1** — Start-of-pipeline (`backlog`/`review`/`done` → `in-progress`); invoked by `plan` and `build` at start (idempotent; the `review/` source is the re-plan path for a ticket whose PR is open)
-- **Transition 2** — End-of-pipeline (`in-progress` → `done`); invoked by `build` at the verdict gate on a `pass` without `--pr`. Includes the all-children-done check for epic children.
+- **Transition 2** — End-of-pipeline (`in-progress` → `done`); invoked by `build` at the verdict gate on a `pass` without `--pr`. Includes the Epic-completion predicate (declared-roster reconciliation) for epic children.
 - **Transition 3** — Abort (`in-progress` → `backlog`); invoked by `build` on `partial`/`stuck` + user choice `abort`. Includes the inverse all-children check for epic children.
 - **Transition 4** — Partial-completion (frontmatter only, no folder move); invoked by `build` on `partial`/`stuck` + `continue-with-hint` (and as a precursor to T2 on `accept-as-partial`).
 - **Transition 5** — Open-PR (`in-progress` → `review`, status `in-review`); invoked by `build` at the verdict gate on `pass` + `--pr`. The `--pr` flag and the push/`gh pr create` are part of the `--pr` auto-PR flow; T5 owns the folder move + status.
@@ -244,7 +244,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 - **Folder name:** just the ID, no slug — `claudedocs/tickets/<state>/<PREFIX>-<N>/` (or for nested children, `<state>/<EPIC>/tasks/<CHILD>/`).
 - **Status flow:** `backlog → in-progress → done` (folders match), with an optional `review/` hop (`in-progress → review → done`) on `--pr` runs where a PR is opened for review before merge. Cancellation is expressed via frontmatter `status: cancelled` inside `done/`, not a separate folder; the open-PR state is expressed via `status: in-review` inside `review/`.
 - Solo ticket folders move between state folders as the pipeline advances — the entire folder (spec, artifacts) moves as a unit.
-- For epics: the **whole subtree** moves between state folders together under the precedence `in-progress` ⊐ `review` ⊐ `done` (any-child-in-progress → in-progress; else any-child-in-review → review; else all-children-done-or-cancelled-or-partial → done). `prd.md`'s `status` field tracks the folder location; per-child `status` lives in each child's `01-spec.md`. See `skills/flow/references/state-transitions.md` for the full transition logic and the all-children-done check.
+- For epics: the **whole subtree** moves between state folders together under the precedence `in-progress` ⊐ `review` ⊐ `done` (any-child-in-progress → in-progress; else any-child-in-review → review; else every declared child materialized-and-terminal → done). `prd.md`'s `status` field tracks the folder location; per-child `status` lives in each child's `01-spec.md`. See `skills/flow/references/state-transitions.md` for the full transition logic and the Epic-completion predicate.
 - **Multi-sibling linkage frontmatter** (set on children when discover emits an epic):
   - `parent: <EPIC-ID>` — the epic this child belongs to.
   - `epic: <slug>` — human-readable shared identifier across siblings (e.g. `dark-mode-rollout`).
