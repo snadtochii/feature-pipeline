@@ -25,7 +25,7 @@ Build the ticket through one continuous loop with internal checkpoints (implemen
 /feature:build $ARGUMENTS
 ```
 
-`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--ignore-blockers` (bypass blocker-validation refusal), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)).
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--ignore-blockers` (bypass blocker-validation refusal), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)), `--no-ui-testing` (skip only the browser/ui-tester portion of the test checkpoint; lint/typecheck still run and still gate the verdict — see the test checkpoint's flag override).
 
 Resumption is auto-detected from on-disk artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build.
 
@@ -83,7 +83,7 @@ Watch for stuck patterns (action↔observation repetition, agent monologue, ping
 **Will:**
 - Run implement, review, and test as in-loop checkpoints in one main-context invocation
 - Spawn the 4 reviewer subagents in parallel (single message, four `Task` calls); merge findings into `04-review.md`
-- Spawn the `ui-tester` subagent at the test checkpoint when the plan has UI signals; otherwise write a skip artifact to `05-tests.md`
+- Spawn the `ui-tester` subagent at the test checkpoint when the plan has UI signals (unless `--no-ui-testing` forces the browser-portion skip); otherwise write a skip artifact to `05-tests.md`
 - Apply review and test fixes in-context, with a documented tiebreak when fixes are mutually exclusive
 - Update `03-implementation.md`, `04-review.md`, `05-tests.md`, `06-summary.md` per the artifact contract
 - Emit `Turn N/25` lines and self-detect stuck patterns
@@ -199,6 +199,8 @@ f. **After fixes are applied**, run validation again (lint/typecheck) and update
 
 ### 3. Test checkpoint
 
+**Flag override — `--no-ui-testing`.** Checked first, before the skip-detection scan. If the build was invoked with `--no-ui-testing` (propagated from flow, or passed directly), skip the browser/ui-tester portion entirely: do **not** run the skip-detection scan (step a) or spawn `ui-tester` (step b). Write the flag-skip variant of the artifact to `05-tests.md` (see step c) and proceed straight to step d. This is independent of plan content — it forces the skip even when the plan has UI signals, so it does not depend on (or touch) the substring scan at all. Non-browser checks (lint/typecheck) are unaffected: they run in the implement checkpoint and still gate the verdict. Browser-level acceptance-criteria verification is deferred to a human at PR review. As with a no-UI skip, `skipped` here is a test-checkpoint label, not a verdict — build can still exit `pass`.
+
 a. **Skip-detection scan.** Read `02-plan.md` and search (case-insensitive substring match) for any of: `component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial`. Match → run `ui-tester` (step b). No match → skip (step c).
 
 b. **Spawn `feature:ui-tester`** (when not skipped). Read the project's `CLAUDE.md` for a test framework hint (`## Testing` section, `## Commands` section, or inline references like "Playwright specs in `e2e/`"). Single `Task` call:
@@ -216,7 +218,9 @@ b. **Spawn `feature:ui-tester`** (when not skipped). Read the project's `CLAUDE.
 
    Save subagent output to `<ticket-folder>/05-tests.md`. Failed criteria become a `## Failed Criteria` section inside `05-tests.md`. If specs were codified, list their paths under a `## Codified specs` section.
 
-c. **Skip artifact** (when no UI signals matched). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth build verdict. The build verdict set remains `pass | partial | stuck` per the locked redesign. When the test checkpoint is skipped, build can still exit with `verdict: pass` if the implement and review checkpoints completed cleanly. Write `<ticket-folder>/05-tests.md`:
+c. **Skip artifact** (when the skip-detection scan matched no UI signals, OR when `--no-ui-testing` forced the skip). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth build verdict. The build verdict set remains `pass | partial | stuck` per the locked redesign. When the test checkpoint is skipped, build can still exit with `verdict: pass` if the implement and review checkpoints completed cleanly. Write `<ticket-folder>/05-tests.md` with the variant matching the skip cause:
+
+   **No UI signals in the plan** (skip-detection scan found nothing):
 
    ```
    verdict: skipped (no UI work in plan)
@@ -227,6 +231,20 @@ c. **Skip artifact** (when no UI signals matched). **Important**: `skipped` is a
    ## Acceptance Criteria
    - [ ] AC 1 — not-tested (no UI)
    - [ ] AC 2 — not-tested (no UI)
+   ...
+   ```
+
+   **Forced by `--no-ui-testing`** (the plan may well have UI work — browser verification is deferred, not absent):
+
+   ```
+   verdict: skipped (UI testing disabled by --no-ui-testing)
+
+   ## Reason
+   Browser/UI verification skipped by the --no-ui-testing flag. Non-browser checks (lint/typecheck) still ran in the implement checkpoint and still gated this verdict. Browser-level acceptance-criteria verification is deferred to human review of the PR.
+
+   ## Acceptance Criteria
+   - [ ] AC 1 — not-verified (browser testing skipped by flag)
+   - [ ] AC 2 — not-verified (browser testing skipped by flag)
    ...
    ```
 
