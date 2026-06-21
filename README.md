@@ -22,7 +22,7 @@ Orchestrates the full feature lifecycle through specialized AI agents. Under `/f
                   │      ↓      │
                   │  review     │  (4 parallel reviewer subagents; fixes applied in-context)
                   │      ↓      │
-                  │  test       │  (ui-tester subagent for UI work; skip otherwise)
+                  │  test       │  (ui-tester subagent for UI work; skip otherwise or on --no-ui-testing)
                   │      ↓      │
                   │  exit       │  verdict: pass | partial | stuck
                   └─────────────┘
@@ -35,7 +35,7 @@ Orchestrates the full feature lifecycle through specialized AI agents. Under `/f
 | **Explore** *(optional pre-pipeline)* | `explore` | — (uses Read/Grep/Glob inline) | Interactive | Open-ended Socratic exploration of an unformed idea; ends by leaving, saving as a note, or promoting to `/discover` |
 | **Discover** | `discover` | code-explorer | Interactive | Socratic requirements discovery → creates 1 ticket, or N sibling tickets under an epic when scope splits |
 | **Plan** | `plan` | code-explorer + requirements-analyst (Phase 1 subagents) | Interactive standalone / non-interactive under flow | Pre-plan synthesis (codebase patterns + open questions), then plan design — interactive plan mode standalone, or non-interactive when flow runs it with `--auto` |
-| **Build** | `build` | code-reviewer + security-engineer + performance-engineer + code-architect (review checkpoint) + ui-tester (test checkpoint) | Loop with internal checkpoints | One continuous loop: implement → review (4 parallel reviewers) → test (UI/E2E via Playwright). Validates after every edit, fixes failures in-context, exits with verdict `pass \| partial \| stuck` |
+| **Build** | `build` | code-reviewer + security-engineer + performance-engineer + code-architect (review checkpoint) + ui-tester (test checkpoint) | Loop with internal checkpoints | One continuous loop: implement → review (4 parallel reviewers) → test (UI/E2E via Playwright; skipped with `--no-ui-testing`). Validates after every edit, fixes failures in-context, exits with verdict `pass \| partial \| stuck` |
 | **Debug** *(standalone, reactive)* | `debug` | — (runs inline; optional Playwright/Chrome read tools) | Interactive | Runtime-evidence root-cause debugging: hypothesize → instrument → reproduce → analyze → fix (gated) → verify + strip; exits `fixed \| diagnosed-unfixed \| cannot-reproduce \| exhausted`. Invoked directly — not a pipeline stage |
 | **Sync** *(standalone)* | `sync` | — (runs inline; reads PR state via `gh`) | Manual or `/loop` | Reconcile in-review tickets with GitHub PR state: scan tickets by `status: in-review` (not just the `review/` folder — catches epic children whose subtree still sits in `in-progress/`), promote merged-PR tickets to `done/` (Transition 6), report open ones, flag closed-unmerged. Read-only on GitHub; invoked directly — not a pipeline stage |
 
@@ -140,6 +140,7 @@ You see and approve the proposal before tickets are created.
 /feature:flow BL-1                       # single ticket: plan → build; auto-resumes if artifacts exist
 /feature:flow BL-1 --ignore-blockers     # bypass blocker validation (use with care)
 /feature:flow BL-1 --pr                  # on pass, open a GitHub PR and land the ticket in review/
+/feature:flow BL-1 --pr --no-ui-testing  # skip the browser checkpoint (headless-safe), still open a PR
 /feature:flow EPIC-1                     # epic: walks children in blocked_by topological order
 ```
 
@@ -148,6 +149,10 @@ You see and approve the proposal before tickets are created.
 By default a passing build stops at the verdict gate and asks whether to commit. With `--pr`, build instead ships non-interactively: it detects the base branch, creates a branch (forking from `main` when needed), commits, pushes to `origin`, opens a **GitHub pull request** via `gh`, and finalizes the ticket into a new `review/` state (`status: in-review`) instead of `done/`. You're notified with the PR URL. Once the PR merges, re-run `/feature:flow <id>` (or `/feature:build <id>`) — build detects the merge and finalizes the ticket to `done/`. In epic-mode, `--pr` opens one PR per child. To finalize merged reviews in batch (or unattended), run `/feature:sync` — it scans every `in-review` ticket by status (including epic children still parked in `in-progress/`) and promotes the merged ones to `done/` in one pass; wrap it in `/loop` to reconcile continuously.
 
 `--pr` needs the GitHub CLI (`gh`) installed and authenticated and a GitHub `origin` remote. If any is missing, build degrades gracefully — it commits locally, finalizes to `done/`, and prints one line explaining why the PR step was skipped. It never blocks the verdict gate.
+
+#### Skip browser testing (`--no-ui-testing`)
+
+Build's test checkpoint verifies UI tickets in a real browser via the `ui-tester` subagent (Playwright/Chrome MCP), which needs interactive MCP permission. That permission isn't available in a non-interactive/headless run (e.g. `claude -p`), so a UI ticket can stall at the browser checkpoint. Pass `--no-ui-testing` to skip **only** the browser/ui-tester portion of the test checkpoint — non-browser verification (your `validate.lint`/`validate.typecheck` checks) still runs and still gates the verdict. `05-tests.md` records that browser testing was skipped by flag (not "passed"), so the verdict and any PR stay honest about what was verified; browser-level verification then falls to a human at PR review. The flag propagates `flow → build` and, in epic-mode, is forwarded to every child. Without it, behaviour is unchanged. Note: a flag-skipped `pass` finalizes the ticket as complete, so browser verification belongs to PR review — a later plain `/feature:build` re-run will see the completed run, not re-open the browser checkpoint.
 
 Resumption is auto-detected from the artifacts on disk — flow skips plan when `02-plan.md` exists, build picks up at the right checkpoint based on which of `03-`/`04-`/`05-` is present, and a completed run (`06-summary.md` with `pass`) is reported as "already complete." To start fresh against a partially-run ticket, delete the relevant artifacts before invoking flow.
 

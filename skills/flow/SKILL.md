@@ -7,7 +7,7 @@ allowed-tools:
   - Grep
   - TodoWrite
   - Skill
-argument-hint: "[ticket-id|epic-id] [--ignore-blockers] [--pr]"
+argument-hint: "[ticket-id|epic-id] [--ignore-blockers] [--pr] [--no-ui-testing]"
 ---
 
 # Feature Flow Pipeline
@@ -38,6 +38,7 @@ Remaining args = pipeline flags (see table below)
 |------|--------|---------|
 | `--ignore-blockers` | Bypass the `blocked_by` validation in flow's SETUP step 3; print a one-line warning and propagate the flag to plan + build invocations. | `--ignore-blockers` |
 | `--pr` | On verdict `pass`, build opens a GitHub PR and finalizes the ticket into `review/` instead of `done/` (see `build/references/pr-creation.md`). Propagated to `build` only; in epic-mode, forwarded per child (one PR per child). Degrades to a local commit + `done/` when GitHub tooling is absent. | `--pr` |
+| `--no-ui-testing` | Skip only the browser/ui-tester portion of build's test checkpoint; non-browser verification (lint/typecheck) still runs and still gates the verdict. Use when the run can't get interactive browser-MCP permission (e.g. headless `claude -p`); browser verification then falls to a human at PR review. Propagated to `build` only (plan has no UI-test concept); in epic-mode, forwarded per child. | `--no-ui-testing` |
 
 Resumption is auto-detected from on-disk artifacts — see "Resumption auto-detection" below. To start fresh against a partially-run ticket, delete the relevant artifacts before invoking flow.
 
@@ -47,6 +48,7 @@ Resumption is auto-detected from on-disk artifacts — see "Resumption auto-dete
 /feature:flow BL-1 --ignore-blockers            # exploratory run on a blocked ticket
 /feature:flow claudedocs/tickets/backlog/BL-1/  # by folder path
 /feature:flow BL-1 --pr                         # on pass, open a GitHub PR and land in review/
+/feature:flow BL-1 --pr --no-ui-testing         # headless-safe: skip browser checkpoint, still open a PR
 /feature:flow EPIC-1                            # epic-mode: walks children in dependency order
 ```
 
@@ -65,7 +67,7 @@ Each stage reads and writes artifacts in `<ticket-folder>/`. This contract is lo
 | Stage | Reads | Writes |
 |---|---|---|
 | `plan` | `01-spec.md`, `exploration.md` (optional seed — used for incremental Phase 1 synthesis if present) | `02-plan.md` (includes Codebase Context + Open Questions Resolved sections from Phase 1 synthesis) |
-| `build` | `01-spec.md`, `02-plan.md` (plus whichever of `03-implementation.md`/`04-review.md`/`05-tests.md` exist on disk for auto-resumption) | `03-implementation.md` (live, updated per plan step), `04-review.md` (merged from 4 reviewer subagents), `05-tests.md` (UI test results or skip artifact), `06-summary.md` (always written, content varies per verdict) |
+| `build` | `01-spec.md`, `02-plan.md` (plus whichever of `03-implementation.md`/`04-review.md`/`05-tests.md` exist on disk for auto-resumption) | `03-implementation.md` (live, updated per plan step), `04-review.md` (merged from 4 reviewer subagents), `05-tests.md` (UI test results, or a skip artifact — no-UI or `--no-ui-testing` flag-skip), `06-summary.md` (always written, content varies per verdict) |
 
 ---
 
@@ -134,7 +136,7 @@ Apply the resumption auto-detection routing table (above) to decide which stages
 - If `02-plan.md` exists (with or without `06-summary.md` reporting `partial`/`stuck`) — skip plan; invoke `Skill build` only. Build auto-resumes from on-disk artifacts per its own logic.
 - Otherwise — invoke `Skill plan` **with `--auto`** (non-interactive plan; this is what makes flow's plan→build handoff seamless — no plan-mode approval gate), then (after plan returns) `Skill build`.
 
-Both invocations propagate `--ignore-blockers` if it was passed to flow. `--pr`, if passed, is propagated to `Skill build` **only** (plan has no PR concept). Flow additionally always passes `--auto` to `Skill plan` (build has no such flag, so it is not propagated there). `--auto` is internal flow→plan wiring, not a user-facing flow flag — that's why it's absent from the Flags table above.
+Both invocations propagate `--ignore-blockers` if it was passed to flow. `--pr` and `--no-ui-testing`, if passed, are propagated to `Skill build` **only** (plan has neither a PR nor a UI-test concept). Flow additionally always passes `--auto` to `Skill plan` (build has no such flag, so it is not propagated there). `--auto` is internal flow→plan wiring, not a user-facing flow flag — that's why it's absent from the Flags table above.
 
 Plan and build perform their own state transitions (start-of-pipeline at start, end-of-pipeline at build's verdict gate) per [`references/state-transitions.md`](references/state-transitions.md). Flow does not touch folder state or frontmatter `status` directly.
 
@@ -205,7 +207,7 @@ b. **Print the running message**:
    → Running <CHILD-ID>: <title>
    ```
 
-c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs plan + build per the existing logic. Propagate `--ignore-blockers` and `--pr` if the epic-level invocation had them (a `--pr` epic run opens one PR per child).
+c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs plan + build per the existing logic. Propagate `--ignore-blockers`, `--pr`, and `--no-ui-testing` if the epic-level invocation had them (a `--pr` epic run opens one PR per child; `--no-ui-testing` skips the browser checkpoint for every child).
 
 d. **Re-read the child's `01-spec.md` frontmatter** after the recursive flow returns. Build's verdict gate (inside the child's flow run) already moved the folder and updated `status` per `state-transitions.md`. The new status determines the walker's next move:
 
