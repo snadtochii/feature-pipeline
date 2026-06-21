@@ -45,6 +45,7 @@ feature-pipeline/
 │   ├── explore/             # Open-ended Socratic exploration; can promote to discover
 │   ├── debug/               # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
 │   ├── sync/                # Standalone — reconcile in-review tickets with GitHub PR state (not a pipeline stage)
+│   ├── ship/                # Standalone — autonomous build→review→merge loop over a ticket or chain (not a pipeline stage)
 │   ├── plan/                # Stage 1 (pre-plan synthesis + plan design)
 │   └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
 ├── README.md                # End-user docs
@@ -130,6 +131,7 @@ Typical budget per role, expressed as unordered tool sets. The build *skill* may
 | `build` (continuous loop) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for the 4 reviewer subagents at the review checkpoint and the ui-tester subagent at the test checkpoint; Write for `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md`) |
 | `debug` (standalone runtime debugger) | Read, Write, Edit, Glob, Grep, Bash, TodoWrite + additive-optional browser-capture MCP subset (Playwright/Chrome read/observe); no Task — this skill spawns no subagents |
 | `sync` (standalone PR reconciler) | Read, Glob, Grep, Bash, Edit, TodoWrite — `Bash` for `gh` PR-state reads + the Transition 6 folder `mv`, `Edit` for the `status` frontmatter flip; no `Task` — spawns no subagents |
+| `ship` (standalone autonomous build→review→merge loop) | Read, Glob, Grep, Bash, TodoWrite, Task — `Task` to spawn the per-ticket implementer subagent, `Bash` for `git`/`gh`/test verification of each merge; orchestrates `feature:flow` + an independent reviewer and never edits ticket code itself |
 
 If you need a tool not in this table, add it explicitly and document why.
 
@@ -206,6 +208,7 @@ Not every stage runs as a subagent. The rule:
 | `build` (long interactive loop with implement/review/test checkpoints) | |
 | `debug` (interactive runtime-debugging loop; spawns no subagents) | |
 | `sync` (standalone PR reconciler; reads PR state via `gh`, performs Transition 6; spawns no subagents) | |
+| `ship` (standalone autonomous build→review→merge orchestrator; spawns the per-ticket implementer subagent, never runs as one) | |
 
 **Rule:** run in main context only when you need *interactivity* or *plan mode*. Otherwise prefer a subagent — it keeps the main context clean.
 
@@ -329,6 +332,6 @@ Decisions evaluated and explicitly *not* adopted, kept here so future maintenanc
 
 - **Design-match reviewer as 5th parallel reviewer** in build's review checkpoint. Deferred because it assumes design artifacts (Figma, wireframes) that not every personal-project ticket has. Reconsider when a ticket workflow routinely includes design references.
 - **Step-type routing** in `plan`/`build` (`figma-ui`, `component`, `service`, etc.) — too project-specific to generalize. The `plan` skill annotates step content explicitly instead of routing by step type.
-- **PR auto-review and reviewer-feedback loops** (auto-reviewing GitHub PRs, addressing reviewer comments back through the pipeline). Still deferred — it assumes a specific PR review workflow and `gh` PR-comment plumbing beyond what the pipeline needs. PR *creation* itself is implemented: the opt-in `--pr` flag opens a PR on a passing build and lands the ticket in `review/`, degrading to a local commit when `gh`/GitHub is absent (see `skills/build/references/pr-creation.md`). It stays opt-in and default-off, so the pipeline remains general-purpose and ticket-folder-driven for runs that don't pass `--pr`.
+- **PR auto-review and reviewer-feedback loops *inside the pipeline stages*** (plan/build/flow auto-reviewing GitHub PRs and folding reviewer comments back through the pipeline). The pipeline stages stay review-free and ticket-folder-driven — PR *creation* is the only GitHub coupling they have: the opt-in `--pr` flag opens a PR on a passing build and lands the ticket in `review/`, degrading to a local commit when `gh`/GitHub is absent (see `skills/build/references/pr-creation.md`). The autonomous-review capability itself lives in the **standalone `ship` skill** (`skills/ship/`): on top of `--pr`, `ship` orchestrates an independent reviewer that posts to the PR plus an autonomous address-and-merge loop over a ticket or dependency chain. Keeping it out of the stages preserves the pipeline as general-purpose; `ship` is the opt-in layer for the full autonomous loop.
 - **Clean-abort routine for `flow`** (`flow --abort`). Small standalone change; the existing verdict gate's `abort` choice covers the common case (revert folder + reset frontmatter). A dedicated flag would standardize multi-step abort behavior across deeper future flow surfaces.
 - **Validator auto-detection in `hooks/validate.sh`** (project-type detection, e.g., infer "run pyright" from a `pyproject.toml`). Currently the user explicitly declares `validate.lint` and `validate.typecheck`. Auto-detection is too magic for a plugin that should respect existing project conventions; revisit if explicit-config maintenance becomes a real friction.
