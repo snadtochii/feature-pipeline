@@ -30,7 +30,7 @@ Editing a skill or agent while another Codex session is open:
 
 ```
 feature-pipeline/
-├── .Codex-plugin/          # Plugin/marketplace metadata
+├── .claude-plugin/          # Plugin/marketplace metadata
 │   ├── plugin.json
 │   └── marketplace.json
 ├── .codex-plugin/           # Codex plugin metadata
@@ -114,7 +114,7 @@ When adding a new input to a stage, document it in the stage's `Required Input` 
 
 ## Skill authoring conventions
 
-General Codex skill-authoring rules — frontmatter fields, trigger-phrase policy, variable substitution, progressive disclosure, body structure, validation errors — are documented in the official Anthropic skills reference (https://code.Codex.com/docs/en/skills) and the Agent Skills open standard (https://agentskills.io). Those are the sources of truth. Do not duplicate their content here.
+General Codex skill-authoring rules — frontmatter fields, trigger-phrase policy, variable substitution, progressive disclosure, body structure, validation errors — are documented in the official Anthropic skills reference (https://code.claude.com/docs/en/skills) and the Agent Skills open standard (https://agentskills.io). Those are the sources of truth. Do not duplicate their content here.
 
 This section captures only what's **specific to this plugin** on top of those general rules.
 
@@ -163,7 +163,7 @@ When a block would otherwise be duplicated across multiple stage skills, extract
 
 ## Agent authoring conventions
 
-General Codex agent-authoring rules — frontmatter fields, `tools:` format, description policy, optional fields (`permissionMode`, `maxTurns`, `skills`, `hooks`), body template options — are documented in the official Anthropic subagents reference (https://code.Codex.com/docs/en/sub-agents). That is the source of truth. Do not duplicate its content here.
+General Codex agent-authoring rules — frontmatter fields, `tools:` format, description policy, optional fields (`permissionMode`, `maxTurns`, `skills`, `hooks`), body template options — are documented in the official Anthropic subagents reference (https://code.claude.com/docs/en/sub-agents). That is the source of truth. Do not duplicate its content here.
 
 Agents in this plugin live at `agents/*.md` and are loaded as subagent types namespaced `feature:<agent-name>`. This section captures only what's **specific to this plugin**.
 
@@ -317,7 +317,7 @@ There's no automated test suite for the plugin itself. Validation is by manual p
 - No marketing language in commit messages ("magnificent", "blazingly fast", etc.).
 - Reference the issue/feature the commit addresses.
 - Keep commits small — one concern per commit.
-- **Bump the plugin version every PR.** Update `version` in BOTH `.Codex-plugin/plugin.json` and `.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two manifests must stay in lockstep. The discover → plan → build pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/build step.
+- **Bump the plugin version every PR.** Update `version` in BOTH `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two manifests must stay in lockstep. The discover → plan → build pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/build step.
 
 ## Editing discipline
 
