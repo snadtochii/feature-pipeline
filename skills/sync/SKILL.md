@@ -1,6 +1,7 @@
 ---
 name: sync
-description: "Reconcile in-review tickets with their GitHub PR state — scan every ticket whose status is in-review (by frontmatter, not just the review/ folder) and, for each, promote it to done/ if its PR merged, report it if the PR is still open, or flag it if the PR was closed unmerged. Runs manually or under /loop. Use when 'sync', 'sync tickets', 'reconcile review', 'check merged PRs', 'promote merged tickets', 'finalize merged reviews', 'run sync', '/loop sync'. NOT for building a ticket (use /feature:build), NOT for opening a PR (that's build's --pr flag), NOT a pipeline stage."
+description: "Reconcile in-review tickets with their GitHub PR state — scan every ticket whose status is in-review (by frontmatter, not just the review/ folder) and, for each, promote it to done/ if its PR merged, report it if the PR is still open, or flag it if the PR was closed unmerged. Runs manually. Use when 'sync', 'sync tickets', 'reconcile review', 'check merged PRs', 'promote merged tickets', 'finalize merged reviews', 'run sync'. NOT for building a ticket (use /feature:build), NOT for opening a PR (that's build's --pr flag), NOT a pipeline stage."
+disable-model-invocation: true
 allowed-tools:
   - Read
   - Glob
@@ -17,7 +18,7 @@ Scan every ticket whose `status` is `in-review` (by frontmatter — not just the
 
 **This skill runs in the main conversation, standalone** — a peer of `/feature:discover`, `/feature:explore`, and `/feature:debug`, **not a pipeline stage**. It spawns no subagents. Unlike the other standalone skills, sync *does* perform a state transition — but only the safe, terminal merge finalization (Transition 6: a merged ticket's `in-review → done`) on a confirmed-merged PR.
 
-Run it **manually** to finalize merged reviews in one pass, or under **`/loop`** (e.g. `/loop 10m /feature:sync`) to reconcile continuously. Sync is **stateless** — each run is a fresh scan; `/loop` owns the cadence.
+Run it **manually** to finalize merged reviews in one pass. Sync is **stateless** — each run is a fresh scan.
 
 ## Arguments
 
@@ -102,10 +103,6 @@ Print a grouped summary with counts; omit empty groups:
 
 The `⚠ Needs attention` group carries closed-unmerged PRs, inconsistent-state tickets (Step 1's inconsistent bucket), and any Epic-completion-predicate warnings (roster-unknown / roster-drift) raised while finalizing an epic, each tagged inline — no separate section. If a promotion finalized an epic's last child, add a line noting the epic subtree moved to `done/`.
 
-## Under /loop
-
-Nothing special — sync is a normal invocable skill. Its idempotency (re-scan each pass, promote newly-merged, report the rest) is the loop-friendly shape; already-finalized tickets are no longer `status: in-review`, so re-runs skip them. Exit cleanly and report state every pass so `/loop` can decide whether to continue. Pick a sensible interval — sync makes one `gh` call per in-review ticket per pass, so don't loop aggressively with many tickets in review.
-
 ## Boundaries
 
 **Will:**
@@ -117,7 +114,6 @@ Nothing special — sync is a normal invocable skill. Its idempotency (re-scan e
 - Push, create, or close PRs — sync is read-only on GitHub (that's the `--pr` flow's job).
 - Auto-revert closed-unmerged tickets — flag only.
 - Reimplement Transition 6 or the merge rule — it invokes Transition 6 and shares the `MERGED → done` rule.
-- Manage `/loop` timers or cadence — `/loop` owns that; sync holds no state.
 
 ## Error Handling
 

@@ -1,6 +1,6 @@
 ---
 name: flow
-description: "Run the full feature pipeline on a ticket or an epic. For single tickets: plan → build. For epics (kind: epic): walks children in blocked_by topological order, recursing into per-child flow. Use when user says 'run the pipeline', 'flow this ticket', 'flow this epic', 'flow it', or 'build this ticket end-to-end'. NOT for single-stage runs — use /feature:plan or /feature:build directly for those."
+description: "Run the feature pipeline (plan → build) on a ticket, or walk an epic's children in dependency order."
 allowed-tools:
   - Read
   - Glob
