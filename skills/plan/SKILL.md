@@ -1,6 +1,6 @@
 ---
 name: plan
-description: "Create an implementation plan for a ticket. Runs a pre-plan synthesis (codebase exploration + open-questions surfacing), then designs the plan — interactively in plan mode when run standalone, non-interactively when flow runs it with --auto. Use when user says 'plan this ticket', 'create a plan for', 'let's plan', or 'design the implementation'. NOT for coding."
+description: "Create an implementation plan for a ticket: pre-plan synthesis, then plan design."
 allowed-tools:
   - Read
   - Write

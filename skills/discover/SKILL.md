@@ -1,6 +1,6 @@
 ---
 name: discover
-description: "Turn a rough feature idea into one or more ready-to-implement tickets through interactive Socratic dialogue. Emits a single ticket when scope is small, or a parent epic with sibling child tickets nested under it when scope spans multiple seams. Use when user says 'I want to add', 'let's build', 'discover this feature', or 'new feature idea'. NOT for running the pipeline on an existing ticket."
+description: "Turn a feature idea into one or more ready-to-implement tickets (solo, or an epic with child tickets)."
 allowed-tools:
   - Read
   - Write

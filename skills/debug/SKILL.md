@@ -1,6 +1,7 @@
 ---
 name: debug
 description: "Reactive runtime-evidence root-cause debugger. Generates hypotheses, instruments suspect code with temporary logging to a JSONL sink, has you reproduce the bug, reads the real runtime values, applies a targeted fix behind a confirmation gate, verifies, then strips all instrumentation to a clean diff. Use when 'debug this', 'find the root cause', 'why is this failing', 'this crashes intermittently', 'track down this bug', 'this test fails and I can't tell why', 'instrument and reproduce'. NOT for building new features (use /feature:discover), NOT for static code review (that is build's review checkpoint), NOT for writing an implementation plan (use /feature:plan)."
+disable-model-invocation: true
 allowed-tools:
   - Read
   - Write

@@ -295,7 +295,7 @@ Before committing changes to skills or agents:
 
 1. **Lint the frontmatter** — no angle brackets, no markdown in descriptions, valid YAML, every tool listed in `allowed-tools`/`tools` actually exists.
 2. **Check tool budget** against the table above — reviewers must not have write access.
-3. **Check trigger phrases** — every skill description must include natural trigger phrases that a user would actually type.
+3. **Check invocation control** — skills that are only ever user-invoked (`debug`, `explore`, `sync`, `ship`) set `disable-model-invocation: true` (user-only; description not loaded into context). Skills invoked programmatically by another skill via the Skill tool (`flow`, `plan`, `build`, `discover`) stay model-invocable but carry a terse one-line description with no auto-trigger phrases.
 4. **Walk the stage contract in `skills/flow/SKILL.md`** — if you changed inputs/outputs, update the Stage Contract table *and* every consuming stage's `Required Input` section.
 5. **Sweep for cross-skill drift** — when a filename, skill name, or schema changes, grep across `skills/` and `agents/` for stale references and update them. The "Editing discipline" section below applies.
 6. **Build skill tool-budget audit** — grep `skills/build/SKILL.md` for any tool reference outside its `allowed-tools` (Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite). Should return no matches.

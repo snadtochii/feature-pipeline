@@ -1,6 +1,6 @@
 ---
 name: build
-description: "Build the ticket end-to-end through one continuous loop — implement → review → test as internal checkpoints, fixes applied in-context, verdict-based exit. Use when user says 'build this ticket', 'run the build loop', 'implement, review, and test', or 'build it'. NOT for plan-only or for review-only runs."
+description: "Build a ticket through one loop — implement → review → test — with a verdict-based exit."
 allowed-tools:
   - Read
   - Write
