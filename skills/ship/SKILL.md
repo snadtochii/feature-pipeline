@@ -126,7 +126,7 @@ Review in priority order: (1) correctness vs each acceptance criterion; (2) bugs
 concurrency / the carry-forward checklist; (3) project boundary or architecture violations;
 (4) convention violations (commit subject, no Co-Authored-By, file placement);
 (5) test-coverage gaps vs the spec's Verification; (6) security & performance.
-For UI tickets, verify the user-visible behavior, not just the code.
+For UI tickets, assess user-visible behavior against the spec and diff — ship defers live browser verification to the human gate, so do not attempt it or report missing browser evidence as a gap.
 
 Be specific. Per finding: severity (blocking|major|minor|nit), file:line, what's wrong, why.
 If nothing is blocking, say so explicitly.
