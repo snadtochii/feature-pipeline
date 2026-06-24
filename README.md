@@ -341,7 +341,9 @@ test:
     attach_tab: true                  # fallback: attach to an already-authenticated running tab
 ```
 
-Every key is optional; with no `test:` block the test checkpoint discovers the URL and handles auth inside the tester as before. **No secrets in `config.yaml`** — it is committed, so `auth.storage_state` is a path to a gitignored session file, never an inline credential. When the app is unreachable and no `start` is declared (or it times out), the checkpoint records a non-blocking skip and proceeds — it never stalls the loop waiting on you.
+Every key is optional; with no `test:` block the test checkpoint discovers the URL and handles auth inside the tester as before. **No secrets in `config.yaml`** — it is committed, so `auth.storage_state` is a path to a gitignored session file, never an inline credential.
+
+`auth.storage_state` is loaded by the `ui-tester` via the Playwright MCP `browser_set_storage_state` tool (it restores the saved cookies/localStorage before navigating); on a Playwright MCP version that doesn't expose that tool, the tester falls back to `attach_tab`. The file must sit inside the project/workspace root (Playwright MCP restricts file access to the workspace root unless launched with `--allow-unrestricted-file-access`). Produce it once with your normal Playwright auth setup, or let the tester save it after a one-time login (it confirms the path is gitignored before saving, since the file holds live session cookies). When the app is unreachable and no `start` is declared (or it times out), the checkpoint records a non-blocking skip and proceeds — it never stalls the loop waiting on you.
 
 ### MCP Servers
 

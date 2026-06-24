@@ -98,7 +98,7 @@ Build composes the recipe into the `ui-tester` spawn prompt (mirrors how the rev
 
 - **Resolved URL** — the pre-flight-resolved, reachable URL. The `ui-tester` spawn prompt receives this URL directly; the agent does not re-discover it.
 - **`auth.attach_tab`** (when truthy) — instruct the agent to prefer attaching to an already-authenticated same-origin tab.
-- **`auth.storage_state`** (when present) — inject the path with an honest instruction: *use the saved session if your browser context can load it; otherwise fall through.* The current `ui-tester` MCP surface has no tool that loads a `storageState` file, so in practice `attach_tab` is the actuatable v1 auth path; full `storage_state` session-loading depends on launching the Playwright MCP server with the saved session and is a later iteration. Injecting the path keeps the contract forward-compatible.
+- **`auth.storage_state`** (when present) — inject the path. The agent loads it with the Playwright MCP `browser_set_storage_state` tool (it restores cookies/localStorage from the file before navigating to the protected route). That tool is additive-optional: on a Playwright MCP version that exposes it, `storage_state` is the first-choice auth path; on older versions the agent falls back to `attach_tab`. The path must point at a file inside the project/workspace root (Playwright MCP restricts file access to the workspace root unless launched with `--allow-unrestricted-file-access`). The `--storage-state` server-launch flag is a session-global alternative, not used here.
 
 The agent consumes this recipe with priority `storage_state → attach_tab → existing fallback (CLAUDE.md hint → ask)`; see `agents/ui-tester.md`.
 

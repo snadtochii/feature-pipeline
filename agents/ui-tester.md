@@ -28,6 +28,8 @@ tools:
   - mcp__chrome-devtools__list_console_messages
   - mcp__chrome-devtools__list_pages
   - mcp__chrome-devtools__select_page
+  - mcp__playwright__browser_set_storage_state
+  - mcp__playwright__browser_storage_state
 model: opus
 ---
 
@@ -67,11 +69,19 @@ Test like a real user, not a developer. Follow the acceptance criteria literally
      testing. The build skill may have injected an auth recipe into this
      prompt (the resolved URL plus auth.storage_state and/or auth.attach_tab).
      Use it first, in priority order:
-       a. `auth.storage_state` (path to a Playwright saved session): load that
-          session if your browser context can. The current MCP surface has no
-          tool that loads a storageState file, so if you can't apply it, fall
-          through — full session-loading via the Playwright MCP server's
-          saved-session config is a later iteration.
+       a. `auth.storage_state` (path to a Playwright saved session): load it with
+          `mcp__playwright__browser_set_storage_state` (filename = the injected
+          path) — it clears existing cookies/localStorage and restores the saved
+          session, so call it BEFORE navigating to the protected route, then
+          proceed authenticated. If that tool isn't exposed by the running
+          Playwright MCP (older versions), fall through to (b). The file lives
+          inside the project/workspace root (e.g. a gitignored `.auth/…`); if it's
+          missing, create it after a one-time manual login with
+          `mcp__playwright__browser_storage_state` (filename = the path) to
+          persist the session for future runs — but FIRST confirm the path is
+          gitignored (`git check-ignore <path>`): it holds live session cookies,
+          so if it isn't ignored, add the `.gitignore` entry or refuse to save,
+          rather than risk committing credentials.
        b. `auth.attach_tab` (or no recipe): attach to an existing authenticated
           session instead of opening a fresh one —
             i.  `mcp__chrome-devtools__list_pages` — enumerate active tabs.

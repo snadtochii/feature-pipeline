@@ -1,6 +1,6 @@
-# CLAUDE.md — feature plugin
+# AGENTS.md — feature plugin
 
-Guidance for Claude (and humans) working **on this plugin itself**. For usage of the pipeline, see [README.md](README.md).
+Guidance for Codex (and humans) working **on this plugin itself**. For usage of the pipeline, see [README.md](README.md).
 
 This file captures invariants and conventions. Anything derivable from reading the code (file paths, skill names, stage order) stays in the code.
 
@@ -8,18 +8,18 @@ This file captures invariants and conventions. Anything derivable from reading t
 
 ## What this repo is
 
-A Claude Code and Codex plugin that ships an agentic feature-development pipeline: `discover → plan → build`. Each stage is a separate **skill** that can run standalone or be sequenced by the **flow** orchestrator. Build runs implement, review, and test as in-loop checkpoints inside one continuous loop. Stages are backed by specialized **agents** (subagents with focused tool budgets and personas).
+A Codex and Codex plugin that ships an agentic feature-development pipeline: `discover → plan → build`. Each stage is a separate **skill** that can run standalone or be sequenced by the **flow** orchestrator. Build runs implement, review, and test as in-loop checkpoints inside one continuous loop. Stages are backed by specialized **agents** (subagents with focused tool budgets and personas).
 
-The primary audience for edits to this repo is Claude working on the plugin's own skills/agents — not end users. End-user docs live in README.md.
+The primary audience for edits to this repo is Codex working on the plugin's own skills/agents — not end users. End-user docs live in README.md.
 
 ---
 
 ## Dev loop
 
-Editing a skill or agent while another Claude Code session is open:
+Editing a skill or agent while another Codex session is open:
 
 1. Make your edit in `skills/<name>/SKILL.md` or `agents/<name>.md`
-2. In the consuming Claude Code session (not this repo — see below), run `/reload-plugins` — the updated skill/agent takes effect without a restart
+2. In the consuming Codex session (not this repo — see below), run `/reload-plugins` — the updated skill/agent takes effect without a restart
 3. Invoke the skill or trigger the agent to verify the change
 
 **Keep the plugin repo separate from any consuming project** used for testing. Pick a throwaway project (or a real one), create a small ticket via `/feature:discover`, then run `/feature:flow <id>`. Running the pipeline against this plugin repo itself creates confusion about which `claudedocs/tickets/` artifacts belong where.
@@ -49,7 +49,7 @@ feature-pipeline/
 │   ├── plan/                # Stage 1 (pre-plan synthesis + plan design)
 │   └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
 ├── README.md                # End-user docs
-└── CLAUDE.md                # This file
+└── AGENTS.md                # This file
 ```
 
 ---
@@ -79,7 +79,7 @@ discover → ticket(s) → flow → plan → build → completion
 
 ### Runtime source of truth
 
-**Operational details live in `skills/flow/SKILL.md`**, not here. That file is loaded by Claude Code when a consumer runs the pipeline; this `CLAUDE.md` is only loaded when editing the plugin repo itself. If you move operational rules out of the skill and into this file, consumers lose visibility.
+**Operational details live in `skills/flow/SKILL.md`**, not here. That file is loaded by Codex when a consumer runs the pipeline; this `AGENTS.md` is only loaded when editing the plugin repo itself. If you move operational rules out of the skill and into this file, consumers lose visibility.
 
 Canonical sources in `skills/flow/SKILL.md`:
 - **Stage Contract** — reads/writes per stage
@@ -108,13 +108,13 @@ Individual stage skills (`skills/<stage>/SKILL.md`) own their own `Required Inpu
 
 ### Dev-side rule
 
-When adding a new input to a stage, document it in the stage's `Required Input` section *and* update flow's Stage Contract table. Both live in skill files, not in this `CLAUDE.md`.
+When adding a new input to a stage, document it in the stage's `Required Input` section *and* update flow's Stage Contract table. Both live in skill files, not in this `AGENTS.md`.
 
 ---
 
 ## Skill authoring conventions
 
-General Claude Code skill-authoring rules — frontmatter fields, trigger-phrase policy, variable substitution, progressive disclosure, body structure, validation errors — are documented in the official Anthropic skills reference (https://code.claude.com/docs/en/skills) and the Agent Skills open standard (https://agentskills.io). Those are the sources of truth. Do not duplicate their content here.
+General Codex skill-authoring rules — frontmatter fields, trigger-phrase policy, variable substitution, progressive disclosure, body structure, validation errors — are documented in the official Anthropic skills reference (https://code.claude.com/docs/en/skills) and the Agent Skills open standard (https://agentskills.io). Those are the sources of truth. Do not duplicate their content here.
 
 This section captures only what's **specific to this plugin** on top of those general rules.
 
@@ -163,7 +163,7 @@ When a block would otherwise be duplicated across multiple stage skills, extract
 
 ## Agent authoring conventions
 
-General Claude Code agent-authoring rules — frontmatter fields, `tools:` format, description policy, optional fields (`permissionMode`, `maxTurns`, `skills`, `hooks`), body template options — are documented in the official Anthropic subagents reference (https://code.claude.com/docs/en/sub-agents). That is the source of truth. Do not duplicate its content here.
+General Codex agent-authoring rules — frontmatter fields, `tools:` format, description policy, optional fields (`permissionMode`, `maxTurns`, `skills`, `hooks`), body template options — are documented in the official Anthropic subagents reference (https://code.claude.com/docs/en/sub-agents). That is the source of truth. Do not duplicate its content here.
 
 Agents in this plugin live at `agents/*.md` and are loaded as subagent types namespaced `feature:<agent-name>`. This section captures only what's **specific to this plugin**.
 
