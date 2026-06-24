@@ -26,6 +26,8 @@ tools:
   - mcp__chrome-devtools__click
   - mcp__chrome-devtools__fill
   - mcp__chrome-devtools__list_console_messages
+  - mcp__chrome-devtools__list_pages
+  - mcp__chrome-devtools__select_page
 model: opus
 ---
 
@@ -61,16 +63,26 @@ Test like a real user, not a developer. Follow the acceptance criteria literally
 ```
 1. Read the provided spec + acceptance criteria
 2. Ensure the application is running (check URL, start dev server if needed)
-2.5. Auth check: if the URL routes to a login page, attach to an existing
-     authenticated session before opening a fresh one:
-       a. `mcp__chrome-devtools__list_pages` — enumerate active tabs.
-       b. If a tab at the same origin is already past the login wall,
-          `select_page` to that tab and continue from there.
+2.5. Auth check: if the URL routes to a login page, authenticate before
+     testing. The build skill may have injected an auth recipe into this
+     prompt (the resolved URL plus auth.storage_state and/or auth.attach_tab).
+     Use it first, in priority order:
+       a. `auth.storage_state` (path to a Playwright saved session): load that
+          session if your browser context can. The current MCP surface has no
+          tool that loads a storageState file, so if you can't apply it, fall
+          through — full session-loading via the Playwright MCP server's
+          saved-session config is a later iteration.
+       b. `auth.attach_tab` (or no recipe): attach to an existing authenticated
+          session instead of opening a fresh one —
+            i.  `mcp__chrome-devtools__list_pages` — enumerate active tabs.
+            ii. if a tab at the same origin is already past the login wall,
+                `select_page` to that tab and continue from there.
        c. Otherwise check `CLAUDE.md` for a documented auth-bypass / test-account
           pattern (e.g., a seed user, an API token in env, a `?bypass=` param).
        d. As a last resort, ask the user to authenticate once and rerun.
-     Don't burn turns trying to script credential entry against a real auth
-     provider — that's brittle and out of scope.
+     The recipe is build-injected (single source of truth) — don't read
+     config.yaml yourself. Don't burn turns trying to script credential entry
+     against a real auth provider — that's brittle and out of scope.
 3. For each acceptance criterion:
    a. Navigate to the relevant page
    b. Perform the user action

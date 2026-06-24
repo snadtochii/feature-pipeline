@@ -327,6 +327,22 @@ For Codex, hooks require `[features] codex_hooks = true` in `config.toml`; bundl
 
 `jq` is required for the hook script; `yq` is recommended for richer YAML support but not required (a grep-based fallback handles the common case).
 
+### App Test Config
+
+The build skill's test checkpoint can read an optional `test:` block in the same `claudedocs/tickets/config.yaml`. It declares how to reach (and optionally start and authenticate) your app, so a cheap reachability pre-flight runs before the browser test subagent is spawned — the subagent is never launched against an app that can't be reached. Unlike `validate:`, the `test:` block is read by the build skill, not by the validation hook.
+
+```yaml
+prefix: FP
+test:
+  url: http://localhost:4200          # pre-flight curls this for reachability
+  start: "npm start"                  # booted (backgrounded) only if url is down; torn down after
+  auth:
+    storage_state: .auth/admin.json   # path to a Playwright saved session — gitignored, never committed
+    attach_tab: true                  # fallback: attach to an already-authenticated running tab
+```
+
+Every key is optional; with no `test:` block the test checkpoint discovers the URL and handles auth inside the tester as before. **No secrets in `config.yaml`** — it is committed, so `auth.storage_state` is a path to a gitignored session file, never an inline credential. When the app is unreachable and no `start` is declared (or it times out), the checkpoint records a non-blocking skip and proceeds — it never stalls the loop waiting on you.
+
 ### MCP Servers
 
 For full functionality, these MCP servers are recommended (but optional):
