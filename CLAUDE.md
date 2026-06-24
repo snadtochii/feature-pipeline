@@ -175,7 +175,7 @@ Agents in this plugin live at `agents/*.md` and are loaded as subagent types nam
 | Analyst (`requirements-analyst`) | Read-only set | Describe, don't mutate; purely spec/analysis work — no codebase navigation |
 | Reviewer (`code-reviewer`, `security-engineer`, `performance-engineer`) | Read-only set | Reviews must not mutate the tree; work on diffs, not codebase navigation |
 | Architect (`code-architect`) | Read-only set + Serena semantic tools | Pattern comparison across sibling code is this agent's core work |
-| UI tester (`ui-tester`) | Read set + Playwright/Chrome MCP | Browser testing, no code mutation; `browser_set_storage_state`/`browser_storage_state` are additive-optional (version-gated — agent falls back to `attach_tab` when absent) |
+| UI tester (`ui-tester`) | Read tools + `Write`, `Edit`, `Bash` + Playwright/Chrome MCP | Browser testing — the one mutating agent in this table: `Write` codifies passing runs into spec files, `Bash` runs the test framework and `git check-ignore`s a storage-state path before saving it, `Edit` adjusts specs. `browser_set_storage_state`/`browser_storage_state` are additive-optional (version-gated — falls back to `attach_tab` when absent) |
 
 **Read-only set:** `Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch`. (`KillShell` and `BashOutput` are deliberately excluded — they only make sense paired with `Bash`, which read-only agents don't have.)
 
