@@ -1,6 +1,6 @@
 ---
 name: ship
-description: "User-initiated (never auto-invoked) autonomous loop that builds, independently reviews, and merges a ticket or a dependency chain. For each ticket it spawns an implementer subagent running /feature:flow --pr, spawns an independent reviewer subagent (given only the spec + PR diff, never the implementer's rationale), validates the findings, fixes the real ones, and squash-merges. For a chain or epic it merges each per-ticket PR into an integration branch and opens — but never merges — a final integration→main PR for human review; a solo ticket goes straight to main. Invoke explicitly with /feature:ship; not a plan-only or build-only run."
+description: "User-initiated (never auto-invoked) autonomous loop that builds, independently reviews, and merges a ticket or a dependency chain. For each ticket it spawns an implementer subagent that runs /feature:flow to build the ticket and open its PR (headless — browser/UI testing is skipped), spawns an independent reviewer subagent (given only the spec + PR diff, never the implementer's rationale), validates the findings, fixes the real ones, and squash-merges. For a chain or epic it merges each per-ticket PR into an integration branch and opens — but never merges — a final integration→main PR for human review; a solo ticket goes straight to main. Invoke explicitly with /feature:ship; not a plan-only or build-only run."
 disable-model-invocation: true
 allowed-tools:
   - Read
