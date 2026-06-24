@@ -23,26 +23,30 @@ argument-hint: "[ticket-id ...] [--chain epic-id] [--base branch]"
 
 > **Autonomy with a final gate.** `ship` runs each ticket end to end without a per-ticket human gate — it decides and merges on its own, stopping only on a *genuine* blocker (see Guardrails). For a chain/epic the human gate is at the **end**: per-ticket PRs land on an integration branch and `ship` opens (never merges) the integration→main PR for you. If you want to gate every ticket instead, use `/feature:flow --pr` directly and merge by hand. This skill is **user-initiated only** (`disable-model-invocation: true`) — Claude will not auto-run it; invoke `/feature:ship` deliberately.
 
-## Topology (proven)
+## Topology
 
-The orchestrator (this skill, in the main conversation) drives the **outer loop**. Per ticket it spawns **one implementer subagent** via the `Task` tool; that implementer in turn spawns **one reviewer subagent**.
+The orchestrator (this skill, in the main conversation) drives the **outer loop**: it resolves the chain, spawns subagents, and independently verifies each merge. It never edits ticket code itself.
 
-**Environment requirement:** this nested shape (orchestrator → implementer → reviewer, plus flow's own internal review agents inside the implementer) needs a harness that lets a subagent spawn subagents and lets you observe async agents — it was developed and proven in such a harness. The rest of this plugin assumes main-context-only spawning, so where subagents cannot spawn subagents (e.g. a standard synchronous `Task` setup), run the reviewer hop **flat** instead: the orchestrator spawns the implementer for build+PR, then spawns the reviewer itself, then spawns an implementer again to address findings and merge — same roles and bias isolation, one less level of nesting.
+**Environment requirement (applies to all of `ship`).** The orchestrator delegates building to an **implementer subagent**, and that implementer runs `feature:flow → build`, which itself spawns build's four reviewer subagents and the `ui-tester` from within. So `ship` needs a harness where a **subagent can spawn subagents** and you can observe async agents — it was developed and proven in such a harness. In a vanilla single-level-subagent setup (a subagent has no `Task`), you can't delegate build to a subagent: run `/feature:flow <id> --pr` yourself in the main conversation and merge by hand instead of using `ship`.
+
+Given that requirement, `ship`'s own independent-reviewer hop has two arrangements.
+
+**Flat (recommended).** The orchestrator spawns each role directly — implementer, then the independent reviewer as its sibling, then an implementer to address + merge. One fewer level of nesting, and the orchestrator can observe and recover each hop. Per ticket, in `blocked_by` order:
 
 ```
 orchestrator (main)
   ├─ chain/epic: create integration/<epic-id> off main (base for every per-ticket PR)
   └─ per ticket, in blocked_by order:
-       implementer subagent
-         ├─ Skill feature:flow <id> --pr   (plan → build → tests → open PR, base = the integration branch)
-         ├─ Task  → reviewer subagent       (spec + diff only → posts PR review)
-         ├─ validate findings → fix → push  (tests must be green)
-         └─ gh pr merge --squash --delete-branch   (into the integration branch)
+       1. implementer subagent → Skill feature:flow <id> --pr   (plan → build → tests → open PR, base = the integration branch)
+       2. reviewer subagent     → spec + diff only → posts PR review
+       3. implementer subagent → read posted review → validate → fix → push → gh pr merge --squash (into the base)
   ├─ orchestrator: git pull <base> → verify (typecheck + tests green, PR merged) → next ticket
   └─ after all tickets: open integration→main PR (do NOT merge — human gate)
 ```
 
-Roles stay separated: the implementer owns build + fix + merge authority; the reviewer is independent and adversarial. The orchestrator never edits ticket code — it resolves the chain, spawns, and **independently verifies each merge** (do not trust the implementer's self-report — pull the base branch and run the checks yourself).
+**Nested.** The Step 1 implementer also spawns the independent reviewer itself (`Task → reviewer`) and merges in one continuous brief — one fewer orchestrator round-trip, at the cost of a deeper tree and a stall risk in flow's parallel-review phase (see Fragility & recovery). This is the shape `ship` was first developed in.
+
+Roles stay separated in both shapes: the implementer owns build + fix + merge authority; the reviewer is independent and adversarial. The orchestrator **independently verifies every merge** — do not trust the implementer's self-report; pull the base branch and run the checks yourself.
 
 ## Arguments
 
@@ -66,26 +70,31 @@ Roles stay separated: the implementer owns build + fix + merge authority; the re
 /feature:ship --chain PB-11 --base main   # epic, but self-merge each ticket straight to main (no gate)
 ```
 
+### Flags ship does not take
+- **`--pr` is implicit.** `ship` always builds with `flow --pr` — autonomy needs a PR to review and merge — so you never pass it.
+- **`--no-ui-testing` is deliberately not forwarded.** That flag defers browser verification to a human at PR review, but `ship` auto-merges with no per-ticket human gate; forwarding it would silently merge UI changes nobody browser-verified. UI tickets always get flow's `ui-tester`.
+- **`--ignore-blockers` is not exposed.** `ship` orders chains so dependencies merge first and validates `blocked_by` in SETUP rather than bypassing it. To ship a genuinely-blocked ticket, run `/feature:flow <id> --pr --ignore-blockers` by hand.
+
 ## Procedure
 
 ### SETUP
-1. Resolve the ticket list (explicit IDs, or chain order from the epic's `blocked_by` graph). Confirm each ticket's `blocked_by` deps are already `done`/merged; if not and you're shipping the chain, order them so deps merge first.
+1. Resolve the ticket list (explicit IDs, or chain order from the epic's `blocked_by` graph). **For `--chain`, ship only *materialized* children** — glob `<epic-folder>/tasks/*/01-spec.md` and ship the IDs that resolve to a real spec, in `blocked_by` order. Skip any declared-but-unwritten child (a just-in-time epic declares its full `children:` roster upfront but authors child specs later, as the pipeline reaches each phase) and list the skipped IDs in the run report — do not attempt to flow a child whose `01-spec.md` does not yet exist. Confirm each shipped ticket's `blocked_by` deps are already `done`/merged; if not and you're shipping the chain, order them so deps merge first.
 2. Pre-flight: `git checkout main && git pull --ff-only`, confirm a clean tree and `gh auth status` is logged in. Read the repo's CLAUDE.md and `claudedocs/tickets/_lessons.md` so the per-ticket brief carries the project's load-bearing constraints and carry-forward lessons.
 3. **Resolve the base branch.** A **solo ticket** → base is `main` (unless `--base` overrides). A **chain/epic** (more than one ticket, or `--chain`) → unless `--base` is given, create an integration branch off `main` and use it as the base for every per-ticket PR. Name it `integration/<epic-id>` (or `integration/<first-ticket-id>` for an ad-hoc multi-ticket list). Create it once and push it: `git checkout main && git pull --ff-only && git checkout -b integration/<epic-id> && git push -u origin integration/<epic-id>`. If it already exists (resume), reuse it. With `--base main` on a chain, skip the integration branch and self-merge each ticket to `main`.
 4. TodoWrite one item per ticket.
 
 ### PER TICKET (loop)
-Spawn ONE implementer subagent (subagent_type with full tools, e.g. `claude`) with a self-contained brief — the subagent does **not** share your context. The brief must include:
+Each ticket runs three roles — **implementer → independent reviewer → implementer (address + merge)**. In the **flat (recommended)** arrangement the orchestrator spawns each as its own `Task` (implementer for Step 1, reviewer for Step 2, implementer for Step 3); in the **nested** arrangement one implementer subagent runs Steps 1–3 and spawns the reviewer itself at Step 2. Either way, spawn full-tool subagents (implementer subagent_type e.g. `claude`; reviewer `general-purpose`) with **self-contained briefs** — subagents do **not** share your context. Every brief must carry:
 
 - **Role + full autonomy** (no per-ticket human gate; decide and record reasoning).
 - **Repo path + ticket identity**, including whether it's an epic child and its spec path (`claudedocs/tickets/<state>/<EPIC>/tasks/<ID>/01-spec.md`).
 - **Base branch** = `<BASE_BRANCH>` (the integration branch for a chain, else `main`). Cut the feature branch from `<BASE_BRANCH>`, and target the PR at it.
 - **Project conventions that override harness defaults** — for feature-pipeline repos: commit subject `<ID>: <imperative>`, **no `Co-Authored-By` trailer**, one concern per commit; plus any boundary rules from CLAUDE.md (e.g. this app's server/client `node:*` boundary).
 - **Step 1 — Build:** invoke `Skill feature:flow` with args `<ID> --pr`. Ensure the PR's base is `<BASE_BRANCH>` — if `flow --pr` opened it against `main`, retarget with `gh pr edit <n> --base <BASE_BRANCH>`. Then independently run `npm run typecheck` and the spec's verification tests; fix anything red.
-- **Step 2 — Review:** spawn ONE reviewer subagent (`general-purpose`) using the reviewer prompt below, with the real PR number. The reviewer gets the spec path + PR diff + neutral instructions only — **never** the implementer's justifications.
-- **Step 3 — Address + merge:** read the actually-posted review (`gh pr view <n> --comments`), validate each finding (ACCEPT real / DISMISS wrong, one-line reason each), fix accepted ones per conventions, push, re-run typecheck + tests (must be green), `gh pr merge <n> --squash --delete-branch` (merges into `<BASE_BRANCH>`).
-- **Step 4 — Report** the structured sections: ticket, branch, base, pr, built, checks, review_findings, addressed, merge SHA, blockers.
-- **Guardrails:** spawn only the one reviewer; never weaken/skip tests to go green; on a genuine blocker (merge protection, irreconcilable finding, unfixable test) STOP and report it instead of forcing/faking.
+- **Step 2 — Independent review:** spawn ONE reviewer subagent (`general-purpose`) using the reviewer prompt below, with the real PR number — the orchestrator spawns it in flat mode, the implementer spawns it in nested mode. The reviewer gets the spec path + PR diff + neutral instructions only — **never** the implementer's justifications.
+- **Step 3 — Address + merge:** read the actually-posted review (`gh pr view <n> --comments`), validate each finding (ACCEPT real / DISMISS wrong, one-line reason each), fix accepted ones per conventions, push, re-run typecheck + tests (must be green), `gh pr merge <n> --squash --delete-branch` (merges into `<BASE_BRANCH>`). The squash-merge lands **code only** — the ticket folder stays in `review/` (status `in-review`); finalizing it to `done/` is `sync`'s job (see Ticket-state finalization under END OF RUN).
+- **Step 4 — Report** the structured sections: ticket, branch, base, pr, built, checks, review_findings, addressed, merge SHA, blockers, and **finalization** (ticket left in `review/` — run `/feature:sync` to promote to `done/`).
+- **Guardrails:** spawn exactly one reviewer per ticket; never weaken/skip tests to go green; on a genuine blocker (merge protection, irreconcilable finding, unfixable test) STOP and report it instead of forcing/faking.
 
 For a **UI ticket**, additionally require the implementer (and its reviewer) to verify behavior in a **real browser**, not just SSR/unit tests, per the repo's UI gotchas — flow's build runs `ui-tester` for this.
 
@@ -98,6 +107,9 @@ After every ticket has merged into the integration branch and verified green:
 2. Open — but do **NOT** merge — a single integration→main PR: `gh pr create --base main --head integration/<epic-id> --title "<EPIC-ID>: <epic title>" --body "<summary: the N tickets shipped, each per-ticket PR #, and the per-ticket review outcomes>"`. This is the human gate. Report the PR URL and **stop** — never merge integration→main yourself.
 
 For a solo ticket or `--base main`, there is no integration branch and no final PR — the per-ticket merge already landed on `main`.
+
+### Ticket-state finalization (all paths)
+A squash-merge lands **code, not ticket state**: every ticket `flow --pr` built is sitting in `review/` with `status: in-review` (Transition 5), and `ship` does **not** perform the `review/ → done/` move (Transition 6) — `sync` owns that single transition, so `ship` does not reimplement it. Close the loop by running **`/feature:sync`**, which scans `in-review` tickets, detects each merged PR, moves the ticket to `done/`, and fires the Epic-completion predicate for epic children. For the integration-branch path, run `sync` *after* the integration→main PR merges (the children only reach `main` then). Surface "merged tickets remain in `review/` — run `/feature:sync` to finalize" as the final line of the run report so the next step is explicit.
 
 ### REVIEWER PROMPT TEMPLATE (bias isolation is the crux)
 ```
