@@ -41,7 +41,7 @@ Orchestrates the full feature lifecycle through specialized AI agents. Under `/f
 
 ### Human Gates
 
-Under `/flow`, the single gate is build's verdict gate (the user reviews the verdict and either accepts on `pass`, picks `accept-as-partial / continue-with-hint / abort` on `partial`, or picks the same options on `stuck`) — plan runs non-interactively, so it adds no gate, though it can pause once if the plan hits an open question with no safe default or a complexity overflow. Run `/plan` standalone and it adds its own interactive plan-mode gate (the user refines the plan and exits when satisfied). No iteration budgets — the build loop self-monitors for stuck patterns and a 25-turn ceiling, then surfaces the gate.
+Under `/flow`, the single gate is build's verdict gate (the user reviews the verdict and either accepts on `pass`, picks `accept-as-partial / continue-with-hint / abort` on `partial`, or picks the same options on `stuck`) — plan runs non-interactively, so it adds no gate, though it can pause once if the plan hits an open question with no safe default or a complexity overflow (and, when `--visual` is passed, for the plan-review surface). Run `/plan` standalone and it adds its own interactive plan-mode gate (the user refines the plan and exits when satisfied). No iteration budgets — the build loop self-monitors for stuck patterns and a 25-turn ceiling, then surfaces the gate.
 
 ### Modular Architecture
 
@@ -141,6 +141,7 @@ You see and approve the proposal before tickets are created.
 /feature:flow BL-1 --ignore-blockers     # bypass blocker validation (use with care)
 /feature:flow BL-1 --pr                  # on pass, open a GitHub PR and land the ticket in review/
 /feature:flow BL-1 --pr --no-ui-testing  # skip the browser checkpoint (headless-safe), still open a PR
+/feature:flow BL-1 --visual              # render an HTML plan-review surface, pause for review before build
 /feature:flow EPIC-1                     # epic: walks children in blocked_by topological order
 ```
 
@@ -153,6 +154,10 @@ By default a passing build stops at the verdict gate and asks whether to commit.
 #### Skip browser testing (`--no-ui-testing`)
 
 Build's test checkpoint verifies UI tickets in a real browser via the `ui-tester` subagent (Playwright/Chrome MCP), which needs interactive MCP permission. That permission isn't available in a non-interactive/headless run (e.g. `claude -p`), so a UI ticket can stall at the browser checkpoint. Pass `--no-ui-testing` to skip **only** the browser/ui-tester portion of the test checkpoint — non-browser verification (your `validate.lint`/`validate.typecheck` checks) still runs and still gates the verdict. `05-tests.md` records that browser testing was skipped by flag (not "passed"), so the verdict and any PR stay honest about what was verified; browser-level verification then falls to a human at PR review. The flag propagates `flow → build` and, in epic-mode, is forwarded to every child. Without it, behaviour is unchanged. Note: a flag-skipped `pass` finalizes the ticket as complete, so browser verification belongs to PR review — a later plain `/feature:build` re-run will see the completed run, not re-open the browser checkpoint.
+
+#### Visual plan review (`--visual`)
+
+By default a plan is reviewed as Markdown (in plan mode when run standalone, or not at all under flow's non-blocking handoff). With `--visual`, after `02-plan.md` is written the plan stage also generates `02-plan.html` — a self-contained HTML review surface (architecture diagram, file-change map, steps, open questions, and trade-offs side-by-side) you open in a browser. It needs no build step and no install; diagrams load from a CDN at view time and the page stays readable when offline. You review it, then paste edits or `-> note` marks back; the stage folds them into `02-plan.md` (the source of truth) and regenerates the HTML. Markdown stays canonical — `build` only ever reads `02-plan.md`, never the HTML. The flag propagates `flow → plan` and, in epic-mode, is forwarded to every child; the derived `02-plan.html` is gitignored so it never lands in a PR. Without it, behaviour is unchanged.
 
 Resumption is auto-detected from the artifacts on disk — flow skips plan when `02-plan.md` exists, build picks up at the right checkpoint based on which of `03-`/`04-`/`05-` is present, and a completed run (`06-summary.md` with `pass`) is reported as "already complete." To start fresh against a partially-run ticket, delete the relevant artifacts before invoking flow.
 
@@ -196,6 +201,7 @@ claudedocs/tickets/<state>/BL-1/
 ├── 01-spec.md              # The ticket — frontmatter (id, title, priority, complexity, status, project, tags) + spec body
 ├── exploration.md          # Discover-time codebase exploration (optional)
 ├── 02-plan.md              # plan — implementation blueprint (includes Codebase Context + Open Questions Resolved sections)
+├── 02-plan.html            # plan — derived HTML review surface (only on --visual runs; a view of 02-plan.md)
 ├── 03-implementation.md    # build — implementation summary + validation results (live, updated per plan step)
 ├── 04-review.md            # build — merged review findings (4 reviewer subagents)
 ├── 05-tests.md             # build — UI test results, skip artifact, or Failed Criteria section
@@ -212,6 +218,7 @@ claudedocs/tickets/<state>/BL-1/        # epic folder; <state> follows the most-
     ├── BL-2/                           # child ticket folder — same internal structure as a solo ticket
     │   ├── 01-spec.md                  # frontmatter: parent: BL-1, epic: <slug>, siblings: [...], blocked_by: [...] (optional)
     │   ├── 02-plan.md
+    │   ├── 02-plan.html                # only on --visual runs (derived view of 02-plan.md)
     │   ├── 03-implementation.md
     │   ├── 04-review.md
     │   ├── 05-tests.md

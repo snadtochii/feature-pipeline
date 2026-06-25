@@ -7,7 +7,7 @@ allowed-tools:
   - Grep
   - TodoWrite
   - Skill
-argument-hint: "[ticket-id|epic-id] [--ignore-blockers] [--pr] [--no-ui-testing]"
+argument-hint: "[ticket-id|epic-id] [--ignore-blockers] [--pr] [--no-ui-testing] [--visual]"
 ---
 
 # Feature Flow Pipeline
@@ -39,6 +39,7 @@ Remaining args = pipeline flags (see table below)
 | `--ignore-blockers` | Bypass the `blocked_by` validation in flow's SETUP step 3; print a one-line warning and propagate the flag to plan + build invocations. | `--ignore-blockers` |
 | `--pr` | On verdict `pass`, build opens a GitHub PR and finalizes the ticket into `review/` instead of `done/` (see `build/references/pr-creation.md`). Propagated to `build` only; in epic-mode, forwarded per child (one PR per child). Degrades to a local commit + `done/` when GitHub tooling is absent. | `--pr` |
 | `--no-ui-testing` | Skip only the browser/ui-tester portion of build's test checkpoint; non-browser verification (lint/typecheck) still runs and still gates the verdict. Use when the run can't get interactive browser-MCP permission (e.g. headless `claude -p`); browser verification then falls to a human at PR review. Propagated to `build` only (plan has no UI-test concept); in epic-mode, forwarded per child. | `--no-ui-testing` |
+| `--visual` | Generate an opt-in self-contained HTML plan-review surface (`02-plan.html`) from `02-plan.md` and pause for review before build. Propagated to `plan` only (build has no visual concept — the mirror image of `--pr`/`--no-ui-testing`); in epic-mode, forwarded per child. Default off ⇒ no behavior change. | `--visual` |
 
 Resumption is auto-detected from on-disk artifacts — see "Resumption auto-detection" below. To start fresh against a partially-run ticket, delete the relevant artifacts before invoking flow.
 
@@ -49,6 +50,7 @@ Resumption is auto-detected from on-disk artifacts — see "Resumption auto-dete
 /feature:flow claudedocs/tickets/backlog/BL-1/  # by folder path
 /feature:flow BL-1 --pr                         # on pass, open a GitHub PR and land in review/
 /feature:flow BL-1 --pr --no-ui-testing         # headless-safe: skip browser checkpoint, still open a PR
+/feature:flow BL-1 --visual                     # render an HTML plan-review surface, pause for review before build
 /feature:flow EPIC-1                            # epic-mode: walks children in dependency order
 ```
 
@@ -66,7 +68,7 @@ Each stage reads and writes artifacts in `<ticket-folder>/`. This contract is lo
 
 | Stage | Reads | Writes |
 |---|---|---|
-| `plan` | `01-spec.md`, `exploration.md` (optional seed — used for incremental Phase 1 synthesis if present) | `02-plan.md` (includes Codebase Context + Open Questions Resolved sections from Phase 1 synthesis) |
+| `plan` | `01-spec.md`, `exploration.md` (optional seed — used for incremental Phase 1 synthesis if present) | `02-plan.md` (includes Codebase Context + Open Questions Resolved sections from Phase 1 synthesis); `02-plan.html` when `--visual` is set — a derived human-review surface, never read back |
 | `build` | `01-spec.md`, `02-plan.md` (plus whichever of `03-implementation.md`/`04-review.md`/`05-tests.md` exist on disk for auto-resumption) | `03-implementation.md` (live, updated per plan step), `04-review.md` (merged from 4 reviewer subagents), `05-tests.md` (UI test results, or a skip artifact — no-UI, `--no-ui-testing` flag-skip, or app-unreachable), `06-summary.md` (always written, content varies per verdict) |
 
 ---
@@ -102,7 +104,7 @@ Flow inspects on-disk artifacts at start and routes to the right stage automatic
 | `02-plan.md` exists, no `06-summary.md` | Skip plan; invoke `/feature:build <ticket-id>` (build's own auto-resumption picks up wherever its checkpoints landed). |
 | Neither `02-plan.md` nor `06-summary.md` | Fresh start: invoke `/feature:plan <ticket-id>`, then `/feature:build <ticket-id>`. |
 
-The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and downstream `03-`/`04-`/`05-`/`06-` if any). On the next flow invocation, the routing table matches the "neither exists" row and runs from scratch. Internal build checkpoints (implement → review → test inside one build invocation) write directly to the canonical artifacts — no special-casing needed.
+The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and downstream `03-`/`04-`/`05-`/`06-`, plus the derived `02-plan.html`, if any). On the next flow invocation, the routing table matches the "neither exists" row and runs from scratch. Internal build checkpoints (implement → review → test inside one build invocation) write directly to the canonical artifacts — no special-casing needed.
 
 **Epic-mode** has its own implicit resumption: the walker skips children whose `status` is already `done`, `partial-completion`, or `cancelled` (per EPIC-MODE EXECUTION step 4a). Each remaining child inherits the single-ticket routing table above via the recursive flow call.
 
@@ -121,8 +123,8 @@ The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and
    ⚠ Bypassing blocker check for <ticket-id>. Unfinished blockers: <list>. Proceeding anyway.
    ```
 
-4. **Invalidate downstream artifacts** if `02-plan.md` is missing AND any of `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` exist on disk:
-   - Delete each existing build artifact (the user signalled "start fresh" by removing `02-plan.md`).
+4. **Invalidate downstream artifacts** if `02-plan.md` is missing AND any of `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` / `02-plan.html` exist on disk:
+   - Delete each existing build artifact, plus a stale `02-plan.html` if present (the user signalled "start fresh" by removing `02-plan.md`; the derived visual surface goes with it).
    - Print: "Removed N downstream artifacts before re-running plan."
    - Skip this step on pure forward progress (no build artifacts on disk) or on auto-resumption runs that found `02-plan.md`.
 
@@ -136,7 +138,7 @@ Apply the resumption auto-detection routing table (above) to decide which stages
 - If `02-plan.md` exists (with or without `06-summary.md` reporting `partial`/`stuck`) — skip plan; invoke `Skill build` only. Build auto-resumes from on-disk artifacts per its own logic.
 - Otherwise — invoke `Skill plan` **with `--auto`** (non-interactive plan; this is what makes flow's plan→build handoff seamless — no plan-mode approval gate), then (after plan returns) `Skill build`.
 
-Both invocations propagate `--ignore-blockers` if it was passed to flow. `--pr` and `--no-ui-testing`, if passed, are propagated to `Skill build` **only** (plan has neither a PR nor a UI-test concept). Flow additionally always passes `--auto` to `Skill plan` (build has no such flag, so it is not propagated there). `--auto` is internal flow→plan wiring, not a user-facing flow flag — that's why it's absent from the Flags table above.
+Both invocations propagate `--ignore-blockers` if it was passed to flow. `--pr` and `--no-ui-testing`, if passed, are propagated to `Skill build` **only** (plan has neither a PR nor a UI-test concept). `--visual`, if passed, is propagated to `Skill plan` **only** (build has no visual concept — the mirror image of `--pr`/`--no-ui-testing`). Flow additionally always passes `--auto` to `Skill plan` (build has no such flag, so it is not propagated there). `--auto` is internal flow→plan wiring, not a user-facing flow flag — that's why it's absent from the Flags table above.
 
 Plan and build perform their own state transitions (start-of-pipeline at start, end-of-pipeline at build's verdict gate) per [`references/state-transitions.md`](references/state-transitions.md). Flow does not touch folder state or frontmatter `status` directly.
 
@@ -207,7 +209,7 @@ b. **Print the running message**:
    → Running <CHILD-ID>: <title>
    ```
 
-c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs plan + build per the existing logic. Propagate `--ignore-blockers`, `--pr`, and `--no-ui-testing` if the epic-level invocation had them (a `--pr` epic run opens one PR per child; `--no-ui-testing` skips the browser checkpoint for every child).
+c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs plan + build per the existing logic. Propagate `--ignore-blockers`, `--pr`, `--no-ui-testing`, and `--visual` if the epic-level invocation had them (a `--pr` epic run opens one PR per child; `--no-ui-testing` skips the browser checkpoint for every child; `--visual` renders a plan-review surface per child).
 
 d. **Re-read the child's `01-spec.md` frontmatter** after the recursive flow returns. Build's verdict gate (inside the child's flow run) already moved the folder and updated `status` per `state-transitions.md`. The new status determines the walker's next move:
 
@@ -262,6 +264,7 @@ claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlo
 ├── 01-spec.md              # The ticket — frontmatter (id, status, priority, ...) + spec body
 ├── exploration.md          # Discover-time codebase exploration (optional — only when the ticket went through /feature:discover)
 ├── 02-plan.md              # Implementation blueprint (includes Phase 1 synthesis as Codebase Context + Open Questions Resolved sections)
+├── 02-plan.html            # Derived HTML review surface (only on --visual runs; a view of 02-plan.md, never read back)
 ├── 03-implementation.md    # Implementation summary + validation results (live — updated per plan step)
 ├── 04-review.md            # Merged review findings (4 reviewer subagents)
 ├── 05-tests.md             # UI test results, skip artifact, or Failed Criteria section
@@ -278,6 +281,7 @@ claudedocs/tickets/<state>/<EPIC-ID>/   # epic folder; <state> follows most-adva
     ├── <CHILD-1-ID>/       # child ticket folder — same internal structure as a solo ticket above
     │   ├── 01-spec.md      # frontmatter: parent: <EPIC-ID>, blocked_by: [...] (optional)
     │   ├── 02-plan.md
+    │   ├── 02-plan.html    # only on --visual runs (derived view of 02-plan.md)
     │   ├── 03-implementation.md
     │   ├── 04-review.md
     │   ├── 05-tests.md
@@ -293,6 +297,7 @@ The whole epic subtree moves between `<state>/` folders as a unit per [`referenc
 - `01-spec.md` IS the ticket — it carries frontmatter (live state metadata) and the spec body. There is no separate "ticket file" outside the folder.
 - `02`–`06` are reserved for canonical stages in order: `02-plan.md`, `03-implementation.md`, `04-review.md`, `05-tests.md`, `06-summary.md`. Don't reuse numbers.
 - Plain (un-numbered) filenames at the ticket-folder root are reserved for pre-spec / pre-stage artifacts (currently just `exploration.md`); for child tickets of an epic, the shared `exploration.md` lives one level up at the epic folder, not in the child folder.
+- `02-plan.html` is a permitted derived view sharing the `02-plan` stem — a self-contained HTML rendering of `02-plan.md` written only on `--visual` runs. It is NOT a new numbered slot and is never read back by any stage; it is regenerated on fold-back and swept by SETUP step 4 when `02-plan.md` is deleted.
 - The ticket folder moves between state folders (`backlog/` → `in-progress/` → `review/` → `done/`) as the pipeline advances. Everything inside moves with it. (`review/` is on the path only for `--pr` runs; a non-`--pr` `pass` goes straight `in-progress/` → `done/`.)
 
 ---
@@ -307,7 +312,7 @@ Stage skills handle their own ticket resolution and blocker validation; flow is 
 
 ## Continuation & Partial Runs
 
-Resumption is auto-detected — see "Resumption auto-detection" above. The user signals "start fresh" by deleting `02-plan.md` (and downstream artifacts if they want a full reset).
+Resumption is auto-detected — see "Resumption auto-detection" above. The user signals "start fresh" by deleting `02-plan.md` (and downstream artifacts, including the derived `02-plan.html`, if they want a full reset).
 
 When build exits `partial` or `stuck`, the verdict gate (owned by build) presents `accept-as-partial | continue-with-hint | abort`. The `continue-with-hint` path continues the build loop in-process with the user's hint added to context — there is no flow-level re-invocation.
 

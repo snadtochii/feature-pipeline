@@ -38,6 +38,8 @@ Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/r
 - `01-spec.md` — the ticket specification (for acceptance criteria)
 - `02-plan.md` — the approved implementation plan (**required** — if not found, refuse with: "Plan stage hasn't run. Run `/feature:plan $1` first.")
 
+Build reads `02-plan.md` only — never `02-plan.html` (plan's optional `--visual` derived view is a human-only review surface; any review decisions were already folded back into `02-plan.md` upstream).
+
 For auto-resumption, also read whichever of these exist on disk to reconstruct state (see step 5 below for resumption logic):
 - `03-implementation.md` — completed plan steps from a prior build invocation
 - `04-review.md` — review state from a prior build invocation
