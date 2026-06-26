@@ -38,6 +38,8 @@ Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/r
 - `01-spec.md` — the ticket specification (for acceptance criteria)
 - `02-plan.md` — the approved implementation plan (**required** — if not found, refuse with: "Plan stage hasn't run. Run `/feature:plan $1` first.")
 
+Build reads `02-plan.md` only — never `02-plan.html` (plan's optional `--visual` derived view is a human-only review surface; any review decisions were already folded back into `02-plan.md` upstream).
+
 For auto-resumption, also read whichever of these exist on disk to reconstruct state (see step 5 below for resumption logic):
 - `03-implementation.md` — completed plan steps from a prior build invocation
 - `04-review.md` — review state from a prior build invocation
@@ -201,7 +203,7 @@ f. **After fixes are applied**, run validation again (lint/typecheck) and update
 
 **Flag override — `--no-ui-testing`.** Checked first, before the skip-detection scan. If the build was invoked with `--no-ui-testing` (propagated from flow, or passed directly), skip the browser/ui-tester portion entirely: do **not** run the skip-detection scan (step a) or spawn `ui-tester` (step b). Write the flag-skip variant of the artifact to `05-tests.md` (see step c) and proceed straight to step d. This is independent of plan content — it forces the skip even when the plan has UI signals, so it does not depend on (or touch) the substring scan at all. Non-browser checks (lint/typecheck) are unaffected: they run in the implement checkpoint and still gate the verdict. Browser-level acceptance-criteria verification is deferred to a human at PR review. As with a no-UI skip, `skipped` here is a test-checkpoint label, not a verdict — build can still exit `pass`. The flag also short-circuits the reachability pre-flight below — a forced skip resolves no URL, runs no `curl`, and boots no `test.start` command (the pre-flight only runs where a spawn was actually going to happen).
 
-a. **Skip-detection scan.** Read `02-plan.md` and search (case-insensitive substring match) for any of: `component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial`. Match → run the reachability pre-flight (below) before any spawn. No match → skip (step c).
+a. **Skip-detection scan.** Read `02-plan.md` — **excluding any trailing `## Review decisions` section** (the `--visual` fold-back audit trail, which can mention UI words like "HTML" incidentally and is not implementation signal) — and search the remaining text (case-insensitive substring match) for any of: `component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial`. Match → run the reachability pre-flight (below) before any spawn. No match → skip (step c).
 
 **Reachability pre-flight (per [`references/test-preflight.md`](references/test-preflight.md)).** When step a matched UI signals (and `--no-ui-testing` was not set), run the pre-flight gate *before* spawning the Opus `ui-tester` — the cheap `curl` is always paid first (AC9). It resolves a URL (`test.url` → project `CLAUDE.md` → common-port probe), `curl`s it (reachable iff HTTP `200/301/302/401/403`), and on an unreachable app optionally boots a declared `test.start` (backgrounded, bounded ~60s poll) that it then owns for teardown:
    - **Reachable** (directly, or after the `test.start` boot responds) → compose the auth recipe + resolved URL (test-preflight.md §5) and continue to step b.

@@ -74,7 +74,7 @@ discover → ticket(s) → flow → plan → build → completion
 
 - **`discover`** is step 0 — interactive Socratic dialogue that creates ticket folders. Emits a single ticket (`claudedocs/tickets/backlog/<id>/01-spec.md` + `exploration.md`) for small/coherent work, or a parent epic + nested child tickets (`claudedocs/tickets/backlog/<EPIC>/prd.md` + `tasks/<CHILD>/01-spec.md` for each) when the scope splits naturally. Not part of flow.
 - **`explore`** is a separate skill for open-ended Socratic exploration; can promote a conversation into `discover` once the user knows they want a ticket.
-- **`flow`** orchestrates `plan → build` with the completion gate. `plan` runs non-interactively under flow (flow passes the internal `--auto` signal), so build's verdict gate is the only gate; run standalone, `plan` uses interactive plan mode (its own gate). `plan` includes Phase 1 pre-plan synthesis (codebase exploration + open-questions surfacing) before plan design. Flag surface is `--ignore-blockers` and `--pr` (the flow→plan `--auto` signal is internal wiring, not a user-facing flow flag); resumption is auto-detected from on-disk artifacts (users delete artifacts to start fresh).
+- **`flow`** orchestrates `plan → build` with the completion gate. `plan` runs non-interactively under flow (flow passes the internal `--auto` signal), so build's verdict gate is the only gate; run standalone, `plan` uses interactive plan mode (its own gate). `plan` includes Phase 1 pre-plan synthesis (codebase exploration + open-questions surfacing) before plan design. Flag surface is `--ignore-blockers`, `--pr`, `--no-ui-testing`, and `--visual` (the flow→plan `--auto` signal is internal wiring, not a user-facing flow flag; `--visual` is propagated to plan, `--pr`/`--no-ui-testing` to build); resumption is auto-detected from on-disk artifacts (users delete artifacts to start fresh).
 - **`build`** runs implement → review → test as internal checkpoints in one continuous loop. Validation fires after every edit (PostToolUse hook plus skill-body fallback). Reviewer findings and test failures are fixed in-context; the loop self-monitors for stuck patterns and a 25-turn ceiling.
 
 ### Runtime source of truth
@@ -274,7 +274,7 @@ The file is project-local context — generic best practices don't belong here, 
 
 ## Adding a new stage
 
-Build owns artifact slots `03-implementation.md` through `06-summary.md`. Slot `07-debug.md` is reserved by the standalone `debug` skill (its optional ticket-context report on non-`fixed` exits); `debug` is **not** a flow stage, so it does not follow the checklist below. The next free slot for a new *stage* is `08-*.md`.
+Build owns artifact slots `03-implementation.md` through `06-summary.md`. Slot `07-debug.md` is reserved by the standalone `debug` skill (its optional ticket-context report on non-`fixed` exits); `debug` is **not** a flow stage, so it does not follow the checklist below. The next free slot for a new *stage* is `08-*.md`. (`02-plan.html` is not a stage slot — it's plan's optional `--visual` derived view of `02-plan.md`, a `.html` sibling that no stage reads back.)
 
 1. Create `skills/<stage>/SKILL.md` following the skill body template above.
 2. Reserve the next free artifact number (`08-*.md` — `07-debug.md` is taken by the standalone `debug` skill) — update the "Artifact Convention" section in `skills/flow/SKILL.md`.

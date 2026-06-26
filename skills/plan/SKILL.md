@@ -11,7 +11,7 @@ allowed-tools:
   - Task
   - TodoWrite
   - AskUserQuestion
-argument-hint: "[ticket-id]"
+argument-hint: "[ticket-id] [--visual]"
 ---
 
 # Plan Stage
@@ -32,6 +32,8 @@ Two phases:
 `$1` = ticket ID (e.g. `BL-1`) or path to ticket file.
 
 **Optional flag** `--auto` — set by `flow` when it invokes plan; runs plan **non-interactively** (auto mode: skips native plan mode, designs the plan in normal conversation, writes `02-plan.md`, returns). It is an internal flow→plan signal, not a user-facing knob — not advertised in `argument-hint`, but honored if present from any source. Without it (the standalone default), plan runs interactive plan mode.
+
+**Optional flag** `--visual` — user-facing (default OFF). When set, after `02-plan.md` is written plan also generates `<ticket-folder>/02-plan.html` — a self-contained HTML review surface derived from the Markdown — and runs a conversational fold-back loop as the review gate (see [`references/visual-surface.md`](references/visual-surface.md)). Works in both interactive and auto mode, and is honored when `flow` propagates it. On a **resumed run** where `02-plan.md` already exists, plan runs the **Visual-refresh short-circuit** (below) instead of redesigning — so `--visual` still fires the review gate rather than being skipped. With the flag absent, none of the visual behavior runs and plan is byte-for-byte unchanged.
 
 ## Ticket Resolution & Artifacts Setup
 
@@ -57,6 +59,18 @@ Before Phase 1 synthesis, perform the start-of-pipeline transition per [`../flow
 This makes plan self-sufficient when invoked standalone — the ticket folder ends up in the correct state regardless of whether flow or the user invoked it. When invoked via flow, build's later State setup is a no-op for the folder move (frontmatter overwrite is harmless).
 
 `<ticket-folder>` is rebound to the new location for the rest of this run.
+
+---
+
+## Visual-refresh short-circuit (only when `--visual` AND `02-plan.md` already exists)
+
+If `--visual` is set and `<ticket-folder>/02-plan.md` already exists (a resumed run — flow routes here with `--auto --visual` instead of skipping plan; see `../flow/SKILL.md` STAGE EXECUTION's `--visual` exception), do NOT re-run Phase 1 synthesis or Phase 2 design and do NOT overwrite the plan's substance. Instead:
+
+1. (Re)generate `<ticket-folder>/02-plan.html` from the existing `02-plan.md` per [`references/visual-surface.md`](references/visual-surface.md).
+2. Run the conversational fold-back loop (the review gate) — fold any requested edits into the existing `02-plan.md` and regenerate the HTML.
+3. Return — auto mode hands control back to `flow` (which proceeds to build); interactive mode exits the plan stage.
+
+This is what makes `--visual` honor its review-gate promise on resumed runs (where plan would otherwise be skipped entirely). A fresh run (no `02-plan.md`) skips this short-circuit and proceeds through Phase 1 → Phase 2 normally, generating the surface as the post-write step there.
 
 ---
 
@@ -159,6 +173,7 @@ Plan design runs in one of two modes, selected by the `--auto` flag (set by `flo
 3. **Refine interactively** — respond to feedback, adjust the approach, answer questions. Iterate until the user exits plan mode.
 4. **Validate** against the **Plan Quality Checklist** below before exiting plan mode.
 5. **Save** — when the user approves (exits plan mode), save the plan to `<ticket-folder>/02-plan.md`.
+6. **Visual surface (only if `--visual`)** — after `02-plan.md` is written, generate `02-plan.html` and run the conversational fold-back loop per [`references/visual-surface.md`](references/visual-surface.md): render → review-in-browser → fold `-> note`/pasted edits into `02-plan.md` → regenerate the HTML → repeat until approved. Additive to the plan-mode gate; skipped entirely when `--visual` is absent.
 
 ### Auto mode (`--auto` — set by `flow`)
 
@@ -167,9 +182,10 @@ No native plan mode: do NOT call `EnterPlanMode`/`ExitPlanMode` (there is no app
 1. **Design the plan** in normal conversation following the **Plan Structure** below, using the open-questions resolutions from Phase 1 (auto-resolved defaults + any batched no-default answers).
 2. **Validate** against the **Plan Quality Checklist** below.
 3. **Write** `<ticket-folder>/02-plan.md`.
-4. **Return** — print the non-blocking "Plan Saved" summary (see Presentation) and hand control back to `flow`, which proceeds to build. No approval gate.
+4. **Visual surface (only if `--visual`)** — generate `02-plan.html` from the just-written `02-plan.md` and run the conversational fold-back loop per [`references/visual-surface.md`](references/visual-surface.md). This deliberately re-introduces a review pause that auto mode otherwise avoids — the explicitly-requested cost of opting in (`--auto` governs plan-mode usage; `--visual` governs the review gate, and the two compose). When `--visual` is absent, skip straight to step 5 — the non-blocking handoff is unchanged.
+5. **Return** — print the non-blocking "Plan Saved" summary (see Presentation) and hand control back to `flow`, which proceeds to build. No approval gate.
 
-**Boundary (both modes):** plan writes only `02-plan.md` (plus its State-setup transition). It does not edit source code — implementation is build's job.
+**Boundary (both modes):** plan writes `02-plan.md` (plus, when `--visual` is set, the derived `02-plan.html` sibling and, if needed, a one-line `.gitignore` entry to cover it) plus its State-setup transition. It does not edit source code — implementation is build's job.
 
 ---
 
@@ -233,6 +249,7 @@ Before writing `02-plan.md`, verify every item (both modes run this gate — int
 - [ ] All spec acceptance criteria are addressed by at least one step
 - [ ] Edge cases identified per step, not just "TBD"
 - [ ] Critical Details section covers errors, state, testing, perf, security — even if "N/A"
+- [ ] If `--visual` is set: the plan has the structured sections the HTML surface will render (Architecture Decision, Implementation Steps with Files, Open Questions Resolved, Build Sequence, Critical Details) — the post-write `02-plan.html` generation, graceful degradation, and gitignore guard then run per [`references/visual-surface.md`](references/visual-surface.md) and are verified there before the surface is presented
 
 If any item fails, refine the plan before writing it.
 
@@ -241,6 +258,7 @@ If any item fails, refine the plan before writing it.
 ## Output
 
 - **Artifact**: `<ticket-folder>/02-plan.md`
+- **Artifact (only when `--visual`)**: `<ticket-folder>/02-plan.html` — a derived, self-contained HTML review surface generated from `02-plan.md`. Never read back by any stage; gitignore-guarded so `--pr` won't sweep it into a PR (see [`references/visual-surface.md`](references/visual-surface.md)).
 
 ## Presentation
 
@@ -253,6 +271,8 @@ After saving the plan:
 
 Artifacts saved to: <ticket-folder>/02-plan.md
 ```
+
+When `--visual` was set, add a line: `Visual review surface: <ticket-folder>/02-plan.html — open it in your browser.` plus a note if `.gitignore` was updated to cover it.
 
 ## Error Handling
 
