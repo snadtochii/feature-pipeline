@@ -106,6 +106,8 @@ Flow inspects on-disk artifacts at start and routes to the right stage automatic
 
 The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and downstream `03-`/`04-`/`05-`/`06-`, plus the derived `02-plan.html`, if any). On the next flow invocation, the routing table matches the "neither exists" row and runs from scratch. Internal build checkpoints (implement → review → test inside one build invocation) write directly to the canonical artifacts — no special-casing needed.
 
+**`--visual` exception (resumed runs):** when `--visual` is set and a row above would *skip plan because `02-plan.md` already exists* (the `partial`/`stuck` row and the `02-plan.md`-exists row), flow instead invokes plan in **visual-refresh mode** first (render `02-plan.html` + the fold-back review gate over the existing plan, no redesign), then build — so the flag's review pause isn't silently skipped on a resumed run. The `review/` and `06-summary.md pass` rows are unaffected: an open-PR ticket isn't re-reviewed by plan (the `review/` re-plan path is a deliberate, separate action), and an already-complete ticket exits as before.
+
 **Epic-mode** has its own implicit resumption: the walker skips children whose `status` is already `done`, `partial-completion`, or `cancelled` (per EPIC-MODE EXECUTION step 4a). Each remaining child inherits the single-ticket routing table above via the recursive flow call.
 
 ---
@@ -135,7 +137,9 @@ The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and
 Apply the resumption auto-detection routing table (above) to decide which stages to invoke:
 
 - If `06-summary.md` exists with verdict `pass` — print the "already complete" message and exit.
-- If `02-plan.md` exists (with or without `06-summary.md` reporting `partial`/`stuck`) — skip plan; invoke `Skill build` only. Build auto-resumes from on-disk artifacts per its own logic.
+- If `02-plan.md` exists (with or without `06-summary.md` reporting `partial`/`stuck`):
+  - **Without `--visual`** — skip plan; invoke `Skill build` only. Build auto-resumes from on-disk artifacts per its own logic.
+  - **With `--visual`** — invoke `Skill plan` with `--auto --visual` first; plan detects the existing `02-plan.md` and runs a **visual-refresh pass** (regenerate `02-plan.html` from the existing plan + run the fold-back review gate, skipping Phase 1 synthesis and plan design — it does NOT redesign or overwrite the plan's substance), then (after plan returns) invoke `Skill build`. This keeps `--visual` from silently no-op'ing on resumed runs, where plan would otherwise be skipped and the review gate never fire.
 - Otherwise — invoke `Skill plan` **with `--auto`** (non-interactive plan; this is what makes flow's plan→build handoff seamless — no plan-mode approval gate), then (after plan returns) `Skill build`.
 
 Both invocations propagate `--ignore-blockers` if it was passed to flow. `--pr` and `--no-ui-testing`, if passed, are propagated to `Skill build` **only** (plan has neither a PR nor a UI-test concept). `--visual`, if passed, is propagated to `Skill plan` **only** (build has no visual concept — the mirror image of `--pr`/`--no-ui-testing`). Flow additionally always passes `--auto` to `Skill plan` (build has no such flag, so it is not propagated there). `--auto` is internal flow→plan wiring, not a user-facing flow flag — that's why it's absent from the Flags table above.

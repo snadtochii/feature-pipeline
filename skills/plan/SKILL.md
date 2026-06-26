@@ -33,7 +33,7 @@ Two phases:
 
 **Optional flag** `--auto` — set by `flow` when it invokes plan; runs plan **non-interactively** (auto mode: skips native plan mode, designs the plan in normal conversation, writes `02-plan.md`, returns). It is an internal flow→plan signal, not a user-facing knob — not advertised in `argument-hint`, but honored if present from any source. Without it (the standalone default), plan runs interactive plan mode.
 
-**Optional flag** `--visual` — user-facing (default OFF). When set, after `02-plan.md` is written plan also generates `<ticket-folder>/02-plan.html` — a self-contained HTML review surface derived from the Markdown — and runs a conversational fold-back loop as the review gate (see [`references/visual-surface.md`](references/visual-surface.md)). Works in both interactive and auto mode, and is honored when `flow` propagates it. With the flag absent, none of the visual behavior runs and plan is byte-for-byte unchanged.
+**Optional flag** `--visual` — user-facing (default OFF). When set, after `02-plan.md` is written plan also generates `<ticket-folder>/02-plan.html` — a self-contained HTML review surface derived from the Markdown — and runs a conversational fold-back loop as the review gate (see [`references/visual-surface.md`](references/visual-surface.md)). Works in both interactive and auto mode, and is honored when `flow` propagates it. On a **resumed run** where `02-plan.md` already exists, plan runs the **Visual-refresh short-circuit** (below) instead of redesigning — so `--visual` still fires the review gate rather than being skipped. With the flag absent, none of the visual behavior runs and plan is byte-for-byte unchanged.
 
 ## Ticket Resolution & Artifacts Setup
 
@@ -59,6 +59,18 @@ Before Phase 1 synthesis, perform the start-of-pipeline transition per [`../flow
 This makes plan self-sufficient when invoked standalone — the ticket folder ends up in the correct state regardless of whether flow or the user invoked it. When invoked via flow, build's later State setup is a no-op for the folder move (frontmatter overwrite is harmless).
 
 `<ticket-folder>` is rebound to the new location for the rest of this run.
+
+---
+
+## Visual-refresh short-circuit (only when `--visual` AND `02-plan.md` already exists)
+
+If `--visual` is set and `<ticket-folder>/02-plan.md` already exists (a resumed run — flow routes here with `--auto --visual` instead of skipping plan; see `../flow/SKILL.md` STAGE EXECUTION's `--visual` exception), do NOT re-run Phase 1 synthesis or Phase 2 design and do NOT overwrite the plan's substance. Instead:
+
+1. (Re)generate `<ticket-folder>/02-plan.html` from the existing `02-plan.md` per [`references/visual-surface.md`](references/visual-surface.md).
+2. Run the conversational fold-back loop (the review gate) — fold any requested edits into the existing `02-plan.md` and regenerate the HTML.
+3. Return — auto mode hands control back to `flow` (which proceeds to build); interactive mode exits the plan stage.
+
+This is what makes `--visual` honor its review-gate promise on resumed runs (where plan would otherwise be skipped entirely). A fresh run (no `02-plan.md`) skips this short-circuit and proceeds through Phase 1 → Phase 2 normally, generating the surface as the post-write step there.
 
 ---
 

@@ -165,7 +165,7 @@ After `02-plan.html` is generated, **verify it before presenting**: every struct
    > Visual plan written to `<ticket-folder>/02-plan.html` — open it in your browser to review. Paste any changes here, or add `-> note` marks against the plan and tell me to fold them in. Say "looks good" to proceed.
 2. The human reviews in the browser and responds **conversationally** — pasted edits, or `-> note <change>` lines keyed to a section/step (the marks live in chat or in `02-plan.md`, **never** require parsing the rendered HTML).
 3. For each requested change, edit the corresponding section of **`02-plan.md`** (the source of truth).
-4. After applying edits, append/update a `## Review decisions` section at the end of `02-plan.md` summarizing what changed and why (the audit trail). Describe changes in plain terms — do **not** write the literal token `02-plan.html` or "HTML" into `02-plan.md`, since build's UI-test skip-scan substring-matches `html` against the plan and would otherwise spuriously spawn a browser checkpoint on a non-UI ticket.
+4. After applying edits, append/update a `## Review decisions` section at the end of `02-plan.md` summarizing what changed and why (the audit trail). Write it naturally — build's UI-test skip-scan excludes this trailing section from its keyword match (see `skills/build/SKILL.md` test checkpoint, step a), so recording decisions about the HTML surface here won't spuriously trigger a browser checkpoint.
 5. **Regenerate `02-plan.html`** from the updated `02-plan.md` so the surface never diverges from the source in-session.
 6. Repeat until the user approves. Then return control (auto mode → back to flow; interactive mode → exit plan stage).
 
