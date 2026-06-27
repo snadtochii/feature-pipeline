@@ -280,13 +280,14 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
 
 2. **Generate an `epic` slug** from the discovery topic (lowercase, hyphenated; e.g., `dark-mode-rollout`). This becomes the shared `epic:` value across the parent and all children.
 
-3. **Write the parent PRD** to `claudedocs/tickets/backlog/<EPIC-ID>/prd.md` using `templates/prd.md`. The PRD captures feature-level content — problem, goals, end-to-end user journey, cross-cutting constraints, decomposition table, discovery rationale. Frontmatter must include:
+3. **Write the parent PRD** to `claudedocs/tickets/backlog/<EPIC-ID>/prd.md` using `templates/prd.md`. The PRD captures feature-level content — problem, goals, end-to-end user journey, cross-cutting constraints, decomposition table, discovery rationale. **`templates/prd.md` is the canonical epic schema — fill in *every* frontmatter field it declares; do not restate or re-derive the standard field list here.** As you fill it, set the epic-specific values discover computes:
    - `id: <EPIC-ID>`
-   - `title: <epic title>` — the descriptive epic title (the one shown in the Phase 3.5 checkpoint header), never the bare `<EPIC-ID>`
-   - `kind: epic` — **required**, marks this as non-pipelineable; `plan`/`build` will refuse to run against it
+   - `title: <epic title>` — descriptive (the title shown in the Phase 3.5 checkpoint header), never the bare `<EPIC-ID>`
+   - `kind: epic` — marks this non-pipelineable, so `plan`/`build` refuse to run against it
    - `epic: <epic-slug>`
-   - `children: [<CHILD-1-ID>, <CHILD-2-ID>, ...]`
-   - `status: backlog`, `created`, `project`, `priority`, `tags`
+   - `children: [<CHILD-1-ID>, <CHILD-2-ID>, ...]` — the declared roster
+
+   Everything else (`status`, `created`, `project`, `priority`, `tags`, …) comes straight from the template — the template is the one place that list lives.
 
    The PRD is **not** a duplicate of the children's specs combined — it holds only feature-level content that applies across siblings: the original problem statement, feature-level acceptance criteria, cross-cutting constraints (a11y, perf, security applying to all children), the decomposition table, and discovery notes. Each child's spec narrows to its own slice.
 
@@ -298,16 +299,13 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
    **Scope**: broad exploration of areas relevant to the feature idea, shared across all children of this epic
    ```
 
-5. **Write each child spec** to `claudedocs/tickets/backlog/<EPIC-ID>/tasks/<CHILD-ID>/01-spec.md` using `templates/task.md`. Child frontmatter must include:
-   - `id: <CHILD-ID>`
-   - `title: <child title>` — the descriptive title assigned to this child in the Phase 3.5 decomposition table, never the bare `<CHILD-ID>`. This is what boards, flow's epic-walker progress display, and PR titles render.
+5. **Write each child spec** to `claudedocs/tickets/backlog/<EPIC-ID>/tasks/<CHILD-ID>/01-spec.md` using `templates/task.md`. **`templates/task.md` is the canonical task schema — fill in *every* frontmatter field it declares; do not restate or re-derive the standard field list here.** Because a child belongs to an epic, additionally uncomment and set the multi-sibling linkage block the template documents:
    - `parent: <EPIC-ID>`
-   - `epic: <epic-slug>`
-   - `siblings: [<other-CHILD-IDs>]` (informational; the others, not self)
-   - `blocked_by: [<CHILD-ID>, ...]` (omit if no blockers)
-   - `priority: <inherit from epic>`
-   - `complexity: <assessed per child>`
-   - `status: backlog`, `created`, `project`, `tags: <inherit from epic + child-specific>`
+   - `epic: <epic-slug>` — same slug as the parent and siblings
+   - `siblings: [<other-CHILD-IDs>]` — informational; the others, not self
+   - `blocked_by: [<CHILD-ID>, ...]` — omit if no blockers
+
+   As you fill the standard fields the template already lists, give them child-specific values: `title` (descriptive, from the Phase 3.5 decomposition table — never the bare `<CHILD-ID>`; this is what boards, flow's epic-walker progress, and PR titles render), `complexity` (assessed per child), and `priority`/`tags` (inherit from the epic, plus any child-specific tags).
 
    Child body follows `templates/task.md` standard sections, scoped to the child's slice. The "Description" should reference the parent (`See parent epic <EPIC-ID> for full context`) rather than restating it. "Out of Scope" should reference siblings by ID where relevant (`X is handled by <SIBLING-ID>`).
 
@@ -401,4 +399,4 @@ Standard flow — go through all phases.
 11. **Create the artifact(s), don't just discuss** — always end with concrete tickets on disk
 12. **Respect "enough"** — if the developer wants to move on, create the best ticket(s) you can
 13. **No implementation** — this skill discovers and documents, it does not code
-14. **Every ticket carries a descriptive `title`** — every solo spec, epic PRD, and child spec must have a human-readable `title` in frontmatter, never the bare `<ID>`. Boards, flow's epic-walker progress display, and PR-title construction all read it; a missing title degrades to rendering the raw ID. The templates declare `title` already — keep it when filling them in, and keep it in the field enumerations above.
+14. **`title` is descriptive, never the bare `<ID>`** — every template (`task.md`, `prd.md`) already declares `title`; when you fill the template, give it a human-readable title, not the ticket ID. This is a value-quality rule, not a schema-list to maintain — boards, flow's epic-walker progress, and PR-title construction all render the title, and a bare ID reads as a missing one.
