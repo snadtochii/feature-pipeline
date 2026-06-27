@@ -282,6 +282,7 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
 
 3. **Write the parent PRD** to `claudedocs/tickets/backlog/<EPIC-ID>/prd.md` using `templates/prd.md`. The PRD captures feature-level content — problem, goals, end-to-end user journey, cross-cutting constraints, decomposition table, discovery rationale. Frontmatter must include:
    - `id: <EPIC-ID>`
+   - `title: <epic title>` — the descriptive epic title (the one shown in the Phase 3.5 checkpoint header), never the bare `<EPIC-ID>`
    - `kind: epic` — **required**, marks this as non-pipelineable; `plan`/`build` will refuse to run against it
    - `epic: <epic-slug>`
    - `children: [<CHILD-1-ID>, <CHILD-2-ID>, ...]`
@@ -299,6 +300,7 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
 
 5. **Write each child spec** to `claudedocs/tickets/backlog/<EPIC-ID>/tasks/<CHILD-ID>/01-spec.md` using `templates/task.md`. Child frontmatter must include:
    - `id: <CHILD-ID>`
+   - `title: <child title>` — the descriptive title assigned to this child in the Phase 3.5 decomposition table, never the bare `<CHILD-ID>`. This is what boards, flow's epic-walker progress display, and PR titles render.
    - `parent: <EPIC-ID>`
    - `epic: <epic-slug>`
    - `siblings: [<other-CHILD-IDs>]` (informational; the others, not self)
@@ -399,3 +401,4 @@ Standard flow — go through all phases.
 11. **Create the artifact(s), don't just discuss** — always end with concrete tickets on disk
 12. **Respect "enough"** — if the developer wants to move on, create the best ticket(s) you can
 13. **No implementation** — this skill discovers and documents, it does not code
+14. **Every ticket carries a descriptive `title`** — every solo spec, epic PRD, and child spec must have a human-readable `title` in frontmatter, never the bare `<ID>`. Boards, flow's epic-walker progress display, and PR-title construction all read it; a missing title degrades to rendering the raw ID. The templates declare `title` already — keep it when filling them in, and keep it in the field enumerations above.
