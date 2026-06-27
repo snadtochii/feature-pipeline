@@ -305,7 +305,7 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
    - `siblings: [<other-CHILD-IDs>]` — informational; the others, not self
    - `blocked_by: [<CHILD-ID>, ...]` — omit if no blockers
 
-   As you fill the standard fields the template already lists, give them child-specific values: `title` (descriptive, from the Phase 3.5 decomposition table — never the bare `<CHILD-ID>`; this is what boards, flow's epic-walker progress, and PR titles render), `complexity` (assessed per child), and `priority`/`tags` (inherit from the epic, plus any child-specific tags).
+   As you fill the standard fields the template already lists, give them child-specific values: `id` (the `<CHILD-ID>` allocated in the *Generate ticket IDs* step above), `title` (descriptive, from the Phase 3.5 decomposition table — never the bare `<CHILD-ID>`; this is what boards, flow's epic-walker progress, and PR titles render), `complexity` (assessed per child), and `priority`/`tags` (inherit from the epic, plus any child-specific tags).
 
    Child body follows `templates/task.md` standard sections, scoped to the child's slice. The "Description" should reference the parent (`See parent epic <EPIC-ID> for full context`) rather than restating it. "Out of Scope" should reference siblings by ID where relevant (`X is handled by <SIBLING-ID>`).
 
