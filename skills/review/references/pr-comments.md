@@ -64,17 +64,20 @@ read -r OWNER REPO < <(gh repo view --json owner,name --jq '"\(.owner.login) \(.
 # Write every generated artifact to a PRIVATE temp dir, never the repo worktree — review is read-only
 # on repo code, and a fixed name in the cwd can clobber a user file and litter the tree. Auto-clean:
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
-# review runs with Bash only (no Write tool), so materialize the model-generated text injection-safely:
+# review runs with Bash only (no Write tool), so materialize the model-generated text injection-safely.
 #  1. Write the summary body (findings + footer + marker) via a QUOTED heredoc — the quoted delimiter
-#     disables ALL shell expansion, so backticks / $() / quotes are written literally. Choose a delimiter
-#     token that does NOT appear as a line in the body (you generate both — guarantee it; never rely on a
-#     fixed token the body could happen to contain):
-cat > "$WORK/review-body.md" <<'FP_REVIEW_BODY'
+#     disables ALL shell expansion, so backticks / $() / quotes are written literally. The delimiter MUST
+#     be a fresh per-invocation token you VERIFY is absent from the body before composing the heredoc
+#     (you author both lines and body — guarantee it; regenerate on the rare collision). NEVER a fixed
+#     sentinel a finding could legitimately contain on its own line — that would close the heredoc early
+#     and feed the remainder to the shell. Use a long random nonce (shown illustratively as
+#     __FP_BODY_<nonce>__ — pick and verify a new one each run, do not reuse this literal):
+cat > "$WORK/review-body.md" <<'__FP_BODY_3f9c1ad7e2__'
 <summary findings>
 
 _— 🔎 review (automated)_
 <!-- fp-review agent=<codex|claude> head=<SHA> -->
-FP_REVIEW_BODY
+__FP_BODY_3f9c1ad7e2__
 #  2. Build each line-anchored finding as JSON with jq (finding text rides as a --arg value,
 #     never shell-parsed), collect them into a JSON array $COMMENTS_JSON (default '[]'), e.g.:
 #       entry=$(jq -n --arg path "$p" --argjson line "$ln" --arg side RIGHT --arg body "$txt" \
@@ -89,22 +92,23 @@ gh api --method POST "repos/$OWNER/$REPO/pulls/<N>/reviews" --input "$WORK/paylo
 - `event` is **`COMMENT`** — never `APPROVE` or `REQUEST_CHANGES`. The skill comments; it never approves or requests changes.
 - The top-level `body` carries the summary findings, the §1 role footer, and the §2 hidden marker.
 - Each `comments[]` entry anchors a finding to `{path, line, side}` (`side: "RIGHT"` for the new version). Findings that aren't cleanly line-anchored go in the summary `body`, not the array.
-- **Multiple unanchored findings in one summary** must each get a **stable identity** so `address-review` can triage and reply to them individually (a consumer that treats a whole multi-finding summary as one item can only assign one verdict to several independent findings). Emit them as a numbered list, each finding led by a stable tag `**[F<k>]**` (k = 1, 2, …) on its own line; the consumer keys one triage item + one reply per `[F<k>]`. A summary with a single finding still works — it is just `[F1]`.
+- **Every finding in a summary gets a stable ordinal** so `address-review` can triage and reply to them individually (a consumer that treats a whole multi-finding summary as one item can only assign one verdict to several independent findings). Tag **each** finding `**[F<k>]**` (k = 1, 2, …) on its own line — on the Reviews-API path that is each unanchored finding; on the §5 fallback path it is **every** finding including the folded-in former-inline ones (`[F<k>] path:line — finding`), so a consumer that splits on `[F<k>]` drops none. The ordinal is unique only **within one summary**, so the consumer keys each finding by the **source review/comment id plus its ordinal** — `[F1]` in two different summaries are distinct. A single-finding summary is just `[F1]`.
 - Capture failure: if the Reviews-API call errors (including the self-review restriction below), fall back to §5.
 
 ## §5 Fallback — single issue comment (`gh pr comment`)
 
-When the Reviews API is unavailable or **GitHub blocks self-review** (the PR author and the posting `gh` identity are the same user — `event: COMMENT` reviews on your own PR can be rejected depending on repo/account settings), post the findings as one plain issue comment instead. Inline anchoring is lost; fold the line references into the body text (`path:line — finding`).
+When the Reviews API is unavailable or **GitHub blocks self-review** (the PR author and the posting `gh` identity are the same user — `event: COMMENT` reviews on your own PR can be rejected depending on repo/account settings), post the findings as one plain issue comment instead. Inline anchoring is lost; fold the line references into the body text, **each tagged with its ordinal** (`[F<k>] path:line — finding`) so the consumer drops none.
 
 ```bash
-# Same private workdir + body-unique quoted delimiter as §4 — never write to the repo worktree:
+# Same private workdir + verified-unique quoted delimiter as §4 (a fresh nonce, verified absent from the
+# body — never a fixed sentinel); never write to the repo worktree:
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
-cat > "$WORK/comment.md" <<'FP_REVIEW_COMMENT'
-<summary findings, with inline findings folded in as path:line references>
+cat > "$WORK/comment.md" <<'__FP_BODY_3f9c1ad7e2__'
+<summary findings — every finding tagged [F<k>], folded inline findings as [F<k>] path:line — finding>
 
 _— 🔎 review (automated)_
 <!-- fp-review agent=<codex|claude> head=<SHA> -->
-FP_REVIEW_COMMENT
+__FP_BODY_3f9c1ad7e2__
 gh pr comment "<N>" --body-file "$WORK/comment.md"
 ```
 
@@ -187,17 +191,25 @@ A thread is **already addressed** iff its replies contain `fp-address … head=<
 
 ### Posting the reply (anchor on the original comment id)
 
-Build each reply body as a file in a PRIVATE temp dir (`WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT` — never the repo worktree). `address-review` has the **Write tool**: write the reply body (the one-line note + the §1 footer + the `fp-address` marker) straight to `$WORK/reply.md` with Write — literal content, so no heredoc, no delimiter, and no shell parsing of the model-generated reason. Then post by **the kind of finding being answered**:
+The reply body is written by the **Write tool** and posted by Bash — **separate tool calls** — so the temp path must survive across them. A `WORK=$(mktemp -d)` with a `trap … EXIT` does **not**: the variable never reaches the Write call, and the dir is deleted the instant that first Bash call returns (the cross-tool-call shell-state trap — shell state is per-Bash-invocation). Instead, create the dir in one Bash call and **print its absolute path**, keep that **literal** path in agent state, pass it explicitly to Write and to every later `jq`/`gh` call, and clean up explicitly at the end:
+
+```bash
+d=$(mktemp -d); echo "$d"     # capture the printed literal path (e.g. /tmp/tmp.AbC123) and reuse it verbatim below
+```
+
+`address-review` has the **Write tool**: write each reply body (the one-line note + §1 footer + `fp-address` marker) to `<d>/reply.md` with Write — literal content, so no heredoc, no delimiter, no shell parsing of the model-generated reason. Then post by **the kind of finding being answered** (substitute the literal `<d>` captured above — never a `$WORK` that won't survive the next call):
 
 - **Inline review comment** (line-anchored — has a numeric review-comment `id`): post a threaded reply anchored to that id via the dedicated replies endpoint. Pass the body as a jq-built payload (never a `--body "…"` literal):
   ```bash
-  jq -n --rawfile body "$WORK/reply.md" '{body:$body}' > "$WORK/reply-payload.json"
-  gh api --method POST "repos/$OWNER/$REPO/pulls/<N>/comments/<COMMENT_ID>/replies" --input "$WORK/reply-payload.json"
+  jq -n --rawfile body "<d>/reply.md" '{body:$body}' > "<d>/reply-payload.json"
+  gh api --method POST "repos/$OWNER/$REPO/pulls/<N>/comments/<COMMENT_ID>/replies" --input "<d>/reply-payload.json"
   ```
   Equivalent form (same effect): `POST repos/$OWNER/$REPO/pulls/<N>/comments` with `{body, in_reply_to:<COMMENT_ID>}` as the payload. `<COMMENT_ID>` is the review comment's `id` from the fetch (a controlled integer).
-- **Summary finding** (a `[F<k>]` finding in the review body or the §5/§6 fallback issue comment — **not** line-anchored, so there is no inline thread to anchor to): post **one top-level issue comment per `[F<k>]` finding**, each carrying the same footer + marker and naming the `[F<k>]` it answers:
+- **Summary finding** (a `[F<k>]` finding in the review body or the §5/§6 fallback issue comment — **not** line-anchored, so there is no inline thread to anchor to): post **one top-level issue comment per `[F<k>]` finding**, each carrying the same footer + marker and naming the **source review/comment id + `[F<k>]`** it answers:
   ```bash
-  gh pr comment "<N>" --body-file "$WORK/summary-reply.md"
+  gh pr comment "<N>" --body-file "<d>/summary-reply.md"
   ```
+
+After all replies are posted, remove the dir explicitly (`rm -rf "<d>"`) — there is no EXIT trap to lean on across tool calls.
 
 **Injection discipline (mirror §7):** comment ids are controlled integers from the fetch; reply bodies ride in files (`--rawfile`/`--body-file`/`--input`), never a `--body "…"` literal — the triage reason is model-generated. Never `eval`; never interpolate finding or reason text into a command string.
