@@ -66,18 +66,24 @@ Capture `N` (the PR number, a controlled integer) and `HEAD_SHA` (`headRefOid`).
 Read **both** comment surfaces the review skill may have used (Reviews-API path vs. issue-comment fallback), per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §3–§6 and §9:
 
 ```bash
-# Inline review comments + their replies (each carries id, path, line, body, in_reply_to_id):
+# Inline review comments + their replies (each carries id, path, line, body, in_reply_to_id,
+# and pull_request_review_id — the REST numeric id of the review the comment belongs to):
 gh api "repos/$OWNER/$REPO/pulls/$N/comments" --paginate
-# Review summaries (Reviews-API path) + issue-level comments (fallback / empty-review / summary replies):
-gh pr view "$N" --json reviews,comments
+# Review summaries via REST, so the review `id` is the NUMERIC id the inline comments'
+# pull_request_review_id joins on (`gh pr view --json reviews` returns a GraphQL node id like
+# `PRR_…`, which does NOT match pull_request_review_id):
+gh api "repos/$OWNER/$REPO/pulls/$N/reviews" --paginate
+# Issue-level comments (fallback / empty-review / summary replies):
+gh pr view "$N" --json comments
 ```
 
 Then:
 
 - **Identify automated review findings.** A finding is review-produced when its source carries the §1 review footer (`🔎 review`) or the §2 marker (`fp-review`, or the legacy `codex-auto-review`). Three finding shapes exist, mirroring how review posts:
-  - **Inline review comment** — a line-anchored entry from `.../pulls/$N/comments` belonging to a review whose body carries the review marker (match by `pull_request_review_id`), OR any inline comment that itself carries the footer/marker. It has a numeric `id`, `path`, and `line` — repliable inline.
-  - **Summary (Reviews-API)** — a `reviews[]` entry whose `body` carries the footer/marker. Not line-anchored; its findings live in the body text.
-  - **Summary (fallback / empty-review)** — a `comments[]` issue comment whose `body` carries the footer/marker, with any inline findings folded in as `path:line` references. Not line-anchored.
+  - **Inline review comment** — a line-anchored entry from `.../pulls/$N/comments` belonging to a review whose body carries the review marker (join the inline comment's `pull_request_review_id` to the matching review `id` from `.../pulls/$N/reviews` — both REST numeric ids), OR any inline comment that itself carries the footer/marker. It has a numeric `id`, `path`, and `line` — repliable inline.
+  - **Summary (Reviews-API)** — a review entry (from `.../pulls/$N/reviews`) whose `body` carries the footer/marker. Not line-anchored; its findings live in the body text.
+  - **Summary (fallback)** — a `comments[]` issue comment whose `body` carries the footer/marker, with any inline findings folded in as `path:line` references. Not line-anchored.
+  - **Not a finding — skip it:** a §6 *empty-review* comment ("no blocking issues" — footer/marker but no findings) is the review reporting the PR is clean. It is **not** a triable thread — exclude it from the work set. If the only automated surface on the PR is an empty-review comment, there is nothing to address (the Step 2 "no un-addressed automated findings" exit applies).
 - **Group into threads.** Each inline comment is its own thread (anchored to its `id` + `path:line`). Each summary is one thread. Skip a comment that is itself an `fp-address` reply (its body carries the §9 reply marker) — never triage your own prior replies.
 - **Skip already-addressed threads (reply idempotency).** Per §9: a thread is already addressed at the current head iff its replies contain `fp-address … head=$HEAD_SHA`. Drop those from the work set so a re-run doesn't double-reply. (When the head moved since a prior address pass, the old `fp-address` marker no longer matches `$HEAD_SHA`, so the finding is re-addressed — correct, the code changed.)
 
@@ -94,7 +100,7 @@ This mirrors `ship`'s self-validation hop (ACCEPT/DISMISS with a one-line reason
 
 ### 4. Gate on mode
 
-- **Interactive (default).** Present the triage as a numbered list — one line per thread: `path:line` (or `summary`), the finding, the ACCEPT/DISMISS verdict, and the one-line reason. Then ask for an explicit **go-signal** before editing any code. The user may flip a verdict, edit a reason, or drop a thread before you proceed. Do **not** implement or post anything until the user says go.
+- **Interactive (default).** Present the triage as a numbered list — one line per thread: `path:line` (or `summary`), the finding, the ACCEPT/DISMISS verdict, and the one-line reason. Then ask for an explicit **go-signal** before editing any code. The user may flip a verdict, edit a reason, or drop a thread before you proceed. The go-signal authorizes **applying the fixes only** — posting the replies is a separate approval gate in Step 6; do not edit any code until the user says go.
 - **`--auto`.** Skip the per-finding gate entirely — proceed straight to Step 5 with the Step 3 verdicts. No interactive prompt, no approval pause. This is the unattended/loop path and must make no interactive-only assumption.
 
 ### 5. Apply fixes for ACCEPTed findings
@@ -108,7 +114,7 @@ DISMISSed findings make no code change.
 
 ### 6. Post signed replies
 
-Post one reply per thread, per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §9. In interactive mode, post **only after** the user approves (the go-signal from Step 4 covers fixing; confirm before posting if the user asked to review the replies first — otherwise the go-signal authorizes the round-trip). In `--auto`, post autonomously.
+Post one reply per thread, per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §9. In interactive mode this is a **second, separate gate** (AC8): the Step 4 go-signal authorized *applying the fixes* only — after fixing, present the drafted replies (one per thread, with its verdict and text) and post **only after** the user approves them. The user may edit a reply or hold one back before posting. In `--auto`, post autonomously with no gate.
 
 Each reply carries the §1 footer `_— 🛠️ addressed (automated)_` and the §9 hidden marker `<!-- fp-address agent=<codex|claude> head=$HEAD_SHA -->` (detect `agent` per §2: `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`). Reply content by verdict:
 
