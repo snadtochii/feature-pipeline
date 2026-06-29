@@ -61,6 +61,8 @@ read -r OWNER REPO < <(gh repo view --json owner,name --jq '"\(.owner.login) \(.
 
 Capture `N` (the PR number, a controlled integer) and `HEAD_SHA` (`headRefOid`). A `CLOSED`/`MERGED` PR → report "PR `#<N>` is `<state>` — nothing to address" and exit (don't post to a closed thread).
 
+**Bind the working tree to the PR before editing.** Resolving a PR by `$1` does not guarantee the local checkout is that PR's code. Capture the PR's head branch (`gh pr view "$N" --json headRefName --jq '.headRefName'`); the local `HEAD` MUST be that branch before Step 5 edits anything. If `git rev-parse --abbrev-ref HEAD` ≠ the PR head branch, check it out (`gh pr checkout "$N"`); if the tree is dirty or the head is a fork you can't check out, **STOP and report** rather than editing whatever happens to be checked out — otherwise `address-review 123` edits unrelated code and reports those changes against PR #123. (Auto-detect mode is already on the PR's branch, so this is a no-op there.)
+
 ### 2. Fetch and group the review findings (idempotency-aware)
 
 Read **both** comment surfaces the review skill may have used (Reviews-API path vs. issue-comment fallback), per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §3–§6 and §9:
@@ -81,10 +83,10 @@ Then:
 
 - **Identify automated review findings.** A finding is review-produced when its source carries the §1 review footer (`🔎 review`) or the §2 marker (`fp-review`, or the legacy `codex-auto-review`). Three finding shapes exist, mirroring how review posts:
   - **Inline review comment** — a line-anchored entry from `.../pulls/$N/comments` belonging to a review whose body carries the review marker (join the inline comment's `pull_request_review_id` to the matching review `id` from `.../pulls/$N/reviews` — both REST numeric ids), OR any inline comment that itself carries the footer/marker. It has a numeric `id`, `path`, and `line` — repliable inline.
-  - **Summary (Reviews-API)** — a review entry (from `.../pulls/$N/reviews`) whose `body` carries the footer/marker. Not line-anchored; its findings live in the body text.
-  - **Summary (fallback)** — a `comments[]` issue comment whose `body` carries the footer/marker, with any inline findings folded in as `path:line` references. Not line-anchored.
+  - **Summary (Reviews-API)** — a review entry (from `.../pulls/$N/reviews`) whose `body` carries the footer/marker. Not line-anchored; its findings live in the body text, and a summary may carry **several**, each tagged `[F<k>]` per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §4 — treat **each `[F<k>]` as its own finding**.
+  - **Summary (fallback)** — a `comments[]` issue comment whose `body` carries the footer/marker, with any inline findings folded in as `path:line` references and unanchored findings tagged `[F<k>]`. Not line-anchored; split it into one finding per `[F<k>]`.
   - **Not a finding — skip it:** a §6 *empty-review* comment ("no blocking issues" — footer/marker but no findings) is the review reporting the PR is clean. It is **not** a triable thread — exclude it from the work set. If the only automated surface on the PR is an empty-review comment, there is nothing to address (the Step 2 "no un-addressed automated findings" exit applies).
-- **Group into threads.** Each inline comment is its own thread (anchored to its `id` + `path:line`). Each summary is one thread. Skip a comment that is itself an `fp-address` reply (its body carries the §9 reply marker) — never triage your own prior replies.
+- **Group into threads.** Each inline comment is its own thread (anchored to its `id` + `path:line`). Each **`[F<k>]` finding within a summary is its own thread** (a single-finding summary is just `[F1]`), so Step 3 gives each its own ACCEPT/DISMISS verdict and Step 6 its own reply — never collapse a multi-finding summary into one verdict. Skip a comment that is itself an `fp-address` reply (its body carries the §9 reply marker) — never triage your own prior replies.
 - **Skip already-addressed threads (reply idempotency).** Per §9: a thread is already addressed at the current head iff its replies contain `fp-address … head=$HEAD_SHA`. Drop those from the work set so a re-run doesn't double-reply. (When the head moved since a prior address pass, the old `fp-address` marker no longer matches `$HEAD_SHA`, so the finding is re-addressed — correct, the code changed.)
 
 Build a TodoWrite item per surviving thread so the Step 7 summary is recoverable. If there are **no** un-addressed automated findings, report "No outstanding review comments to address on PR `#<N>` (current head)." and exit cleanly.
@@ -107,10 +109,12 @@ This mirrors `ship`'s self-validation hop (ACCEPT/DISMISS with a one-line reason
 
 Edit the repository code to apply each accepted fix, smallest change first, validating as you go:
 
-- **Validation after each edit** relies on the PostToolUse validation hook (`Write|Edit|MultiEdit|apply_patch`), with a **body-level lint/typecheck fallback** mirroring build's implement checkpoint: read the project `CLAUDE.md` for lint/typecheck commands (a `## Commands` / `## Validation` / `## Testing` section, or inline `npm run lint` / `pnpm test` / `cargo check` / `pytest` references) and run them via `Bash` after each meaningful change. If the project documents no commands, log one line ("No validation commands found in project CLAUDE.md — proceeding without skill-body validation") and continue.
+- **Validation after each edit** relies on the PostToolUse validation hook (`Write|Edit|MultiEdit|apply_patch`), with a **body-level lint/typecheck fallback** mirroring build's implement checkpoint: read the project instruction files for **both** runtimes — `CLAUDE.md` (Claude Code) **and** `AGENTS.md` (Codex) — for lint/typecheck commands (a `## Commands` / `## Validation` / `## Testing` section, or inline `npm run lint` / `pnpm test` / `cargo check` / `pytest` references), with a deterministic precedence (the current runtime's primary file first — `AGENTS.md` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not, else `CLAUDE.md` — then the other), and run them via `Bash` after each meaningful change. A Codex repo that documents its checks only in `AGENTS.md` must NOT be mistaken for "no commands". If neither file documents any, log one line ("No validation commands found in project CLAUDE.md/AGENTS.md — proceeding without skill-body validation") and continue.
 - **On a failing fix** (lint/typecheck won't pass, or the change can't be made cleanly): **report rather than silently proceed.** Mark that finding `fix-failed` with the error, leave its code reverted/untouched so the tree stays green, and downgrade its reply (Step 6) to a note that the finding was accepted but the fix could not be completed this pass. Do not post a "fixed" reply for a fix that didn't land.
 
 DISMISSed findings make no code change.
+
+**Publish the fixes to the PR before replying.** Step 6 must never claim a fix the PR doesn't contain. After the accepted fixes pass validation, commit them (subject `address-review: <pr-or-ticket-id>` — no `Co-Authored-By`, one concern) and push to the PR's **head branch** (resolved in Step 1). Only a finding whose fix is **pushed to the PR head** earns a `Fixed` reply; a fix validated locally but not pushed, or one that fix-failed, gets the pending/failed reply (Step 6), never `Fixed`. In `--auto` this commit + push is mandatory before any `Fixed` reply.
 
 ### 6. Post signed replies
 
@@ -122,7 +126,7 @@ Each reply carries the §1 footer `_— 🛠️ addressed (automated)_` and the 
 - **ACCEPTed + fix-failed** → a one-line note that the finding is valid but the fix couldn't land this pass, with the blocker.
 - **DISMISSed** → a one-line note explaining why it doesn't apply (stale / out of scope / false positive).
 
-Anchor by finding shape (§9): an **inline** review comment → a threaded reply to its review-comment `id` via `gh api … /pulls/$N/comments/<COMMENT_ID>/replies --input <payload>` (or the `in_reply_to` equivalent); a **summary** finding → one top-level `gh pr comment "$N" --body-file <file>`. Build every reply body in a file (QUOTED heredoc) and post via `--input`/`--body-file` — never a `--body "…"` literal, never `eval` (§7).
+Anchor by finding shape (§9): an **inline** review comment → a threaded reply to its review-comment `id` via `gh api … /pulls/$N/comments/<COMMENT_ID>/replies --input <payload>` (or the `in_reply_to` equivalent); a **summary `[F<k>]` finding** → one top-level `gh pr comment "$N" --body-file <file>` per finding, naming the `[F<k>]` it answers. Build every reply body with the **Write tool** in a private temp dir (`$WORK/…` from `mktemp -d`, never the repo worktree) and post via `--input`/`--body-file` — never a `--body "…"` literal, never `eval` (§7).
 
 ### 7. Report
 
