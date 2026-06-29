@@ -57,7 +57,7 @@ read -r OWNER REPO < <(gh repo view --json owner,name --jq '"\(.owner.login) \(.
 ```
 
 - **No `$1`** → auto-detect the current branch's PR: `gh pr view --json number,headRefOid,title,url,state`. `gh pr view` with no argument resolves the PR whose head is the current branch. If it doesn't resolve to an open PR, report "no open PR for the current branch — pass a PR number or URL" and exit.
-- **`$1` given** → accept a PR number or URL: `gh pr view "$1" --json number,headRefOid,title,url,state` resolves either form. If it doesn't resolve to an open PR, report "`$1` is not an open PR" and exit.
+- **`$1` given (number or URL)** → resolve it together with its repository: `gh pr view "$1" --json number,headRefOid,title,url,state`, then parse the owner/repo from the resolved `.url` and **require it to equal the current origin `$OWNER/$REPO`**. A PR **URL can name a different repository**, but every later lookup uses `$OWNER/$REPO` + the bare number — so a cross-repo `…/other/repo/pull/2` would silently validate/edit/reply against `$OWNER/$REPO` PR #2 (a different PR with the same number). If the repos differ, **STOP and report** ("PR `$1` is in `<owner/repo>`, not the current repo `$OWNER/$REPO` — run address-review from that repo's checkout"); never reduce the target to an unqualified number against the wrong repo. If it doesn't resolve to an open PR, report "`$1` is not an open PR" and exit.
 
 Capture `N` (the PR number, a controlled integer) and `HEAD_SHA` (`headRefOid`). A `CLOSED`/`MERGED` PR → report "PR `#<N>` is `<state>` — nothing to address" and exit (don't post to a closed thread).
 
