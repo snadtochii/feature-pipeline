@@ -45,6 +45,8 @@ feature-pipeline/
 │   ├── explore/             # Open-ended Socratic exploration; can promote to discover
 │   ├── debug/               # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
 │   ├── sync/                # Standalone — reconcile in-review tickets with GitHub PR state (not a pipeline stage)
+│   ├── review/              # Standalone — repo-scoped PR reviewer with shared comment rules + embedded rubric (not a pipeline stage)
+│   ├── address-review/      # Standalone — validate + address a PR's review comments, post signed replies (not a pipeline stage)
 │   ├── ship/                # Standalone — autonomous build→review→merge loop over a ticket or chain (not a pipeline stage)
 │   ├── plan/                # Stage 1 (pre-plan synthesis + plan design)
 │   └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
@@ -131,6 +133,8 @@ Typical budget per role, expressed as unordered tool sets. The build *skill* may
 | `build` (continuous loop) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for the 4 reviewer subagents at the review checkpoint and the ui-tester subagent at the test checkpoint; Write for `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md`) |
 | `debug` (standalone runtime debugger) | Read, Write, Edit, Glob, Grep, Bash, TodoWrite + additive-optional browser-capture MCP subset (Playwright/Chrome read/observe); no Task — this skill spawns no subagents |
 | `sync` (standalone PR reconciler) | Read, Glob, Grep, Bash, Edit, TodoWrite — `Bash` for `gh` PR-state reads + the Transition 6 folder `mv`, `Edit` for the `status` frontmatter flip; no `Task` — spawns no subagents |
+| `review` (standalone PR reviewer) | Read, Glob, Grep, Bash, TodoWrite — `Bash` for all `gh` PR reads/posts and label management; no `Task` (inline review for cross-platform/headless parity), no `Write`/`Edit` (never mutates the repo code it reviews), no MCP |
+| `address-review` (standalone PR feedback addresser) | Read, Write, Edit, Glob, Grep, Bash, TodoWrite — the mutating sibling of `review`: `Bash` for `gh` review-comment reads + signed reply posts, `Write`/`Edit` to apply accepted fixes (triggers the validation hook), `TodoWrite` to track threads; no `Task` (inline for cross-platform/headless parity), no MCP |
 | `ship` (standalone autonomous build→review→merge loop) | Read, Glob, Grep, Bash, TodoWrite, Task — `Task` to spawn the per-ticket implementer subagent, `Bash` for `git`/`gh`/test verification of each merge; orchestrates `feature:flow` + an independent reviewer and never edits ticket code itself |
 
 If you need a tool not in this table, add it explicitly and document why.
@@ -208,6 +212,8 @@ Not every stage runs as a subagent. The rule:
 | `build` (long interactive loop with implement/review/test checkpoints) | |
 | `debug` (interactive runtime-debugging loop; spawns no subagents) | |
 | `sync` (standalone PR reconciler; reads PR state via `gh`, performs Transition 6; spawns no subagents) | |
+| `review` (standalone repo-scoped PR reviewer; reads/posts PR state via `gh`; spawns no subagents) | |
+| `address-review` (standalone PR feedback addresser; reads/posts PR state via `gh`, edits code to apply accepted fixes; spawns no subagents) | |
 | `ship` (standalone autonomous build→review→merge orchestrator; spawns the per-ticket implementer subagent, never runs as one) | |
 
 **Rule:** run in main context only when you need *interactivity* or *plan mode*. Otherwise prefer a subagent — it keeps the main context clean.
@@ -301,7 +307,7 @@ Before committing changes to skills or agents:
 
 1. **Lint the frontmatter** — no angle brackets, no markdown in descriptions, valid YAML, every tool listed in `allowed-tools`/`tools` actually exists.
 2. **Check tool budget** against the table above — reviewers must not have write access.
-3. **Check invocation control** — skills that are only ever user-invoked (`debug`, `explore`, `sync`, `ship`) set `disable-model-invocation: true` (user-only; description not loaded into context). Skills invoked programmatically by another skill via the Skill tool (`flow`, `plan`, `build`, `discover`) stay model-invocable but carry a terse one-line description with no auto-trigger phrases.
+3. **Check invocation control** — skills that are only ever user-invoked (`debug`, `explore`, `sync`, `review`, `address-review`, `ship`) set `disable-model-invocation: true` (user-only; description not loaded into context). Skills invoked programmatically by another skill via the Skill tool (`flow`, `plan`, `build`, `discover`) stay model-invocable but carry a terse one-line description with no auto-trigger phrases.
 4. **Walk the stage contract in `skills/flow/SKILL.md`** — if you changed inputs/outputs, update the Stage Contract table *and* every consuming stage's `Required Input` section.
 5. **Sweep for cross-skill drift** — when a filename, skill name, or schema changes, grep across `skills/` and `agents/` for stale references and update them. The "Editing discipline" section below applies.
 6. **Build skill tool-budget audit** — grep `skills/build/SKILL.md` for any tool reference outside its `allowed-tools` (Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite). Should return no matches.

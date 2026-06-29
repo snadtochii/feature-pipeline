@@ -38,6 +38,9 @@ Orchestrates the full feature lifecycle through specialized AI agents. Under `/f
 | **Build** | `build` | code-reviewer + security-engineer + performance-engineer + code-architect (review checkpoint) + ui-tester (test checkpoint) | Loop with internal checkpoints | One continuous loop: implement → review (4 parallel reviewers) → test (UI/E2E via Playwright; skipped with `--no-ui-testing`). Validates after every edit, fixes failures in-context, exits with verdict `pass \| partial \| stuck` |
 | **Debug** *(standalone, reactive)* | `debug` | — (runs inline; optional Playwright/Chrome read tools) | Interactive | Runtime-evidence root-cause debugging: hypothesize → instrument → reproduce → analyze → fix (gated) → verify + strip; exits `fixed \| diagnosed-unfixed \| cannot-reproduce \| exhausted`. Invoked directly — not a pipeline stage |
 | **Sync** *(standalone)* | `sync` | — (runs inline; reads PR state via `gh`) | Manual | Reconcile in-review tickets with GitHub PR state: scan tickets by `status: in-review` (not just the `review/` folder — catches epic children whose subtree still sits in `in-progress/`), promote merged-PR tickets to `done/` (Transition 6), report open ones, flag closed-unmerged. Read-only on GitHub; invoked directly — not a pipeline stage |
+| **Review** *(standalone)* | `review` | — (runs inline; reads/posts PR state via `gh`) | Manual / loop | Repo-scoped, PR-coupled (no ticket): enumerate open PRs, skip any whose current head SHA was already reviewed, apply an embedded maintainability rubric, post inline + summary findings (or a signed "no blocking issues" comment when clean), and manage the model-neutral `auto-reviewed` label. Never approves or mutates repo code; subagent-free + MCP-free (headless/Codex-safe); invoked directly — not a pipeline stage |
+| **Address-review** *(standalone)* | `address-review` | — (runs inline; reads/posts PR state via `gh`, edits code to fix) | Manual / loop | PR-coupled (no ticket): fetch a PR's inline + summary review comments (from `review`), validate each finding (ACCEPT real / DISMISS wrong, one-line reason), fix the accepted ones, and post signed `🛠️ addressed (automated)` replies anchored to each comment. Interactive by default (triage → go → reply on approval); `--auto` for the unattended/loop path. Edits code (triggers the validation hook) but never approves, merges, or closes; subagent-free + MCP-free (headless/Codex-safe); invoked directly — not a pipeline stage |
+| **Ship** *(standalone)* | `ship` | implementer + independent reviewer subagents | Manual | Autonomous build → independent review → merge loop over a ticket or `blocked_by` chain. Each ticket: an implementer subagent runs `/feature:flow --pr --no-ui-testing`, an independent reviewer posts findings, the implementer addresses + squash-merges. A chain/epic merges per-ticket PRs into an `integration/<epic-id>` branch and opens (never merges) a final integration→main PR for human review. Invoked directly — not a pipeline stage |
 
 ### Human Gates
 
@@ -272,6 +275,15 @@ feature-pipeline/
 │   ├── debug/              # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
 │   │   └── SKILL.md
 │   ├── sync/               # Standalone — reconcile in-review tickets with GitHub PR state (not a pipeline stage)
+│   │   └── SKILL.md
+│   ├── review/             # Standalone — repo-scoped PR reviewer with shared comment rules + embedded rubric (not a pipeline stage)
+│   │   ├── SKILL.md
+│   │   └── references/
+│   │       ├── pr-comments.md        # shared comment contract (role footer, hidden markers, empty-review, post + reply gh patterns)
+│   │       └── review-rubric.md      # embedded maintainability rubric applied to every PR
+│   ├── address-review/     # Standalone — validate + address a PR's review comments, post signed replies (not a pipeline stage)
+│   │   └── SKILL.md         # consumes ../review/references/pr-comments.md for the reply contract
+│   ├── ship/               # Standalone — autonomous build → review → merge loop over a ticket or chain (not a pipeline stage)
 │   │   └── SKILL.md
 │   ├── plan/               # Stage 1 — pre-plan synthesis + plan design (interactive plan mode standalone, non-interactive under flow)
 │   │   └── SKILL.md
