@@ -61,9 +61,24 @@ The summary comment and all line-anchored inline comments must be **one logical 
 ```bash
 # OWNER/REPO from the repo, not interpolated free-text:
 read -r OWNER REPO < <(gh repo view --json owner,name --jq '"\(.owner.login) \(.name)"')
-# Build payload.json with: event=COMMENT, a body carrying the footer + hidden marker,
-# and a comments[] array of {path, line, side, body} for each line-anchored finding.
-# (Write the file with the Write tool or jq — not a heredoc with interpolated finding text.)
+# review runs with Bash only (no Write tool), so materialize the model-generated text injection-safely:
+#  1. Write the summary body (findings + footer + marker) via a QUOTED heredoc — the quoted
+#     'BODY_EOF' delimiter disables ALL shell expansion, so backticks / $() / quotes in the
+#     model-generated body are written literally, never evaluated:
+cat > review-body.md <<'BODY_EOF'
+<summary findings>
+
+_— 🔎 review (automated)_
+<!-- fp-review agent=<codex|claude> head=<SHA> -->
+BODY_EOF
+#  2. Build each line-anchored finding as JSON with jq (finding text rides as a --arg value,
+#     never shell-parsed), collect them into a JSON array $COMMENTS_JSON (default '[]'), e.g.:
+#       entry=$(jq -n --arg path "$p" --argjson line "$ln" --arg side RIGHT --arg body "$txt" \
+#                 '{path:$path, line:$line, side:$side, body:$body}')
+#  3. Assemble payload.json with jq, passing body + comments as DATA (--rawfile / --argjson),
+#     so nothing model-generated is ever parsed by the shell:
+jq -n --rawfile body review-body.md --argjson comments "${COMMENTS_JSON:-[]}" \
+  '{event:"COMMENT", body:$body, comments:$comments}' > payload.json
 gh api --method POST "repos/$OWNER/$REPO/pulls/<N>/reviews" --input payload.json
 ```
 
@@ -77,6 +92,13 @@ gh api --method POST "repos/$OWNER/$REPO/pulls/<N>/reviews" --input payload.json
 When the Reviews API is unavailable or **GitHub blocks self-review** (the PR author and the posting `gh` identity are the same user — `event: COMMENT` reviews on your own PR can be rejected depending on repo/account settings), post the findings as one plain issue comment instead. Inline anchoring is lost; fold the line references into the body text (`path:line — finding`).
 
 ```bash
+# Create comment.md the same injection-safe way as §4 — a QUOTED heredoc (no shell expansion of the body):
+cat > comment.md <<'COMMENT_EOF'
+<summary findings, with inline findings folded in as path:line references>
+
+_— 🔎 review (automated)_
+<!-- fp-review agent=<codex|claude> head=<SHA> -->
+COMMENT_EOF
 gh pr comment "<N>" --body-file comment.md
 ```
 
@@ -117,11 +139,14 @@ A coarse, model-neutral signal that a PR has been auto-reviewed at *some* head; 
 ```bash
 # Ensure it exists (idempotent — ignore "already exists"):
 gh label create auto-reviewed --description "Auto-reviewed by feature:review" --color BFD4F2 2>/dev/null || true
-# First review at a head: add it.
+# First review at a head: add it (idempotent — a no-op if already present).
 gh pr edit "<N>" --add-label auto-reviewed
-# Head moved since the last review (label present, no current-SHA marker): remove then re-add after posting,
-# so the label always reflects the latest reviewed head.
-gh pr edit "<N>" --remove-label auto-reviewed && gh pr edit "<N>" --add-label auto-reviewed
+# Head moved since the last review (label present, no current-SHA marker): refresh the label.
+# Run the remove best-effort and the add as a SEPARATE, ALWAYS-run statement, so a failed add after a
+# successful remove can never leave the PR label-less. The hidden marker (§2) — not the label — is the
+# authoritative per-head idempotency key; the label is only a coarse "auto-reviewed at some head" signal.
+gh pr edit "<N>" --remove-label auto-reviewed 2>/dev/null || true
+gh pr edit "<N>" --add-label auto-reviewed
 ```
 
 Recognize the legacy `codex-reviewed` label as equivalent on first switchover (§2); new runs write only `auto-reviewed`.

@@ -47,9 +47,9 @@ Review reads and posts PR state via `gh`. Before any work, check — in order; o
 
 ### 1. Enumerate the PRs to review
 
-- **All (no arg)**: list open PRs and their current head SHAs:
+- **All (no arg)**: list open PRs and their current head SHAs (`--limit` is required — `gh pr list` caps at 30 by default, which would silently drop the overflow on busy repos):
   ```bash
-  gh pr list --state open --json number,headRefOid,title,isDraft
+  gh pr list --state open --limit 200 --json number,headRefOid,title,isDraft
   ```
   Review every open PR (drafts included — the external loop reviews everything unreviewed). An empty list → "No open PRs." and exit cleanly.
 - **Single (`$1` given)**: accept a PR number or URL. `gh pr view "$1" --json number,headRefOid,title` resolves either form. If it doesn't resolve to an open PR, report "`$1` is not an open PR" and exit.
