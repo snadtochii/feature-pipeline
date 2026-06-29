@@ -150,3 +150,54 @@ gh pr edit "<N>" --add-label auto-reviewed
 ```
 
 Recognize the legacy `codex-reviewed` label as equivalent on first switchover (§2); new runs write only `auto-reviewed`.
+
+## §9 Reply to a review finding (the `address-review` side)
+
+`feature:address-review` consumes everything above to *read* a review, then posts one signed **reply** per finding it triaged. Replies reuse the §1 role footer for the address role and carry their own hidden marker so a re-run can tell which findings it already answered.
+
+- **Footer (reuse §1, do not redefine):** every reply ends with `_— 🛠️ addressed (automated)_` on its own last line — the address role's §1 footer. Footer **presence** still distinguishes an agent reply from the author's own manual note.
+- **Reply marker:**
+  ```
+  <!-- fp-address agent=<codex|claude> head=<SHA> -->
+  ```
+  - `head=<SHA>` is **load-bearing** — the full current head SHA of the PR at address time (`gh pr view <N> --json headRefOid --jq '.headRefOid'`). It keys reply idempotency: a finding is "already addressed" only when its thread already carries an `fp-address` reply for the **current** head SHA. When new commits land (head moves), a prior reply no longer matches and the finding is addressed again.
+  - `agent=<codex|claude>` is **informational** — the runtime that posted, detected exactly as §2 (`agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`). It never gates idempotency — only `head` does.
+
+Both ACCEPTed findings (reply notes the fix) and DISMISSed findings (reply explains why it doesn't apply) get a signed reply in this exact shape.
+
+### Reply idempotency scan
+
+Before replying, read the PR's existing reply surfaces and skip any finding whose thread already carries an `fp-address` marker at the current head SHA. Review comments (inline + their replies) come from the Pulls API; summary replies are issue comments:
+
+```bash
+HEAD_SHA=$(gh pr view "<N>" --json headRefOid --jq '.headRefOid')
+# Inline review comments + their replies (each carries id + in_reply_to_id):
+gh api "repos/$OWNER/$REPO/pulls/<N>/comments" --paginate
+# Issue-level comments (summary replies land here):
+gh pr view "<N>" --json comments --jq '.comments[].body'
+```
+
+A thread is **already addressed** iff its replies contain `fp-address … head=<HEAD_SHA>`. `<N>` is a controlled integer; `HEAD_SHA`/`OWNER`/`REPO` load via command substitution — never interpolate free text (§7).
+
+### Posting the reply (anchor on the original comment id)
+
+Build the reply body as a file the same injection-safe way as §4 (a QUOTED heredoc disables all shell expansion of the model-generated reason text), then post by **the kind of finding being answered**:
+
+- **Inline review comment** (line-anchored — has a numeric review-comment `id`): post a threaded reply anchored to that id via the dedicated replies endpoint. Pass the body as a jq-built payload (never a `--body "…"` literal):
+  ```bash
+  cat > reply.md <<'REPLY_EOF'
+  <one-line ACCEPT-fixed / DISMISS-why note>
+
+  _— 🛠️ addressed (automated)_
+  <!-- fp-address agent=<codex|claude> head=<SHA> -->
+  REPLY_EOF
+  jq -n --rawfile body reply.md '{body:$body}' > reply-payload.json
+  gh api --method POST "repos/$OWNER/$REPO/pulls/<N>/comments/<COMMENT_ID>/replies" --input reply-payload.json
+  ```
+  Equivalent form (same effect): `POST repos/$OWNER/$REPO/pulls/<N>/comments` with `{body, in_reply_to:<COMMENT_ID>}` as the payload. `<COMMENT_ID>` is the review comment's `id` from the §9 fetch (a controlled integer).
+- **Summary finding** (the review body or the §5/§6 fallback issue comment — **not** line-anchored, so there is no inline thread to anchor to): post one top-level issue comment carrying the same footer + marker:
+  ```bash
+  gh pr comment "<N>" --body-file summary-reply.md
+  ```
+
+**Injection discipline (mirror §7):** comment ids are controlled integers from the fetch; reply bodies ride in files (`--rawfile`/`--body-file`/`--input`), never a `--body "…"` literal — the triage reason is model-generated. Never `eval`; never interpolate finding or reason text into a command string.
