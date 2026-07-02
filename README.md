@@ -7,10 +7,10 @@ A Claude Code and Codex plugin that provides an agentic feature development pipe
 Orchestrates the full feature lifecycle through specialized AI agents. Under `/flow` the only stop is build's verdict gate at completion — plan runs non-interactively, so there's no plan-mode prompt mid-pipeline; run `/plan` on its own and you get interactive plan mode with its own gate:
 
 ```
-[/explore →] /discover → ticket(s) → /flow → plan → build → done
+/discover → ticket(s) → /flow → plan → build → done
 ```
 
-`/explore` is an optional precursor for outcome-uncommitted ideas; `/discover` is the entry point when you already know you want a ticket. Build is one continuous loop — implement, review, and test happen as internal checkpoints with fixes applied in-context, exiting with verdict `pass | partial | stuck`.
+`/discover` is the entry point — for outcome-uncommitted ideas it starts in exploration mode (one probing question at a time, with a recommended answer per question) and only creates tickets once you commit; pass `--explore` to force that mode for an idea you want challenged regardless of how well-formed it is. Build is one continuous loop — implement, review, and test happen as internal checkpoints with fixes applied in-context, exiting with verdict `pass | partial | stuck`.
 
 ```
                  plan → build → done
@@ -32,8 +32,7 @@ Orchestrates the full feature lifecycle through specialized AI agents. Under `/f
 
 | Stage | Skill | Agent(s) | Execution | What Happens |
 |-------|-------|----------|-----------|-------------|
-| **Explore** *(optional pre-pipeline)* | `explore` | — (uses Read/Grep/Glob inline) | Interactive | Open-ended Socratic exploration of an unformed idea; ends by leaving, saving as a note, or promoting to `/discover` |
-| **Discover** | `discover` | code-explorer | Interactive | Socratic requirements discovery → creates 1 ticket, or N sibling tickets under an epic when scope splits |
+| **Discover** | `discover` | code-explorer | Interactive | Socratic requirements discovery → creates 1 ticket, or N sibling tickets under an epic when scope splits; starts in exploration mode for outcome-uncommitted ideas and may end without a ticket |
 | **Plan** | `plan` | code-explorer + requirements-analyst (Phase 1 subagents) | Interactive standalone / non-interactive under flow | Pre-plan synthesis (codebase patterns + open questions), then plan design — interactive plan mode standalone, or non-interactive when flow runs it with `--auto` |
 | **Build** | `build` | code-reviewer + security-engineer + performance-engineer + code-architect (review checkpoint) + ui-tester (test checkpoint) | Loop with internal checkpoints | One continuous loop: implement → review (4 parallel reviewers) → test (UI/E2E via Playwright; skipped with `--no-ui-testing`). Validates after every edit, fixes failures in-context, exits with verdict `pass \| partial \| stuck` |
 | **Debug** *(standalone, reactive)* | `debug` | — (runs inline; optional Playwright/Chrome read tools) | Interactive | Runtime-evidence root-cause debugging: hypothesize → instrument → reproduce → analyze → fix (gated) → verify + strip; exits `fixed \| diagnosed-unfixed \| cannot-reproduce \| exhausted`. Invoked directly — not a pipeline stage |
@@ -44,7 +43,7 @@ Orchestrates the full feature lifecycle through specialized AI agents. Under `/f
 
 ### Human Gates
 
-Under `/flow`, the single gate is build's verdict gate (the user reviews the verdict and either accepts on `pass`, picks `accept-as-partial / continue-with-hint / abort` on `partial`, or picks the same options on `stuck`) — plan runs non-interactively, so it adds no gate, though it can pause once if the plan hits an open question with no safe default or a complexity overflow (and, when `--visual` is passed, for the plan-review surface). Run `/plan` standalone and it adds its own interactive plan-mode gate (the user refines the plan and exits when satisfied). No iteration budgets — the build loop self-monitors for stuck patterns and a 25-turn ceiling, then surfaces the gate.
+Under `/flow`, the single gate is build's verdict gate (the user reviews the verdict and either accepts on `pass`, picks `accept-as-partial / continue-with-hint / abort` on `partial`, or picks the same options on `stuck`) — plan runs non-interactively, so it adds no gate, though it can pause once if the plan hits an open question with no safe default or a complexity overflow. Run `/plan` standalone and it adds its own interactive plan-mode gate (the user refines the plan and exits when satisfied). No iteration budgets — the build loop self-monitors for stuck patterns and a 25-turn ceiling, then surfaces the gate.
 
 ### Modular Architecture
 
@@ -91,7 +90,6 @@ codex plugin marketplace add /path/to/feature-pipeline
 
 ```bash
 /feature:discover
-/feature:explore
 /feature:debug
 /feature:plan
 /feature:build
@@ -108,26 +106,11 @@ plugin_hooks = true
 
 ## Usage
 
-### Optional Step 0a: Explore an Idea First
-
-If your idea isn't yet outcome-committed — you don't know whether to build it, what scope it has, or what shape it should take — start with `/explore`:
-
-```bash
-/feature:explore I'm thinking about reworking how rate limiting works
-```
-
-`/explore` is open-ended Socratic dialogue. The agent asks probing questions one at a time (with a recommended answer per question), grounds in the codebase only when relevant, and ends however you want:
-
-- **Leave** — no artifact, just shared understanding.
-- **Save as a note** — `/explore` doesn't write notes itself. If you have a note-saving skill or workflow installed separately, signal it (e.g., "note this", "save the session") and it picks up the conversation directly.
-- **Promote to a ticket** — say "make this a ticket" and `/explore` hands the conversation to `/feature:discover`, which runs its full flow including codebase exploration but only asks gap questions you haven't already covered.
-
-Use `/explore` when the outcome is uncommitted. Use `/discover` directly when you already know you want a ticket.
-
 ### Step 0: Discover & Create a Ticket
 
 ```bash
 /feature:discover I want to add dark mode to the app --project my-app
+/feature:discover --explore Reworking rate limiting — challenge this before I commit to a ticket
 ```
 
 `/discover` runs interactive requirements discovery and produces ticket folders in `claudedocs/tickets/backlog/`. The output depends on scope:
@@ -144,7 +127,6 @@ You see and approve the proposal before tickets are created.
 /feature:flow BL-1 --ignore-blockers     # bypass blocker validation (use with care)
 /feature:flow BL-1 --pr                  # on pass, open a GitHub PR and land the ticket in review/
 /feature:flow BL-1 --pr --no-ui-testing  # skip the browser checkpoint (headless-safe), still open a PR
-/feature:flow BL-1 --visual              # render an HTML plan-review surface, pause for review before build
 /feature:flow EPIC-1                     # epic: walks children in blocked_by topological order
 ```
 
@@ -157,10 +139,6 @@ By default a passing build stops at the verdict gate and asks whether to commit.
 #### Skip browser testing (`--no-ui-testing`)
 
 Build's test checkpoint verifies UI tickets in a real browser via the `ui-tester` subagent (Playwright/Chrome MCP), which needs interactive MCP permission. That permission isn't available in a non-interactive/headless run (e.g. `claude -p`), so a UI ticket can stall at the browser checkpoint. Pass `--no-ui-testing` to skip **only** the browser/ui-tester portion of the test checkpoint — non-browser verification (your `validate.lint`/`validate.typecheck` checks) still runs and still gates the verdict. `05-tests.md` records that browser testing was skipped by flag (not "passed"), so the verdict and any PR stay honest about what was verified; browser-level verification then falls to a human at PR review. The flag propagates `flow → build` and, in epic-mode, is forwarded to every child. Without it, behaviour is unchanged. Note: a flag-skipped `pass` finalizes the ticket as complete, so browser verification belongs to PR review — a later plain `/feature:build` re-run will see the completed run, not re-open the browser checkpoint.
-
-#### Visual plan review (`--visual`)
-
-By default a plan is reviewed as Markdown (in plan mode when run standalone, or not at all under flow's non-blocking handoff). With `--visual`, after `02-plan.md` is written the plan stage also generates `02-plan.html` — a self-contained HTML review surface (architecture diagram, file-change map, steps, open questions, and trade-offs side-by-side) you open in a browser. It needs no build step and no install; diagrams load from a CDN at view time and the page stays readable when offline. You review it, then paste edits or `-> note` marks back; the stage folds them into `02-plan.md` (the source of truth) and regenerates the HTML. Markdown stays canonical — `build` only ever reads `02-plan.md`, never the HTML. The flag propagates `flow → plan` and, in epic-mode, is forwarded to every child; the derived `02-plan.html` is gitignored so it never lands in a PR. On a resumed run (the plan already exists, so flow would normally skip plan), `--visual` triggers a visual-only refresh + review gate before build rather than being silently skipped. Without it, behaviour is unchanged.
 
 Resumption is auto-detected from the artifacts on disk — flow skips plan when `02-plan.md` exists, build picks up at the right checkpoint based on which of `03-`/`04-`/`05-` is present, and a completed run (`06-summary.md` with `pass`) is reported as "already complete." To start fresh against a partially-run ticket, delete the relevant artifacts before invoking flow.
 
@@ -204,7 +182,6 @@ claudedocs/tickets/<state>/BL-1/
 ├── 01-spec.md              # The ticket — frontmatter (id, title, priority, complexity, status, project, tags) + spec body
 ├── exploration.md          # Discover-time codebase exploration (optional)
 ├── 02-plan.md              # plan — implementation blueprint (includes Codebase Context + Open Questions Resolved sections)
-├── 02-plan.html            # plan — derived HTML review surface (only on --visual runs; a view of 02-plan.md)
 ├── 03-implementation.md    # build — implementation summary + validation results (live, updated per plan step)
 ├── 04-review.md            # build — merged review findings (4 reviewer subagents)
 ├── 05-tests.md             # build — UI test results, skip artifact, or Failed Criteria section
@@ -221,7 +198,6 @@ claudedocs/tickets/<state>/BL-1/        # epic folder; <state> follows the most-
     ├── BL-2/                           # child ticket folder — same internal structure as a solo ticket
     │   ├── 01-spec.md                  # frontmatter: parent: BL-1, epic: <slug>, siblings: [...], blocked_by: [...] (optional)
     │   ├── 02-plan.md
-    │   ├── 02-plan.html                # only on --visual runs (derived view of 02-plan.md)
     │   ├── 03-implementation.md
     │   ├── 04-review.md
     │   ├── 05-tests.md
@@ -270,8 +246,6 @@ feature-pipeline/
 │   │   └── templates/
 │   │       ├── task.md     # Solo + child ticket spec template
 │   │       └── prd.md      # Epic PRD template
-│   ├── explore/            # Optional Step 0a — outcome-uncommitted idea exploration
-│   │   └── SKILL.md
 │   ├── debug/              # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
 │   │   └── SKILL.md
 │   ├── sync/               # Standalone — reconcile in-review tickets with GitHub PR state (not a pipeline stage)

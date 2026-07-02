@@ -16,7 +16,7 @@ argument-hint: "[ticket-id]"
 
 Scan every ticket whose `status` is `in-review` (by frontmatter — not just the ones sitting in `review/`, since an epic child can be `in-review` while its subtree is still in `in-progress/`) and check each PR's merge state on GitHub. **Merged** → finalize the ticket to `done/` (Transition 6). **Open** → report it. **Closed-unmerged** → flag it for your attention. Report everything at the end.
 
-**This skill runs in the main conversation, standalone** — a peer of `/feature:discover`, `/feature:explore`, and `/feature:debug`, **not a pipeline stage**. It spawns no subagents. Unlike the other standalone skills, sync *does* perform a state transition — but only the safe, terminal merge finalization (Transition 6: a merged ticket's `in-review → done`) on a confirmed-merged PR.
+**This skill runs in the main conversation, standalone** — a peer of `/feature:discover` and `/feature:debug`, **not a pipeline stage**. It spawns no subagents. Unlike the other standalone skills, sync *does* perform a state transition — but only the safe, terminal merge finalization (Transition 6: a merged ticket's `in-review → done`) on a confirmed-merged PR.
 
 Run it **manually** to finalize merged reviews in one pass. Sync is **stateless** — each run is a fresh scan.
 

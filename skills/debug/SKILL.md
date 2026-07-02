@@ -23,7 +23,7 @@ argument-hint: "[bug description | failing-test command | stack trace] [ticket-i
 
 Reactive, runtime-evidence root-cause debugger. The deliverable is a verified, minimal fix — runtime evidence over reading code.
 
-Use when a bug resists static reasoning: race conditions, wrong runtime values, intermittent or environment-specific failures, a test that fails for reasons the code doesn't reveal. This skill instruments the suspect code with temporary logging, has the bug reproduced for real, reads what actually happened, fixes the root cause behind a confirmation gate, and strips every probe so you ship a clean diff. It is a standalone skill — a peer of `/feature:discover` and `/feature:explore`, **not** a pipeline stage. If you want a new feature, use `/feature:discover`. If you want a static read of a diff, that's build's review checkpoint.
+Use when a bug resists static reasoning: race conditions, wrong runtime values, intermittent or environment-specific failures, a test that fails for reasons the code doesn't reveal. This skill instruments the suspect code with temporary logging, has the bug reproduced for real, reads what actually happened, fixes the root cause behind a confirmation gate, and strips every probe so you ship a clean diff. It is a standalone skill — a peer of `/feature:discover`, **not** a pipeline stage. If you want a new feature, use `/feature:discover`. If you want a static read of a diff, that's build's review checkpoint.
 
 ## Arguments
 

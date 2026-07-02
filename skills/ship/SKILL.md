@@ -29,9 +29,7 @@ The orchestrator (this skill, in the main conversation) drives the **outer loop*
 
 **Environment requirement (applies to all of `ship`).** The orchestrator delegates building to an **implementer subagent**, and that implementer runs `feature:flow → build`, which itself spawns build's four reviewer subagents from within. So `ship` needs a harness where a **subagent can spawn subagents** and you can observe async agents — it was developed and proven in such a harness. In a vanilla single-level-subagent setup (a subagent has no `Task`), you can't delegate build to a subagent: run `/feature:flow <id> --pr` yourself in the main conversation and merge by hand instead of using `ship`.
 
-Given that requirement, `ship`'s own independent-reviewer hop has two arrangements.
-
-**Flat (recommended).** The orchestrator spawns each role directly — implementer, then the independent reviewer as its sibling, then an implementer to address + merge. One fewer level of nesting, and the orchestrator can observe and recover each hop. Per ticket, in `blocked_by` order:
+Given that requirement, the orchestrator spawns each role directly — implementer, then the independent reviewer as its sibling, then an implementer to address + merge. The tree stays shallow and the orchestrator can observe and recover each hop. Per ticket, in `blocked_by` order:
 
 ```
 orchestrator (main)
@@ -44,9 +42,7 @@ orchestrator (main)
   └─ after all tickets: open integration→main PR (do NOT merge — human gate)
 ```
 
-**Nested.** The Step 1 implementer also spawns the independent reviewer itself (`Task → reviewer`) and merges in one continuous brief — one fewer orchestrator round-trip, at the cost of a deeper tree and a stall risk in flow's parallel-review phase (see Fragility & recovery). This is the shape `ship` was first developed in.
-
-Roles stay separated in both shapes: the implementer owns build + fix + merge authority; the reviewer is independent and adversarial. The orchestrator **independently verifies every merge** — do not trust the implementer's self-report; pull the base branch and run the checks yourself.
+Roles stay separated: the implementer owns build + fix + merge authority; the reviewer is independent and adversarial. The orchestrator **independently verifies every merge** — do not trust the implementer's self-report; pull the base branch and run the checks yourself.
 
 ## Arguments
 
@@ -84,14 +80,14 @@ Roles stay separated in both shapes: the implementer owns build + fix + merge au
 4. TodoWrite one item per ticket.
 
 ### PER TICKET (loop)
-Each ticket runs three roles — **implementer → independent reviewer → implementer (address + merge)**. In the **flat (recommended)** arrangement the orchestrator spawns each as its own `Task` (implementer for Step 1, reviewer for Step 2, implementer for Step 3); in the **nested** arrangement one implementer subagent runs Steps 1–3 and spawns the reviewer itself at Step 2. Either way, spawn full-tool subagents (implementer subagent_type e.g. `claude`; reviewer `general-purpose`) with **self-contained briefs** — subagents do **not** share your context. Every brief must carry:
+Each ticket runs three roles — **implementer → independent reviewer → implementer (address + merge)** — and the orchestrator spawns each as its own `Task` (implementer for Step 1, reviewer for Step 2, implementer for Step 3). Spawn full-tool subagents (implementer subagent_type e.g. `claude`; reviewer `general-purpose`) with **self-contained briefs** — subagents do **not** share your context. Every brief must carry:
 
 - **Role + full autonomy** (no per-ticket human gate; decide and record reasoning).
 - **Repo path + ticket identity**, including whether it's an epic child and its spec path (`claudedocs/tickets/<state>/<EPIC>/tasks/<ID>/01-spec.md`).
 - **Base branch** = `<BASE_BRANCH>` (the integration branch for a chain, else `main`). Cut the feature branch from `<BASE_BRANCH>`, and target the PR at it.
 - **Project conventions that override harness defaults** — for feature-pipeline repos: commit subject `<ID>: <imperative>`, **no `Co-Authored-By` trailer**, one concern per commit; plus any boundary rules from CLAUDE.md (e.g. this app's server/client `node:*` boundary).
 - **Step 1 — Build:** invoke `Skill feature:flow` with args `<ID> --pr --no-ui-testing`. Ensure the PR's base is `<BASE_BRANCH>` — if `flow --pr` opened it against `main`, retarget with `gh pr edit <n> --base <BASE_BRANCH>`. Then independently run `npm run typecheck` and the spec's verification tests; fix anything red.
-- **Step 2 — Independent review:** spawn ONE reviewer subagent (`general-purpose`) using the reviewer prompt below, with the real PR number — the orchestrator spawns it in flat mode, the implementer spawns it in nested mode. The reviewer gets the spec path + PR diff + neutral instructions only — **never** the implementer's justifications.
+- **Step 2 — Independent review:** the orchestrator spawns ONE reviewer subagent (`general-purpose`) using the reviewer prompt below, with the real PR number. The reviewer gets the spec path + PR diff + neutral instructions only — **never** the implementer's justifications.
 - **Step 3 — Address + merge:** read the actually-posted review (`gh pr view <n> --comments`), validate each finding (ACCEPT real / DISMISS wrong, one-line reason each), fix accepted ones per conventions, push, re-run typecheck + tests (must be green), `gh pr merge <n> --squash --delete-branch` (merges into `<BASE_BRANCH>`). The squash-merge lands **code only** — the ticket folder stays in `review/` (status `in-review`); finalizing it to `done/` is `sync`'s job (see Ticket-state finalization under END OF RUN).
 - **Step 4 — Report** the structured sections: ticket, branch, base, pr, built, checks, review_findings, addressed, merge SHA, **ui_verification** (state plainly that browser ACs were **not** verified in-loop — `--no-ui-testing` is always on — and that real-browser verification is deferred to the human at the integration→main PR, or post-merge for a solo `--base main` ticket), blockers, and **finalization** (ticket left in `review/` — run `/feature:sync` to promote to `done/`).
 - **Guardrails:** spawn exactly one reviewer per ticket; never weaken/skip tests to go green; on a genuine blocker (merge protection, irreconcilable finding, unfixable test) STOP and report it instead of forcing/faking.
@@ -135,13 +131,14 @@ POST the review to GitHub: `gh pr review <N> --comment --body "<structured findi
 then return the same findings as your final message.
 ```
 
-## Fragility & recovery (observed in an async-agent harness)
+## Recovery & GitHub identity
 
-- **A spawned implementer can stall mid-build and not auto-resume.** `feature:build`'s internal **parallel** review phase makes the implementer spawn async children (the four reviewers), yield, and park. In this harness a parked subagent is NOT woken when its children finish (the *orchestrator* gets the "came to rest" notification), and there may be no `SendMessage` to wake it. Single-child spawning (one reviewer) resumes fine; the multi-child parallel phase is the risk.
-- **Recovery protocol** when an implementer notifies "came to rest" with a non-final report: do NOT trust it's done. Inspect on-disk state yourself (`git status`, `git log` on the feature branch, which `NN-*.md` artifacts exist, `gh pr list`, leftover dev servers via `lsof`). Kill orphan dev servers. Then re-spawn a FRESH implementer with the *exact* state (branch, last commit, artifacts present, any identified-but-unapplied fix) and instruct it to finish **without** re-entering `feature:build`'s parallel-review phase — apply remaining fixes, run lint + typecheck directly, create the PR, spawn the single independent reviewer, validate, merge. Stop the zombie task + its monitor (`TaskStop`) so it can't double-write the shared tree.
-- **To reduce stall risk up front:** tell the implementer not to set up a self-`Monitor` to resume itself after spawning subagents; keep subagent waits inline; and expect build's parallel review phase to be the fragile part.
-- **GitHub self-review is blocked** when the PR author and the reviewer's `gh` identity are the same user — the reviewer must fall back from `gh pr review` to `gh pr comment` (handled in the template above). A single-identity setup means findings are *comments*, not a formal approve/request-changes review.
-- **Posting under the user's identity gets a security-heuristic flag.** It's expected here (the user authorized the reviewer-posts-to-GitHub hop), but the orchestrator should still glance at what was published (`gh api repos/{o}/{r}/issues/<N>/comments`) to confirm it's appropriate review content before relying on the merge.
+If a run stalls or dies, re-run `ship` — resumption state is on disk (ticket folders, feature branches, open PRs, posted reviews; SETUP reuses an existing integration branch). On re-run, inspect each ticket's actual state and resume at the **first incomplete stage** instead of restarting its sequence: a ticket in `review/` with an open PR skips Step 1 (`flow` on an in-review ticket only re-checks merge state — it does not rebuild); a PR whose comments already carry the independent review (`gh pr view <n> --comments`) skips Step 2 — never post a second review (one reviewer per ticket); a PR already `MERGED` skips to the orchestrator's verification. Only stages with no evidence on GitHub or disk re-run.
+
+Two GitHub identity facts the loop depends on:
+
+- **Self-review is blocked** when the PR author and the reviewer's `gh` identity are the same user — the reviewer falls back from `gh pr review` to `gh pr comment` (handled in the template above). A single-identity setup means findings are *comments*, not a formal approve/request-changes review.
+- **Posting and merging under the user's identity needs the user's authorization** — the harness blocks autonomous self-merge without it, and posting can trip a security-heuristic flag. Both are expected here (invoking `ship` is that authorization), but the orchestrator should still glance at what was published (`gh api repos/{o}/{r}/issues/<N>/comments`) to confirm it's appropriate review content before relying on the merge.
 
 ## When NOT to run
 - You want to review/approve **every ticket** before it merges → use `/feature:flow --pr` per ticket and merge manually (ship only gates at the integration→main step).
@@ -149,6 +146,6 @@ then return the same findings as your final message.
 - Reconciling already-open PRs with merged state → `/feature:sync`.
 
 ## Notes / provenance
-First proven on pipeline-board PB-13 (epic child of PB-11): the loop built the dry-run server functions, the independent reviewer surfaced 2 nits (0 blocking), the implementer accepted 1 (added boundary tests) and dismissed 1 with reason, and squash-merged as a clean PR with green checks on main. The independent reviewer is the load-bearing addition over plain flow — on PB-12 it was an independent review agent, not the implementer's own internal review, that caught a real concurrency bug.
+The independent reviewer is the load-bearing addition over plain flow — in practice it has been the independent review agent, not the implementer's own internal review, that caught a real concurrency bug.
 
-The **integration-branch gate** and **`--base` handling** are designed but **not yet exercised end-to-end** — PB-13/14/15 predate them and went straight to `main`. Treat the first chain run with an integration branch as the shakedown, and verify the per-ticket PR retargeting (`gh pr edit --base`) behaves as expected against your `flow --pr` version.
+The **integration-branch chain path has been exercised in practice**: per-ticket PRs target the `integration/<epic-id>` base (repoint `origin/HEAD` to the integration branch — or retarget with `gh pr edit --base` — so build's `--pr` lands there), and the final integration→main merge waits for the user, since autonomous self-merge under the user's identity is blocked (see Recovery & GitHub identity) — which is exactly the human gate this path is designed around.

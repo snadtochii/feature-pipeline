@@ -30,15 +30,6 @@ Every automated review embeds one HTML comment, invisible in GitHub's rendered v
 
 The marker goes in the **review body** on the Reviews-API path (§4), or in the **single issue comment** on the fallback path (§5). Either way it must be findable by the idempotency scan (§3), which reads both surfaces.
 
-### Legacy marker + label recognition (first-switchover)
-
-The external loop this contract supersedes used a model-specific marker and label. Recognize both as "already reviewed" so a PR reviewed under the old automation is not re-reviewed on the first run of the new skill:
-
-- Legacy marker: `<!-- codex-auto-review head=<SHA> -->` — treated identically to the `fp-review` marker (same head-SHA keying).
-- Legacy label: `codex-reviewed` — treated like the `auto-reviewed` label (§6): a coarse "this PR was auto-reviewed at some head" signal, never the authoritative idempotency key.
-
-New posts always use the `fp-review` marker and the `auto-reviewed` label; the legacy forms are read-only recognition, never written.
-
 ## §3 Idempotency scan (fetch existing markers)
 
 Before reviewing a PR, resolve its current head SHA and scan its existing comment surfaces for a marker matching that SHA. A match → already reviewed at this head → skip. Read **both** surfaces (a prior run may have used either the Reviews-API or the fallback path):
@@ -50,7 +41,7 @@ gh pr view "<N>" --json comments,reviews \
   --jq '[.comments[].body, .reviews[].body] | .[]'
 ```
 
-A PR is **already reviewed** iff that text contains `head=<HEAD_SHA>` inside an `fp-review` **or** legacy `codex-auto-review` marker. The `auto-reviewed`/`codex-reviewed` label alone does **not** prove the current head was reviewed — a label present without a current-SHA marker means the head moved since the last review, so re-review (§6 then removes-and-re-adds the label).
+A PR is **already reviewed** iff that text contains `head=<HEAD_SHA>` inside an `fp-review` marker. The `auto-reviewed` label alone does **not** prove the current head was reviewed — a label present without a current-SHA marker means the head moved since the last review, so re-review (§6 then removes-and-re-adds the label).
 
 `<N>` is a controlled integer PR number (from `gh pr list`), quoted; `HEAD_SHA` is loaded via command substitution — never interpolate free-text into the command (see §7).
 
@@ -158,8 +149,6 @@ gh pr edit "<N>" --add-label auto-reviewed
 gh pr edit "<N>" --remove-label auto-reviewed 2>/dev/null || true
 gh pr edit "<N>" --add-label auto-reviewed
 ```
-
-Recognize the legacy `codex-reviewed` label as equivalent on first switchover (§2); new runs write only `auto-reviewed`.
 
 ## §9 Reply to a review finding (the `address-review` side)
 

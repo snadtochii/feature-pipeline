@@ -81,7 +81,7 @@ gh pr view "$N" --json comments
 
 Then:
 
-- **Identify automated review findings.** A finding is review-produced when its source carries the §1 review footer (`🔎 review`) or the §2 marker (`fp-review`, or the legacy `codex-auto-review`). Three finding shapes exist, mirroring how review posts:
+- **Identify automated review findings.** A finding is review-produced when its source carries the §1 review footer (`🔎 review`) or the §2 marker (`fp-review`). Three finding shapes exist, mirroring how review posts:
   - **Inline review comment** — a line-anchored entry from `.../pulls/$N/comments` belonging to a review whose body carries the review marker (join the inline comment's `pull_request_review_id` to the matching review `id` from `.../pulls/$N/reviews` — both REST numeric ids), OR any inline comment that itself carries the footer/marker. It has a numeric `id`, `path`, and `line` — repliable inline.
   - **Summary (Reviews-API)** — a review entry (from `.../pulls/$N/reviews`) whose `body` carries the footer/marker. Not line-anchored; its findings live in the body text, and a summary may carry **several**, each tagged `[F<k>]` per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §4 — treat **each `[F<k>]` as its own finding**.
   - **Summary (fallback)** — a `comments[]` issue comment whose `body` carries the footer/marker. Per pr-comments.md §5 **every** finding is tagged `[F<k>]` — both the folded-in former-inline ones (`[F<k>] path:line — finding`) and the unanchored ones — so split on `[F<k>]` and you drop none.
