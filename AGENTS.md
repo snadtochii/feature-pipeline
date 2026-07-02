@@ -42,7 +42,6 @@ feature-pipeline/
 ├── skills/                  # Skill definitions (folder per skill, SKILL.md inside)
 │   ├── flow/                # Orchestrator (plan → build with completion gate)
 │   ├── discover/            # Step 0 — ticket creation (Socratic dialogue, may emit 1..N tickets)
-│   ├── explore/             # Open-ended Socratic exploration; can promote to discover
 │   ├── debug/               # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
 │   ├── sync/                # Standalone — reconcile in-review tickets with GitHub PR state (not a pipeline stage)
 │   ├── review/              # Standalone — repo-scoped PR reviewer with shared comment rules + embedded rubric (not a pipeline stage)
@@ -74,9 +73,8 @@ discover → ticket(s) → flow → plan → build → completion
                                └─────────────┘
 ```
 
-- **`discover`** is step 0 — interactive Socratic dialogue that creates ticket folders. Emits a single ticket (`claudedocs/tickets/backlog/<id>/01-spec.md` + `exploration.md`) for small/coherent work, or a parent epic + nested child tickets (`claudedocs/tickets/backlog/<EPIC>/prd.md` + `tasks/<CHILD>/01-spec.md` for each) when the scope splits naturally. Not part of flow.
-- **`explore`** is a separate skill for open-ended Socratic exploration; can promote a conversation into `discover` once the user knows they want a ticket.
-- **`flow`** orchestrates `plan → build` with the completion gate. `plan` runs non-interactively under flow (flow passes the internal `--auto` signal), so build's verdict gate is the only gate; run standalone, `plan` uses interactive plan mode (its own gate). `plan` includes Phase 1 pre-plan synthesis (codebase exploration + open-questions surfacing) before plan design. Flag surface is `--ignore-blockers`, `--pr`, `--no-ui-testing`, and `--visual` (the flow→plan `--auto` signal is internal wiring, not a user-facing flow flag; `--visual` is propagated to plan, `--pr`/`--no-ui-testing` to build); resumption is auto-detected from on-disk artifacts (users delete artifacts to start fresh).
+- **`discover`** is step 0 — interactive Socratic dialogue that creates ticket folders. Emits a single ticket (`claudedocs/tickets/backlog/<id>/01-spec.md` + `exploration.md`) for small/coherent work, or a parent epic + nested child tickets (`claudedocs/tickets/backlog/<EPIC>/prd.md` + `tasks/<CHILD>/01-spec.md` for each) when the scope splits naturally. For vague/outcome-uncommitted input it starts in exploration mode (one-question-at-a-time Socratic dialogue with recommended defaults) and may end without creating a ticket when the user chooses to leave. Not part of flow.
+- **`flow`** orchestrates `plan → build` with the completion gate. `plan` runs non-interactively under flow (flow passes the internal `--auto` signal), so build's verdict gate is the only gate; run standalone, `plan` uses interactive plan mode (its own gate). `plan` includes Phase 1 pre-plan synthesis (codebase exploration + open-questions surfacing) before plan design. Flag surface is `--ignore-blockers`, `--pr`, and `--no-ui-testing` (the flow→plan `--auto` signal is internal wiring, not a user-facing flow flag; `--pr`/`--no-ui-testing` are propagated to build); resumption is auto-detected from on-disk artifacts (users delete artifacts to start fresh).
 - **`build`** runs implement → review → test as internal checkpoints in one continuous loop. Validation fires after every edit (PostToolUse hook plus skill-body fallback). Reviewer findings and test failures are fixed in-context; the loop self-monitors for stuck patterns and a 25-turn ceiling.
 
 ### Runtime source of truth
@@ -128,7 +126,6 @@ Typical budget per role, expressed as unordered tool sets. The build *skill* may
 |---|---|
 | `flow` (thin sequencer) | Read, Glob, Grep, TodoWrite, Skill |
 | `discover` (intake) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite |
-| `explore` (open-ended dialogue) | Read, Glob, Grep, Bash, TodoWrite, Skill |
 | `plan` (pre-plan synthesis + plan design) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite, AskUserQuestion (Task for Phase 1 subagents; AskUserQuestion for auto mode's batched no-default open-questions pause) |
 | `build` (continuous loop) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for the 4 reviewer subagents at the review checkpoint and the ui-tester subagent at the test checkpoint; Write for `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md`) |
 | `debug` (standalone runtime debugger) | Read, Write, Edit, Glob, Grep, Bash, TodoWrite + additive-optional browser-capture MCP subset (Playwright/Chrome read/observe); no Task — this skill spawns no subagents |
@@ -207,8 +204,7 @@ Not every stage runs as a subagent. The rule:
 |---|---|
 | `flow` (orchestrator) | `code-explorer`, `requirements-analyst` (spawned by `plan` Phase 1) |
 | `discover` (interactive dialogue) | `code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect` (spawned by `build`'s review checkpoint) |
-| `explore` (open-ended dialogue) | `ui-tester` (spawned by `build`'s test checkpoint) |
-| `plan` (needs main-context interactivity — interactive plan mode standalone, or auto mode's batched no-default / complexity-overflow pauses; spawns subagents in Phase 1) | |
+| `plan` (needs main-context interactivity — interactive plan mode standalone, or auto mode's batched no-default / complexity-overflow pauses; spawns subagents in Phase 1) | `ui-tester` (spawned by `build`'s test checkpoint) |
 | `build` (long interactive loop with implement/review/test checkpoints) | |
 | `debug` (interactive runtime-debugging loop; spawns no subagents) | |
 | `sync` (standalone PR reconciler; reads PR state via `gh`, performs Transition 6; spawns no subagents) | |
@@ -280,7 +276,7 @@ The file is project-local context — generic best practices don't belong here, 
 
 ## Adding a new stage
 
-Build owns artifact slots `03-implementation.md` through `06-summary.md`. Slot `07-debug.md` is reserved by the standalone `debug` skill (its optional ticket-context report on non-`fixed` exits); `debug` is **not** a flow stage, so it does not follow the checklist below. The next free slot for a new *stage* is `08-*.md`. (`02-plan.html` is not a stage slot — it's plan's optional `--visual` derived view of `02-plan.md`, a `.html` sibling that no stage reads back.)
+Build owns artifact slots `03-implementation.md` through `06-summary.md`. Slot `07-debug.md` is reserved by the standalone `debug` skill (its optional ticket-context report on non-`fixed` exits); `debug` is **not** a flow stage, so it does not follow the checklist below. The next free slot for a new *stage* is `08-*.md`.
 
 1. Create `skills/<stage>/SKILL.md` following the skill body template above.
 2. Reserve the next free artifact number (`08-*.md` — `07-debug.md` is taken by the standalone `debug` skill) — update the "Artifact Convention" section in `skills/flow/SKILL.md`.
@@ -307,7 +303,7 @@ Before committing changes to skills or agents:
 
 1. **Lint the frontmatter** — no angle brackets, no markdown in descriptions, valid YAML, every tool listed in `allowed-tools`/`tools` actually exists.
 2. **Check tool budget** against the table above — reviewers must not have write access.
-3. **Check invocation control** — skills that are only ever user-invoked (`debug`, `explore`, `sync`, `review`, `address-review`, `ship`) set `disable-model-invocation: true` (user-only; description not loaded into context). Skills invoked programmatically by another skill via the Skill tool (`flow`, `plan`, `build`, `discover`) stay model-invocable but carry a terse one-line description with no auto-trigger phrases.
+3. **Check invocation control** — skills that are only ever user-invoked (`debug`, `sync`, `review`, `address-review`, `ship`) set `disable-model-invocation: true` (user-only; description not loaded into context). Skills invoked programmatically by another skill via the Skill tool (`flow`, `plan`, `build`, `discover`) stay model-invocable but carry a terse one-line description with no auto-trigger phrases.
 4. **Walk the stage contract in `skills/flow/SKILL.md`** — if you changed inputs/outputs, update the Stage Contract table *and* every consuming stage's `Required Input` section.
 5. **Sweep for cross-skill drift** — when a filename, skill name, or schema changes, grep across `skills/` and `agents/` for stale references and update them. The "Editing discipline" section below applies.
 6. **Build skill tool-budget audit** — grep `skills/build/SKILL.md` for any tool reference outside its `allowed-tools` (Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite). Should return no matches.

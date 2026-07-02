@@ -60,8 +60,8 @@ Build a TodoWrite item per PR so the per-run summary (Step 5) is recoverable.
 
 For each PR, resolve its current head SHA and scan its existing comment surfaces for a marker matching that SHA, per [`references/pr-comments.md`](references/pr-comments.md) §3:
 
-- A marker `head=<current-SHA>` (the `fp-review` form **or** the legacy `codex-auto-review` form) already exists → **skip**: record it as *already reviewed*, leave its label untouched, move to the next PR.
-- No current-SHA marker exists → this head is **unreviewed**; continue to Step 3. (A PR that carries the `auto-reviewed`/legacy `codex-reviewed` label but no current-SHA marker means the head moved — it is unreviewed; Step 4's label step removes-then-re-adds the label after posting.)
+- An `fp-review` marker with `head=<current-SHA>` already exists → **skip**: record it as *already reviewed*, leave its label untouched, move to the next PR.
+- No current-SHA marker exists → this head is **unreviewed**; continue to Step 3. (A PR that carries the `auto-reviewed` label but no current-SHA marker means the head moved — it is unreviewed; Step 4's label step removes-then-re-adds the label after posting.)
 
 ### 3. Per unreviewed PR — review against the embedded rubric
 
@@ -103,7 +103,7 @@ The `⚠ Failures` group carries any per-PR `gh` error (one bad PR never aborts 
 **Will:**
 - Enumerate open PRs (all, or one when `$1` is given), skip already-reviewed head SHAs, and review the rest against the embedded rubric.
 - Post inline + summary findings as one logical review (or one signed empty-review comment when clean), each carrying the visible role footer and hidden head-SHA marker.
-- Maintain the model-neutral `auto-reviewed` label (create if missing; remove-then-re-add when the head SHA moved), recognizing the legacy `codex-reviewed` label / `codex-auto-review` marker on first switchover.
+- Maintain the model-neutral `auto-reviewed` label (create if missing; remove-then-re-add when the head SHA moved).
 - Degrade fail-closed when `gh`/auth/origin is unavailable — change nothing, print one skip line, exit cleanly.
 - Print a per-run summary (PRs reviewed, PRs skipped as already-reviewed, labels updated, failures).
 

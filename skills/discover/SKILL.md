@@ -373,10 +373,12 @@ Standard flow — go through all phases.
 - Use file content to understand existing context
 - Skip redundant codebase exploration for areas already covered by referenced files
 
-### Very vague input ("I want to improve things")
-- Spend more time in the Core Intent theme
-- Ask broader exploratory questions first
-- Help the developer narrow down before going into specifics
+### Very vague or outcome-uncommitted input ("I want to improve things", "let's explore", "not sure this is a ticket yet")
+- Switch to **exploration mode**: ask probing questions **one at a time**, depth-first — each answer informs the next question, and you restate what you understood in one line before asking the next
+- Every question still leads with a recommended default (Rule 2); flag genuinely undefaultable ones with `**Default**: (no default — your call)`
+- Ground questions in the codebase with lightweight reads (Read/Grep/Glob) when the code can answer them; defer the Phase 2 explorer spawn until the idea is concrete enough to commit to
+- Help the developer narrow toward an outcome. When they commit ("make this a ticket", or the idea has clearly firmed up), continue through the normal phases with everything learned as context
+- The developer may instead choose to leave without a ticket ("that's enough", "let me think about it") — end with a one-line acknowledgment and no artifact (Rule 11's exploration-mode carve-out). Closure is theirs to signal; never proactively ask "should we save this or leave it?"
 
 ### Very detailed input (pre-thought-out feature)
 - Acknowledge the detail level
@@ -396,7 +398,7 @@ Standard flow — go through all phases.
 8. **Exploration lives once per discovery session** — at the epic-folder level for multi-sibling, at the ticket-folder level for single. No per-child duplication.
 9. **Epics are non-pipelineable** — `kind: epic` in PRD frontmatter; `plan`/`build` will refuse to run against an epic ID. Children are the pipelineable items.
 10. **No `breakdown.md` artifact** — decomposition rationale and AC coverage live as sections inside `prd.md`, not in a separate file
-11. **Create the artifact(s), don't just discuss** — always end with concrete tickets on disk
-12. **Respect "enough"** — if the developer wants to move on, create the best ticket(s) you can
+11. **Create the artifact(s), don't just discuss** — always end with concrete tickets on disk. One carve-out: exploration mode (the very-vague/outcome-uncommitted branch) may end with no ticket when the developer chooses to leave — there the dialogue is the deliverable
+12. **Respect "enough"** — in committed discovery, if the developer wants to move on, create the best ticket(s) you can (in exploration mode, leaving without a ticket is the Rule 11 carve-out, not this rule)
 13. **No implementation** — this skill discovers and documents, it does not code
 14. **`title` is descriptive, never the bare `<ID>`** — every template (`task.md`, `prd.md`) already declares `title`; when you fill the template, give it a human-readable title, not the ticket ID. This is a value-quality rule, not a schema-list to maintain — boards, flow's epic-walker progress, and PR-title construction all render the title, and a bare ID reads as a missing one.
