@@ -294,7 +294,7 @@ Choose one based on loop state:
 
 The uniform always-write contract means downstream readers (and reopened-ticket regressions) never have to handle a "missing summary = unknown verdict" failure mode.
 
-**Append a one-line lesson to `claudedocs/tickets/_lessons.md`** at the same time. Format:
+**Capture a lesson in `claudedocs/tickets/_lessons.md`** at the same time. Entry format — **one sentence, one topic, ≤200 characters**:
 
 ```
 ## <ticket-id> (<verdict>): <one-sentence lesson>
@@ -306,17 +306,17 @@ The lesson should be project-specific and actionable for future similar work —
 - `## FP-12 (partial): bun's typecheck doesn't surface unused-import errors; ESLint catches them — keep both in validate.lint.`
 - `## FP-15 (stuck): subagents kept failing to find the auth middleware after the lib/ → src/ rename; canonical path is now src/security/auth.ts.`
 
-Skip the append if the lesson would be generic ("apply review fixes carefully") or already captured by an existing entry. The file is project-local context — plan's Phase 1 reads it on subsequent tickets to avoid re-deriving constraints. If `claudedocs/tickets/_lessons.md` doesn't exist, create it with a one-line header (`# Lessons learned across tickets`) and append.
+Capture rules:
 
-#### 4c. Curate the lessons log
+- **Write-time supersession check.** Before appending, read `_lessons.md` and scan the existing `^## ` entries (any producer, including `debug/` ones) for one making a prescriptive point about the **same named subject** — the same concrete path, tool, command, or setting. Same subject → **update/merge that one line in place**, citing all IDs in ascending order (`## FP-9, FP-28 (pass): <lesson>`; keep per-ID verdicts when they differ), or **skip** when the existing entry already fully covers the point. Different or no shared subject → append. No user gate: the check never deletes a distinct fact, only replaces the superseded line — git holds the history. Lines not matching `^## ` are preserved byte-for-byte; never repair or normalize the file.
+- **Promotion on recurrence.** A same-topic second capture means the gotcha recurs — propose promoting it into the project's `CLAUDE.md` under a `## Lessons` section (created if missing). The proposal must **show the exact line to be added and the target file/section** — never a bare yes/no — and the edit is applied only after the user approves that shown content (CLAUDE.md is a standing-instruction file loaded into every future session; the promoted text originates from `_lessons.md`, which is editable outside the pipeline). On accept: apply the CLAUDE.md edit and remove the entry from `_lessons.md`. On decline: keep the merged line in the log.
+- **Format overflow.** A lesson that can't fit one sentence on one topic is not a lesson — it's a durable rule. Propose it as a project-`CLAUDE.md` edit instead (same content-surfacing confirmation — show the exact text and target, never a bare yes/no); on decline, capture a one-sentence compression in `_lessons.md` — never silently lose the fact.
+- **Skip entirely** when the lesson would be generic ("apply review fixes carefully"). Lesson text is free text — handle it with `Read`/`Write` only; never interpolate it into shell commands.
+- If `claudedocs/tickets/_lessons.md` doesn't exist, create it with a one-line header (`# Lessons learned across tickets`) and append.
 
-After the append, reconcile `claudedocs/tickets/_lessons.md` so the accumulated file stays high-signal for `plan`'s Phase 1 (which pastes it verbatim into the `requirements-analyst`). Runs on every verdict. The scan looks for duplicate entries, internal contradictions, and stale entries (path tokens whose referenced files no longer exist). The scan is automatic; any rewrite is gated behind explicit user approval, so curation can never silently corrupt the log.
+The file is project-local context — plan's Phase 1 selects ticket-relevant entries from it on subsequent tickets to avoid re-deriving constraints.
 
-**Silent no-op when there's nothing to act on** — missing/empty file, or no duplicates/contradictions/stale candidates. Present nothing and proceed to 4d.
-
-When the scan finds something, present a findings summary grouped by category plus a three-way gate (`accept-and-rewrite` / `skip-for-now` / `something-else`), apply the user's choice, then proceed to 4d. The detection criteria, path-token extraction, gate format, and the lossless merge/flag rewrite rules (never deletes a fact, never auto-resolves a contradiction) live in `references/lessons-curation.md`.
-
-#### 4d. Present the verdict gate
+#### 4c. Present the verdict gate
 
 For **`pass`** (without `--pr`):
 
@@ -330,9 +330,9 @@ All artifacts: <ticket-folder>/
 Would you like to commit these changes?
 ```
 
-Capture the user's reply. Proceed to 4e regardless (commit decision affects git only, not the folder transition).
+Capture the user's reply. Proceed to 4d regardless (commit decision affects git only, not the folder transition).
 
-For **`pass` with `--pr`**: skip the interactive commit prompt — `--pr` is the user's authorization to ship. Present a non-interactive summary, then proceed to 4e:
+For **`pass` with `--pr`**: skip the interactive commit prompt — `--pr` is the user's authorization to ship. Present a non-interactive summary, then proceed to 4d:
 
 ```
 ## Build Complete — verdict: pass (--pr)
@@ -355,9 +355,9 @@ Options:
   - abort — revert ticket to backlog/, artifacts preserved in the folder
 ```
 
-Capture the user's choice. Proceed to 4e.
+Capture the user's choice. Proceed to 4d.
 
-#### 4e. Apply the transition
+#### 4d. Apply the transition
 
 Per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Decision Table:
 
@@ -376,7 +376,7 @@ Per [`../flow/references/state-transitions.md`](../flow/references/state-transit
 
 - **`partial`** or **`stuck`** + **`abort`** → Transition 3 (folder reverts to `backlog/`, status `backlog`; for epic children, only the child's frontmatter reverts unless every sibling is also `backlog` or `cancelled` — the inverse all-children-done check).
 
-#### 4f. Final user-facing message
+#### 4e. Final user-facing message
 
 After the transition fires, print:
 - On `done/` transition: "Ticket moved to `done/`. Run `git log -1` to see the commit (if you confirmed) or `git status` (if you didn't)."
@@ -418,7 +418,7 @@ Failed test criteria live inside `05-tests.md` under `## Failed Criteria`; turn 
 
 ## Presentation
 
-Present to the user at exit (when the 4c curation step found something, its findings summary + gate is shown first, before this verdict gate):
+Present to the user at exit:
 
 ```
 ## Build Complete — verdict: <pass|partial|stuck>
