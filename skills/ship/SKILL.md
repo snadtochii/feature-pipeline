@@ -1,7 +1,6 @@
 ---
 name: ship
 description: "User-initiated (never auto-invoked) autonomous loop that builds, independently reviews, and addresses a ticket or a dependency chain, ending at an open pull request. For each ticket it spawns an implementer subagent that runs /feature:flow to build the ticket and open its PR (headless — browser/UI testing is skipped), spawns an independent reviewer subagent (given only the spec + PR diff, never the implementer's rationale), validates the findings, and fixes the real ones. A solo ticket ends at its own open single-ticket PR; a chain or epic squash-merges each per-ticket PR into an integration branch and ends at an open integration PR. The resulting PR is left open for human review by default — pass --merge to have ship land it on the base branch. Invoke explicitly with /feature:ship; not a plan-only or build-only run."
-disable-model-invocation: true
 allowed-tools:
   - Read
   - Glob
