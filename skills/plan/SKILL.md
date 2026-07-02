@@ -85,7 +85,7 @@ Read all upfront inputs:
 - `exploration.md` — discover-time exploration if present (path resolution per ticket-resolution.md Step 5)
 - Project `CLAUDE.md` — conventions, lint/test commands, architectural rules
 - **Blocker artifacts** — for each `blocked_by` entry, the blocker's `01-spec.md` and (if present) `02-plan.md`
-- `claudedocs/tickets/_lessons.md` — cross-ticket lessons learned, if the file exists. This is the cross-ticket log build appends to and reconciles (dedup / contradiction / stale-flag, user-gated) at every verdict gate. The contents become an additional context block passed to the requirements-analyst subagent in Step 1.3, so prior project-specific gotchas (deviating tools, invalidated assumptions, naming gotchas after refactors) inform the open-questions surface. If the file doesn't exist yet, skip — first ticket of the project.
+- `claudedocs/tickets/_lessons.md` — cross-ticket lessons learned, if the file exists. This is the log `build` (and the standalone `debug` skill) capture one-sentence project-specific gotchas into at their exit gates. Read it and **select at most 5 entries relevant to this ticket** — entries whose named subject (a concrete path, tool, command, or setting) overlaps the ticket's files, areas, or acceptance criteria; prefer the most specific. The selected entries — never the whole file — become the lessons block passed to the requirements-analyst subagent in Step 1.3, so prior gotchas (deviating tools, invalidated assumptions, naming gotchas after refactors) inform the open-questions surface at bounded context cost. No relevant entries, or no file → omit the lessons block entirely.
 
 ### Step 1.2 — Spawn `code-explorer` subagent (incremental)
 
@@ -101,7 +101,7 @@ Read all upfront inputs:
 
 The analyst's job here is **NOT** to write a long analysis. It's to surface a short, actionable Open Questions list.
 
-> "Review this feature spec against the codebase context to surface every open question whose answer materially shapes the implementation. Spec: `<ticket content>`. Codebase context: `<exploration.md content if present>` + `<incremental explorer output>`. Blocker context (if any): `<blocker spec(s) + plan(s) per Blocker Context format>`. Cross-ticket lessons (if `_lessons.md` exists): `<contents of claudedocs/tickets/_lessons.md>` — these are project-specific gotchas captured at prior tickets' verdict gates; weight them when scanning for open questions, since a recurring constraint that bit a prior ticket is exactly the kind of question worth surfacing here.
+> "Review this feature spec against the codebase context to surface every open question whose answer materially shapes the implementation. Spec: `<ticket content>`. Codebase context: `<exploration.md content if present>` + `<incremental explorer output>`. Blocker context (if any): `<blocker spec(s) + plan(s) per Blocker Context format>`. Cross-ticket lessons (only if Step 1.1 selected any): `<the selected entries — at most 5>` — these are project-specific gotchas captured at prior tickets' exit gates; weight them when scanning for open questions, since a recurring constraint that bit a prior ticket is exactly the kind of question worth surfacing here.
 >
 > Guidance:
 > - Prefer few sharp questions over many shallow ones, but **never skip a real decision-making question** to hit a tidy count. If there are nine important questions, ask all nine. Quality bar: would skipping this question force the agent to assume something that could break the feature? If yes, ask it.

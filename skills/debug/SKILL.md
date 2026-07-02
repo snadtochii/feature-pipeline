@@ -117,10 +117,10 @@ Always report state on exit — one of four:
 Output is keyed to **whether there's a transferable lesson**, not to the exit type.
 
 - **Lessons log** — if the root cause is a *project-specific, would-recur constraint that static reasoning missed* (a non-obvious runtime behavior, a config/env coupling, a framework footgun specific to this codebase), append one line to `claudedocs/tickets/_lessons.md`. Write nothing for a self-contained bug (typo, local off-by-one, missing null check) even on `fixed`. Test: "would the next ticket's planning re-derive this the hard way if it weren't written?"
-  - Mirror build's producer mechanics: create the file with header `# Lessons learned across tickets` if missing, then append a line that starts with `## ` (so the existing curator parses it as an entry) and backtick any path token:
+  - Mirror build's producer mechanics: create the file with header `# Lessons learned across tickets` if missing, then append a line that starts with `## ` (so build's write-time supersession check parses it as an entry) — one sentence, one topic, ≤200 characters — and backtick any path token:
     - With a ticket in scope: `## <ticket-id> (debug): <one-sentence lesson>`
     - Standalone: `## debug/<short-slug> (<exit>): <one-sentence lesson>`
-  - Don't run curation — that's build-owned; the next build verdict gate reconciles any duplicate/stale entry.
+  - Don't run the supersession check — that's build-owned; build's next capture merges any same-topic duplicate.
 - **Non-`fixed` exits**:
   - With a ticket in scope → persist a report to `<ticket-folder>/07-debug.md`: exit type, hypotheses tried and which were eliminated/confirmed (with evidence), root cause if reached, concrete next steps. Plain report, no frontmatter.
   - Standalone → chat-only; no file.
