@@ -10,7 +10,7 @@ Orchestrates the full feature lifecycle through specialized AI agents. Under `/f
 /discover → ticket(s) → /flow → plan → build → done
 ```
 
-`/discover` is the entry point — for outcome-uncommitted ideas it starts in exploration mode (one probing question at a time, with a recommended answer per question) and only creates tickets once you commit. Build is one continuous loop — implement, review, and test happen as internal checkpoints with fixes applied in-context, exiting with verdict `pass | partial | stuck`.
+`/discover` is the entry point — for outcome-uncommitted ideas it starts in exploration mode (one probing question at a time, with a recommended answer per question) and only creates tickets once you commit; pass `--explore` to force that mode for an idea you want challenged regardless of how well-formed it is. Build is one continuous loop — implement, review, and test happen as internal checkpoints with fixes applied in-context, exiting with verdict `pass | partial | stuck`.
 
 ```
                  plan → build → done
@@ -110,6 +110,7 @@ plugin_hooks = true
 
 ```bash
 /feature:discover I want to add dark mode to the app --project my-app
+/feature:discover --explore Reworking rate limiting — challenge this before I commit to a ticket
 ```
 
 `/discover` runs interactive requirements discovery and produces ticket folders in `claudedocs/tickets/backlog/`. The output depends on scope:

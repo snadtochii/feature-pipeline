@@ -10,7 +10,7 @@ allowed-tools:
   - Bash
   - Task
   - TodoWrite
-argument-hint: "[description] [--project name] [--id XX-N]"
+argument-hint: "[description] [--project name] [--id XX-N] [--explore]"
 ---
 
 # Feature Discovery
@@ -26,6 +26,7 @@ Interactive requirements discovery that transforms a rough idea into one or more
 - `$ARGUMENTS` — the rough idea, feature request, or problem statement (can include pasted text, images, file references) plus optional flags
 - `--project <name>` — which personal project this is for (used in ticket frontmatter)
 - `--id <XX-N>` — explicit ticket ID. In single-ticket mode, this is the ticket's ID. In multi-sibling mode, this is the **parent epic's** ID; children get the next available IDs in sequence.
+- `--explore` — force **exploration mode** (the very-vague/outcome-uncommitted branch) regardless of how detailed the input reads. Overrides input-shape detection: a well-formed idea still gets challenged one question at a time instead of routed toward ticket creation, and the session may end without a ticket. Use when you want to stress-test an idea before deciding whether it deserves a ticket.
 
 ### Examples
 ```
@@ -33,6 +34,7 @@ Interactive requirements discovery that transforms a rough idea into one or more
 /feature:discover I need a way to filter the task list by priority and date range --project big-leaves
 /feature:discover The settings page is confusing, users can't find where to change their email --project symphony --id SY-12
 /feature:discover (with screenshot pasted) This design needs to be implemented
+/feature:discover --explore Reworking how rate limiting works — challenge this before I commit to a ticket
 ```
 
 ## Discovery Process
@@ -374,6 +376,7 @@ Standard flow — go through all phases.
 - Skip redundant codebase exploration for areas already covered by referenced files
 
 ### Very vague or outcome-uncommitted input ("I want to improve things", "let's explore", "not sure this is a ticket yet")
+- Entered automatically when the input reads vague or uncommitted, or **explicitly via the `--explore` flag** — the flag forces this branch even for a well-formed, detailed idea (it beats the "Very detailed input" routing)
 - Switch to **exploration mode**: ask probing questions **one at a time**, depth-first — each answer informs the next question, and you restate what you understood in one line before asking the next
 - Every question still leads with a recommended default (Rule 2); flag genuinely undefaultable ones with `**Default**: (no default — your call)`
 - Ground questions in the codebase with lightweight reads (Read/Grep/Glob) when the code can answer them; defer the Phase 2 explorer spawn until the idea is concrete enough to commit to
