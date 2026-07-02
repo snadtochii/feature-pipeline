@@ -45,6 +45,8 @@ The skill runs in **main context** (interactive) through these phases:
 
 ### PHASE 0: ENSURE TICKET INFRASTRUCTURE
 
+**Exploration-mode gate (runs first):** if this session enters exploration mode — the `--explore` flag, or vague/outcome-uncommitted input per the input-type branches below — **skip this phase entirely for now**: no directories, no `config.yaml`, no prefix prompt. Run it only at the moment the developer commits to a ticket. An exploration session that ends with no ticket must leave the project untouched.
+
 1. **Check if `claudedocs/tickets/` directory exists** in the project root
 2. If not:
    - Ask the user for a **ticket prefix** for this project (e.g., `BL` for big-leaves, `SY` for symphony)
@@ -380,7 +382,7 @@ Standard flow — go through all phases.
 - Switch to **exploration mode**: ask probing questions **one at a time**, depth-first — each answer informs the next question, and you restate what you understood in one line before asking the next
 - Every question still leads with a recommended default (Rule 2); flag genuinely undefaultable ones with `**Default**: (no default — your call)`
 - Ground questions in the codebase with lightweight reads (Read/Grep/Glob) when the code can answer them; defer the Phase 2 explorer spawn until the idea is concrete enough to commit to
-- Help the developer narrow toward an outcome. When they commit ("make this a ticket", or the idea has clearly firmed up), continue through the normal phases with everything learned as context
+- Help the developer narrow toward an outcome. When they commit ("make this a ticket", or the idea has clearly firmed up), run the deferred Phase 0 infrastructure setup, then continue through the normal phases with everything learned as context
 - The developer may instead choose to leave without a ticket ("that's enough", "let me think about it") — end with a one-line acknowledgment and no artifact (Rule 11's exploration-mode carve-out). Closure is theirs to signal; never proactively ask "should we save this or leave it?"
 
 ### Very detailed input (pre-thought-out feature)

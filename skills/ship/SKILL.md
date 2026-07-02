@@ -133,7 +133,7 @@ then return the same findings as your final message.
 
 ## Recovery & GitHub identity
 
-If a run stalls or dies, re-run `ship` — resumption state is on disk (ticket folders, feature branches, open PRs; SETUP reuses an existing integration branch).
+If a run stalls or dies, re-run `ship` — resumption state is on disk (ticket folders, feature branches, open PRs, posted reviews; SETUP reuses an existing integration branch). On re-run, inspect each ticket's actual state and resume at the **first incomplete stage** instead of restarting its sequence: a ticket in `review/` with an open PR skips Step 1 (`flow` on an in-review ticket only re-checks merge state — it does not rebuild); a PR whose comments already carry the independent review (`gh pr view <n> --comments`) skips Step 2 — never post a second review (one reviewer per ticket); a PR already `MERGED` skips to the orchestrator's verification. Only stages with no evidence on GitHub or disk re-run.
 
 Two GitHub identity facts the loop depends on:
 
