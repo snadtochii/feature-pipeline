@@ -100,15 +100,49 @@ For an `in-review` ticket (a solo ticket or an at-review epic in `review/`, or �
 
 - **Branch-keyed** — build's per-ticket `review/` resumption, which has the current checkout:
   ```bash
-  gh pr view "<branch>" --json state --jq '.state'
+  gh pr view "<branch>" --json state,mergeCommit,baseRefName --jq '.state + " " + (.mergeCommit.oid // "") + " " + .baseRefName'
   ```
-  `<branch>` is the ticket's pushed branch (recorded in `06-summary.md`) or the current checkout.
+  `<branch>` is the ticket's pushed branch (recorded in `06-summary.md`) or the current checkout. The output is `state`, the merge-commit SHA (`MERGE_SHA`) when merged, and the PR's own base branch (`PR_BASE`), all fed into the reachability gate below.
 - **ID-keyed** — the `sync` skill's batch scan, which has no reliable branch (the slug is judgment-distilled and the branch matrix may reuse a non-convention branch). GitHub's title search is tokenized, so anchor on the `<TICKET-ID>:` title convention:
   ```bash
-  gh pr list --search "<TICKET-ID> in:title" --state all --json number,state,url,createdAt,title --jq '[.[] | select(.title | startswith("<TICKET-ID>:"))] | sort_by(.createdAt) | last'
+  gh pr list --search "<TICKET-ID> in:title" --state all --json number,state,url,createdAt,title,mergeCommit,baseRefName --jq '[.[] | select(.title | startswith("<TICKET-ID>:"))] | sort_by(.createdAt) | last | .state + " " + (.mergeCommit.oid // "") + " " + .baseRefName'
   ```
-  Every PR/commit title leads with `<TICKET-ID>:`, so the `startswith` post-filter pins the ticket's own PR; `last` picks the newest. More robust than the branch when the branch isn't recoverable.
+  Every PR/commit title leads with `<TICKET-ID>:`, so the `startswith` post-filter pins the ticket's own PR; `last` picks the newest. More robust than the branch when the branch isn't recoverable. As with the branch-keyed lookup, this yields `state`, the merge-commit SHA (`MERGE_SHA`), and the PR's own base branch (`PR_BASE`) for the reachability gate below.
 
-**Shared rule** (both lookups): `state == MERGED` → fire Transition 6 (`review → done`), print `PR merged; <ticket-id> finalized to done/.` Anything else (`OPEN`, `CLOSED`, or `gh` unavailable) → treat as not merged: print `PR still open for <ticket-id>; merge it, then re-run to finalize.` and exit without changes.
+**Shared rule** (both lookups): a PR promotes to `done/` only when it is `MERGED` **and** its merge commit is **reachable from the base branch** — checking *that* a PR merged is not enough, because an epic child squash-merged only into `integration/<epic-id>` reports `MERGED` identically to a solo PR merged into the base. Gating on reachability keeps `sync` safe to run mid-epic-run: a child stays `in-review` until its code actually lands on `<base>`.
+
+Resolve the ticket's **true trunk from the PR itself** — the branch its code must reach to be "done" — not from the repository default, which would ignore a non-default `ship --base <branch>` (a run targeting a non-default base would merge and then stay `in-review` forever, its merge SHA checked against the wrong branch). This section is referenced **standalone** (build's `review/` resumption and `sync`), so it fetches and resolves the base itself:
+```bash
+git fetch origin --quiet
+# A direct-to-trunk PR's own base IS the trunk (this respects `--base <branch>`).
+# An epic child's PR base is its `integration/<epic-id>` branch — its true trunk is that
+# integration branch's OWN PR base (the epic's `--base`), so the child promotes only once the
+# integration PR lands on the real trunk (preserving the mid-epic-run safety FP-34 added).
+if [ -n "$PR_BASE" ] && [ "${PR_BASE#integration/}" = "$PR_BASE" ]; then
+  base="$PR_BASE"                                                    # solo / direct-to-trunk PR
+elif [ -n "$PR_BASE" ]; then
+  base=$(gh pr list --head "$PR_BASE" --state all --json number,baseRefName \
+           --jq 'sort_by(.number) | last | .baseRefName' 2>/dev/null)   # epic child → epic's trunk
+fi
+# Fallback only when the PR base can't be resolved; an unresolved base is treated as NOT
+# promotable below (never a pass), so this can never wrongly promote.
+[ -n "$base" ] || base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)
+```
+
+Then, from the lookup's `state` and `MERGE_SHA`:
+
+- **Not `MERGED`** (`OPEN`, `CLOSED`, or `gh` unavailable) → treat as not merged: print `PR still open for <ticket-id>; merge it, then re-run to finalize.` and exit without changes.
+- **`MERGED`** → gate on reachability (`MERGE_SHA` is the `mergeCommit.oid` from the lookup — a controlled command-substitution value, never free text):
+  ```bash
+  if [ -n "$MERGE_SHA" ] && git merge-base --is-ancestor "$MERGE_SHA" "origin/$base" 2>/dev/null; then
+    : # merged AND reachable from origin/<base> → fire Transition 6
+  else
+    : # merged only into an integration branch, or SHA/base unresolvable → NOT promotable
+  fi
+  ```
+  - **Reachable** → fire Transition 6 (`review → done`), print `PR merged and reachable from <base>; <ticket-id> finalized to done/.` For an epic child, the finalization also runs the **Epic-completion predicate** (`state-transitions.md`) — promoting the epic subtree only when the full declared roster is materialized-and-terminal.
+  - **Not reachable, or `MERGE_SHA`/`base` unresolvable** (offline, or `gh`/`git` can't answer) → reuse the not-merged output path: print `PR still open for <ticket-id>; merge it, then re-run to finalize.` and exit without changes. **Never promote on an unverifiable merge** — an unresolved SHA or base is treated as not-yet-on-`<base>`, not as a pass.
+
+This gate applies to **both** lookups (branch-keyed for build, ID-keyed for `sync`) — the rule lives once here; neither caller forks it.
 
 This check runs on every re-invocation of a `review/` ticket (or every `sync` pass) and does NOT require `--pr` on the command line — `--pr` authorizes *opening* a PR; *checking* an already-open one is a pure read.

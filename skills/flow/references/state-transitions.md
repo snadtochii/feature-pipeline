@@ -224,7 +224,7 @@ Same rule as Transition 2: move the folder first, then update frontmatter. On a 
 ## Transition 6 — Merge (review → done)
 
 **Invoked by**:
-- `build` (or `flow` delegating to `build`) when re-invoked on a `review/` ticket, **or** the standalone `sync` skill scanning in-review tickets in batch, when the ticket's PR is detected merged via the shared merge predicate in build's `pr-creation.md` reference (`state == MERGED`; build uses the branch-keyed lookup, sync the ID-keyed one). Transition 6 is Transition 2's body re-pointed at the ticket's **current** state folder as the source — `review/` for a solo ticket or an epic whose subtree reached `review/`, but `in-progress/` for an epic child that `sync` promotes while a sibling is still mid-build (that child's `in-review → done` flip happens in place; see the child path below).
+- `build` (or `flow` delegating to `build`) when re-invoked on a `review/` ticket, **or** the standalone `sync` skill scanning in-review tickets in batch, when the ticket's PR is detected merged **and reachable from `<base>`** via the shared merge predicate in build's `pr-creation.md` reference (`state == MERGED` **and** the PR's merge commit is an ancestor of `origin/<base>` — a merge only into an `integration/<epic-id>` branch does not qualify until it reaches `<base>`; build uses the branch-keyed lookup, sync the ID-keyed one). Transition 6 is Transition 2's body re-pointed at the ticket's **current** state folder as the source — `review/` for a solo ticket or an epic whose subtree reached `review/`, but `in-progress/` for an epic child that `sync` promotes while a sibling is still mid-build (that child's `in-review → done` flip happens in place; see the child path below).
 
 ### Solo ticket
 
@@ -255,7 +255,7 @@ This is the canonical mapping build uses at the verdict gate. The decision table
 | `pass` (no `--pr`) | commit confirmed | T2               | Folder → `done/`; status `done`; standard git commit workflow runs.     |
 | `pass` (no `--pr`) | commit declined  | T2               | Folder → `done/`; status `done`; no git commit. Same folder/frontmatter result as above. |
 | `pass` + `--pr` | non-interactive ship | T5             | Folder → `review/`; status `in-review`; branch pushed + PR opened. The `--pr` flag and the push/`gh pr create` live in build's `pr-creation.md` reference; T5 owns the folder move + status. |
-| in `review/` | re-invocation, PR detected merged | T6 | Folder → `done/`; status `done`. Merge detection (`gh pr view`) runs in build's `review/` resumption check; a `MERGED` result fires T6. |
+| in `review/` | re-invocation, PR merged + reachable | T6 | Folder → `done/`; status `done`. Merge detection (`gh pr view`) runs in build's `review/` resumption check; a `MERGED` result **reachable from `<base>`** fires T6 (a merge only into an integration branch does not). |
 | `partial` | `accept-as-partial`  | T4, then T2               | Status flips to `partial-completion`; then folder → `done/`, preserving that status. |
 | `partial` | `continue-with-hint` | T4                        | Status flips to `partial-completion`; folder stays in `in-progress/`; build loop continues with hint in context. |
 | `partial` | `abort`              | T3                        | Folder → `backlog/`; status `backlog`. Epic subtree may move back (inverse all-children check). |
