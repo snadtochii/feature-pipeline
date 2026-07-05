@@ -1,7 +1,6 @@
 ---
 name: address-review
-description: "Close the loop on a reviewed PR — fetch the inline plus summary review comments posted by feature:review, validate each finding against the real code (ACCEPT if it holds, DISMISS if it does not, each with a one-line reason), fix the accepted ones, and post signed replies. PR-coupled (no ticket needed): defaults to the current branch's PR, or pass a PR number or URL. Interactive by default — present the triage, fix on an explicit go, reply on approval; pass --auto to validate, fix, and reply autonomously for the unattended/loop path. Runs inline, no subagents, headless-safe. Use when 'address review', 'address the comments', 'address review comments', 'address PR feedback', 'reply to review comments', 'fix the review comments', 'feature:address-review'. NOT for producing a review (use feature:review), NOT for opening a PR (that is build's --pr flag), NOT for building a ticket (use feature:build); it edits code to apply fixes and posts replies, but never approves, merges, or closes the PR."
-disable-model-invocation: true
+description: "Validate a reviewed PR's findings, fix the accepted ones, and post signed replies; interactive by default, --auto for the unattended path."
 allowed-tools:
   - Read
   - Write
