@@ -33,7 +33,7 @@ Pass `--no-ui-testing` to skip **only** the browser portion of the test checkpoi
 When `/feature:discover` produces an epic, sibling child tickets can declare `blocked_by: [<sibling-id>]` in their frontmatter. The pipeline enforces this asymmetrically:
 
 - `plan` runs against blocked tickets normally — its Phase 1 synthesis auto-loads the blocker's spec/plan as context, so you can plan against unfinished foundations.
-- `build` refuses to run until every blocker is `done` (or `cancelled`). Override with `--ignore-blockers` if you accept the risk.
+- `build` refuses to run until every blocker is `done` (or `cancelled`). If a `blocked_by` entry is wrong, edit the ticket's `blocked_by` frontmatter.
 
 This lets you plan ahead while preventing builds on top of unfinished foundations.
 

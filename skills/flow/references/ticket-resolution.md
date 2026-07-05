@@ -152,18 +152,8 @@ The stage's behavior depends on which stage is running:
   - <blocker-id> (status: <status>, location: claudedocs/tickets/<state>/.../<blocker-id>/)
   - ...
 
-  Either complete the blockers first, or bypass with --ignore-blockers (proceeds at your risk; you may break the build).
+  Either complete the blockers first, or edit this ticket's blocked_by frontmatter if the dependency is wrong.
   ```
-
-### Bypass: `--ignore-blockers`
-
-When the stage is invoked with `--ignore-blockers` (either directly via the stage skill, or propagated from `flow`):
-
-- For `build`: skip the refusal. Print a one-line warning instead, then proceed:
-  ```
-  ⚠ Bypassing blocker check for <ticket-id>. Unfinished blockers: <list>. Proceeding anyway.
-  ```
-- For `plan`: the flag is a no-op (plan doesn't refuse anyway), but blocker-context loading still happens.
 
 This rule is centralized here so stage skills inherit it via reference and don't duplicate the check.
 
@@ -176,4 +166,4 @@ This rule is centralized here so stage skills inherit it via reference and don't
 - Frontmatter missing or malformed → warn and ask
 - Project root can't be determined → ask the user
 - Resolved item is an epic (`kind: epic`) → abort with the message in Step 4; do not silently fan out to children
-- Blocker can't be located → warn and treat as not-done (worst-case assumption); the user can investigate or bypass with `--ignore-blockers`
+- Blocker can't be located → warn and treat as not-done (worst-case assumption); the user can investigate or edit this ticket's `blocked_by` frontmatter

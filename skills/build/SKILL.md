@@ -25,7 +25,7 @@ Build the ticket through one continuous loop with internal checkpoints (implemen
 /feature:build $ARGUMENTS
 ```
 
-`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--ignore-blockers` (bypass blocker-validation refusal), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)), `--no-ui-testing` (skip only the browser/ui-tester portion of the test checkpoint; lint/typecheck still run and still gate the verdict — see the test checkpoint's flag override).
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)), `--no-ui-testing` (skip only the browser/ui-tester portion of the test checkpoint; lint/typecheck still run and still gate the verdict — see the test checkpoint's flag override).
 
 Resumption is auto-detected from on-disk artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build.
 
@@ -49,9 +49,9 @@ Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/referenc
 
 ## Blocker validation
 
-Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6. If any entry in `blocked_by` is not yet done (frontmatter `status: done` or `cancelled`, or folder under `done/`), abort with the message in Step 6 listing the unblocked blockers. Bypass with `--ignore-blockers` (prints a warning, proceeds at your risk — the blocker's foundational work isn't in place).
+Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6. If any entry in `blocked_by` is not yet done (frontmatter `status: done` or `cancelled`, or folder under `done/`), abort with the message in Step 6 listing the unblocked blockers. If a `blocked_by` entry is wrong, edit this ticket's `blocked_by` frontmatter.
 
-When `blocked_by` is non-empty (whether blockers are done or `--ignore-blockers` is used), build composes a **blocker context block** and prepends it to the review-checkpoint reviewer prompts (see Step 2). Per resolved Q3, the block uses each blocker's verbatim `01-spec.md` + `06-summary.md`. **Fallback for `--ignore-blockers` runs where a blocker is unfinished**: if `06-summary.md` is missing, use that blocker's `02-plan.md`; if `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker.
+When `blocked_by` is non-empty, build composes a **blocker context block** and prepends it to the review-checkpoint reviewer prompts (see Step 2). Per resolved Q3, the block uses each blocker's verbatim `01-spec.md` + `06-summary.md`. **Fallback when a blocker's `06-summary.md` is missing** (e.g. a `cancelled` blocker): use that blocker's `02-plan.md`; if `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker.
 
 ## State setup
 
@@ -160,7 +160,7 @@ b. **Compose the shared base for reviewer prompts** (single composition, used by
    1. **Ticket context**: contents of `01-spec.md`, `02-plan.md`, `03-implementation.md`.
    2. **Diff**: output from step a.
    3. **Project root path**.
-   4. **Blocker context** (only when `blocked_by` is non-empty per the Blocker validation section above): a `## Blocker context (from completed siblings)` block. For each blocker: include verbatim `01-spec.md` + `06-summary.md`. **Fallback for `--ignore-blockers` runs where a blocker is unfinished**: when `06-summary.md` is missing, use the blocker's `02-plan.md`; when `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker. Omit the entire block when `blocked_by` is empty.
+   4. **Blocker context** (only when `blocked_by` is non-empty per the Blocker validation section above): a `## Blocker context (from completed siblings)` block. For each blocker: include verbatim `01-spec.md` + `06-summary.md`. **Fallback when `06-summary.md` is missing** (e.g. a `cancelled` blocker): use the blocker's `02-plan.md`; when `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker. Omit the entire block when `blocked_by` is empty.
    5. **Confidence scale**: the verbatim contents of `references/confidence-scale.md` under a `## Confidence scale (use this exactly)` header. (R-2 fix: rubric lives in the reference, build injects it here, reviewer agent bodies stay rubric-free.)
 
 c. **Spawn four reviewer subagents in parallel.** All four run **concurrently** — launch them in a single message with four `Task` tool calls. Each prompt = the shared base from step b + a per-reviewer suffix:
