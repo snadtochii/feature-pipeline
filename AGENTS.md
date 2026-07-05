@@ -74,7 +74,7 @@ discover → ticket(s) → flow → plan → build → completion
 ```
 
 - **`discover`** is step 0 — interactive Socratic dialogue that creates ticket folders. Emits a single ticket (`claudedocs/tickets/backlog/<id>/01-spec.md` + `exploration.md`) for small/coherent work, or a parent epic + nested child tickets (`claudedocs/tickets/backlog/<EPIC>/prd.md` + `tasks/<CHILD>/01-spec.md` for each) when the scope splits naturally. For vague/outcome-uncommitted input it starts in exploration mode (one-question-at-a-time Socratic dialogue with recommended defaults) and may end without creating a ticket when the user chooses to leave; the `--explore` flag forces that mode regardless of input shape. Not part of flow.
-- **`flow`** orchestrates `plan → build` with the completion gate. `plan` runs non-interactively under flow (flow passes the internal `--auto` signal), so build's verdict gate is the only gate; run standalone, `plan` uses interactive plan mode (its own gate). `plan` includes Phase 1 pre-plan synthesis (codebase exploration + open-questions surfacing) before plan design. Flag surface is `--ignore-blockers`, `--pr`, and `--no-ui-testing` (the flow→plan `--auto` signal is internal wiring, not a user-facing flow flag; `--pr`/`--no-ui-testing` are propagated to build); resumption is auto-detected from on-disk artifacts (users delete artifacts to start fresh).
+- **`flow`** orchestrates `plan → build` with the completion gate. `plan` runs non-interactively under flow (flow passes the internal `--auto` signal), so build's verdict gate is the only gate; run standalone, `plan` uses interactive plan mode (its own gate). `plan` includes Phase 1 pre-plan synthesis (codebase exploration + open-questions surfacing) before plan design. Flag surface is `--pr` and `--no-ui-testing` (the flow→plan `--auto` signal is internal wiring, not a user-facing flow flag; both are propagated to build); resumption is auto-detected from on-disk artifacts (users delete artifacts to start fresh).
 - **`build`** runs implement → review → test as internal checkpoints in one continuous loop. Validation fires after every edit (PostToolUse hook plus skill-body fallback). Reviewer findings and test failures are fixed in-context; the loop self-monitors for stuck patterns and a 25-turn ceiling.
 
 ### Runtime source of truth
@@ -155,6 +155,10 @@ tools:
 ```
 
 **Why:** skill `allowed-tools` is space-separated and agent `tools` is comma-separated in their inline string forms — opposite separators in two fields that do the same thing. Using the wrong separator silently fails (one malformed tool name, no error raised). The YAML list form works unambiguously for both and eliminates the asymmetry at the source. Every skill and agent in this plugin uses it; if you're adding a new one, match the convention.
+
+### Flag naming
+
+One axis, one flag name, shared across skills; defaults may differ per skill; negative names (`--no-x`) only where the default is on.
 
 ### Shared references
 
@@ -260,7 +264,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
   - `parent: <EPIC-ID>` — the epic this child belongs to.
   - `epic: <slug>` — human-readable shared identifier across siblings (e.g. `dark-mode-rollout`).
   - `siblings: [<child-id>, ...]` — informational cross-references.
-  - `blocked_by: [<child-id>, ...]` — sequencing dependencies. Enforced by `plan`/`build`: build refuses if blockers aren't done; plan auto-loads blocker context. Bypass with `--ignore-blockers`. See ticket-resolution Step 6.
+  - `blocked_by: [<child-id>, ...]` — sequencing dependencies. Enforced by `plan`/`build`: build refuses if blockers aren't done; plan auto-loads blocker context. See ticket-resolution Step 6.
 - **Epic frontmatter** (on `prd.md`):
   - `kind: epic` — marks as non-pipelineable.
   - `children: [<child-id>, ...]` — populated by discover.

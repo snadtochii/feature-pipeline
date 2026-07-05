@@ -7,7 +7,7 @@ allowed-tools:
   - Grep
   - TodoWrite
   - Skill
-argument-hint: "[ticket-id|epic-id] [--ignore-blockers] [--pr] [--no-ui-testing]"
+argument-hint: "[ticket-id|epic-id] [--pr] [--no-ui-testing]"
 ---
 
 # Feature Flow Pipeline
@@ -36,7 +36,6 @@ Remaining args = pipeline flags (see table below)
 
 | Flag | Effect | Example |
 |------|--------|---------|
-| `--ignore-blockers` | Bypass the `blocked_by` validation in flow's SETUP step 3; print a one-line warning and propagate the flag to plan + build invocations. | `--ignore-blockers` |
 | `--pr` | On verdict `pass`, build opens a GitHub PR and finalizes the ticket into `review/` instead of `done/` (see `build/references/pr-creation.md`). Propagated to `build` only; in epic-mode, forwarded per child (one PR per child). Degrades to a local commit + `done/` when GitHub tooling is absent. | `--pr` |
 | `--no-ui-testing` | Skip only the browser/ui-tester portion of build's test checkpoint; non-browser verification (lint/typecheck) still runs and still gates the verdict. Use when the run can't get interactive browser-MCP permission (e.g. headless `claude -p`); browser verification then falls to a human at PR review. Propagated to `build` only (plan has no UI-test concept); in epic-mode, forwarded per child. | `--no-ui-testing` |
 
@@ -45,7 +44,6 @@ Resumption is auto-detected from on-disk artifacts — see "Resumption auto-dete
 ### Examples
 ```
 /feature:flow BL-1                              # single-ticket; auto-resumes if artifacts exist
-/feature:flow BL-1 --ignore-blockers            # exploratory run on a blocked ticket
 /feature:flow claudedocs/tickets/backlog/BL-1/  # by folder path
 /feature:flow BL-1 --pr                         # on pass, open a GitHub PR and land in review/
 /feature:flow BL-1 --pr --no-ui-testing         # headless-safe: skip browser checkpoint, still open a PR
@@ -116,10 +114,7 @@ The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and
    - `kind: epic` → proceed to **EPIC-MODE EXECUTION** below; skip the remaining SETUP steps (epic walker handles per-child blocker validation and artifact invalidation by recursing into single-ticket flow per child).
    - Otherwise (no `kind` field, or `kind` has a non-`epic` value) → single-ticket mode; continue with steps 3–4.
 
-3. **Validate blockers** per [`references/ticket-resolution.md`](references/ticket-resolution.md) Step 6. If the ticket has `blocked_by` entries that aren't done (and `--ignore-blockers` was not passed), abort with the Step 6 message listing the unblocked blockers. With `--ignore-blockers`, print a one-line warning and propagate the flag to plan + build invocations:
-   ```
-   ⚠ Bypassing blocker check for <ticket-id>. Unfinished blockers: <list>. Proceeding anyway.
-   ```
+3. **Validate blockers** per [`references/ticket-resolution.md`](references/ticket-resolution.md) Step 6. If the ticket has `blocked_by` entries that aren't done, abort with the Step 6 message listing the unblocked blockers.
 
 4. **Invalidate downstream artifacts** if `02-plan.md` is missing AND any of `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` exist on disk:
    - Delete each existing build artifact (the user signalled "start fresh" by removing `02-plan.md`).
@@ -136,7 +131,7 @@ Apply the resumption auto-detection routing table (above) to decide which stages
 - If `02-plan.md` exists (with or without `06-summary.md` reporting `partial`/`stuck`) — skip plan; invoke `Skill build` only. Build auto-resumes from on-disk artifacts per its own logic.
 - Otherwise — invoke `Skill plan` **with `--auto`** (non-interactive plan; this is what makes flow's plan→build handoff seamless — no plan-mode approval gate), then (after plan returns) `Skill build`.
 
-Both invocations propagate `--ignore-blockers` if it was passed to flow. `--pr` and `--no-ui-testing`, if passed, are propagated to `Skill build` **only** (plan has neither a PR nor a UI-test concept). Flow additionally always passes `--auto` to `Skill plan` (build has no such flag, so it is not propagated there). `--auto` is internal flow→plan wiring, not a user-facing flow flag — that's why it's absent from the Flags table above.
+`--pr` and `--no-ui-testing`, if passed, are propagated to `Skill build` **only** (plan has neither a PR nor a UI-test concept). Flow additionally always passes `--auto` to `Skill plan` (build has no such flag, so it is not propagated there). `--auto` is internal flow→plan wiring, not a user-facing flow flag — that's why it's absent from the Flags table above.
 
 Plan and build perform their own state transitions (start-of-pipeline at start, end-of-pipeline at build's verdict gate) per [`references/state-transitions.md`](references/state-transitions.md). Flow does not touch folder state or frontmatter `status` directly.
 
@@ -207,7 +202,7 @@ b. **Print the running message**:
    → Running <CHILD-ID>: <title>
    ```
 
-c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs plan + build per the existing logic. Propagate `--ignore-blockers`, `--pr`, and `--no-ui-testing` if the epic-level invocation had them (a `--pr` epic run opens one PR per child; `--no-ui-testing` skips the browser checkpoint for every child).
+c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs plan + build per the existing logic. Propagate `--pr` and `--no-ui-testing` if the epic-level invocation had them (a `--pr` epic run opens one PR per child; `--no-ui-testing` skips the browser checkpoint for every child).
 
 d. **Re-read the child's `01-spec.md` frontmatter** after the recursive flow returns. Build's verdict gate (inside the child's flow run) already moved the folder and updated `status` per `state-transitions.md`. The new status determines the walker's next move:
 
@@ -316,6 +311,6 @@ When build exits `partial` or `stuck`, the verdict gate (owned by build) present
 - **Stage skill failure** (plan or build crashes/returns an error mid-run): report it to the user and ask how to proceed (retry or abort).
 - **Ticket not found**: defer to `references/ticket-resolution.md`'s error handling — ask the user for the correct path.
 - **Project path can't be determined**: ask the user.
-- **Blocker validation fails** without `--ignore-blockers`: abort at SETUP step 3; print the Step 6 message verbatim. The ticket folder stays in `backlog/` and frontmatter `status` is unchanged (flow has not touched state at this point).
+- **Blocker validation fails**: abort at SETUP step 3; print the Step 6 message verbatim. The ticket folder stays in `backlog/` and frontmatter `status` is unchanged (flow has not touched state at this point).
 
 Plan-mode cancellation, verdict-gate ambiguity, and verdict-vs-summary inconsistencies are all handled inside the stages that produce them (plan and build respectively), not in flow.
