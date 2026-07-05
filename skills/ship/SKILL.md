@@ -98,8 +98,8 @@ Each ticket runs three roles — **implementer → independent reviewer → impl
 - **Repo path + ticket identity**, including whether it's an epic child and its spec path (`claudedocs/tickets/<state>/<EPIC>/tasks/<ID>/01-spec.md`).
 - **Base branch** = `<BASE_BRANCH>` (the integration branch in an epic run, else `<base>`). Cut the feature branch from `<BASE_BRANCH>`, and target the PR at it.
 - **Project conventions that override harness defaults** — for feature-pipeline repos: commit subject `<ID>: <imperative>`, **no `Co-Authored-By` trailer**, one concern per commit; plus any boundary rules from CLAUDE.md (e.g. this app's server/client `node:*` boundary).
-- **Step 1 — Build:** invoke `Skill feature:flow` with args `<ID> --pr --no-ui-testing`. Ensure the PR's base is `<BASE_BRANCH>` — if `flow --pr` opened it against a different branch, retarget with `gh pr edit <n> --base <BASE_BRANCH>`. Then independently run `npm run typecheck` and the spec's verification tests; fix anything red.
-- **Step 2 — Independent review:** the orchestrator spawns ONE reviewer subagent (`general-purpose`) using the reviewer prompt below, with the real PR number. The reviewer gets the spec path + PR diff + neutral instructions only — **never** the implementer's justifications.
+- **Step 1 — Build:** invoke `Skill feature:flow` with args `<ID> --pr --no-ui-testing`. Ensure the PR's base is `<BASE_BRANCH>` — if `flow --pr` opened it against a different branch, retarget with `gh pr edit <n> --base <BASE_BRANCH>`. Then independently run `npm run typecheck` and the spec's verification tests; fix anything red. Keep the PR body to build's summary plus a single one-line inner-cycle review provenance — the full internal 4-reviewer findings must **not** land in the PR body, since the independent reviewer (Step 2) reads it (bias isolation).
+- **Step 2 — Independent review:** the orchestrator spawns ONE reviewer subagent (`general-purpose`) using the reviewer prompt below, with the real PR number. The reviewer gets the spec path + PR diff + neutral instructions only — **never** the implementer's justifications; the PR body it reads carries only the one-line inner-cycle review provenance (build's internal reviewer-checkpoint result, e.g. "Review checkpoint: 4 parallel reviewers — zero findings at confidence ≥ 80"), never the full inner-cycle findings — bias isolation.
 - **Step 3 — Address (merge in an epic run):** read the actually-posted review (`gh pr view <n> --comments`), validate each finding (ACCEPT real / DISMISS wrong, one-line reason each), fix accepted ones per conventions, push, re-run typecheck + tests (must be green). Then, **in an epic run**: `gh pr merge <n> --squash --delete-branch` (merges into the integration branch). **In a solo or multi-solo run**: leave the PR **open** — it is a resulting PR of the run; whether it merges is decided at END OF RUN (`--merge`). Either way, what lands is **code only** — the ticket folder stays in `review/` (status `in-review`); finalizing it to `done/` is `sync`'s job (see Ticket-state finalization under END OF RUN).
 - **Step 4 — Report** the structured sections: ticket, branch, base, pr, built, checks, review_findings, addressed, merge SHA (epic run) or open-PR state (solo/multi-solo), **ui_verification** (state plainly that browser ACs were **not** verified in-loop — `--no-ui-testing` is always on — and that real-browser verification is deferred to the human at the resulting PR, or post-merge on a `--merge` run), blockers, and **finalization** (ticket left in `review/` — run `/feature:sync` to promote to `done/`).
 - **Guardrails:** spawn exactly one reviewer per ticket; never weaken/skip tests to go green; never merge the resulting PR unless `--merge` was passed; on a genuine blocker (merge protection, irreconcilable finding, unfixable test) STOP and report it instead of forcing/faking.
@@ -128,7 +128,8 @@ You are an independent, skeptical code reviewer. Review GitHub PR #<N> in <REPO_
 Assume nothing is correct until you verify it against the spec and the actual code.
 
 Get the change: `gh pr diff <N>`, `gh pr view <N> --json title,body,headRefName,baseRefName,files`,
-and read the surrounding source/tests as needed.
+and read the surrounding source/tests as needed. The PR body carries only a one-line inner-cycle
+review provenance, not the implementer's rationale — judge the diff against the spec yourself.
 
 GROUND TRUTH is the ticket spec at <SPEC_PATH> — read it and judge the diff against it.
 Also read any carry-forward checklist in claudedocs/tickets/_lessons.md.
@@ -140,19 +141,32 @@ concurrency / the carry-forward checklist; (3) project boundary or architecture 
 For UI tickets, assess user-visible behavior against the spec and diff — ship defers live browser verification to the human gate, so do not attempt it or report missing browser evidence as a gap.
 
 Be specific. Per finding: severity (blocking|major|minor|nit), file:line, what's wrong, why.
-If nothing is blocking, say so explicitly.
 
-POST the review to GitHub: `gh pr review <N> --comment --body "<structured findings>"` (if GitHub blocks self-review because the PR author == your `gh` identity, fall back to `gh pr comment <N> --body "<structured findings>"`),
-then return the same findings as your final message.
+POST the review by following the shared contract in skills/review/references/pr-comments.md — read
+that file and apply it as written; the notes below are only your brief, not a restatement of it:
+- Post ONE logical review via the Reviews API (§4): line-anchored findings as `comments[]`, other
+  findings in the summary body each tagged `[F<k>]`, ending with the §1 footer and the §2 hidden
+  `fp-review` marker (its `head=<SHA>` is the PR's current head, `agent=` detected per §2).
+- You have Bash but no Write tool: materialize every body/payload in FILES via §4/§5's
+  quoted-heredoc-to-`mktemp -d` mechanism with a verified-unique nonce delimiter — never a
+  `--body "…"` literal, never `eval` (§7).
+- On a Reviews-API error or a blocked self-review (PR author == your `gh` identity), fall back to the
+  single `gh pr comment` path (§5); no blocking findings → post one signed summary per §6. Do not
+  approve or request changes.
+
+OUTPUT DISCIPLINE: the PR comment is FINDINGS-ONLY — at most a one-line verdict plus a compact
+acceptance-criteria checklist. Do NOT narrate per-AC "verified, all pass" prose onto the PR. Put the
+full per-AC verification narration in your FINAL MESSAGE to the orchestrator (ship's run report),
+never on the PR — then return that narration + the posted findings as your final message.
 ```
 
 ## Recovery & GitHub identity
 
-If a run stalls or dies, re-run `ship` — resumption state is on disk (ticket folders, feature branches, open PRs, posted reviews; in an epic run SETUP reuses an existing integration branch, while a multi-solo run has no integration branch, so its resume state is purely the per-ticket folders/branches/PRs). On re-run, inspect each ticket's actual state and resume at the **first incomplete stage** instead of restarting its sequence: a ticket in `review/` with an open PR skips Step 1 (`flow` on an in-review ticket only re-checks merge state — it does not rebuild); a PR whose comments already carry the independent review (`gh pr view <n> --comments`) skips Step 2 — never post a second review (one reviewer per ticket); a PR already `MERGED` skips to the orchestrator's verification. Only stages with no evidence on GitHub or disk re-run.
+If a run stalls or dies, re-run `ship` — resumption state is on disk (ticket folders, feature branches, open PRs, posted reviews; in an epic run SETUP reuses an existing integration branch, while a multi-solo run has no integration branch, so its resume state is purely the per-ticket folders/branches/PRs). On re-run, inspect each ticket's actual state and resume at the **first incomplete stage** instead of restarting its sequence: a ticket in `review/` with an open PR skips Step 1 (`flow` on an in-review ticket only re-checks merge state — it does not rebuild); a PR already carrying an `fp-review` marker for its **current** head SHA skips Step 2 — run the `pr-comments.md` §3 idempotency scan (`gh pr view <n> --json headRefOid,comments,reviews`, match `head=<current-SHA>`) rather than treating any prior review comment as sufficient (the head may have moved), and never post a second review at the same head (one reviewer per ticket); a PR already `MERGED` skips to the orchestrator's verification. Only stages with no evidence on GitHub or disk re-run.
 
 Two GitHub identity facts the loop depends on:
 
-- **Self-review is blocked** when the PR author and the reviewer's `gh` identity are the same user — the reviewer falls back from `gh pr review` to `gh pr comment` (handled in the template above). A single-identity setup means findings are *comments*, not a formal approve/request-changes review.
+- **Self-review is blocked** when the PR author and the reviewer's `gh` identity are the same user — the reviewer falls back from the Reviews API to `gh pr comment` (`pr-comments.md` §5, handled in the template above). A single-identity setup means findings are *comments*, not a formal approve/request-changes review.
 - **Posting and merging under the user's identity needs the user's authorization** — the harness blocks autonomous self-merge without it, and posting can trip a security-heuristic flag. Both are expected here (invoking `ship` authorizes the per-ticket integration merges; `--merge` authorizes the resulting-PR merge), but the orchestrator should still glance at what was published (`gh api repos/{o}/{r}/issues/<N>/comments`) to confirm it's appropriate review content before relying on the merge.
 
 ## When NOT to run

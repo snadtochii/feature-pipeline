@@ -1,6 +1,6 @@
 # PR Comments — shared agent-comment contract
 
-The single source of truth for how this plugin's automation posts to and reads from GitHub pull requests: the visible role footer, the hidden machine marker, the empty-review convention, and the `gh` post/fetch command patterns. The `review` skill (this folder's `SKILL.md`) is the first consumer; `feature:address-review` consumes the same contract via `../review/references/pr-comments.md` so review comments and replies share one format.
+The single source of truth for how this plugin's automation posts to and reads from GitHub pull requests: the visible role footer, the hidden machine marker, the empty-review convention, and the `gh` post/fetch command patterns. The `review` skill (this folder's `SKILL.md`) is the first consumer; `feature:address-review` consumes the same contract via `../review/references/pr-comments.md` so review comments and replies share one format; and `feature:ship`'s independent reviewer posts its findings through §4/§5 the same way, so ship's review and the standalone `review` skill land in one format.
 
 Born here because `review` is the first surface that posts *signed* comments. Modeled on `../build/references/pr-creation.md`'s born-in-build / reused-by-sync precedent — the producing skill owns the rules, the consumer links them.
 
@@ -106,7 +106,7 @@ gh pr comment "<N>" --body-file "$WORK/comment.md"
 - `comment.md` carries the same content the Reviews-API `body` would: summary findings (with inline findings inlined as `path:line` references), the §1 footer, and the §2 hidden marker.
 - Use `--body-file`, never `--body "<interpolated text>"` — review text is model-generated and must not be pasted into a command literal (§7).
 
-This is the same fallback `../ship/SKILL.md`'s reviewer hop uses (`gh pr review … --comment` → `gh pr comment`); here the summary content and marker are identical across both paths so the §3 scan finds the marker regardless of which path posted it.
+This is the same fallback `../ship/SKILL.md`'s reviewer hop uses (Reviews API → `gh pr comment`); here the summary content and marker are identical across both paths so the §3 scan finds the marker regardless of which path posted it.
 
 ### Security-heuristic flag note
 
