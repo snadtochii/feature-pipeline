@@ -62,10 +62,11 @@ Find the PR by **ticket ID** — this is the **ID-keyed variant of the shared me
 
 ```bash
 gh pr list --search "<TICKET-ID> in:title" --state all \
-  --json number,state,url,createdAt,title \
+  --json number,state,url,createdAt,title,mergeCommit \
   --jq '[.[] | select(.title | startswith("<TICKET-ID>:"))] | sort_by(.createdAt) | last'
 ```
 - Quote `"<TICKET-ID>"` (controlled `<PREFIX>-<N>` token, no raw free-text interpolation). The `startswith("<TICKET-ID>:")` post-filter rejects titles that merely mention the ID (e.g. a multi-ID title), so only the ticket's own PR survives.
+- `mergeCommit.oid` is carried for the **reachability gate** the shared predicate applies in Step 3 (a `MERGED` PR promotes only when its merge commit has reached `<base>`).
 - **Multiple survivors** (e.g. a reopened PR): `sort_by(.createdAt) | last` picks the newest; note that in the report.
 - **No survivor**: record `couldn't-check (no PR found)`; change nothing.
 
@@ -73,10 +74,11 @@ gh pr list --search "<TICKET-ID> in:title" --state all \
 
 Run Step 2's PR lookup only for the **actionable** tickets from Step 1. Inconsistent tickets skip straight to the Step 4 report — no PR check, no move.
 
-- **`MERGED`** → finalize via **Transition 6** (`review → done`) per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) — invoke it, don't reimplement the move logic:
+- **`MERGED` and reachable from `<base>`** → the shared merge predicate's **reachability gate** decides this: after a `git fetch`, resolve `<base>` and require the PR's merge commit to be an ancestor of `origin/<base>` (`git merge-base --is-ancestor`) — the exact rule lives once in [`../build/references/pr-creation.md`](../build/references/pr-creation.md)'s Merge predicate; apply it, don't fork the gate here. Only a merge that has actually reached `<base>` promotes; finalize via **Transition 6** (`review → done`) per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) — invoke it, don't reimplement the move logic:
   - *Solo ticket*: move the folder first — `mv "claudedocs/tickets/review/<id>" "claudedocs/tickets/done/<id>"` — then `Edit` its `01-spec.md` frontmatter `status` → `done`. A solo `in-review` ticket always lives in `review/` (Transition 5's solo path moves the folder before flipping the status), so this path stays `review/`-specific — do not unify it with the epic-child path below.
   - *Epic child*: no child-folder move — `Edit` the child's `status` → `done`. The child's subtree may be in `review/` **or** still in `in-progress/` (a sibling is mid-build); either way the child flips in place. **Defer** Transition 6's **Epic-completion predicate** to once per affected epic at the end of the pass: collect the epics whose children you promoted this pass; for each, re-resolve `<epic-folder>` (the deepest ancestor containing `prd.md`, at its **current** location) and apply the **Epic-completion predicate** (see [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md)) *after* all in-pass child flips are written — invoke it, don't reimplement the roster/sibling scan. On `promote`, `mv` the whole epic subtree from its current folder — `<epic-folder> → done/<EPIC>` (source is wherever the epic currently sits, `in-progress/` or `review/`, **not** a hardcoded `review/<EPIC>`) — and set `prd.md` `status` → `done`. On `stay`, leave the epic where it is: the child flip stands and the epic stays put under the precedence rule. The predicate gates on the epic's **declared `children:` roster**, so a just-in-time epic whose later-phase children aren't materialized yet correctly stays put even when every authored child is terminal. Render any predicate warnings (roster-unknown when `children:` can't be read; roster-drift when a materialized child isn't in the roster) as `⚠ Needs attention` report lines (Step 4). (Deferring once per epic avoids re-applying the predicate per merged child, where only the last child's check can succeed.)
   - Record `✓ promoted → done/` + the PR URL (and the epic move, if it fired).
+- **`MERGED` but not yet reachable from `<base>`** (an epic child squash-merged only into `integration/<epic-id>`, or `git`/`gh` couldn't resolve the merge commit or base — e.g. offline) → the reachability gate treats it as **still pending**: record `… merged into integration, not yet on <base>` + the PR URL; change nothing. Never promote on an unverifiable merge. It promotes on a later pass once the integration PR lands on `<base>`.
 - **`OPEN`** → record `… open` + the PR URL; change nothing.
 - **`CLOSED`** (unmerged) → record `⚠ closed unmerged — needs your call`; change nothing. Do NOT auto-revert — reverting `review → backlog` is a judgment call (you may reopen or rework).
 - **Inconsistent** (from Step 1, no PR lookup ran) → record `⚠ inconsistent (status: in-review, but in <folder>)`; change nothing. The status is unreachable for that location — surface it so the corruption isn't silently skipped, but don't guess a move.
@@ -107,13 +109,13 @@ The `⚠ Needs attention` group carries closed-unmerged PRs, inconsistent-state 
 
 **Will:**
 - Scan in-review tickets (all, or one when `$1` is given), find each PR by ticket ID, and report.
-- Promote `MERGED`-PR tickets to `done/` via Transition 6, including the epic promotion gated by the Epic-completion predicate (declared `children:` roster reconciliation).
+- Promote tickets whose PR is `MERGED` **and reachable from `<base>`** to `done/` via Transition 6, including the epic promotion gated by the Epic-completion predicate (declared `children:` roster reconciliation). A PR merged only into an `integration/<epic-id>` branch is left in `review/` until it reaches `<base>`.
 - Degrade fail-closed when `gh`/auth/origin is unavailable — change nothing, report why.
 
 **Will Not:**
 - Push, create, or close PRs — sync is read-only on GitHub (that's the `--pr` flow's job).
 - Auto-revert closed-unmerged tickets — flag only.
-- Reimplement Transition 6 or the merge rule — it invokes Transition 6 and shares the `MERGED → done` rule.
+- Reimplement Transition 6 or the merge rule — it invokes Transition 6 and shares the `MERGED`-and-reachable → `done` rule (reachability gate defined once in `pr-creation.md`).
 
 ## Error Handling
 
