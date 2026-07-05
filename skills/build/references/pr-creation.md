@@ -100,21 +100,33 @@ For an `in-review` ticket (a solo ticket or an at-review epic in `review/`, or �
 
 - **Branch-keyed** — build's per-ticket `review/` resumption, which has the current checkout:
   ```bash
-  gh pr view "<branch>" --json state,mergeCommit --jq '.state + " " + (.mergeCommit.oid // "")'
+  gh pr view "<branch>" --json state,mergeCommit,baseRefName --jq '.state + " " + (.mergeCommit.oid // "") + " " + .baseRefName'
   ```
-  `<branch>` is the ticket's pushed branch (recorded in `06-summary.md`) or the current checkout. The output is `state` and — when merged — the merge-commit SHA (`MERGE_SHA`), both fed into the reachability gate below.
+  `<branch>` is the ticket's pushed branch (recorded in `06-summary.md`) or the current checkout. The output is `state`, the merge-commit SHA (`MERGE_SHA`) when merged, and the PR's own base branch (`PR_BASE`), all fed into the reachability gate below.
 - **ID-keyed** — the `sync` skill's batch scan, which has no reliable branch (the slug is judgment-distilled and the branch matrix may reuse a non-convention branch). GitHub's title search is tokenized, so anchor on the `<TICKET-ID>:` title convention:
   ```bash
-  gh pr list --search "<TICKET-ID> in:title" --state all --json number,state,url,createdAt,title,mergeCommit --jq '[.[] | select(.title | startswith("<TICKET-ID>:"))] | sort_by(.createdAt) | last | .state + " " + (.mergeCommit.oid // "")'
+  gh pr list --search "<TICKET-ID> in:title" --state all --json number,state,url,createdAt,title,mergeCommit,baseRefName --jq '[.[] | select(.title | startswith("<TICKET-ID>:"))] | sort_by(.createdAt) | last | .state + " " + (.mergeCommit.oid // "") + " " + .baseRefName'
   ```
-  Every PR/commit title leads with `<TICKET-ID>:`, so the `startswith` post-filter pins the ticket's own PR; `last` picks the newest. More robust than the branch when the branch isn't recoverable. As with the branch-keyed lookup, this yields `state` and the merge-commit SHA (`MERGE_SHA`) for the reachability gate below.
+  Every PR/commit title leads with `<TICKET-ID>:`, so the `startswith` post-filter pins the ticket's own PR; `last` picks the newest. More robust than the branch when the branch isn't recoverable. As with the branch-keyed lookup, this yields `state`, the merge-commit SHA (`MERGE_SHA`), and the PR's own base branch (`PR_BASE`) for the reachability gate below.
 
 **Shared rule** (both lookups): a PR promotes to `done/` only when it is `MERGED` **and** its merge commit is **reachable from the base branch** — checking *that* a PR merged is not enough, because an epic child squash-merged only into `integration/<epic-id>` reports `MERGED` identically to a solo PR merged into the base. Gating on reachability keeps `sync` safe to run mid-epic-run: a child stays `in-review` until its code actually lands on `<base>`.
 
-Resolve the base the way §1 does. This section is referenced **standalone** (build's `review/` resumption and `sync`) rather than only inside the §1 push sequence, so it fetches and resolves the base itself:
+Resolve the ticket's **true trunk from the PR itself** — the branch its code must reach to be "done" — not from the repository default, which would ignore a non-default `ship --base <branch>` (a run targeting a non-default base would merge and then stay `in-review` forever, its merge SHA checked against the wrong branch). This section is referenced **standalone** (build's `review/` resumption and `sync`), so it fetches and resolves the base itself:
 ```bash
 git fetch origin --quiet
-base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)
+# A direct-to-trunk PR's own base IS the trunk (this respects `--base <branch>`).
+# An epic child's PR base is its `integration/<epic-id>` branch — its true trunk is that
+# integration branch's OWN PR base (the epic's `--base`), so the child promotes only once the
+# integration PR lands on the real trunk (preserving the mid-epic-run safety FP-34 added).
+if [ -n "$PR_BASE" ] && [ "${PR_BASE#integration/}" = "$PR_BASE" ]; then
+  base="$PR_BASE"                                                    # solo / direct-to-trunk PR
+elif [ -n "$PR_BASE" ]; then
+  base=$(gh pr list --head "$PR_BASE" --state all --json number,baseRefName \
+           --jq 'sort_by(.number) | last | .baseRefName' 2>/dev/null)   # epic child → epic's trunk
+fi
+# Fallback only when the PR base can't be resolved; an unresolved base is treated as NOT
+# promotable below (never a pass), so this can never wrongly promote.
+[ -n "$base" ] || base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)
 ```
 
 Then, from the lookup's `state` and `MERGE_SHA`:
