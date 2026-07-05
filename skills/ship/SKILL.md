@@ -142,11 +142,15 @@ For UI tickets, assess user-visible behavior against the spec and diff — ship 
 
 Be specific. Per finding: severity (blocking|major|minor|nit), file:line, what's wrong, why.
 
-POST the review by following the shared contract in skills/review/references/pr-comments.md — read
-that file and apply it as written; the notes below are only your brief, not a restatement of it:
+POST the review by following the shared contract in $CLAUDE_PLUGIN_ROOT/skills/review/references/pr-comments.md
+— read that file (it lives under the plugin root, not this repo's cwd) and apply it as written; the
+notes below are only your brief, not a restatement of it:
 - Post ONE logical review via the Reviews API (§4): line-anchored findings as `comments[]`, other
-  findings in the summary body each tagged `[F<k>]`, ending with the §1 footer and the §2 hidden
-  `fp-review` marker (its `head=<SHA>` is the PR's current head, `agent=` detected per §2).
+  findings in the summary body each tagged `[F<k>]`, ending with the §1 footer `_— 🔎 review (automated)_`
+  and the §2 hidden marker `<!-- fp-review agent=<codex|claude> head=<SHA> -->` (its `head=<SHA>` is the
+  PR's current head; `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not, else
+  `agent=claude`). Reproduce both literals EXACTLY as written here even if the file read fails — ship's
+  recovery scan greps for that exact marker.
 - You have Bash but no Write tool: materialize every body/payload in FILES via §4/§5's
   quoted-heredoc-to-`mktemp -d` mechanism with a verified-unique nonce delimiter — never a
   `--body "…"` literal, never `eval` (§7).
