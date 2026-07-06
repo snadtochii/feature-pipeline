@@ -87,7 +87,7 @@ Roles stay separated: the implementer owns build + fix authority (and per-ticket
      - any **epic ID** (`kind: epic`) → an epic ships on its own: `/feature:ship <epic-id>` alone. Don't combine an epic with other IDs in one list.
    - Every single-ID input is classified (epic run if `kind: epic`, else solo run) and every multi-ID list is either a multi-solo run or a guard STOP — the classification is total.
    - **Blocker check (every run)** — confirm each shipped ticket's `blocked_by` deps are already `done`/merged. In an epic run, order the children so deps merge first. In a solo or multi-solo run, an unmet `blocked_by` is a STOP (the dependency isn't in place) — surface it and direct the user to ship the dependency first (or its epic). If the dependency's PR is already merged but the ticket still reads unmet, run `/feature:sync` to reconcile it to `done/`, then re-run.
-2. Pre-flight: `git checkout <base> && git pull --ff-only` (default `main`), confirm a clean tree and `gh auth status` is logged in. Read the repo's CLAUDE.md and `claudedocs/tickets/_lessons.md` so the per-ticket brief carries the project's load-bearing constraints and carry-forward lessons.
+2. Pre-flight: `git checkout <base> && git pull --ff-only` (default `main`), confirm a clean tree and `gh auth status` is logged in. Read the repo's CLAUDE.md for the project's load-bearing constraints. For carry-forward lessons, **do not full-load `claudedocs/tickets/_lessons.md`** — `grep` it on demand for the subject keywords the shipped tickets touch (their paths, tools, commands, and areas) and pull only the matching atomic entries into the per-ticket brief; no file, or no match → carry no lessons block.
 3. **Resolve the branch strategy** — from the run shape classified in step 1:
    - **Solo or multi-solo run** → no integration branch. `<BASE_BRANCH>` = `<base>` for every ticket; each ships on its own feature branch (build names it from the ticket ID) and opens its own single-ticket PR against `<base>`. A solo run's one PR — and each of a multi-solo run's N PRs — is a resulting PR of the run.
    - **Epic run** → create an integration branch off `<base>` and use it as `<BASE_BRANCH>` for every per-ticket PR — even when only one child is materialized right now (later siblings join the same branch). Name it `integration/<epic-id>`. Create it once and push it: `git checkout <base> && git pull --ff-only && git checkout -b integration/<epic-id> && git push -u origin integration/<epic-id>`. If it already exists (resume), reuse it.
@@ -153,10 +153,12 @@ and read the surrounding source/tests as needed. The PR body carries only a one-
 review provenance, not the implementer's rationale — judge the diff against the spec yourself.
 
 GROUND TRUTH is the ticket spec at <SPEC_PATH> — read it and judge the diff against it.
-Also read any carry-forward checklist in claudedocs/tickets/_lessons.md.
+For carry-forward gotchas, grep claudedocs/tickets/_lessons.md by subject for the keywords
+this ticket touches (paths, tools, commands, areas) and read only the matching atomic
+entries — do not load the whole file.
 
 Review in priority order: (1) correctness vs each acceptance criterion; (2) bugs / edge cases /
-concurrency / the carry-forward checklist; (3) project boundary or architecture violations;
+concurrency / the carry-forward lessons; (3) project boundary or architecture violations;
 (4) convention violations (commit subject, no Co-Authored-By, file placement);
 (5) test-coverage gaps vs the spec's Verification; (6) security & performance.
 For UI tickets, assess user-visible behavior against the spec and diff — ship defers live browser verification to the human gate, so do not attempt it or report missing browser evidence as a gap.
