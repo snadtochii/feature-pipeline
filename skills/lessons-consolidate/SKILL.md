@@ -125,5 +125,3 @@ On rejection or a headless run, report that nothing was written and the diff was
 - Tracked file with uncommitted changes → warn that the anchor is the last commit; proceed only on confirmation, or stop so the file can be committed first.
 - Headless / no user to approve → print the proposed diff and stop without writing (advisory-only).
 - Malformed / unparseable entry → leave it byte-for-byte and surface it in the report; never drop or "repair" a line the parser can't classify.
-</content>
-</invoke>
