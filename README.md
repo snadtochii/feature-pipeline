@@ -65,6 +65,7 @@ Run directly, outside the pipeline:
 | `/feature:address-review [<pr>]` | Validate a PR's review comments, fix the accepted ones, and post signed replies. Omit `<pr>` to use the current branch's PR. |
 | `/feature:debug <description>` | Runtime-evidence root-cause debugger: hypothesize → reproduce → fix (gated) → verify. |
 | `/feature:sync` | Reconcile in-review tickets with GitHub PR state; promote merged ones to `done/`. |
+| `/feature:lessons-consolidate` | Sweep a bloated `_lessons.md` back to the atomic format — cluster, merge, and retire entries via a human-approved diff (git as the anchor). Optionally pass a path. |
 
 ## Tickets
 
