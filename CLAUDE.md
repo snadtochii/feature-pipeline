@@ -158,6 +158,10 @@ tools:
 
 **Why:** skill `allowed-tools` is space-separated and agent `tools` is comma-separated in their inline string forms — opposite separators in two fields that do the same thing. Using the wrong separator silently fails (one malformed tool name, no error raised). The YAML list form works unambiguously for both and eliminates the asymmetry at the source. Every skill and agent in this plugin uses it; if you're adding a new one, match the convention.
 
+### Optional frontmatter blocks go at the bottom
+
+In a template whose frontmatter mixes always-present fields with an optional commented-out block (e.g. `templates/task.md`'s epic-child linkage fields, uncommented only for children), keep the optional block at the **end** of the frontmatter — never wedged between required fields. When the block is uncommented during fill, the field immediately above it gets swallowed; placing the block last leaves only the closing `---` above it, so nothing required can be absorbed. A prose "don't forget field X" reminder does not substitute for this — the layout is what the fill transcribes.
+
 ### Flag naming
 
 One axis, one flag name, shared across skills; defaults may differ per skill; negative names (`--no-x`) only where the default is on.
