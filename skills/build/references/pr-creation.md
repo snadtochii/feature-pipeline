@@ -42,13 +42,50 @@ Branch-decision matrix:
 
 `<branch>` = `<type>/<TICKET-ID>-<slug>` (see §2).
 
-## §2 Branch + commit conventions (inlined)
+## §2 Branch + commit-message conventions (inlined)
+
+Branch:
 
 - **type**: infer from the work — new capability `feature`, bug `fix`, deps/chore `chore`, refactor `refactor`, docs `docs`, test `test`. Default `feature`.
 - **TICKET-ID**: the ticket's frontmatter `id` (uppercase prefix + number, no leading zeros).
 - **slug**: 2–5 words distilled from the ticket title, lowercased, **sanitized to `[a-z0-9-]`** (strip everything else, collapse consecutive dashes, trim to ≤40 chars). Sanitizing is mandatory — the slug is interpolated into a shell command.
-- **commit message**: `<TICKET-ID>: <Imperative subject>`, blank line, then a body (what changed and why, distilled from `06-summary.md`). Build it via a heredoc or a message file (`git commit -F`); never `eval` and never inline arbitrary ticket text into the command string.
-- **message hygiene**: **no `Co-Authored-By` trailer**, no marketing language, one concern per commit.
+
+Commit message — the complete spec for the commit this path creates (the PR title/body are §4's concern):
+
+- **Subject format**: `<TICKET-ID>: <imperative subject>`. When no ticket ID is resolvable, omit the prefix entirely and start the subject with the imperative verb.
+- **Imperative mood**: the subject is an imperative-mood change description — it reads as a command completing "This commit will …" (Add / Fix / Extract / Update / Remove). Never past tense ("Added"), never third person ("Adds"), never a noun phrase — and **never the raw ticket title**. Reusing the ticket title as the subject is a forbidden anti-pattern: the title names the *feature*, the subject describes the *change*.
+- **Length & case**: sentence case after the colon; no trailing period; aim ≤50 characters after the prefix, hard limit ~72 for the whole subject line.
+- **Body**: one blank line after the subject, then what changed and why (distilled from `06-summary.md`) — not a line-by-line restatement of the diff. Wrap at ~72 columns; bullets allowed. Omit the body only for trivial commits.
+- **Mechanics**: build the message via a heredoc or a message file (`git commit -F`); never `eval` and never inline arbitrary ticket text into the command string.
+- **Hygiene**: no marketing language; one concern per commit.
+- **Attribution trailers** (`Co-Authored-By:`, `Claude-Session:`) — one explicit rule, three parts:
+  1. **Canonical**: commits carry no attribution trailers.
+  2. **Mechanism**: the consumer project disables harness attribution in `.claude/settings.json`:
+     ```json
+     { "attribution": { "commit": "", "pr": "", "sessionUrl": false } }
+     ```
+     (`includeCoAuthoredBy` is deprecated; `attribution` takes precedence over it.)
+  3. **Fallback**: when that setting is absent and the harness's built-in git instructions mandate attribution trailers, do not suppress or strip them — the mandated trailer block stands at the end of the message, verbatim as mandated. Currently-known forms, illustrative rather than exhaustive (exact names and values drift across harness versions and sessions): `Co-Authored-By: <model> <noreply@anthropic.com>`, `Claude-Session: <session-id>`.
+
+  Why three parts: an unspecified trailer outcome is itself a defect — trailer presence must be an explicit, reasoned decision, never a silent divergence from either the project convention or the harness mandate.
+
+Example — the bad subject pastes the ticket title verbatim (noun phrase, the forbidden anti-pattern); the good version describes the change imperatively:
+
+```
+# Bad — ticket title reused as the subject
+PS-38: Deep FakeInboxClient adapter at the InboxApi seam
+
+# Good — imperative change description
+PS-38: Add deep FakeInboxClient adapter at the InboxApi seam
+
+Route InboxApi reads through a FakeInboxClient so tests exercise the
+real adapter seam instead of stubbing the API layer.
+
+# Trailer block: fallback only — present ONLY when the harness mandates
+# trailers and the attribution setting is absent (trailer rule above)
+Co-Authored-By: <model> <noreply@anthropic.com>
+Claude-Session: <session-id>
+```
 
 ## §3 Stage (gitignore-aware — honors the consumer's repo)
 
