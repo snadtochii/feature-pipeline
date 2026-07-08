@@ -162,10 +162,11 @@ Its work set is **not limited to automated findings**: a **human comment** — a
 - **Footer (reuse §1, do not redefine):** every reply ends with `_— 🛠️ addressed (automated)_` on its own last line — the address role's §1 footer. Footer **presence** still distinguishes an agent reply from the author's own manual note.
 - **Reply marker:**
   ```
-  <!-- fp-address agent=<codex|claude> head=<SHA> -->
+  <!-- fp-address agent=<codex|claude> head=<SHA> re=<review|comment>:<id>[#F<k>] -->
   ```
   - `head=<SHA>` is **load-bearing** — the full current head SHA of the PR at address time (`gh pr view <N> --json headRefOid --jq '.headRefOid'`). It keys reply idempotency: a finding is "already addressed" only when its thread already carries an `fp-address` reply for the **current** head SHA. When new commits land (head moves), a prior reply no longer matches and the finding is addressed again.
-  - `agent=<codex|claude>` is **informational** — the runtime that posted, detected exactly as §2 (`agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`). It never gates idempotency — only `head` does.
+  - `re=<review|comment>:<id>[#F<k>]` is the **source key** — **load-bearing on every top-level reply**, where GitHub gives no threading to pair a reply with what it answers. It names the source by shape and REST id: an automated summary finding → `re=review:<id>#F<k>` (Reviews-API summary) or `re=comment:<id>#F<k>` (fallback issue-comment summary), with the finding's `[F<k>]` ordinal; a human review summary → `re=review:<id>`; a human issue comment → `re=comment:<id>`. **Omitted on threaded inline replies** — the inline thread (`in_reply_to_id`) is the pairing there. The ids are controlled integers from the fetch (§7).
+  - `agent=<codex|claude>` is **informational** — the runtime that posted, detected exactly as §2 (`agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`). It never gates idempotency — only `head` and `re` do.
 
 Both ACCEPTed findings (reply notes the fix) and DISMISSed findings (reply explains why it doesn't apply) get a signed reply in this exact shape.
 
@@ -181,7 +182,7 @@ gh api "repos/$OWNER/$REPO/pulls/<N>/comments" --paginate
 gh pr view "<N>" --json comments --jq '.comments[].body'
 ```
 
-A thread is **already addressed** iff its replies contain `fp-address … head=<HEAD_SHA>` **and** no human comment in the thread is newer than that reply. A human follow-up posted after the `fp-address` reply **re-opens the thread even at an unchanged head** — the author is continuing the conversation, and the marker alone must not silence them. `<N>` is a controlled integer; `HEAD_SHA`/`OWNER`/`REPO` load via command substitution — never interpolate free text (§7).
+A thread is **already addressed** iff a reply **paired to it** carries `fp-address … head=<HEAD_SHA>`. Pairing is structural, never quote-matching: for an **inline** thread the pairing is the thread itself (`in_reply_to_id`); for a **top-level** reply it is the marker's `re=` key matched against the thread's source id (+ `#F<k>` ordinal for summary findings). Additionally, a human comment in an **inline** thread newer than the paired reply **re-opens the thread even at an unchanged head** — the author is continuing the conversation, and the marker alone must not silence them. (On the flat issue-comment surface there is no in-thread follow-up: a newer human comment is a new comment with its own id, so it enters the work set as its own thread.) `<N>` is a controlled integer; `HEAD_SHA`/`OWNER`/`REPO` load via command substitution — never interpolate free text (§7).
 
 ### Posting the reply (anchor on the original comment id)
 
@@ -199,7 +200,7 @@ d=$(mktemp -d); echo "$d"     # capture the printed literal path (e.g. /tmp/tmp.
   gh api --method POST "repos/$OWNER/$REPO/pulls/<N>/comments/<COMMENT_ID>/replies" --input "<d>/reply-payload.json"
   ```
   Equivalent form (same effect): `POST repos/$OWNER/$REPO/pulls/<N>/comments` with `{body, in_reply_to:<COMMENT_ID>}` as the payload. `<COMMENT_ID>` is the review comment's `id` from the fetch (a controlled integer).
-- **Summary finding** (a `[F<k>]` finding in the review body or the §5/§6 fallback issue comment — **not** line-anchored, so there is no inline thread to anchor to): post **one top-level issue comment per `[F<k>]` finding**, each carrying the same footer + marker and naming the **source review/comment id + `[F<k>]`** it answers:
+- **Summary finding** (a `[F<k>]` finding in the review body or the §5/§6 fallback issue comment — **not** line-anchored, so there is no inline thread to anchor to): post **one top-level issue comment per `[F<k>]` finding**, each carrying the same footer + a marker whose `re=` key names the **source review/comment id + `#F<k>`** it answers (the visible text names the same source for the human reader):
   ```bash
   gh pr comment "<N>" --body-file "<d>/summary-reply.md"
   ```
