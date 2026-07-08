@@ -83,7 +83,13 @@ The skill runs in **main context** (interactive) through these phases:
    - If in a project directory already, use current working directory
    - The project root is needed for codebase exploration
 
-3. **Quick acknowledgment** — confirm what you understood:
+3. **Detect workspace shape** (single-repo vs multi-repo):
+   - The workspace is the folder holding `claudedocs/tickets/` (the same root Phase 0 establishes)
+   - **Multi-repo** iff the workspace root is not itself a git repo (no `.git` at the root) AND immediate child directories containing `.git` exist. Record those child directory names verbatim — they are the vocabulary for the `repos` frontmatter field (exact on-disk names, e.g. `big-leaves-api`, never shortened)
+   - Check immediate children only — no recursion (avoids `node_modules/.git` and vendored-tree false positives)
+   - Any other shape (workspace root is a git repo, or no child repos found) is **single-repo**: the `repos` field is omitted everywhere downstream, and every repos-related step below is skipped — single-repo output is byte-identical to a workspace where the concept doesn't exist
+
+4. **Quick acknowledgment** — confirm what you understood:
    ```
    ## Understanding Your Request
 
@@ -152,6 +158,7 @@ Use the code explorer results to ask informed questions:
 - "There's an existing [component/service] that does something related — should we extend it or build new?"
 - "The current [architecture layer] handles [related thing] — does this fit there?"
 - Any API/data requirements? New endpoints needed?
+- In a multi-repo workspace (per the Phase 1 detection), confirm the inferred repo list as one line of this theme: "This looks like it touches `<repo-a>` + `<repo-b>` — correct?" — inferred by matching the explorer output's file paths against the detected child-repo directory names. The user's answer wins over the inference.
 
 **Iteration rules**:
 - **Themes loop, they don't queue**: cover each relevant theme, but re-enter any theme as often as needed. There is no fixed number of batches and no rule that one theme must finish before another begins.
@@ -197,11 +204,13 @@ I recommend splitting this into <N> tickets sharing epic `<epic-slug>`. Here's t
 
 **Children**:
 
-| # | Tentative ID | Title | Complexity | Covers AC | blocked_by |
-|---|---|---|---|---|---|
-| 1 | <CHILD-1-ID> | <title> | M | 1, 2 | — |
-| 2 | <CHILD-2-ID> | <title> | M | 3, 4 | <CHILD-1-ID> |
-| 3 | <CHILD-3-ID> | <title> | S | 5 | <CHILD-1-ID> |
+| # | Tentative ID | Title | Complexity | Repos | Covers AC | blocked_by |
+|---|---|---|---|---|---|---|
+| 1 | <CHILD-1-ID> | <title> | M | <repo-a> | 1, 2 | — |
+| 2 | <CHILD-2-ID> | <title> | M | <repo-a>, <repo-b> | 3, 4 | <CHILD-1-ID> |
+| 3 | <CHILD-3-ID> | <title> | S | <repo-b> | 5 | <CHILD-1-ID> |
+
+The `Repos` column appears only in a multi-repo workspace (per the Phase 1 detection) — omit the column entirely in a single-repo workspace. It lets the user check whether the split follows repo seams before approving.
 
 ### Acceptance Criteria Coverage
 - [x] AC 1 → <CHILD-1-ID>
@@ -252,6 +261,9 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
 
 2. **Write the spec** to `claudedocs/tickets/backlog/<TICKET-ID>/01-spec.md` using `templates/task.md`. The spec file IS the ticket — frontmatter for metadata, body for the content.
 
+   In a multi-repo workspace (per the Phase 1 detection), additionally **append** as real frontmatter (never as a commented placeholder — the template carries only the fields every ticket has):
+   - `repos: [<exact-dir-names>]` — the repositories this ticket touches, from Phase 2 exploration reconciled with the Phase 3 confirmation. Exact on-disk directory names. Write the field even when only one repo is touched (explicitness beats omission once the workspace is multi-repo). In a single-repo workspace, omit the field entirely.
+
 3. **Write the exploration** to `claudedocs/tickets/backlog/<TICKET-ID>/exploration.md` (no `00-` prefix — numbering is reserved for stage artifacts in task folders). Include a short header at the top:
    ```
    # Exploration — <TICKET-ID>
@@ -290,6 +302,7 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
    - `kind: epic` — marks this non-pipelineable, so `plan`/`build` refuse to run against it
    - `epic: <epic-slug>`
    - `children: [<CHILD-1-ID>, <CHILD-2-ID>, ...]` — the declared roster
+   - `repos: [<exact-dir-names>]` — only in a multi-repo workspace (per the Phase 1 detection): the union of the children's repos, appended as real frontmatter (the template doesn't carry it). Omit entirely in a single-repo workspace.
 
    Everything else (`status`, `created`, `project`, `priority`, `tags`, …) comes straight from the template — the template is the one place that list lives.
 
@@ -309,6 +322,9 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
    - `siblings: [<other-CHILD-IDs>]` — informational; the others, not self
    - `blocked_by: [<CHILD-ID>, ...]` — omit if no blockers
 
+   In a multi-repo workspace (per the Phase 1 detection), also append — not a linkage field; it follows the same append convention:
+   - `repos: [<exact-dir-names>]` — this child's repos, from the Phase 3.5 decomposition table; omit when the workspace is single-repo
+
    As you fill the standard fields the template already lists, give them child-specific values: `id` (the `<CHILD-ID>` allocated in the *Generate ticket IDs* step above), `title` (descriptive, from the Phase 3.5 decomposition table — never the bare `<CHILD-ID>`; this is what boards, flow's epic-walker progress, and PR titles render), `complexity` (assessed per child), and `priority`/`tags` (inherit from the epic, plus any child-specific tags).
 
    Child body follows `templates/task.md` standard sections, scoped to the child's slice. The "Description" should reference the parent (`See parent epic <EPIC-ID> for full context`) rather than restating it. "Out of Scope" should reference siblings by ID where relevant (`X is handled by <SIBLING-ID>`).
@@ -322,11 +338,13 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
    **Epic slug**: <epic-slug>
    **Children**: <N>
 
-   | ID | Title | Complexity | blocked_by |
-   |---|---|---|---|
-   | <CHILD-1-ID> | <title> | M | — |
-   | <CHILD-2-ID> | <title> | M | <CHILD-1-ID> |
+   | ID | Title | Complexity | Repos | blocked_by |
+   |---|---|---|---|---|
+   | <CHILD-1-ID> | <title> | M | <repo-a> | — |
+   | <CHILD-2-ID> | <title> | M | <repo-a>, <repo-b> | <CHILD-1-ID> |
    ...
+
+   (Omit the `Repos` column in a single-repo workspace, matching the Phase 3.5 table.)
 
    **PRD**: claudedocs/tickets/backlog/<EPIC-ID>/prd.md
    **Shared exploration**: claudedocs/tickets/backlog/<EPIC-ID>/exploration.md

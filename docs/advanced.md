@@ -39,6 +39,19 @@ This lets you plan ahead while preventing builds on top of unfinished foundation
 
 Run an epic with `/feature:flow <EPIC-ID>` — it walks the children in `blocked_by` topological order, invoking flow per child, and moves the whole epic subtree to `done/` when the last child finalizes. `/feature:plan` and `/feature:build` refuse to run directly against an epic ID; run them against a child.
 
+## Multi-repo workspaces
+
+A workspace where `claudedocs/tickets/` sits next to several sibling git repositories (the workspace folder itself is not a git repo, but its immediate children have `.git`) is **multi-repo**. Discover detects this shape automatically — no configuration involved — and appends a `repos:` frontmatter field to the tickets it creates:
+
+```yaml
+repos: [big-leaves-api, big-leaves-astro]
+```
+
+- Values are **exact on-disk directory names**, never shortened.
+- Epics carry the union of their children's repos; each child carries its own subset. The decomposition tables show a `Repos` column so you can check whether a split follows repo seams.
+- The field is **informational-only** — it gives you at-a-glance visibility into a ticket's repo footprint; no stage parses or enforces it.
+- Single-repo workspaces (the common case) never see the field or the table column.
+
 ## Configuration reference
 
 All project config lives in `claudedocs/tickets/config.yaml`. Everything except `prefix` is optional.
