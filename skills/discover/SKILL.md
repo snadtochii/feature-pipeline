@@ -303,7 +303,7 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
    **Scope**: broad exploration of areas relevant to the feature idea, shared across all children of this epic
    ```
 
-5. **Write each child spec** to `claudedocs/tickets/backlog/<EPIC-ID>/tasks/<CHILD-ID>/01-spec.md` using `templates/task.md`. **`templates/task.md` is the canonical task schema — fill in *every* frontmatter field it declares; do not restate or re-derive the standard field list here.** Because a child belongs to an epic, additionally uncomment and set the multi-sibling linkage block the template documents:
+5. **Write each child spec** to `claudedocs/tickets/backlog/<EPIC-ID>/tasks/<CHILD-ID>/01-spec.md` using `templates/task.md`. **`templates/task.md` is the canonical task schema — fill in *every* frontmatter field it declares; do not restate or re-derive the standard field list here.** Because a child belongs to an epic, additionally **append** the multi-sibling linkage fields as real frontmatter — the template carries only the fields every ticket has, so write these explicitly for a child (never as commented placeholders):
    - `parent: <EPIC-ID>`
    - `epic: <epic-slug>` — same slug as the parent and siblings
    - `siblings: [<other-CHILD-IDs>]` — informational; the others, not self
