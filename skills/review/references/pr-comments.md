@@ -41,7 +41,7 @@ gh pr view "<N>" --json comments,reviews \
   --jq '[.comments[].body, .reviews[].body] | .[]'
 ```
 
-A PR is **already reviewed** iff that text contains `head=<HEAD_SHA>` inside an `fp-review` marker. The `auto-reviewed` label alone does **not** prove the current head was reviewed — a label present without a current-SHA marker means the head moved since the last review, so re-review (§6 then removes-and-re-adds the label).
+A PR is **already reviewed** iff that text contains `head=<HEAD_SHA>` inside an `fp-review` marker. The `auto-reviewed` label never gates this decision — it tracks the review⇄address cycle (§8), not the head. A label present without a current-SHA marker means the head moved since the last review, so re-review.
 
 `<N>` is a controlled integer PR number (from `gh pr list`), quoted; `HEAD_SHA` is loaded via command substitution — never interpolate free-text into the command (see §7).
 
@@ -135,24 +135,29 @@ Mirror `../build/references/pr-creation.md`'s discipline for every `gh`/`git` ca
 
 ## §8 The `auto-reviewed` label
 
-A coarse, model-neutral signal that a PR has been auto-reviewed at *some* head; the §2 marker is the precise per-head key.
+A coarse, model-neutral **cycle signal**: label **present** = the latest automated action on the PR was a review, and its findings await an address pass (or the author's attention); label **absent** = the PR awaits (re-)review — either never reviewed, or its review comments were addressed since. The §2/§9 hidden markers — never the label — are the precise per-head idempotency keys; the label never gates a skill's skip decision.
 
-```bash
-# Ensure it exists (idempotent — ignore "already exists"):
-gh label create auto-reviewed --description "Auto-reviewed by feature:review" --color BFD4F2 2>/dev/null || true
-# First review at a head: add it (idempotent — a no-op if already present).
-gh pr edit "<N>" --add-label auto-reviewed
-# Head moved since the last review (label present, no current-SHA marker): refresh the label.
-# Run the remove best-effort and the add as a SEPARATE, ALWAYS-run statement, so a failed add after a
-# successful remove can never leave the PR label-less. The hidden marker (§2) — not the label — is the
-# authoritative per-head idempotency key; the label is only a coarse "auto-reviewed at some head" signal.
-gh pr edit "<N>" --remove-label auto-reviewed 2>/dev/null || true
-gh pr edit "<N>" --add-label auto-reviewed
-```
+Two writers, one direction each:
+
+- **`review` adds it** after posting a review (findings or the §6 empty-review comment):
+  ```bash
+  # Ensure it exists (idempotent — ignore "already exists"):
+  gh label create auto-reviewed --description "Auto-reviewed by feature:review" --color BFD4F2 2>/dev/null || true
+  # Add is idempotent — a no-op if already present:
+  gh pr edit "<N>" --add-label auto-reviewed
+  ```
+- **`address-review` removes it** after posting its replies (best-effort — an already-absent label is fine):
+  ```bash
+  gh pr edit "<N>" --remove-label auto-reviewed 2>/dev/null || true
+  ```
+
+One glance at the label answers "has the latest review round been responded to?": the reviewer posts → label on; the addresser replies (usually pushing fixes, which moves the head) → label off; the next review round re-adds it. `review` never removes the label; `address-review` never adds it.
 
 ## §9 Reply to a review finding (the `address-review` side)
 
 `feature:address-review` consumes everything above to *read* a review, then posts one signed **reply** per finding it triaged. Replies reuse the §1 role footer for the address role and carry their own hidden marker so a re-run can tell which findings it already answered.
+
+Its work set is **not limited to automated findings**: a **human comment** — any inline review comment, review summary, or issue comment on the PR that carries **no** fp footer/marker (§1/§2/this section) and has a non-bot author — is triaged and replied to in this same shape. Footer *absence* identifies a human comment (§1); the addressing skill owns the triage rules for what within a human comment is actionable.
 
 - **Footer (reuse §1, do not redefine):** every reply ends with `_— 🛠️ addressed (automated)_` on its own last line — the address role's §1 footer. Footer **presence** still distinguishes an agent reply from the author's own manual note.
 - **Reply marker:**
@@ -176,7 +181,7 @@ gh api "repos/$OWNER/$REPO/pulls/<N>/comments" --paginate
 gh pr view "<N>" --json comments --jq '.comments[].body'
 ```
 
-A thread is **already addressed** iff its replies contain `fp-address … head=<HEAD_SHA>`. `<N>` is a controlled integer; `HEAD_SHA`/`OWNER`/`REPO` load via command substitution — never interpolate free text (§7).
+A thread is **already addressed** iff its replies contain `fp-address … head=<HEAD_SHA>` **and** no human comment in the thread is newer than that reply. A human follow-up posted after the `fp-address` reply **re-opens the thread even at an unchanged head** — the author is continuing the conversation, and the marker alone must not silence them. `<N>` is a controlled integer; `HEAD_SHA`/`OWNER`/`REPO` load via command substitution — never interpolate free text (§7).
 
 ### Posting the reply (anchor on the original comment id)
 
