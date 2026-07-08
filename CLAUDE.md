@@ -160,7 +160,7 @@ tools:
 
 ### Optional frontmatter blocks go at the bottom
 
-In a template whose frontmatter mixes always-present fields with an optional commented-out block (e.g. `templates/task.md`'s epic-child linkage fields, uncommented only for children), keep the optional block at the **end** of the frontmatter — never wedged between required fields. When the block is uncommented during fill, the field immediately above it gets swallowed; placing the block last leaves only the closing `---` above it, so nothing required can be absorbed. A prose "don't forget field X" reminder does not substitute for this — the layout is what the fill transcribes.
+In a template whose frontmatter mixes always-present fields with an optional commented-out block (e.g. `templates/task.md`'s epic-child linkage fields, uncommented only for children), keep the optional block at the **end** of the frontmatter — below every always-present field, just above the closing `---` — never wedged *between* required fields. A block wedged mid-set is the worst case: it splits the always-present fields, and uncommenting it for a child drops the line directly above it (this is how `title`, sitting between `id` and the block, was lost). Moving the block to the end turns the uncomment into an append after one contiguous field group, so high-impact fields are no longer mid-splice. That lowers the risk without proving it gone — the last always-present field (`tags`) still sits directly above the block — so verify behaviorally that every field survives a child fill rather than trusting a prose "don't forget field X" reminder.
 
 ### Flag naming
 
