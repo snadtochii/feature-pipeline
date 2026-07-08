@@ -1,6 +1,6 @@
 ---
 name: review
-description: "Review every unreviewed open PR in the current repo to the embedded maintainability rubric and post signed, idempotent findings. Repo-scoped and PR-coupled (no ticket needed): enumerate open PRs, skip any whose current head SHA was already reviewed, post inline plus summary findings (or a signed no-blocking-issues comment when clean), and manage the auto-reviewed label. Runs inline, no subagents, headless-safe. Use when 'review', 'review PRs', 'review open pull requests', 'review the PRs', 'run review', 'code review the open PRs', 'feature:review'. Optionally pass one PR number or URL to review just that PR. NOT for building a ticket (use feature:build), NOT for opening a PR (that is build's --pr flag), NOT for addressing or replying to review feedback (that is feature:address-review), and it never approves or merges."
+description: "Review every unreviewed open PR in the current repo to the embedded maintainability rubric and post signed, idempotent findings. Repo-scoped and PR-coupled (no ticket needed): enumerate open PRs, skip any whose current head SHA was already reviewed, post inline plus summary findings (or a signed no-blocking-issues comment when clean), and add the auto-reviewed label. Runs inline, no subagents, headless-safe. Use when 'review', 'review PRs', 'review open pull requests', 'review the PRs', 'run review', 'code review the open PRs', 'feature:review'. Optionally pass one PR number or URL to review just that PR. NOT for building a ticket (use feature:build), NOT for opening a PR (that is build's --pr flag), NOT for addressing or replying to review feedback (that is feature:address-review), and it never approves or merges."
 disable-model-invocation: true
 allowed-tools:
   - Read
@@ -13,7 +13,7 @@ argument-hint: "[pr-number-or-url]"
 
 # Review — repo-scoped PR reviewer with an embedded maintainability rubric
 
-Enumerate the current repo's open pull requests, skip any whose **current head SHA** was already reviewed, apply the embedded maintainability rubric ([`references/review-rubric.md`](references/review-rubric.md)) to each remaining PR, and post findings — inline where line-anchored, plus one summary comment, or a single signed "no blocking issues" comment when clean. Manage the model-neutral `auto-reviewed` label, then print a per-run summary.
+Enumerate the current repo's open pull requests, skip any whose **current head SHA** was already reviewed, apply the embedded maintainability rubric ([`references/review-rubric.md`](references/review-rubric.md)) to each remaining PR, and post findings — inline where line-anchored, plus one summary comment, or a single signed "no blocking issues" comment when clean. Add the model-neutral `auto-reviewed` label (removal belongs to `feature:address-review`), then print a per-run summary.
 
 **This skill runs in the main conversation, standalone** — a peer of `/feature:sync`, `/feature:ship`, and `/feature:debug`, **not a pipeline stage**. It spawns **no subagents** (no `Task`) and uses **no MCP**, so it behaves identically on Claude Code and Codex, including headless/scheduled runs. It is **repo-scoped and PR-coupled**: it operates on the repo it is invoked in and never resolves a ticket.
 
@@ -61,7 +61,7 @@ Build a TodoWrite item per PR so the per-run summary (Step 5) is recoverable.
 For each PR, resolve its current head SHA and scan its existing comment surfaces for a marker matching that SHA, per [`references/pr-comments.md`](references/pr-comments.md) §3:
 
 - An `fp-review` marker with `head=<current-SHA>` already exists → **skip**: record it as *already reviewed*, leave its label untouched, move to the next PR.
-- No current-SHA marker exists → this head is **unreviewed**; continue to Step 3. (A PR that carries the `auto-reviewed` label but no current-SHA marker means the head moved — it is unreviewed; Step 4's label step removes-then-re-adds the label after posting.)
+- No current-SHA marker exists → this head is **unreviewed**; continue to Step 3. (The label never gates this decision — a PR may carry `auto-reviewed` with a stale marker, or carry no label because `address-review` removed it; only the current-SHA marker decides.)
 
 ### 3. Per unreviewed PR — review against the embedded rubric
 
@@ -75,7 +75,7 @@ Post per [`references/pr-comments.md`](references/pr-comments.md):
 
 - **Has findings** → post the summary + inline comments as **one logical review** via the Reviews API (§4): one review object, `event=COMMENT`, the summary `body` carrying the §1 role footer (`_— 🔎 review (automated)_`) and the §2 hidden marker (`<!-- fp-review agent=<codex|claude> head=<SHA> -->`), and a `comments[]` array for the line-anchored findings. On a Reviews-API error or a self-review block, fall back (§5) to a single `gh pr comment <N> --body-file <file>` carrying the same summary (inline findings folded in as `path:line` references), footer, and marker.
 - **No blocking findings** → post the single signed empty-review comment (§6) — never an approval.
-- **Label** (§8): ensure `auto-reviewed` exists (`gh label create … || true`); if the PR already carried it (head moved), remove-then-re-add it so it tracks the latest reviewed head; otherwise add it.
+- **Label** (§8): ensure `auto-reviewed` exists (`gh label create … || true`), then add it (idempotent). The label signals "reviewed, awaiting address" — `address-review` removes it when it replies; review only ever adds.
 
 Build the review body / payload / comment in a **file** and post via `--input` / `--body-file` — never interpolate model-generated finding text into a command literal, never `eval` (§7).
 
@@ -91,7 +91,7 @@ After the scan, print a grouped summary with counts (omit empty groups):
 ↺ Skipped, already reviewed at current head (<n>):
   - #<num> <title> — PR <url>
 🏷  Labels updated (<n>):
-  - #<num> — auto-reviewed (added | refreshed)
+  - #<num> — auto-reviewed (added | already present)
 ⚠ Failures (<n>):
   - #<num> — <reason>
 ```
@@ -103,7 +103,7 @@ The `⚠ Failures` group carries any per-PR `gh` error (one bad PR never aborts 
 **Will:**
 - Enumerate open PRs (all, or one when `$1` is given), skip already-reviewed head SHAs, and review the rest against the embedded rubric.
 - Post inline + summary findings as one logical review (or one signed empty-review comment when clean), each carrying the visible role footer and hidden head-SHA marker.
-- Maintain the model-neutral `auto-reviewed` label (create if missing; remove-then-re-add when the head SHA moved).
+- Add the model-neutral `auto-reviewed` label after posting (create if missing; add-only — `address-review` owns removal).
 - Degrade fail-closed when `gh`/auth/origin is unavailable — change nothing, print one skip line, exit cleanly.
 - Print a per-run summary (PRs reviewed, PRs skipped as already-reviewed, labels updated, failures).
 

@@ -1,6 +1,6 @@
 ---
 name: address-review
-description: "Validate a reviewed PR's findings, fix the accepted ones, and post signed replies; interactive by default, --auto for the unattended path."
+description: "Validate a PR's review feedback — automated findings and human comments — fix the accepted ones, and post signed replies; interactive by default, --auto for the unattended path."
 allowed-tools:
   - Read
   - Write
@@ -14,7 +14,7 @@ argument-hint: "[pr-number-or-url] [--auto]"
 
 # Address-Review — validate and address PR feedback
 
-Fetch the **inline + summary** review comments a `feature:review` pass posted to a pull request, validate each finding against the real code (**ACCEPT** if it holds, **DISMISS** if it does not — each with a one-line reason), apply code fixes for the accepted ones, and post one **signed reply** per finding. The reply for an accepted finding notes the fix; the reply for a dismissed finding explains why it does not apply. Every reply carries the visible role footer and a hidden head-SHA marker so the loop is self-identifying and idempotent.
+Fetch the **inline + summary** review comments on a pull request — both the findings a `feature:review` pass posted **and human comments** (the author or a teammate commenting on the PR directly) — validate each against the real code (**ACCEPT** if it holds, **DISMISS** if it does not, **ANSWER** for a human question that needs a response but no code change — each with a one-line reason), apply code fixes for the accepted ones, and post one **signed reply** per thread. The reply for an accepted finding notes the fix; the reply for a dismissed finding explains why it does not apply; the reply for an answered question responds to it. Every reply carries the visible role footer and a hidden head-SHA marker so the loop is self-identifying and idempotent.
 
 **This skill runs in the main conversation, standalone** — a peer of `/feature:review`, `/feature:sync`, `/feature:ship`, and `/feature:debug`, **not a pipeline stage**. It spawns **no subagents** (no `Task`) and uses **no MCP**, so it behaves identically on Claude Code and Codex, including headless/scheduled `--auto` runs. It is **PR-coupled**: it operates on one PR in the repo it is invoked in and never resolves a ticket.
 
@@ -62,9 +62,9 @@ Capture `N` (the PR number, a controlled integer) and `HEAD_SHA` (`headRefOid`).
 
 **Bind the working tree to the PR's exact commit before editing.** A branch *name* alone identifies neither the code nor the push destination — a same-named local branch can be stale or diverged, and a fork PR can check out cleanly while a plain `git push` targets `origin` (the wrong repo). Capture the PR's head **commit, ref, and repository**: `gh pr view "$N" --json headRefName,headRefOid,headRepositoryOwner,headRepository`. Then, before Step 5 edits anything: check out the PR head (`gh pr checkout "$N"`) and require the tree to be **clean** with `git rev-parse HEAD` equal to the captured `headRefOid` **exactly** — not merely a same-named branch. If it doesn't match, the tree is dirty, or the head repo is a fork you cannot push to, **STOP and report** rather than editing whatever is checked out — otherwise `address-review 123` edits unrelated/stale code and reports it against PR #123. Record the writable head remote + ref for Step 5's push. (Auto-detect mode is already on the PR's exact head, so this is a no-op there.)
 
-### 2. Fetch and group the review findings (idempotency-aware)
+### 2. Fetch and group the feedback (idempotency-aware)
 
-Read **both** comment surfaces the review skill may have used (Reviews-API path vs. issue-comment fallback), per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §3–§6 and §9:
+Read **both** comment surfaces the review skill may have used (Reviews-API path vs. issue-comment fallback) — the same reads also surface every human comment — per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §3–§6 and §9:
 
 ```bash
 # Inline review comments + their replies (each carries id, path, line, body, in_reply_to_id,
@@ -84,24 +84,30 @@ Then:
   - **Inline review comment** — a line-anchored entry from `.../pulls/$N/comments` belonging to a review whose body carries the review marker (join the inline comment's `pull_request_review_id` to the matching review `id` from `.../pulls/$N/reviews` — both REST numeric ids), OR any inline comment that itself carries the footer/marker. It has a numeric `id`, `path`, and `line` — repliable inline.
   - **Summary (Reviews-API)** — a review entry (from `.../pulls/$N/reviews`) whose `body` carries the footer/marker. Not line-anchored; its findings live in the body text, and a summary may carry **several**, each tagged `[F<k>]` per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §4 — treat **each `[F<k>]` as its own finding**.
   - **Summary (fallback)** — a `comments[]` issue comment whose `body` carries the footer/marker. Per pr-comments.md §5 **every** finding is tagged `[F<k>]` — both the folded-in former-inline ones (`[F<k>] path:line — finding`) and the unanchored ones — so split on `[F<k>]` and you drop none.
-  - **Not a finding — skip it:** a §6 *empty-review* comment ("no blocking issues" — footer/marker but no findings) is the review reporting the PR is clean. It is **not** a triable thread — exclude it from the work set. If the only automated surface on the PR is an empty-review comment, there is nothing to address (the Step 2 "no un-addressed automated findings" exit applies).
-- **Group into threads.** Each inline comment is its own thread (anchored to its `id` + `path:line`). Each **`[F<k>]` finding within a summary is its own thread**, keyed by the **source review/comment id plus its ordinal** `k` (the `[F<k>]` ordinal is unique only within one summary, so `[F1]` from two summaries are distinct threads; a single-finding summary is just `[F1]`). Step 3 gives each its own ACCEPT/DISMISS verdict and Step 6 its own reply — never collapse a multi-finding summary into one verdict. Skip a comment that is itself an `fp-address` reply (its body carries the §9 reply marker) — never triage your own prior replies.
-- **Skip already-addressed threads (reply idempotency).** Per §9: a thread is already addressed at the current head iff its replies contain `fp-address … head=$HEAD_SHA`. Drop those from the work set so a re-run doesn't double-reply. (When the head moved since a prior address pass, the old `fp-address` marker no longer matches `$HEAD_SHA`, so the finding is re-addressed — correct, the code changed.)
+  - **Not a finding — skip it:** a §6 *empty-review* comment ("no blocking issues" — footer/marker but no findings) is the review reporting the PR is clean. It is **not** a triable thread — exclude it from the work set.
+- **Identify human comments (§9).** A comment carrying **no** fp footer/marker with a non-bot author (skip `user.type == "Bot"` entries — CI, coverage bots, etc.) is a human comment, and it is in scope exactly like an automated finding. Three shapes:
+  - **Human inline review comment** — a line-anchored entry from `.../pulls/$N/comments` with no marker whose review (if any) also carries no marker. A top-level one (no `in_reply_to_id`) starts its own thread; replies group into the thread they answer.
+  - **Human review summary** — a review from `.../pulls/$N/reviews` with a non-empty, unmarked body. No `[F<k>]` tags to split on — treat the whole body as **one thread** keyed by the review id (if it plainly bundles several independent asks, triage each but post one combined reply to the source).
+  - **Human issue comment** — a `comments[]` entry with no marker. PR-level discussion lands here, so not all of it is review feedback — Step 3's triage decides actionability; obvious non-feedback ("LGTM", "thanks", bot noise) is skipped without a reply.
+- **Group into threads.** Each inline comment is its own thread (anchored to its `id` + `path:line`). Each **`[F<k>]` finding within an automated summary is its own thread**, keyed by the **source review/comment id plus its ordinal** `k` (the `[F<k>]` ordinal is unique only within one summary, so `[F1]` from two summaries are distinct threads; a single-finding summary is just `[F1]`). Step 3 gives each thread its own verdict and Step 6 its own reply — never collapse a multi-finding summary into one verdict. Skip a comment that is itself an `fp-address` reply (its body carries the §9 reply marker) — never triage your own prior replies.
+- **Skip already-addressed threads (reply idempotency).** Per §9: a thread is already addressed at the current head iff a reply **paired to it** carries `fp-address … head=$HEAD_SHA`. Pairing is structural, never quote-matching: an **inline** thread pairs via `in_reply_to_id`; a **top-level-replied** thread (summary `[F<k>]` finding, human review summary, human issue comment) pairs via the reply marker's `re=<review|comment>:<id>[#F<k>]` key matched against the thread's source id (+ ordinal). For **inline** threads only, a human comment newer than the paired reply re-opens the thread even at an unchanged head (on the flat issue-comment surface a newer human comment has its own id and enters the work set as its own thread). Drop the addressed ones from the work set so a re-run doesn't double-reply. (When the head moved since a prior address pass, the old `fp-address` marker no longer matches `$HEAD_SHA`, so the finding is re-addressed — correct, the code changed.)
 
-Build a TodoWrite item per surviving thread so the Step 7 summary is recoverable. If there are **no** un-addressed automated findings, report "No outstanding review comments to address on PR `#<N>` (current head)." and exit cleanly.
+Build a TodoWrite item per surviving thread so the Step 7 summary is recoverable. If there are **no** un-addressed threads (automated or human), report "No outstanding review comments to address on PR `#<N>` (current head)." and exit cleanly.
 
-### 3. Validate each finding (ACCEPT / DISMISS + one-line reason)
+### 3. Validate each thread (ACCEPT / DISMISS / ANSWER + one-line reason)
 
 For each thread, read the finding against the **real current code** (use `Read`/`Grep`/`Glob` on the referenced `path:line`, and `git diff "$base"...HEAD` for the change under review where useful — resolve `$base` as the review checkpoint does: `base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)`). Judge it:
 
-- **ACCEPT** — the finding is real and applies to the current code. Record a one-line reason and the intended fix.
+- **ACCEPT** — the finding is real and applies to the current code (a human ask for a change counts the same as an automated finding). Record a one-line reason and the intended fix.
 - **DISMISS** — the finding is wrong, stale (already fixed / no longer applies), out of scope, or a false positive. Record a one-line reason.
+- **ANSWER** *(human threads)* — the comment asks a question or raises a discussion point rather than requesting a change. No code edit; the Step 6 reply answers it. Record the one-line answer.
+- **Not actionable** *(human issue comments and review summaries)* — plainly not review feedback ("LGTM", "thanks", an approval body, off-topic chatter). Skip: no fix, no reply; listed in the Step 7 report so nothing disappears silently.
 
-This mirrors `ship`'s self-validation hop (ACCEPT/DISMISS with a one-line reason, fix only the accepted) — here the verdicts drive **posted, signed** replies rather than drafts. Do not fix DISMISSed findings; they still get a reply (Step 6) explaining the dismissal.
+This mirrors `ship`'s self-validation hop (ACCEPT/DISMISS with a one-line reason, fix only the accepted) — here the verdicts drive **posted, signed** replies rather than drafts. Do not fix DISMISSed or ANSWERed threads; they still get a reply (Step 6).
 
 ### 4. Gate on mode
 
-- **Interactive (default).** Present the triage as a numbered list — one line per thread: `path:line` (or `summary`), the finding, the ACCEPT/DISMISS verdict, and the one-line reason. Then ask for an explicit **go-signal** before editing any code. The user may flip a verdict, edit a reason, or drop a thread before you proceed. The go-signal authorizes **applying the fixes only** — posting the replies is a separate approval gate in Step 6; do not edit any code until the user says go.
+- **Interactive (default).** Present the triage as a numbered list — one line per thread: `path:line` (or `summary`), the source (`review` or `human`), the finding, the ACCEPT/DISMISS/ANSWER verdict, and the one-line reason. Then ask for an explicit **go-signal** before editing any code. The user may flip a verdict, edit a reason, or drop a thread before you proceed. The go-signal authorizes **applying the fixes only** — posting the replies is a separate approval gate in Step 6; do not edit any code until the user says go.
 - **`--auto`.** Skip the per-finding gate entirely — proceed straight to Step 5 with the Step 3 verdicts. No interactive prompt, no approval pause. This is the unattended/loop path and must make no interactive-only assumption.
 
 ### 5. Apply fixes for ACCEPTed findings
@@ -111,7 +117,7 @@ Edit the repository code to apply each accepted fix, smallest change first, vali
 - **Validation after each edit** relies on the PostToolUse validation hook (`Write|Edit|MultiEdit|apply_patch`), with a **body-level lint/typecheck fallback** mirroring build's implement checkpoint: read the project instruction files for **both** runtimes — `CLAUDE.md` (Claude Code) **and** `AGENTS.md` (Codex) — for lint/typecheck commands (a `## Commands` / `## Validation` / `## Testing` section, or inline `npm run lint` / `pnpm test` / `cargo check` / `pytest` references), with a deterministic precedence (the current runtime's primary file first — `AGENTS.md` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not, else `CLAUDE.md` — then the other), and run them via `Bash` after each meaningful change. A Codex repo that documents its checks only in `AGENTS.md` must NOT be mistaken for "no commands". If neither file documents any, log one line ("No validation commands found in project CLAUDE.md/AGENTS.md — proceeding without skill-body validation") and continue.
 - **On a failing fix** (lint/typecheck won't pass, or the change can't be made cleanly): **report rather than silently proceed.** Mark that finding `fix-failed` with the error, leave its code reverted/untouched so the tree stays green, and downgrade its reply (Step 6) to a note that the finding was accepted but the fix could not be completed this pass. Do not post a "fixed" reply for a fix that didn't land.
 
-DISMISSed findings make no code change.
+DISMISSed and ANSWERed threads make no code change.
 
 **Publish the fixes to the PR before replying.** Step 6 must never claim a fix the PR doesn't contain. After the accepted fixes pass validation, commit them (subject `address-review: <pr-or-ticket-id>` — no `Co-Authored-By`, one concern) and push **explicitly to the writable head repository + ref captured in Step 1** (`git push <head-remote> HEAD:<head-ref>` — never assume `origin`, since a fork PR's head lives on another remote). Then confirm the push landed: the PR's `headRefOid` now points at your commit. Only a finding whose fix is **pushed to the PR head** earns a `Fixed` reply; a fix validated locally but not pushed (or fix-failed) gets the pending/failed reply (Step 6), never `Fixed`. In `--auto` this commit + push + confirmation is mandatory before any `Fixed` reply.
 
@@ -119,13 +125,16 @@ DISMISSed findings make no code change.
 
 Post one reply per thread, per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §9. In interactive mode this is a **second, separate gate** (AC8): the Step 4 go-signal authorized *applying the fixes* only — after fixing, present the drafted replies (one per thread, with its verdict and text) and post **only after** the user approves them. The user may edit a reply or hold one back before posting. In `--auto`, post autonomously with no gate.
 
-Each reply carries the §1 footer `_— 🛠️ addressed (automated)_` and the §9 hidden marker `<!-- fp-address agent=<codex|claude> head=$HEAD_SHA -->` (detect `agent` per §2: `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`). Reply content by verdict:
+Each reply carries the §1 footer `_— 🛠️ addressed (automated)_` and the §9 hidden marker `<!-- fp-address agent=<codex|claude> head=$HEAD_SHA -->` (detect `agent` per §2: `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`). Every **top-level** reply additionally carries the §9 `re=<review|comment>:<id>[#F<k>]` source key in its marker — the machine-readable pairing to the thread it answers; threaded inline replies omit it (the thread is the pairing). Reply content by verdict:
 
 - **ACCEPTed + fixed** → a one-line note of what changed (e.g. "Fixed — extracted the duplicated guard into `validateInput`.").
 - **ACCEPTed + fix-failed** → a one-line note that the finding is valid but the fix couldn't land this pass, with the blocker.
 - **DISMISSed** → a one-line note explaining why it doesn't apply (stale / out of scope / false positive).
+- **ANSWERed** → the answer to the question/discussion point, no fix claim.
 
-Anchor by finding shape (§9): an **inline** review comment → a threaded reply to its review-comment `id` via `gh api … /pulls/$N/comments/<COMMENT_ID>/replies --input <payload>` (or the `in_reply_to` equivalent); a **summary `[F<k>]` finding** → one top-level `gh pr comment "$N" --body-file <file>` per finding, naming the **source review/comment id + `[F<k>]`** it answers. Build every reply body with the **Write tool** to a temp path whose absolute location a prior Bash call printed (§9 — shell `$WORK` does not survive across tool calls; thread the literal path, never the repo worktree) and post via `--input`/`--body-file` — never a `--body "…"` literal, never `eval` (§7).
+Anchor by thread shape (§9): an **inline** review comment (automated or human) → a threaded reply to its review-comment `id` via `gh api … /pulls/$N/comments/<COMMENT_ID>/replies --input <payload>` (or the `in_reply_to` equivalent); a **summary `[F<k>]` finding** → one top-level `gh pr comment "$N" --body-file <file>` per finding, its marker keyed `re=<review|comment>:<id>#F<k>` and its visible text naming the same source; a **human review summary or issue comment** (no inline thread to anchor to) → one top-level `gh pr comment "$N" --body-file <file>`, its marker keyed `re=review:<id>` / `re=comment:<id>`, opening with a short quote or paraphrase of the comment it answers so the pairing stays readable for humans. Build every reply body with the **Write tool** to a temp path whose absolute location a prior Bash call printed (§9 — shell `$WORK` does not survive across tool calls; thread the literal path, never the repo worktree) and post via `--input`/`--body-file` — never a `--body "…"` literal, never `eval` (§7).
+
+**Dismiss the `auto-reviewed` label after the replies land** (§8): once at least one reply is posted this pass, run `gh pr edit "$N" --remove-label auto-reviewed 2>/dev/null || true` (best-effort — an absent label is fine). The label means "reviewed, awaiting address"; removing it here marks the round as answered, and the next review pass re-adds it. This is the only label action this skill takes — it never adds the label.
 
 ### 7. Report
 
@@ -135,15 +144,20 @@ Print a grouped summary with counts (omit empty groups):
 ## Address-review — PR #<N> (<k> finding(s))
 
 ✓ Accepted & fixed (<n>):
-  - <path:line | summary> — <finding> → <fix> — replied
+  - <path:line | summary> [review|human] — <finding> → <fix> — replied
 ✗ Dismissed (<n>):
-  - <path:line | summary> — <finding> — <reason> — replied
+  - <path:line | summary> [review|human] — <finding> — <reason> — replied
+💬 Answered (<n>):
+  - <path:line | summary> [human] — <question> — <answer> — replied
 ⚠ Accepted, fix failed (<n>):
-  - <path:line | summary> — <finding> — <blocker> — replied (fix deferred)
+  - <path:line | summary> [review|human] — <finding> — <blocker> — replied (fix deferred)
+– Not actionable, skipped (<n>):
+  - <comment> — <reason>
 ↺ Skipped, already addressed at current head (<n>):
   - <path:line | summary>
 ? Couldn't post (<n>):
   - <path:line | summary> — <reason>
+🏷 Label: auto-reviewed removed | not present | left (nothing addressed)
 ```
 
 If `gh`/auth/origin was unavailable, the preconditions already printed the one-line skip and exited before this summary. One reply that fails to post never aborts the rest — record it under `? Couldn't post` and continue.
@@ -151,17 +165,18 @@ If `gh`/auth/origin was unavailable, the preconditions already printed the one-l
 ## Boundaries
 
 **Will:**
-- Resolve one PR (current branch by default, or `$1` as a number/URL), fetch its inline + summary review comments, and skip threads already addressed at the current head SHA.
-- Validate each finding ACCEPT/DISMISS with a one-line reason against the real code.
+- Resolve one PR (current branch by default, or `$1` as a number/URL), fetch its inline + summary review comments **and human comments**, and skip threads already addressed at the current head SHA (unless a human follow-up re-opened them).
+- Validate each thread ACCEPT/DISMISS/ANSWER with a one-line reason against the real code.
 - Edit repository code to apply accepted fixes (triggering the PostToolUse validation hook + a body-level lint/typecheck fallback), reporting rather than proceeding when a fix can't land cleanly.
-- Post one signed reply per finding (accepted-fixed, accepted-fix-failed, or dismissed), each carrying the visible role footer and hidden `fp-address` head-SHA marker, anchored to the original comment.
+- Post one signed reply per thread (accepted-fixed, accepted-fix-failed, dismissed, or answered), each carrying the visible role footer and hidden `fp-address` head-SHA marker, anchored to the original comment.
+- Remove the `auto-reviewed` label after posting replies (§8 — marks the review round as answered; the next review pass re-adds it).
 - Run interactively by default (triage → go-signal → fix → reply on approval) or autonomously under `--auto`.
 - Degrade fail-closed when `gh`/auth/origin is unavailable — change nothing, print one skip line, exit cleanly.
 
 **Will Not:**
 - Approve (`gh pr review --approve`), request changes, merge (`gh pr merge`), or close (`gh pr close`) the PR — it only edits code and posts replies.
-- Produce a review or manage the `auto-reviewed` label — that's `/feature:review`.
-- Re-triage or reply to its own prior `fp-address` replies, or double-reply to a thread already addressed at the current head.
+- Produce a review or **add** the `auto-reviewed` label — that's `/feature:review`; this skill only removes it.
+- Re-triage or reply to its own prior `fp-address` replies, reply to bot comments, or double-reply to a thread already addressed at the current head with no newer human follow-up.
 - Spawn subagents (no `Task`) or use MCP — inline-only for cross-platform/headless parity.
 - Restate the comment/footer/marker/reply contract — it consumes [`../review/references/pr-comments.md`](../review/references/pr-comments.md).
 
@@ -169,7 +184,7 @@ If `gh`/auth/origin was unavailable, the preconditions already printed the one-l
 
 - `gh` missing / unauthenticated / non-GitHub origin → "couldn't address review (gh unavailable)", no changes, clean exit.
 - No `$1` and no PR for the current branch, or `$1` not an open PR, or the PR is closed/merged → report and exit cleanly (nothing to address).
-- No un-addressed automated findings at the current head → report "No outstanding review comments to address" and exit cleanly.
+- No un-addressed threads (automated or human) at the current head → report "No outstanding review comments to address" and exit cleanly, leaving the label untouched.
 - `gh api`/`gh pr comment` errors posting one reply → record `? Couldn't post (<reason>)` for that thread and continue with the rest (one failed reply never aborts the pass).
 - A fix that won't pass validation → mark the finding `fix-failed`, keep the tree green, post the accepted-fix-failed reply, and surface it under `⚠ Accepted, fix failed` — never post a "fixed" reply for a fix that didn't land.
 - **Security-heuristic flag** on posting under the user's own `gh` identity → expected when the user authorized the address hop (running `/feature:address-review` is that authorization); not an error (mirrors [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §5).
