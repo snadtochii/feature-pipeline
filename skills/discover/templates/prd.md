@@ -44,11 +44,13 @@ Things this whole epic does NOT do. (Each child has its own out-of-scope for sli
 
 ## Decomposition
 
-| ID | Title | Complexity | Covers AC | blocked_by |
-|---|---|---|---|---|
-| XX-2 | <child title> | M | 1, 2 | — |
-| XX-3 | <child title> | M | 3, 4 | XX-2 |
-| XX-4 | <child title> | S | 5 | XX-2 |
+| ID | Title | Complexity | Repos | Covers AC | blocked_by |
+|---|---|---|---|---|---|
+| XX-2 | <child title> | M | repo-a | 1, 2 | — |
+| XX-3 | <child title> | M | repo-a, repo-b | 3, 4 | XX-2 |
+| XX-4 | <child title> | S | repo-b | 5 | XX-2 |
+
+(The `Repos` column applies only to multi-repo workspaces — omit it in a single-repo workspace.)
 
 > **Roster contract.** The frontmatter `children:` list is authoritative for epic finalization: the epic moves to `done/` only once every listed child is materialized as a `tasks/<id>/` ticket **and** terminal (`done` / `cancelled` / `partial-completion`). For a just-in-time epic (child specs authored as the pipeline reaches each phase), declare the full roster here upfront — the completion check reconciles against it, so the epic won't be marked done while later-phase children are still unwritten. To **descope** a child that will never be built, either remove its ID from `children:` or materialize its `tasks/<id>/01-spec.md` as a `cancelled` stub; otherwise it blocks completion indefinitely.
 
