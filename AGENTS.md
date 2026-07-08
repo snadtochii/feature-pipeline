@@ -158,6 +158,10 @@ tools:
 
 **Why:** skill `allowed-tools` is space-separated and agent `tools` is comma-separated in their inline string forms — opposite separators in two fields that do the same thing. Using the wrong separator silently fails (one malformed tool name, no error raised). The YAML list form works unambiguously for both and eliminates the asymmetry at the source. Every skill and agent in this plugin uses it; if you're adding a new one, match the convention.
 
+### Don't uncomment frontmatter blocks — write conditional fields explicitly
+
+A conditionally-present frontmatter field (e.g. `templates/task.md`'s epic-child linkage fields, present only for children) must **not** ship as a commented-out block that a fill step later uncomments. Uncommenting a block rewrites the region around it and can consume the always-present field directly adjacent — this is how epic children silently lost `title`. Instead, keep the template to the fields every ticket carries, and have the fill step (discover's child-write) **append** the conditional fields as real frontmatter when they apply. No commented block means no uncomment operation, so no required field can be absorbed — for `title`, `tags`, or any future field.
+
 ### Flag naming
 
 One axis, one flag name, shared across skills; defaults may differ per skill; negative names (`--no-x`) only where the default is on.

@@ -1,11 +1,6 @@
 ---
 id: XX-1
 title: Feature Title
-# Multi-sibling fields — present only when this is a child of an epic. Omit for solo tickets.
-# parent: XX-0          # epic ID this child belongs to
-# epic: epic-slug       # shared epic slug across siblings (cross-cutting tag)
-# siblings: [XX-2, XX-3]  # other children of the same epic (informational)
-# blocked_by: [XX-2]    # sibling IDs that must complete before this one starts (soft now — documentation; enforcement deferred)
 priority: medium        # low | medium | high | critical
 complexity: M           # S | M | L | XL
 status: backlog         # backlog | in-progress | in-review | done | cancelled (in-review lives in review/, cancelled lives in done/, both expressed via this field)
