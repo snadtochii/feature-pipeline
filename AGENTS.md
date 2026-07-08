@@ -158,9 +158,9 @@ tools:
 
 **Why:** skill `allowed-tools` is space-separated and agent `tools` is comma-separated in their inline string forms — opposite separators in two fields that do the same thing. Using the wrong separator silently fails (one malformed tool name, no error raised). The YAML list form works unambiguously for both and eliminates the asymmetry at the source. Every skill and agent in this plugin uses it; if you're adding a new one, match the convention.
 
-### Optional frontmatter blocks go at the bottom
+### Don't uncomment frontmatter blocks — write conditional fields explicitly
 
-In a template whose frontmatter mixes always-present fields with an optional commented-out block (e.g. `templates/task.md`'s epic-child linkage fields, uncommented only for children), keep the optional block at the **end** of the frontmatter — below every always-present field, just above the closing `---` — never wedged *between* required fields. A block wedged mid-set is the worst case: it splits the always-present fields, and uncommenting it for a child drops the line directly above it (this is how `title`, sitting between `id` and the block, was lost). Moving the block to the end turns the uncomment into an append after one contiguous field group, so high-impact fields are no longer mid-splice. That lowers the risk without proving it gone — the last always-present field (`tags`) still sits directly above the block — so verify behaviorally that every field survives a child fill rather than trusting a prose "don't forget field X" reminder.
+A conditionally-present frontmatter field (e.g. `templates/task.md`'s epic-child linkage fields, present only for children) must **not** ship as a commented-out block that a fill step later uncomments. Uncommenting a block rewrites the region around it and can consume the always-present field directly adjacent — this is how epic children silently lost `title`. Instead, keep the template to the fields every ticket carries, and have the fill step (discover's child-write) **append** the conditional fields as real frontmatter when they apply. No commented block means no uncomment operation, so no required field can be absorbed — for `title`, `tags`, or any future field.
 
 ### Flag naming
 
