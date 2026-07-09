@@ -1,6 +1,6 @@
 ---
 name: review
-description: "Review every unreviewed open PR in the current repo to the embedded maintainability rubric and post signed, idempotent findings. Repo-scoped and PR-coupled (no ticket needed): enumerate open PRs, skip any whose current head SHA was already reviewed, post inline plus summary findings (or a signed no-blocking-issues comment when clean), and add the auto-reviewed label. Runs inline, no subagents, headless-safe. Use when 'review', 'review PRs', 'review open pull requests', 'review the PRs', 'run review', 'code review the open PRs', 'feature:review'. Optionally pass one PR number or URL to review just that PR. NOT for building a ticket (use feature:build), NOT for opening a PR (that is build's --pr flag), NOT for addressing or replying to review feedback (that is feature:address-review), and it never approves or merges."
+description: "Review every unreviewed open PR in the current repo (or one given PR) against the embedded maintainability rubric and post signed, idempotent findings."
 disable-model-invocation: true
 allowed-tools:
   - Read

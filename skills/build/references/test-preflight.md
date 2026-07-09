@@ -125,7 +125,7 @@ The Opus ui-tester subagent was not spawned. Browser-level acceptance-criteria v
 
 ## Boundaries
 
-- **Cheap gate, always first** — a `curl` (and at most a bounded `start` poll) is always paid before the Opus `ui-tester` spawn; the agent is never spawned against an unreachable, un-bootable app (AC9).
+- **Cheap gate, always first** — a `curl` (and at most a bounded `start` poll) is always paid before the Opus `ui-tester` spawn; the agent is never spawned against an unreachable, un-bootable app.
 - **No auth detection** — reachability only; the gate never interprets `401`/`403`/a `200` SPA shell as "auth-gated." Auth-gated-with-no-recipe still spawns the agent (it's reachable), which fails fast and is recorded as a non-blocking skip by the agent's own report.
 - **No literal secrets** — `config.yaml` is committed; `auth.storage_state` is a path to a gitignored session file and `auth.attach_tab` is a bool. Credentials are never read from or written into `config.yaml`.
 - **Model-read, not hook-read** — the `test:` block is consumed by build (this reference + the injected spawn prompt). `hooks/validate.sh` is not modified and never reads it.

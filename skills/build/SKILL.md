@@ -51,7 +51,7 @@ Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/referenc
 
 Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6. If any entry in `blocked_by` is not yet done (frontmatter `status: done` or `cancelled`, or folder under `done/`), abort with the message in Step 6 listing the unblocked blockers. If a `blocked_by` entry is wrong, edit this ticket's `blocked_by` frontmatter.
 
-When `blocked_by` is non-empty, build composes a **blocker context block** and prepends it to the review-checkpoint reviewer prompts (see Step 2). Per resolved Q3, the block uses each blocker's verbatim `01-spec.md` + `06-summary.md`. **Fallback when a blocker's `06-summary.md` is missing** (e.g. a `cancelled` blocker): use that blocker's `02-plan.md`; if `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker.
+When `blocked_by` is non-empty, build composes a **blocker context block** and prepends it to the review-checkpoint reviewer prompts (see Step 2). The block uses each blocker's verbatim `01-spec.md` + `06-summary.md`. **Fallback when a blocker's `06-summary.md` is missing** (e.g. a `cancelled` blocker): use that blocker's `02-plan.md`; if `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker.
 
 ## State setup
 
@@ -117,7 +117,7 @@ c. **For each step in `02-plan.md`'s Build Sequence, in order:**
    5. **Emit `Turn N/25`** at the start of the next iteration.
    6. **Watch the transcript for stuck patterns** (per `references/stuck-detection.md` patterns 1–5): action↔observation repetition, action↔error repetition, agent monologue, ping-pong between two states, repeated context errors. On detection, exit with `verdict: stuck` (skip directly to step 4 of this Process — Exit verdict).
    7. **Outer-loop arbiter check** (per `references/stuck-detection.md` pattern 6). When the current checkpoint has accumulated 4+ turns without exiting, fire the arbiter once via a `Task` call with the prompt in stuck-detection.md §6. Cache the verdict for the rest of the checkpoint. On `status: stuck`, exit with `verdict: stuck` (skip to step 4 — Exit verdict); include the arbiter's `reason` in `06-summary.md`.
-   8. **On hitting `Turn 26`**, exit with `verdict: stuck` regardless of semantic-pattern detection. The hybrid stop rule per the redesign's Q4-b: either trigger fires the verdict.
+   8. **On hitting `Turn 26`**, exit with `verdict: stuck` regardless of semantic-pattern detection. The hybrid stop rule: either trigger fires the verdict.
 
 d. **After all plan steps are implemented**, run final validation across all changes. Fix any cross-cutting failures in-context. Update `03-implementation.md` with the final implementation state. Proceed to the review checkpoint.
 
@@ -161,7 +161,7 @@ b. **Compose the shared base for reviewer prompts** (single composition, used by
    2. **Diff**: output from step a.
    3. **Project root path**.
    4. **Blocker context** (only when `blocked_by` is non-empty per the Blocker validation section above): a `## Blocker context (from completed siblings)` block. For each blocker: include verbatim `01-spec.md` + `06-summary.md`. **Fallback when `06-summary.md` is missing** (e.g. a `cancelled` blocker): use the blocker's `02-plan.md`; when `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker. Omit the entire block when `blocked_by` is empty.
-   5. **Confidence scale**: the verbatim contents of `references/confidence-scale.md` under a `## Confidence scale (use this exactly)` header. (R-2 fix: rubric lives in the reference, build injects it here, reviewer agent bodies stay rubric-free.)
+   5. **Confidence scale**: the verbatim contents of `references/confidence-scale.md` under a `## Confidence scale (use this exactly)` header. (The rubric lives in the reference and build injects it here — reviewer agent bodies stay rubric-free.)
 
 c. **Spawn four reviewer subagents in parallel.** All four run **concurrently** — launch them in a single message with four `Task` tool calls. Each prompt = the shared base from step b + a per-reviewer suffix:
 
@@ -203,11 +203,11 @@ f. **After fixes are applied**, run validation again (lint/typecheck) and update
 
 a. **Skip-detection scan.** Read `02-plan.md` and search the text (case-insensitive substring match) for any of: `component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial`. Match → run the reachability pre-flight (below) before any spawn. No match → skip (step c).
 
-**Reachability pre-flight (per [`references/test-preflight.md`](references/test-preflight.md)).** When step a matched UI signals (and `--no-ui-testing` was not set), run the pre-flight gate *before* spawning the Opus `ui-tester` — the cheap `curl` is always paid first (AC9). It resolves a URL (`test.url` → project `CLAUDE.md` → common-port probe), `curl`s it (reachable iff HTTP `200/301/302/401/403`), and on an unreachable app optionally boots a declared `test.start` (backgrounded, bounded ~60s poll) that it then owns for teardown:
+**Reachability pre-flight (per [`references/test-preflight.md`](references/test-preflight.md)).** When step a matched UI signals (and `--no-ui-testing` was not set), run the pre-flight gate *before* spawning the Opus `ui-tester` — the cheap `curl` is always paid first. It resolves a URL (`test.url` → project `CLAUDE.md` → common-port probe), `curl`s it (reachable iff HTTP `200/301/302/401/403`), and on an unreachable app optionally boots a declared `test.start` (backgrounded, bounded ~60s poll) that it then owns for teardown:
    - **Reachable** (directly, or after the `test.start` boot responds) → compose the auth recipe + resolved URL (test-preflight.md §5) and continue to step b.
    - **Unreachable with no `test.start`, or `test.start` timed out** → write the *app unreachable* skip artifact (step c), tear down any server the pre-flight started (step e), do **not** spawn `ui-tester`, do **not** prompt mid-loop or hard-pause, and proceed to the verdict (step 4). The skip is recorded in `06-summary.md`.
 
-   The pre-flight reads the `test:` block by model-reading `claudedocs/tickets/config.yaml`; it never invokes `yq`/`jq` or `hooks/validate.sh`. Absent a `test:` block, URL resolution falls through to the existing CLAUDE.md → port-probe path and no `test.start` is booted — today's behavior (AC2).
+   The pre-flight reads the `test:` block by model-reading `claudedocs/tickets/config.yaml`; it never invokes `yq`/`jq` or `hooks/validate.sh`. Absent a `test:` block, URL resolution falls through to the CLAUDE.md → port-probe path and no `test.start` is booted.
 
 b. **Spawn `feature:ui-tester`** (when reachable). Read the project's `CLAUDE.md` for a test framework hint (`## Testing` section, `## Commands` section, or inline references like "Playwright specs in `e2e/`"). Single `Task` call:
 
@@ -221,7 +221,7 @@ b. **Spawn `feature:ui-tester`** (when reachable). Read the project's `CLAUDE.md
 
    Save subagent output to `<ticket-folder>/05-tests.md`. Failed criteria become a `## Failed Criteria` section inside `05-tests.md`. If specs were codified, list their paths under a `## Codified specs` section.
 
-c. **Skip artifact** (when the skip-detection scan matched no UI signals, when `--no-ui-testing` forced the skip, OR when the reachability pre-flight found the app unreachable and un-bootable). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth build verdict. The build verdict set remains `pass | partial | stuck` per the locked redesign. When the test checkpoint is skipped, build can still exit with `verdict: pass` if the implement and review checkpoints completed cleanly. Write `<ticket-folder>/05-tests.md` with the variant matching the skip cause:
+c. **Skip artifact** (when the skip-detection scan matched no UI signals, when `--no-ui-testing` forced the skip, OR when the reachability pre-flight found the app unreachable and un-bootable). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth build verdict. The build verdict set is `pass | partial | stuck`. When the test checkpoint is skipped, build can still exit with `verdict: pass` if the implement and review checkpoints completed cleanly. Write `<ticket-folder>/05-tests.md` with the variant matching the skip cause:
 
    **No UI signals in the plan** (skip-detection scan found nothing):
 
