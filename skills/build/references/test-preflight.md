@@ -2,7 +2,7 @@
 
 Build invokes this at the test checkpoint (SKILL.md §3) on the path where a `ui-tester` spawn was about to happen — i.e. **after** the `--no-ui-testing` short-circuit and **after** the skip-detection scan has decided the plan has UI signals, but **before** the `ui-tester` `Task` call. It runs a cheap reachability gate so the expensive Opus browser subagent is never spawned against an app that can't be reached, and it hands the agent a declared auth recipe instead of letting it guess.
 
-`--no-ui-testing` and the no-UI-signal skip both bypass this reference entirely — neither resolves a URL, curls, nor boots a `start` command. Pre-flight only runs when a spawn was actually going to happen (this is what keeps the cheap gate ahead of the expensive spawn — AC9).
+`--no-ui-testing` and the no-UI-signal skip both bypass this reference entirely — neither resolves a URL, curls, nor boots a `start` command. Pre-flight only runs when a spawn was actually going to happen (this is what keeps the cheap gate ahead of the expensive spawn).
 
 Build reads the `test:` block by **model-reading** the flat YAML in `claudedocs/tickets/config.yaml`; it does **not** shell out to `yq`/`jq`, and `hooks/validate.sh` is never involved (the hook reads only the `validate:` block).
 

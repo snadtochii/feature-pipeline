@@ -154,7 +154,7 @@ git fetch origin --quiet
 # A direct-to-trunk PR's own base IS the trunk (this respects `--base <branch>`).
 # An epic child's PR base is its `integration/<epic-id>` branch — its true trunk is that
 # integration branch's OWN PR base (the epic's `--base`), so the child promotes only once the
-# integration PR lands on the real trunk (preserving the mid-epic-run safety FP-34 added).
+# integration PR lands on the real trunk (preserving the shared rule's mid-epic-run safety).
 if [ -n "$PR_BASE" ] && [ "${PR_BASE#integration/}" = "$PR_BASE" ]; then
   base="$PR_BASE"                                                    # solo / direct-to-trunk PR
 elif [ -n "$PR_BASE" ]; then

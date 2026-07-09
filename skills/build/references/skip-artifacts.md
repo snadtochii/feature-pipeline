@@ -1,6 +1,6 @@
 # Build — skip-artifact templates (`05-tests.md`)
 
-Read this file only when the test checkpoint is writing a skip artifact (SKILL.md §3 step c) — a run reaches at most one of these variants, most reach none. Each body below is written verbatim to `<ticket-folder>/05-tests.md`, with one `- [ ] AC <n> — …` line per acceptance criterion in the ticket's spec.
+Read this file only when the test checkpoint is writing a skip artifact (SKILL.md §3 step c) — a run reaches at most one of these variants, most reach none. Each variant's body is written verbatim to `<ticket-folder>/05-tests.md`, with one `- [ ] AC <n> — …` line per acceptance criterion in the ticket's spec.
 
 ## No UI signals in the plan (skip-detection scan found nothing)
 
