@@ -19,7 +19,7 @@ argument-hint: "[ticket-id]"
 Two phases:
 
 1. **Pre-plan synthesis** — automatic codebase exploration + open-questions surfacing, presented to the user before plan design.
-2. **Plan design** — interactive plan mode by default; non-interactive when `flow` runs plan with `--auto` (designs the plan in normal conversation, no plan-mode gate).
+2. **Plan design** — interactive plan mode by default, non-interactive under `--auto`; the two modes are defined in Phase 2.
 
 **This stage runs in the main conversation — NOT as a subagent.** (The subagents in Phase 1 run from within this stage.)
 
@@ -31,7 +31,7 @@ Two phases:
 
 `$1` = ticket ID (e.g. `BL-1`) or path to ticket file.
 
-**Optional flag** `--auto` — set by `flow` when it invokes plan; runs plan **non-interactively** (auto mode: skips native plan mode, designs the plan in normal conversation, writes `02-plan.md`, returns). It is an internal flow→plan signal, not a user-facing knob — not advertised in `argument-hint`, but honored if present from any source. Without it (the standalone default), plan runs interactive plan mode.
+**Optional flag** `--auto` — an internal flow→plan signal (not advertised in `argument-hint`, but honored if present from any source) that selects Phase 2's auto mode.
 
 ## Ticket Resolution & Artifacts Setup
 
@@ -128,13 +128,9 @@ Format the output as a tight pre-plan-mode briefing:
 
 If the Open Questions list is empty, say so explicitly: `**Open Questions**: none — the spec and discovery dialogue already resolved everything that's codebase-informed.` Move on.
 
-**Closing line by mode:**
-- **Interactive** (no `--auto`): end the briefing with "Entering plan mode. You can address questions inline as we plan."
-- **Auto** (`--auto`): print the synthesis for auditability, then resolve open questions per the next block — do NOT print "Entering plan mode".
-
-**Open-questions resolution by mode:**
-- **Interactive**: questions are resolved inline as the user reacts during plan mode (Phase 2).
-- **Auto** (`--auto`): auto-resolve every question that carries a **Default** (record it in the plan's "Open Questions Resolved" section as `auto-resolved: <default>`). Collect the questions flagged `**Default**: (no default — user call)`; if **one or more** exist, fire a **single** batched `AskUserQuestion` listing only those, then proceed. If **zero** no-default questions exist, fire no prompt at all — auto-resolve everything and continue to plan design. If the user cancels/declines the batched prompt, abort the run cleanly (do not write `02-plan.md`).
+**Closing line by mode** (the modes themselves are defined in Phase 2):
+- **Interactive**: end the briefing with "Entering plan mode. You can address questions inline as we plan."
+- **Auto**: print the synthesis for auditability — no plan-mode line; open questions are resolved at the start of Phase 2's auto mode.
 
 **Complexity overflow** (both modes): if the complexity reassessment is materially off (e.g., spec says M, analysis says XL), pause and surface:
 ```
@@ -164,10 +160,11 @@ Plan design runs in one of two modes, selected by the `--auto` flag (set by `flo
 
 No native plan mode: do NOT call `EnterPlanMode`/`ExitPlanMode` (there is no approval prompt — that's the point).
 
-1. **Design the plan** in normal conversation following the **Plan Structure** below, using the open-questions resolutions from Phase 1 (auto-resolved defaults + any batched no-default answers).
-2. **Validate** against the **Plan Quality Checklist** below.
-3. **Write** `<ticket-folder>/02-plan.md`.
-4. **Return** — print the non-blocking "Plan Saved" summary (see Presentation) and hand control back to `flow`, which proceeds to build. No approval gate.
+1. **Resolve the Phase 1 open questions**: auto-resolve every question that carries a **Default** (record it in the plan's "Open Questions Resolved" section as `auto-resolved: <default>`). Collect the questions flagged `**Default**: (no default — user call)`; if **one or more** exist, fire a **single** batched `AskUserQuestion` listing only those, then proceed. If **zero** no-default questions exist, fire no prompt at all. If the user cancels/declines the batched prompt, abort the run cleanly (do not write `02-plan.md`).
+2. **Design the plan** in normal conversation following the **Plan Structure** below, using those resolutions (auto-resolved defaults + any batched no-default answers).
+3. **Validate** against the **Plan Quality Checklist** below.
+4. **Write** `<ticket-folder>/02-plan.md`.
+5. **Return** — print the non-blocking "Plan Saved" summary (see Presentation) and hand control back to `flow`, which proceeds to build. No approval gate.
 
 **Boundary (both modes):** plan writes `02-plan.md` plus its State-setup transition. It does not edit source code — implementation is build's job.
 
