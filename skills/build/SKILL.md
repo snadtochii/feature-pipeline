@@ -221,49 +221,11 @@ b. **Spawn `feature:ui-tester`** (when reachable). Read the project's `CLAUDE.md
 
    Save subagent output to `<ticket-folder>/05-tests.md`. Failed criteria become a `## Failed Criteria` section inside `05-tests.md`. If specs were codified, list their paths under a `## Codified specs` section.
 
-c. **Skip artifact** (when the skip-detection scan matched no UI signals, when `--no-ui-testing` forced the skip, OR when the reachability pre-flight found the app unreachable and un-bootable). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth build verdict. The build verdict set is `pass | partial | stuck`. When the test checkpoint is skipped, build can still exit with `verdict: pass` if the implement and review checkpoints completed cleanly. Write `<ticket-folder>/05-tests.md` with the variant matching the skip cause:
+c. **Skip artifact** (when the skip-detection scan matched no UI signals, when `--no-ui-testing` forced the skip, OR when the reachability pre-flight found the app unreachable and un-bootable). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth build verdict. The build verdict set is `pass | partial | stuck`. When the test checkpoint is skipped, build can still exit with `verdict: pass` if the implement and review checkpoints completed cleanly. Write `<ticket-folder>/05-tests.md` with the variant matching the skip cause — when writing one, read [`references/skip-artifacts.md`](references/skip-artifacts.md) for the verbatim template bodies (the app-unreachable body lives in [`references/test-preflight.md`](references/test-preflight.md) §6, beside the pre-flight that produces it):
 
-   **No UI signals in the plan** (skip-detection scan found nothing):
-
-   ```
-   verdict: skipped (no UI work in plan)
-
-   ## Reason
-   Keyword scan of 02-plan.md found no UI signals (component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial).
-
-   ## Acceptance Criteria
-   - [ ] AC 1 — not-tested (no UI)
-   - [ ] AC 2 — not-tested (no UI)
-   ...
-   ```
-
-   **Forced by `--no-ui-testing`** (the plan may well have UI work — browser verification is deferred, not absent):
-
-   ```
-   verdict: skipped (UI testing disabled by --no-ui-testing)
-
-   ## Reason
-   Browser/UI verification skipped by the --no-ui-testing flag. Non-browser checks (lint/typecheck) still ran in the implement checkpoint and still gated this verdict. Browser-level acceptance-criteria verification is deferred to human review of the PR.
-
-   ## Acceptance Criteria
-   - [ ] AC 1 — not-verified (browser testing skipped by flag)
-   - [ ] AC 2 — not-verified (browser testing skipped by flag)
-   ...
-   ```
-
-   **App unreachable** (the reachability pre-flight could not reach or boot the app) — body per [`references/test-preflight.md`](references/test-preflight.md) §6:
-
-   ```
-   verdict: skipped (app unreachable)
-
-   ## Reason
-   The application could not be reached by the pre-flight gate (resolved URL, and whether a test.start was declared / timed out). The Opus ui-tester subagent was not spawned. Browser-level acceptance-criteria verification is deferred.
-
-   ## Acceptance Criteria
-   - [ ] AC 1 — not-tested (app unreachable)
-   - [ ] AC 2 — not-tested (app unreachable)
-   ...
-   ```
+   - **No UI signals in the plan** — the skip-detection scan found nothing.
+   - **Forced by `--no-ui-testing`** — the plan may well have UI work; browser verification is deferred, not absent.
+   - **App unreachable** — the reachability pre-flight could not reach or boot the app.
 
 d. **Apply test fixes in-context.** Test failures are observations the loop consumes — fix them inline using the same pattern as the review checkpoint. If fixes succeed, re-run the failing tests. If failures are un-fixable in this run, write the `## Failed Criteria` section to `05-tests.md` and prepare to exit with `verdict: partial`.
 
