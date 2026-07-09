@@ -117,10 +117,10 @@ Always report state on exit — one of four:
 Output is keyed to **whether there's a transferable lesson**, not to the exit type.
 
 - **Lessons log** — if the root cause is a *project-specific, would-recur constraint that static reasoning missed* (a non-obvious runtime behavior, a config/env coupling, a framework footgun specific to this codebase), append one line to `claudedocs/tickets/_lessons.md`. Write nothing for a self-contained bug (typo, local off-by-one, missing null check) even on `fixed`. Test: "would the next ticket's planning re-derive this the hard way if it weren't written?"
-  - Mirror build's producer mechanics: create the file with header `# Lessons learned across tickets` if missing, then append a line that starts with `## ` (so build's write-time supersession check parses it as an entry) — atomic and date-stamped: exactly one subject (one concrete path, tool, command, or setting) per line, carrying the capture date (`<YYYY-MM-DD>`, the environment's current date), short enough to read at a glance rather than a hard limit; split a multi-subject finding into multiple atomic lines — and backtick any path token:
-    - With a ticket in scope: `## <ticket-id> (debug, <YYYY-MM-DD>): <one atomic lesson>`
-    - Standalone: `## debug/<short-slug> (<exit>, <YYYY-MM-DD>): <one atomic lesson>`
-  - Don't run the supersession check — that's build-owned; build's next capture merges (or prefers-newest on) any same-subject duplicate.
+  - Write the line per the shared contract in [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) — file creation and entry format (§1–§2) — and backtick any path token. Debug's deltas from that contract:
+    - **ID forms** — with a ticket in scope: `## <ticket-id> (debug, <YYYY-MM-DD>): <one atomic lesson>`; standalone: `## debug/<short-slug> (<exit>, <YYYY-MM-DD>): <one atomic lesson>`.
+    - **No supersession check** — §4 is build-owned; append only. Build's next capture merges (or prefers-newest on) any same-subject duplicate.
+    - **No promotion/overflow proposals** — §6–§7 are build-owned; on a multi-subject finding, split into atomic lines only.
 - **Non-`fixed` exits**:
   - With a ticket in scope → persist a report to `<ticket-folder>/07-debug.md`: exit type, hypotheses tried and which were eliminated/confirmed (with evidence), root cause if reached, concrete next steps. Plain report, no frontmatter.
   - Standalone → chat-only; no file.
