@@ -1,6 +1,6 @@
 ---
 name: debug
-description: "Find and fix a bug's root cause from real runtime evidence — instrument suspect code, reproduce the failure, apply a targeted fix, and leave a clean diff."
+description: "Find and fix a bug's root cause from real runtime evidence."
 disable-model-invocation: true
 allowed-tools:
   - Read
