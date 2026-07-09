@@ -106,7 +106,7 @@ Centralized cross-stage rules live in `skills/flow/references/`:
 - **Status query** — read-only inspection for future epic-walker tooling.
 
 `lessons-log.md`:
-- The cross-ticket lessons-log contract — atomic entry format, write-time supersession check, prefer-newest on conflict, promotion on recurrence, format overflow, grep-scoped consumption. Producers (`build`, `debug`) and consumers (`plan`, `ship`, `lessons-consolidate`) all point here; summary in the Cross-ticket lessons log section below.
+- The cross-ticket lessons-log contract — atomic entry format, write-time supersession check, prefer-newest on conflict, promotion on recurrence, format overflow, grep-scoped consumption. Producers (`build`, `debug`) and consumers (`plan`, `ship`), plus the standalone `lessons-consolidate` normalizer, all point here; summary in the Cross-ticket lessons log section below.
 
 Individual stage skills (`skills/<stage>/SKILL.md`) own their own `Required Input` and `Output` sections, which are the authoritative per-stage contracts. Flow's Stage Contract table is a consolidated summary of those.
 

@@ -120,6 +120,7 @@ Output is keyed to **whether there's a transferable lesson**, not to the exit ty
   - Write the line per the shared contract in [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) — file creation and entry format (§1–§2) — and backtick any path token. Debug's deltas from that contract:
     - **ID forms** — with a ticket in scope: `## <ticket-id> (debug, <YYYY-MM-DD>): <one atomic lesson>`; standalone: `## debug/<short-slug> (<exit>, <YYYY-MM-DD>): <one atomic lesson>`.
     - **No supersession check** — §4 is build-owned; append only. Build's next capture merges (or prefers-newest on) any same-subject duplicate.
+    - **No promotion/overflow proposals** — §6–§7 are build-owned; on a multi-subject finding, split into atomic lines only.
 - **Non-`fixed` exits**:
   - With a ticket in scope → persist a report to `<ticket-folder>/07-debug.md`: exit type, hypotheses tried and which were eliminated/confirmed (with evidence), root cause if reached, concrete next steps. Plain report, no frontmatter.
   - Standalone → chat-only; no file.
