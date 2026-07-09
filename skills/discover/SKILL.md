@@ -87,6 +87,7 @@ The skill runs in **main context** (interactive) through these phases:
    - The workspace is the folder holding `claudedocs/tickets/` (the same root Phase 0 establishes)
    - **Multi-repo** iff the workspace root is not itself a git repo (no `.git` at the root) AND immediate child directories containing `.git` exist. Record those child directory names verbatim — they are the vocabulary for the `repos` frontmatter field (exact on-disk names, e.g. `big-leaves-api`, never shortened)
    - Check immediate children only — no recursion (avoids `node_modules/.git` and vendored-tree false positives)
+   - **The repos-append convention** (every later `repos` mention defers here): in a multi-repo workspace, each artifact discovery writes (solo spec, epic PRD, child spec) gets `repos: [<exact-dir-names>]` **appended** as real frontmatter — never a commented placeholder; the templates carry only the fields every ticket has. Write the field even when the ticket touches just one repo (explicitness beats omission once the workspace is multi-repo). Which repos go in the list is decided per artifact at its write step.
    - Any other shape (workspace root is a git repo, or no child repos found) is **single-repo**: the `repos` field is omitted everywhere downstream, and every repos-related step below is skipped — single-repo output is byte-identical to a workspace where the concept doesn't exist
 
 4. **Quick acknowledgment** — confirm what you understood:
@@ -120,7 +121,7 @@ Guide the developer through targeted questions to flesh out requirements. This i
 
 **Approach**: Ask 3-5 questions at a time, grouped by theme. Don't dump 20 questions at once. Iterate based on answers.
 
-**Recommend, don't just elicit**: For every question, propose your default answer first — informed by the codebase exploration, the input, and sensible product judgment. The user confirms, overrides, or asks for alternatives. This converts decisions you can reasonably make into confirmations and reserves the user's attention for genuine product/UX trade-offs. Format each question as:
+**Recommend, don't just elicit**: For every question, propose your default answer first — informed by the codebase exploration, the input, and sensible product judgment. The user confirms, overrides, or asks for alternatives. Resolve trivial or codebase-driven decisions yourself with a stated default — ask the user only when judgment is genuinely theirs (product/UX trade-offs, business priorities, personal preference). This converts decisions you can reasonably make into confirmations. Format each question as:
 
 ```
 1. <question>
@@ -165,8 +166,8 @@ Use the code explorer results to ask informed questions:
 - **Synthesize then check**: after each batch, restate what you've understood. If the user's answer is ambiguous, contradicts an earlier answer, leaves a hole the spec needs filled, or opens a sub-decision you didn't ask about, run another pass on that theme with clarifying questions before moving on. Don't paper over ambiguity to keep momentum.
 - **Escalate to depth-first grilling on high-coupling branches**: if a single decision has answers that cascade into multiple dependent sub-decisions (e.g., "schema-first vs code-first" each implying different storage / migration / API choices), drop the batched cadence for that branch. Switch to one question at a time, walk the decision tree depth-first, and resolve each fork before backing out. Keep providing your recommended default at every node. Return to themed batching once the branch is resolved.
 - **Stop when coverage is good enough** to write a clear spec — driven by coverage, not by a fixed count. Simple features may need a single batch; high-coupling or ambiguous ones may take many, especially with depth-first detours.
-- **Match depth to complexity** — don't over-question simple features.
-- **Respect "enough"**: if the developer says "that's enough" or "let's move on", proceed to scope assessment with the best understanding you have.
+- **Match depth to complexity** — don't over-question simple features, and don't under-discover coupled ones (that is what the depth-first escalation above is for).
+- **Respect "enough"**: if the developer says "that's enough" or "let's move on", proceed to scope assessment with the best understanding you have and create the best ticket(s) you can. (In exploration mode, leaving without a ticket is instead the exploration-mode carve-out — see "Very vague or outcome-uncommitted input".)
 
 ---
 
@@ -261,8 +262,7 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
 
 2. **Write the spec** to `claudedocs/tickets/backlog/<TICKET-ID>/01-spec.md` using `templates/task.md`. The spec file IS the ticket — frontmatter for metadata, body for the content.
 
-   In a multi-repo workspace (per the Phase 1 detection), additionally **append** as real frontmatter (never as a commented placeholder — the template carries only the fields every ticket has):
-   - `repos: [<exact-dir-names>]` — the repositories this ticket touches, from Phase 2 exploration reconciled with the Phase 3 confirmation. Exact on-disk directory names. Write the field even when only one repo is touched (explicitness beats omission once the workspace is multi-repo). In a single-repo workspace, omit the field entirely.
+   In a multi-repo workspace, append `repos:` per the Phase 1 convention — this ticket's repos, from Phase 2 exploration reconciled with the Phase 3 confirmation.
 
 3. **Write the exploration** to `claudedocs/tickets/backlog/<TICKET-ID>/exploration.md` (no `00-` prefix — numbering is reserved for stage artifacts in task folders). Include a short header at the top:
    ```
@@ -302,7 +302,7 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
    - `kind: epic` — marks this non-pipelineable, so `plan`/`build` refuse to run against it
    - `epic: <epic-slug>`
    - `children: [<CHILD-1-ID>, <CHILD-2-ID>, ...]` — the declared roster
-   - `repos: [<exact-dir-names>]` — only in a multi-repo workspace (per the Phase 1 detection): the union of the children's repos, appended as real frontmatter (the template doesn't carry it). Omit entirely in a single-repo workspace.
+   - `repos:` — only in a multi-repo workspace, appended per the Phase 1 convention: the union of the children's repos.
 
    Everything else (`status`, `created`, `project`, `priority`, `tags`, …) comes straight from the template — the template is the one place that list lives.
 
@@ -322,8 +322,7 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
    - `siblings: [<other-CHILD-IDs>]` — informational; the others, not self
    - `blocked_by: [<CHILD-ID>, ...]` — omit if no blockers
 
-   In a multi-repo workspace (per the Phase 1 detection), also append — not a linkage field; it follows the same append convention:
-   - `repos: [<exact-dir-names>]` — this child's repos, from the Phase 3.5 decomposition table; omit when the workspace is single-repo
+   In a multi-repo workspace, also append `repos:` per the Phase 1 convention — this child's repos, from the Phase 3.5 decomposition table.
 
    As you fill the standard fields the template already lists, give them child-specific values: `id` (the `<CHILD-ID>` allocated in the *Generate ticket IDs* step above), `title` (descriptive, from the Phase 3.5 decomposition table — never the bare `<CHILD-ID>`; this is what boards, flow's epic-walker progress, and PR titles render), `complexity` (assessed per child), and `priority`/`tags` (inherit from the epic, plus any child-specific tags).
 
@@ -398,10 +397,10 @@ Standard flow — go through all phases.
 ### Very vague or outcome-uncommitted input ("I want to improve things", "let's explore", "not sure this is a ticket yet")
 - Entered automatically when the input reads vague or uncommitted, or **explicitly via the `--explore` flag** — the flag forces this branch even for a well-formed, detailed idea (it beats the "Very detailed input" routing)
 - Switch to **exploration mode**: ask probing questions **one at a time**, depth-first — each answer informs the next question, and you restate what you understood in one line before asking the next
-- Every question still leads with a recommended default (Rule 2); flag genuinely undefaultable ones with `**Default**: (no default — your call)`
+- Every question still leads with a recommended default (per Phase 3's "Recommend, don't just elicit"); flag genuinely undefaultable ones with `**Default**: (no default — your call)`
 - Ground questions in the codebase with lightweight reads (Read/Grep/Glob) when the code can answer them; defer the Phase 2 explorer spawn until the idea is concrete enough to commit to
 - Help the developer narrow toward an outcome. When they commit ("make this a ticket", or the idea has clearly firmed up), run the deferred Phase 0 infrastructure setup, then continue through the normal phases with everything learned as context
-- The developer may instead choose to leave without a ticket ("that's enough", "let me think about it") — end with a one-line acknowledgment and no artifact (Rule 11's exploration-mode carve-out). Closure is theirs to signal; never proactively ask "should we save this or leave it?"
+- The developer may instead choose to leave without a ticket ("that's enough", "let me think about it") — end with a one-line acknowledgment and no artifact; the dialogue is the deliverable. This branch is the one carve-out from the create-don't-discuss rule (Important Rules). Closure is theirs to signal; never proactively ask "should we save this or leave it?"
 
 ### Very detailed input (pre-thought-out feature)
 - Acknowledge the detail level
@@ -411,17 +410,14 @@ Standard flow — go through all phases.
 
 ## Important Rules
 
+Question cadence, defaults, synthesis, and depth rules live in Phase 3 ("Recommend, don't just elicit" + "Iteration rules"); the checkpoint gate lives in Phase 3.5. The rules below are the ones no phase body states.
+
 1. **Be conversational, not interrogative** — this is a dialogue, not a survey
-2. **Lead with a recommendation** — every question carries your proposed default with a one-line rationale; ask the user only when judgment is genuinely theirs (product/UX trade-offs, business priorities, personal preference). Resolve trivial or codebase-driven decisions yourself with a stated default.
-3. **Synthesize as you go** — restate what you've understood after each batch, and re-enter a theme if the synthesis surfaces ambiguity or new questions
-4. **Match depth to complexity** — don't over-discover simple features, and don't under-discover coupled ones (escalate to depth-first grilling when a decision branch cascades)
-5. **Use codebase context** — make questions specific to the project, not generic
-6. **One checkpoint, only when N>1** — single-ticket discoveries skip Phase 3.5 entirely; multi-sibling discoveries always show the proposal before creating tickets
-7. **PRD is feature-level, children are task-level** — the PRD is not a duplicate of children's specs combined; it captures only what spans siblings (problem, cross-cutting constraints, decomposition, discovery notes)
-8. **Exploration lives once per discovery session** — at the epic-folder level for multi-sibling, at the ticket-folder level for single. No per-child duplication.
-9. **Epics are non-pipelineable** — `kind: epic` in PRD frontmatter; `plan`/`build` will refuse to run against an epic ID. Children are the pipelineable items.
-10. **No `breakdown.md` artifact** — decomposition rationale and AC coverage live as sections inside `prd.md`, not in a separate file
-11. **Create the artifact(s), don't just discuss** — always end with concrete tickets on disk. One carve-out: exploration mode (the very-vague/outcome-uncommitted branch) may end with no ticket when the developer chooses to leave — there the dialogue is the deliverable
-12. **Respect "enough"** — in committed discovery, if the developer wants to move on, create the best ticket(s) you can (in exploration mode, leaving without a ticket is the Rule 11 carve-out, not this rule)
-13. **No implementation** — this skill discovers and documents, it does not code
-14. **`title` is descriptive, never the bare `<ID>`** — every template (`task.md`, `prd.md`) already declares `title`; when you fill the template, give it a human-readable title, not the ticket ID. This is a value-quality rule, not a schema-list to maintain — boards, flow's epic-walker progress, and PR-title construction all render the title, and a bare ID reads as a missing one.
+2. **Use codebase context** — make questions specific to the project, not generic
+3. **PRD is feature-level, children are task-level** — the PRD is not a duplicate of children's specs combined; it captures only what spans siblings (problem, cross-cutting constraints, decomposition, discovery notes)
+4. **Exploration lives once per discovery session** — at the epic-folder level for multi-sibling, at the ticket-folder level for single. No per-child duplication.
+5. **Epics are non-pipelineable** — `kind: epic` in PRD frontmatter; `plan`/`build` will refuse to run against an epic ID. Children are the pipelineable items.
+6. **No `breakdown.md` artifact** — decomposition rationale and AC coverage live as sections inside `prd.md`, not in a separate file
+7. **Create the artifact(s), don't just discuss** — always end with concrete tickets on disk, with one carve-out: exploration mode may end without a ticket when the developer chooses to leave (see "Very vague or outcome-uncommitted input")
+8. **No implementation** — this skill discovers and documents, it does not code
+9. **`title` is descriptive, never the bare `<ID>`** — every template (`task.md`, `prd.md`) already declares `title`; when you fill the template, give it a human-readable title, not the ticket ID. This is a value-quality rule, not a schema-list to maintain — boards, flow's epic-walker progress, and PR-title construction all render the title, and a bare ID reads as a missing one.
