@@ -286,7 +286,7 @@ Choose one based on loop state:
 #### 4b. Write summary and lesson artifacts
 
 **Always write `06-summary.md`** regardless of verdict. Content varies:
-- `pass`: completed work summary, files changed, validation passed, test results.
+- `pass`: completed work summary, files changed, validation passed, reviewer findings count, test results.
 - `partial`: references the `## Failed Criteria` section in `05-tests.md`, lists deferred conflicts from `04-review.md`, lists what was completed.
 - `stuck`: describes loop state at escalation — the detected stuck pattern (or "turn cap exceeded"), the last 3-5 iterations' actions, a suggested next-move for the user.
 
@@ -401,7 +401,7 @@ The build skill writes these artifacts to `<ticket-folder>/` over the course of 
 
 Failed test criteria live inside `05-tests.md` under `## Failed Criteria`; turn count and stuck patterns are conversational state, not file state.
 
-The user-facing exit presentation is the verdict-gate blocks in Process step 4c — there is no separate exit template.
+The user-facing exit presentation is the verdict-gate blocks in Process step 4c.
 
 ## Error Handling
 
