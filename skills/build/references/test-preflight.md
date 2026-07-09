@@ -2,7 +2,7 @@
 
 Build invokes this at the test checkpoint (SKILL.md §3) on the path where a `ui-tester` spawn was about to happen — i.e. **after** the `--no-ui-testing` short-circuit and **after** the skip-detection scan has decided the plan has UI signals, but **before** the `ui-tester` `Task` call. It runs a cheap reachability gate so the expensive Opus browser subagent is never spawned against an app that can't be reached, and it hands the agent a declared auth recipe instead of letting it guess.
 
-`--no-ui-testing` and the no-UI-signal skip both bypass this reference entirely — neither resolves a URL, curls, nor boots a `start` command. Pre-flight only runs when a spawn was actually going to happen (this is what keeps the cheap gate ahead of the expensive spawn — AC9).
+`--no-ui-testing` and the no-UI-signal skip both bypass this reference entirely — neither resolves a URL, curls, nor boots a `start` command. Pre-flight only runs when a spawn was actually going to happen (this is what keeps the cheap gate ahead of the expensive spawn).
 
 Build reads the `test:` block by **model-reading** the flat YAML in `claudedocs/tickets/config.yaml`; it does **not** shell out to `yq`/`jq`, and `hooks/validate.sh` is never involved (the hook reads only the `validate:` block).
 
@@ -125,7 +125,7 @@ The Opus ui-tester subagent was not spawned. Browser-level acceptance-criteria v
 
 ## Boundaries
 
-- **Cheap gate, always first** — a `curl` (and at most a bounded `start` poll) is always paid before the Opus `ui-tester` spawn; the agent is never spawned against an unreachable, un-bootable app (AC9).
+- **Cheap gate, always first** — a `curl` (and at most a bounded `start` poll) is always paid before the Opus `ui-tester` spawn; the agent is never spawned against an unreachable, un-bootable app.
 - **No auth detection** — reachability only; the gate never interprets `401`/`403`/a `200` SPA shell as "auth-gated." Auth-gated-with-no-recipe still spawns the agent (it's reachable), which fails fast and is recorded as a non-blocking skip by the agent's own report.
 - **No literal secrets** — `config.yaml` is committed; `auth.storage_state` is a path to a gitignored session file and `auth.attach_tab` is a bool. Credentials are never read from or written into `config.yaml`.
 - **Model-read, not hook-read** — the `test:` block is consumed by build (this reference + the injected spawn prompt). `hooks/validate.sh` is not modified and never reads it.

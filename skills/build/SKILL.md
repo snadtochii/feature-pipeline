@@ -51,7 +51,7 @@ Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/referenc
 
 Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6. If any entry in `blocked_by` is not yet done (frontmatter `status: done` or `cancelled`, or folder under `done/`), abort with the message in Step 6 listing the unblocked blockers. If a `blocked_by` entry is wrong, edit this ticket's `blocked_by` frontmatter.
 
-When `blocked_by` is non-empty, build composes a **blocker context block** and prepends it to the review-checkpoint reviewer prompts (see Step 2). Per resolved Q3, the block uses each blocker's verbatim `01-spec.md` + `06-summary.md`. **Fallback when a blocker's `06-summary.md` is missing** (e.g. a `cancelled` blocker): use that blocker's `02-plan.md`; if `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker.
+When `blocked_by` is non-empty, build composes a **blocker context block** and prepends it to the review-checkpoint reviewer prompts (see Step 2). The block uses each blocker's verbatim `01-spec.md` + `06-summary.md`. **Fallback when a blocker's `06-summary.md` is missing** (e.g. a `cancelled` blocker): use that blocker's `02-plan.md`; if `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker.
 
 ## State setup
 
@@ -117,7 +117,7 @@ c. **For each step in `02-plan.md`'s Build Sequence, in order:**
    5. **Emit `Turn N/25`** at the start of the next iteration.
    6. **Watch the transcript for stuck patterns** (per `references/stuck-detection.md` patterns 1–5): action↔observation repetition, action↔error repetition, agent monologue, ping-pong between two states, repeated context errors. On detection, exit with `verdict: stuck` (skip directly to step 4 of this Process — Exit verdict).
    7. **Outer-loop arbiter check** (per `references/stuck-detection.md` pattern 6). When the current checkpoint has accumulated 4+ turns without exiting, fire the arbiter once via a `Task` call with the prompt in stuck-detection.md §6. Cache the verdict for the rest of the checkpoint. On `status: stuck`, exit with `verdict: stuck` (skip to step 4 — Exit verdict); include the arbiter's `reason` in `06-summary.md`.
-   8. **On hitting `Turn 26`**, exit with `verdict: stuck` regardless of semantic-pattern detection. The hybrid stop rule per the redesign's Q4-b: either trigger fires the verdict.
+   8. **On hitting `Turn 26`**, exit with `verdict: stuck` regardless of semantic-pattern detection. The hybrid stop rule: either trigger fires the verdict.
 
 d. **After all plan steps are implemented**, run final validation across all changes. Fix any cross-cutting failures in-context. Update `03-implementation.md` with the final implementation state. Proceed to the review checkpoint.
 
@@ -161,7 +161,7 @@ b. **Compose the shared base for reviewer prompts** (single composition, used by
    2. **Diff**: output from step a.
    3. **Project root path**.
    4. **Blocker context** (only when `blocked_by` is non-empty per the Blocker validation section above): a `## Blocker context (from completed siblings)` block. For each blocker: include verbatim `01-spec.md` + `06-summary.md`. **Fallback when `06-summary.md` is missing** (e.g. a `cancelled` blocker): use the blocker's `02-plan.md`; when `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker. Omit the entire block when `blocked_by` is empty.
-   5. **Confidence scale**: the verbatim contents of `references/confidence-scale.md` under a `## Confidence scale (use this exactly)` header. (R-2 fix: rubric lives in the reference, build injects it here, reviewer agent bodies stay rubric-free.)
+   5. **Confidence scale**: the verbatim contents of `references/confidence-scale.md` under a `## Confidence scale (use this exactly)` header. (The rubric lives in the reference and build injects it here — reviewer agent bodies stay rubric-free.)
 
 c. **Spawn four reviewer subagents in parallel.** All four run **concurrently** — launch them in a single message with four `Task` tool calls. Each prompt = the shared base from step b + a per-reviewer suffix:
 
@@ -203,11 +203,11 @@ f. **After fixes are applied**, run validation again (lint/typecheck) and update
 
 a. **Skip-detection scan.** Read `02-plan.md` and search the text (case-insensitive substring match) for any of: `component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial`. Match → run the reachability pre-flight (below) before any spawn. No match → skip (step c).
 
-**Reachability pre-flight (per [`references/test-preflight.md`](references/test-preflight.md)).** When step a matched UI signals (and `--no-ui-testing` was not set), run the pre-flight gate *before* spawning the Opus `ui-tester` — the cheap `curl` is always paid first (AC9). It resolves a URL (`test.url` → project `CLAUDE.md` → common-port probe), `curl`s it (reachable iff HTTP `200/301/302/401/403`), and on an unreachable app optionally boots a declared `test.start` (backgrounded, bounded ~60s poll) that it then owns for teardown:
+**Reachability pre-flight (per [`references/test-preflight.md`](references/test-preflight.md)).** When step a matched UI signals (and `--no-ui-testing` was not set), run the pre-flight gate *before* spawning the Opus `ui-tester` — the cheap `curl` is always paid first. It resolves a URL (`test.url` → project `CLAUDE.md` → common-port probe), `curl`s it (reachable iff HTTP `200/301/302/401/403`), and on an unreachable app optionally boots a declared `test.start` (backgrounded, bounded ~60s poll) that it then owns for teardown:
    - **Reachable** (directly, or after the `test.start` boot responds) → compose the auth recipe + resolved URL (test-preflight.md §5) and continue to step b.
    - **Unreachable with no `test.start`, or `test.start` timed out** → write the *app unreachable* skip artifact (step c), tear down any server the pre-flight started (step e), do **not** spawn `ui-tester`, do **not** prompt mid-loop or hard-pause, and proceed to the verdict (step 4). The skip is recorded in `06-summary.md`.
 
-   The pre-flight reads the `test:` block by model-reading `claudedocs/tickets/config.yaml`; it never invokes `yq`/`jq` or `hooks/validate.sh`. Absent a `test:` block, URL resolution falls through to the existing CLAUDE.md → port-probe path and no `test.start` is booted — today's behavior (AC2).
+   The pre-flight reads the `test:` block by model-reading `claudedocs/tickets/config.yaml`; it never invokes `yq`/`jq` or `hooks/validate.sh`. Absent a `test:` block, URL resolution falls through to the CLAUDE.md → port-probe path and no `test.start` is booted.
 
 b. **Spawn `feature:ui-tester`** (when reachable). Read the project's `CLAUDE.md` for a test framework hint (`## Testing` section, `## Commands` section, or inline references like "Playwright specs in `e2e/`"). Single `Task` call:
 
@@ -221,49 +221,11 @@ b. **Spawn `feature:ui-tester`** (when reachable). Read the project's `CLAUDE.md
 
    Save subagent output to `<ticket-folder>/05-tests.md`. Failed criteria become a `## Failed Criteria` section inside `05-tests.md`. If specs were codified, list their paths under a `## Codified specs` section.
 
-c. **Skip artifact** (when the skip-detection scan matched no UI signals, when `--no-ui-testing` forced the skip, OR when the reachability pre-flight found the app unreachable and un-bootable). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth build verdict. The build verdict set remains `pass | partial | stuck` per the locked redesign. When the test checkpoint is skipped, build can still exit with `verdict: pass` if the implement and review checkpoints completed cleanly. Write `<ticket-folder>/05-tests.md` with the variant matching the skip cause:
+c. **Skip artifact** (when the skip-detection scan matched no UI signals, when `--no-ui-testing` forced the skip, OR when the reachability pre-flight found the app unreachable and un-bootable). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth build verdict. The build verdict set is `pass | partial | stuck`. When the test checkpoint is skipped, build can still exit with `verdict: pass` if the implement and review checkpoints completed cleanly. Write `<ticket-folder>/05-tests.md` with the variant matching the skip cause — when writing one, read [`references/skip-artifacts.md`](references/skip-artifacts.md) for the verbatim template bodies (the app-unreachable body lives in [`references/test-preflight.md`](references/test-preflight.md) §6, beside the pre-flight that produces it):
 
-   **No UI signals in the plan** (skip-detection scan found nothing):
-
-   ```
-   verdict: skipped (no UI work in plan)
-
-   ## Reason
-   Keyword scan of 02-plan.md found no UI signals (component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial).
-
-   ## Acceptance Criteria
-   - [ ] AC 1 — not-tested (no UI)
-   - [ ] AC 2 — not-tested (no UI)
-   ...
-   ```
-
-   **Forced by `--no-ui-testing`** (the plan may well have UI work — browser verification is deferred, not absent):
-
-   ```
-   verdict: skipped (UI testing disabled by --no-ui-testing)
-
-   ## Reason
-   Browser/UI verification skipped by the --no-ui-testing flag. Non-browser checks (lint/typecheck) still ran in the implement checkpoint and still gated this verdict. Browser-level acceptance-criteria verification is deferred to human review of the PR.
-
-   ## Acceptance Criteria
-   - [ ] AC 1 — not-verified (browser testing skipped by flag)
-   - [ ] AC 2 — not-verified (browser testing skipped by flag)
-   ...
-   ```
-
-   **App unreachable** (the reachability pre-flight could not reach or boot the app) — body per [`references/test-preflight.md`](references/test-preflight.md) §6:
-
-   ```
-   verdict: skipped (app unreachable)
-
-   ## Reason
-   The application could not be reached by the pre-flight gate (resolved URL, and whether a test.start was declared / timed out). The Opus ui-tester subagent was not spawned. Browser-level acceptance-criteria verification is deferred.
-
-   ## Acceptance Criteria
-   - [ ] AC 1 — not-tested (app unreachable)
-   - [ ] AC 2 — not-tested (app unreachable)
-   ...
-   ```
+   - **No UI signals in the plan** — the skip-detection scan found nothing.
+   - **Forced by `--no-ui-testing`** — the plan may well have UI work; browser verification is deferred, not absent.
+   - **App unreachable** — the reachability pre-flight could not reach or boot the app.
 
 d. **Apply test fixes in-context.** Test failures are observations the loop consumes — fix them inline using the same pattern as the review checkpoint. If fixes succeed, re-run the failing tests. If failures are un-fixable in this run, write the `## Failed Criteria` section to `05-tests.md` and prepare to exit with `verdict: partial`.
 
@@ -286,36 +248,16 @@ Choose one based on loop state:
 #### 4b. Write summary and lesson artifacts
 
 **Always write `06-summary.md`** regardless of verdict. Content varies:
-- `pass`: completed work summary, files changed, validation passed, test results.
+- `pass`: completed work summary, files changed, validation passed, reviewer findings count, test results.
 - `partial`: references the `## Failed Criteria` section in `05-tests.md`, lists deferred conflicts from `04-review.md`, lists what was completed.
 - `stuck`: describes loop state at escalation — the detected stuck pattern (or "turn cap exceeded"), the last 3-5 iterations' actions, a suggested next-move for the user.
 
 The uniform always-write contract means downstream readers (and reopened-ticket regressions) never have to handle a "missing summary = unknown verdict" failure mode.
 
-**Capture a lesson in `claudedocs/tickets/_lessons.md`** at the same time. Entry format — **atomic and date-stamped: exactly one subject (one concrete path, tool, command, or setting) per line, carrying the capture date**:
+**Capture a lesson in `claudedocs/tickets/_lessons.md`** at the same time, following the shared contract in [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) end-to-end: file creation (§1), entry format (§2), what to capture vs skip (§3), the write-time supersession check (§4), prefer-newest on conflict (§5), promotion on recurrence (§6), and format overflow (§7). Build-specific wiring:
 
-```
-## <ticket-id> (<verdict>, <YYYY-MM-DD>): <one atomic lesson about a single subject>
-```
-
-Use the environment's current date at capture time for `<YYYY-MM-DD>`. Keep each line short enough to read at a glance — a soft guideline, not a hard character limit; if the point needs more room, that's the signal it covers more than one subject, so **split it into multiple atomic lines** (one subject each) or graduate it to `CLAUDE.md` per the overflow rule below. A lesson spanning several subjects is never written as one dense multi-topic paragraph.
-
-The lesson should be project-specific and actionable for future similar work — not a generic best-practice. Examples:
-
-- `## FP-7 (pass, 2026-07-06): hooks/validate.sh must stay bash-3.2 compatible (macOS default) — no associative arrays or mapfile.`
-- `## FP-12 (partial, 2026-07-06): validate.lint must keep ESLint — bun's typecheck doesn't surface unused-import errors.`
-- `## FP-15 (stuck, 2026-07-06): canonical auth-middleware path is src/security/auth.ts (after the lib/ → src/ rename).`
-
-Capture rules:
-
-- **Write-time supersession check.** Before appending, read `_lessons.md` and scan the existing `^## ` entries (any producer, including `debug/` ones) for one whose single subject — the same concrete path, tool, command, or setting — matches the new entry's subject. Same subject → **update/merge that one line in place**, citing all IDs in ascending order (`## FP-9, FP-28 (pass, <YYYY-MM-DD>): <lesson>`; keep per-ID verdicts when they differ) and stamping this newer capture's date, or **skip** when the existing entry already fully covers the point. Because each entry names exactly one subject, the match is reliable. Different or no shared subject → append. No user gate: the check never deletes a distinct fact, only replaces the superseded line — git holds the history. Lines not matching `^## ` are preserved byte-for-byte; never repair or normalize the file.
-- **Prefer-newest on conflict.** When the new entry contradicts an existing same-subject line (the older guidance has gone stale), the newer information wins: replace that line's lesson text with the new one and stamp this capture's date; git holds the prior version. Merges stay conservative — combine or prefer-newest on the one shared subject only, never re-summarize the file or rewrite unrelated lines.
-- **Promotion on recurrence.** A same-subject second capture means the gotcha recurs — propose promoting it into the project's `CLAUDE.md` under a `## Lessons` section (created if missing). The proposal must **show the exact line to be added and the target file/section** — never a bare yes/no — and the edit is applied only after the user approves that shown content (CLAUDE.md is a standing-instruction file loaded into every future session; the promoted text originates from `_lessons.md`, which is editable outside the pipeline). On accept: apply the CLAUDE.md edit and remove the entry from `_lessons.md`. On decline: keep the merged line in the log. **Unattended runs** (no user present to answer — an autonomous orchestrator's subagent, headless `claude -p`): skip the proposal entirely and keep the merged line; the same recurrence re-proposes at the next interactive capture on the topic. CLAUDE.md is never written without a user approving the shown content, and a non-interactive build never blocks on this gate.
-- **Format overflow.** A lesson that can't be stated atomically — one subject on one line, even after splitting — is a durable rule, not a log entry. Propose it as a project-`CLAUDE.md` edit instead (same content-surfacing confirmation — show the exact text and target, never a bare yes/no); on decline — or in an unattended run, where the proposal is skipped — capture the atomic subject lines in `_lessons.md` instead — never silently lose the fact.
-- **Skip entirely** when the lesson would be generic ("apply review fixes carefully"). Lesson text is free text — handle it with `Read`/`Write` only; never interpolate it into shell commands.
-- If `claudedocs/tickets/_lessons.md` doesn't exist, create it with a one-line header (`# Lessons learned across tickets`) and append.
-
-The file is project-local context — plan's Phase 1 selects ticket-relevant entries from it on subsequent tickets to avoid re-deriving constraints.
+- The header's `<verdict>` token is this run's verdict: `pass` | `partial` | `stuck`.
+- A build run is **unattended** in the §6/§7 sense — no user present to answer, so the CLAUDE.md proposals are skipped — when it runs as an autonomous orchestrator's subagent or under headless `claude -p`.
 
 #### 4c. Present the verdict gate
 
@@ -340,6 +282,8 @@ For **`pass` with `--pr`**: skip the interactive commit prompt — `--pr` is the
 
 [Summary from 06-summary.md]
 
+All artifacts: <ticket-folder>/
+
 Opening a pull request per --pr (see references/pr-creation.md): branch from base → commit → push → gh pr create → finalize into review/.
 ```
 
@@ -349,6 +293,8 @@ For **`partial`** or **`stuck`**:
 ## Build Complete — verdict: <partial|stuck>
 
 [Summary; for stuck, the detected pattern]
+
+All artifacts: <ticket-folder>/
 
 Options:
   - accept-as-partial — finalize as done/ with status: partial-completion
@@ -417,21 +363,7 @@ The build skill writes these artifacts to `<ticket-folder>/` over the course of 
 
 Failed test criteria live inside `05-tests.md` under `## Failed Criteria`; turn count and stuck patterns are conversational state, not file state.
 
-## Presentation
-
-Present to the user at exit:
-
-```
-## Build Complete — verdict: <pass|partial|stuck>
-
-[Brief summary: files changed, validation state, reviewer findings count, test results, stuck-pattern detail if applicable]
-
-[For pass: "Ready to move to done/ on completion gate."]
-[For partial: "Some criteria un-fixable in this run. Options: accept-as-partial / continue-with-hint / abort."]
-[For stuck: "Loop escalated. Options: continue-with-hint / abort / accept-as-partial."]
-
-Artifacts saved to: <ticket-folder>/03-implementation.md, 04-review.md, 05-tests.md, 06-summary.md
-```
+The user-facing exit presentation is the verdict-gate blocks in Process step 4c.
 
 ## Error Handling
 

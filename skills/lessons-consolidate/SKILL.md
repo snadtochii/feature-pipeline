@@ -1,6 +1,6 @@
 ---
 name: lessons-consolidate
-description: "Consolidate a project's claudedocs/tickets/_lessons.md to the atomic one-subject-per-line format — cluster same-subject entries, propose conservative merges and stale-entry retirements as a human-approved diff, then rewrite only after approval with git as the anchor. Standalone and user-invoked, not a pipeline stage; also serves as the one-time migration for a bloated legacy log."
+description: "Consolidate a project's claudedocs/tickets/_lessons.md to the atomic one-subject-per-line format via a human-approved diff."
 disable-model-invocation: true
 allowed-tools:
   - Read
@@ -19,7 +19,7 @@ Cluster the same-subject entries in `claudedocs/tickets/_lessons.md`, propose **
 
 **This skill runs in the main conversation, standalone** — a peer of `/feature:sync`, `/feature:review`, and `/feature:debug`, **not a pipeline stage**. It spawns **no subagents** (no `Task`) and does **no** folder/status transitions and no flow wiring. It only reshapes one file, and only after you approve the diff.
 
-The output target is the **atomic entry format** that build and debug write and that plan/ship grep — one subject per `^## ` line. This skill normalizes an existing file to that same contract; it does not invent a new one.
+The output target is the **atomic entry format** defined in the shared contract at [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) — what build and debug write and plan/ship grep. This skill normalizes an existing file to that contract; it does not invent a new one.
 
 ## Arguments
 
@@ -55,12 +55,12 @@ If `<file>` does not exist, report "No `_lessons.md` to consolidate at `<path>`.
 ### 1. Load and measure
 
 - Read the file. Count entries (`grep -c '^## '`) and size (`wc -l`, `wc -c`). Print the measurement and whether it is over the recommended size cap (see "When to run").
-- Preserve everything **outside** a parsed entry byte-for-byte: the leading header line (`# Lessons learned across tickets`), blank separator lines, and any malformed block the parser can't classify as an entry (see Error Handling). An entry's **own** lines — its `^## ` header plus any continuation/paragraph lines that run under it up to the next `^## ` or EOF — are the sweep's working set and **may** be reshaped in the approved rewrite. This is deliberately narrower than build's append-time "preserve every non-`^## ` line" rule: build never disturbs a neighbor, whereas this sweep restructures whole entries, so a multi-line legacy entry's continuation lines are in scope — reshaping them is exactly the migration path.
+- Preserve everything **outside** a parsed entry byte-for-byte: the leading header line (`# Lessons learned across tickets`), blank separator lines, and any malformed block the parser can't classify as an entry (see Error Handling). An entry's **own** lines — its `^## ` header plus any continuation/paragraph lines that run under it up to the next `^## ` or EOF — are the sweep's working set and **may** be reshaped in the approved rewrite. This is deliberately narrower than the contract's append-time preserve rule ([`lessons-log.md`](../flow/references/lessons-log.md) §4): an appender never disturbs a neighbor line, whereas this sweep restructures whole entries, so a multi-line legacy entry's continuation lines are in scope — reshaping them is exactly the migration path.
 
 ### 2. Parse into entries, then cluster by subject
 
 - Split the file into entries at each `^## ` line (an entry runs until the next `^## ` or EOF, so a multi-line/paragraph entry stays whole).
-- For each entry, identify its **subject** — the single concrete path, tool, command, setting, or area the lesson is about (the same notion build's supersession check keys on). A well-formed atomic entry already names one; a dense legacy entry may name several.
+- For each entry, identify its **subject** — the single concrete path, tool, command, setting, or area the lesson is about (the same subject notion the contract's supersession check keys on — [`lessons-log.md`](../flow/references/lessons-log.md) §4). A well-formed atomic entry already names one; a dense legacy entry may name several.
 - **Migration reshape (bloated-file path):** an entry that carries **multiple distinct subjects** in one dense paragraph is split into **one atomic line per subject**, each re-keyed to the shared subject and carrying the entry's ticket ID(s) and verdict. Splitting is conservative — it re-slices existing text, it does not re-summarize or invent; keep the sharpest existing phrasing for each subject verbatim.
 - **Legacy date policy:** entries written before the dated format carry **no date** — never invent one. Resolve a date deterministically: if the file is **git-tracked**, recover the date of the commit that introduced the entry (`git log --diff-filter=A -1 --format=%ad --date=short -S'<entry ID>' -- <file>`) and stamp it; if that yields nothing, or the file is **untracked/ignored**, write the split lines in an explicit **undated** form (`## <id> (<verdict>): …` — verdict but no date field) rather than a fabricated date. A newly recovered or already-present date always uses the dated form (`## <id> (<verdict>, <YYYY-MM-DD>): …`); the undated form is a legacy-only fallback that the next dated capture on that subject supersedes.
 - Cluster all resulting atomic lines by subject so same-subject lines sit together.
@@ -69,7 +69,7 @@ If `<file>` does not exist, report "No `_lessons.md` to consolidate at `<path>`.
 
 For each subject cluster:
 
-- **Merge** same-subject lines into one: cite all contributing IDs in ascending order (`## FP-9, FP-28 (pass, <YYYY-MM-DD>): …`; keep per-ID verdicts when they differ), stamp the **newest** contributing date, and on a genuine same-subject conflict apply **prefer-newest** (the newer information wins; the stale phrasing is dropped). Keep the single **sharpest existing phrasing** — never a lossy re-summary, never a hallucinated rewrite. If two lines under one subject carry **distinct, still-true facts**, keep both as separate atomic lines rather than fusing them into a vaguer one.
+- **Merge** same-subject lines into one, in the contract's merged-entry form with **prefer-newest** on a genuine same-subject conflict ([`lessons-log.md`](../flow/references/lessons-log.md) §2, §4–§5), stamping the **newest** contributing date. Keep the single **sharpest existing phrasing** — never a lossy re-summary, never a hallucinated rewrite. If two lines under one subject carry **distinct, still-true facts**, keep both as separate atomic lines rather than fusing them into a vaguer one.
 - **Ordering undated legacy lines (prefer-newest tie-break):** treat an undated line (a legacy entry whose date could not be recovered per the Legacy date policy) as **older** than any dated line under the same subject, so a dated line always wins prefer-newest against it. If every contributing line under a subject is undated, keep the undated form and use **file order** as the deterministic tie-break — the earliest line is the merge base and later lines fold in — never fabricate a date to force an ordering.
 - **Retire** a line only when it is **clearly stale or fully superseded** — its subject no longer exists, or a newer same-subject line completely covers it. Retirement is a proposal shown in the diff with a one-line reason, never silent.
 - **Leave untouched** any entry that is already atomic, single-subject, and not duplicated — a no-op line stays byte-for-byte.

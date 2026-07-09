@@ -123,7 +123,7 @@ DISMISSed and ANSWERed threads make no code change.
 
 ### 6. Post signed replies
 
-Post one reply per thread, per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §9. In interactive mode this is a **second, separate gate** (AC8): the Step 4 go-signal authorized *applying the fixes* only — after fixing, present the drafted replies (one per thread, with its verdict and text) and post **only after** the user approves them. The user may edit a reply or hold one back before posting. In `--auto`, post autonomously with no gate.
+Post one reply per thread, per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §9. In interactive mode this is a **second, separate gate**: the Step 4 go-signal authorized *applying the fixes* only — after fixing, present the drafted replies (one per thread, with its verdict and text) and post **only after** the user approves them. The user may edit a reply or hold one back before posting. In `--auto`, post autonomously with no gate.
 
 Each reply carries the §1 footer `_— 🛠️ addressed (automated)_` and the §9 hidden marker `<!-- fp-address agent=<codex|claude> head=$HEAD_SHA -->` (detect `agent` per §2: `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`). Every **top-level** reply additionally carries the §9 `re=<review|comment>:<id>[#F<k>]` source key in its marker — the machine-readable pairing to the thread it answers; threaded inline replies omit it (the thread is the pairing). Reply content by verdict:
 
