@@ -286,7 +286,7 @@ Choose one based on loop state:
 #### 4b. Write summary and lesson artifacts
 
 **Always write `06-summary.md`** regardless of verdict. Content varies:
-- `pass`: completed work summary, files changed, validation passed, test results.
+- `pass`: completed work summary, files changed, validation passed, reviewer findings count, test results.
 - `partial`: references the `## Failed Criteria` section in `05-tests.md`, lists deferred conflicts from `04-review.md`, lists what was completed.
 - `stuck`: describes loop state at escalation — the detected stuck pattern (or "turn cap exceeded"), the last 3-5 iterations' actions, a suggested next-move for the user.
 
@@ -320,6 +320,8 @@ For **`pass` with `--pr`**: skip the interactive commit prompt — `--pr` is the
 
 [Summary from 06-summary.md]
 
+All artifacts: <ticket-folder>/
+
 Opening a pull request per --pr (see references/pr-creation.md): branch from base → commit → push → gh pr create → finalize into review/.
 ```
 
@@ -329,6 +331,8 @@ For **`partial`** or **`stuck`**:
 ## Build Complete — verdict: <partial|stuck>
 
 [Summary; for stuck, the detected pattern]
+
+All artifacts: <ticket-folder>/
 
 Options:
   - accept-as-partial — finalize as done/ with status: partial-completion
@@ -397,21 +401,7 @@ The build skill writes these artifacts to `<ticket-folder>/` over the course of 
 
 Failed test criteria live inside `05-tests.md` under `## Failed Criteria`; turn count and stuck patterns are conversational state, not file state.
 
-## Presentation
-
-Present to the user at exit:
-
-```
-## Build Complete — verdict: <pass|partial|stuck>
-
-[Brief summary: files changed, validation state, reviewer findings count, test results, stuck-pattern detail if applicable]
-
-[For pass: "Ready to move to done/ on completion gate."]
-[For partial: "Some criteria un-fixable in this run. Options: accept-as-partial / continue-with-hint / abort."]
-[For stuck: "Loop escalated. Options: continue-with-hint / abort / accept-as-partial."]
-
-Artifacts saved to: <ticket-folder>/03-implementation.md, 04-review.md, 05-tests.md, 06-summary.md
-```
+The user-facing exit presentation is the verdict-gate blocks in Process step 4c.
 
 ## Error Handling
 
