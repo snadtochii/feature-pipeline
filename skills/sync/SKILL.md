@@ -1,6 +1,6 @@
 ---
 name: sync
-description: "Reconcile in-review tickets with their GitHub PR state — scan every ticket whose status is in-review (by frontmatter, not just the review/ folder) and, for each, promote it to done/ if its PR merged, report it if the PR is still open, or flag it if the PR was closed unmerged. Runs manually. Use when 'sync', 'sync tickets', 'reconcile review', 'check merged PRs', 'promote merged tickets', 'finalize merged reviews', 'run sync'. NOT for building a ticket (use /feature:build), NOT for opening a PR (that's build's --pr flag), NOT a pipeline stage."
+description: "Reconcile in-review tickets with their GitHub PR state, promoting tickets with merged PRs to done and flagging PRs closed unmerged."
 disable-model-invocation: true
 allowed-tools:
   - Read

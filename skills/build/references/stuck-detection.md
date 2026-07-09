@@ -16,7 +16,7 @@ The hard ceiling is **25 turns per build invocation**. On hitting `Turn 26`, exi
 
 ## Semantic patterns
 
-The hybrid stop rule (per the redesign's Q4-b decision) treats these patterns as primary and the 25-turn ceiling as belt-and-suspenders. Either trigger fires `verdict: stuck`. Watch the transcript for:
+The hybrid stop rule treats these patterns as primary and the 25-turn ceiling as belt-and-suspenders. Either trigger fires `verdict: stuck`. Watch the transcript for:
 
 ### 1. Action ↔ observation repetition
 Same action issued twice in a row, returning the same observation, without intervening progress. Example: re-running the same failing lint command three times because the fix didn't take. The signal is *no new information* between iterations.

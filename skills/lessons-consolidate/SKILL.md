@@ -1,6 +1,6 @@
 ---
 name: lessons-consolidate
-description: "Consolidate a project's claudedocs/tickets/_lessons.md to the atomic one-subject-per-line format — cluster same-subject entries, propose conservative merges and stale-entry retirements as a human-approved diff, then rewrite only after approval with git as the anchor. Standalone and user-invoked, not a pipeline stage; also serves as the one-time migration for a bloated legacy log."
+description: "Consolidate a project's claudedocs/tickets/_lessons.md to the atomic one-subject-per-line format via a human-approved diff."
 disable-model-invocation: true
 allowed-tools:
   - Read
