@@ -300,7 +300,7 @@ Stage skills handle their own ticket resolution and blocker validation; flow is 
 
 Resumption is auto-detected — see "Resumption auto-detection" above, including how the user signals "start fresh".
 
-When build exits `partial` or `stuck`, the verdict gate (owned by build) presents `accept-as-partial | continue-with-hint | abort`. The `continue-with-hint` path continues the build loop in-process with the user's hint added to context — there is no flow-level re-invocation.
+When build exits `partial` or `stuck`, the verdict gate presents `accept-as-partial | continue-with-hint | abort`. The `continue-with-hint` path continues the build loop in-process with the user's hint added to context — there is no flow-level re-invocation.
 
 ## Error Handling
 
