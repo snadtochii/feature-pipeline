@@ -228,7 +228,7 @@ Not every stage runs as a subagent. The rule:
 
 **Rule:** run in main context only when you need *interactivity* or *plan mode*. Otherwise prefer a subagent — it keeps the main context clean.
 
-The `build` skill folds the implementer mindset (focus areas, boundaries) directly into the SKILL.md body rather than delegating to a subagent — this is intentional, since the implement checkpoint needs main-context interactivity for iterative coding + validation. See `skills/build/SKILL.md` for the canonical implementer mindset.
+The `build` skill folds the implementer mindset directly into the SKILL.md body rather than delegating to a subagent — this is intentional, since the implement checkpoint needs main-context interactivity for iterative coding + validation. See `skills/build/SKILL.md` for the canonical implementer mindset.
 
 ---
 
