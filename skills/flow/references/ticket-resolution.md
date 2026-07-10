@@ -106,11 +106,11 @@ After reading frontmatter, check the `kind` field. Behavior depends on the consu
   <list the IDs from the epic's `children:` frontmatter field>
   ```
 
-- **`flow`** — branches to **epic-mode** when `kind: epic` is present. The epic walker iterates over `children` in `blocked_by` topological order and recursively invokes `Skill flow <CHILD-ID>` per child. See `flow/SKILL.md` EPIC-MODE EXECUTION section. Flow does NOT refuse on epics.
+- **`flow`** — branches to **epic-mode** when `kind: epic` is present. The epic walker iterates over `children` in `blocked_by` topological order and recursively invokes `Skill flow <CHILD-ID>` per child. See [`epic-walk.md`](epic-walk.md). Flow does NOT refuse on epics.
 
 - If `kind` is absent or has any other value, the ticket is pipelineable for all consumers. Proceed normally.
 
-This is the centralized epic-handling rule. Stage skills inherit the refusal behavior via this reference; flow's epic-mode dispatch lives in its own SKILL.md.
+This is the centralized epic-handling rule. Stage skills inherit the refusal behavior via this reference; flow's epic-mode branch point lives in its SKILL.md and the walker in [`epic-walk.md`](epic-walk.md).
 
 ## Step 5 — Locate exploration (when the stage needs it)
 
