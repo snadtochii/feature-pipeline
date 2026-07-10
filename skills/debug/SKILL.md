@@ -23,7 +23,7 @@ argument-hint: "[bug description | failing-test command | stack trace] [ticket-i
 
 Reactive, runtime-evidence root-cause debugger. The deliverable is a verified, minimal fix — runtime evidence over reading code.
 
-Use when a bug resists static reasoning: race conditions, wrong runtime values, intermittent or environment-specific failures, a test that fails for reasons the code doesn't reveal. This skill instruments the suspect code with temporary logging, has the bug reproduced for real, reads what actually happened, fixes the root cause behind a confirmation gate, and strips every probe so you ship a clean diff. It is a standalone skill — a peer of `/feature:discover`, **not** a pipeline stage. If you want a new feature, use `/feature:discover`. If you want a static read of a diff, that's build's review checkpoint.
+Use when a bug resists static reasoning: race conditions, wrong runtime values, intermittent or environment-specific failures, a test that fails for reasons the code doesn't reveal. This skill instruments the suspect code with temporary logging, has the bug reproduced for real, reads what actually happened, fixes the root cause behind a confirmation gate, and strips every probe so you ship a clean diff. It is a standalone skill that runs in the main conversation — **not** a pipeline stage. If you want a new feature, use `/feature:discover`. If you want a static read of a diff, that's build's review checkpoint.
 
 ## Arguments
 
@@ -128,12 +128,7 @@ Output is keyed to **whether there's a transferable lesson**, not to the exit ty
 
 ## Important Rules
 
-- **Reproduction before instrumentation.** The one hard gate. No repro path → ask, don't guess.
-- **Evidence per round.** Each round eliminates or confirms a hypothesis from the sink, never from a hunch. No thrashing — 5 rounds max, stop early when a round teaches nothing.
-- **The fix is gated; instrumentation is not.** Inject probes freely (they're temporary and cleaned up); never touch non-instrumentation code without explicit approval.
 - **Never log secrets.** Instrumentation must not capture credentials, tokens, keys, passwords, or PII into the sink. When a suspect value could be sensitive, log a redacted form — its length, type, presence boolean, or a hash — never the raw value.
-- **Strip is the single source of cleanup.** The validator never rolls edits back, so the tree is clean only when you've stripped to `grep`-zero and validators pass. The fix never carries the marker.
-- **Additive-optional tooling.** Browser capture degrades to human-in-the-loop when the MCP servers aren't present. Never hard-depend on them.
 - **Not a pipeline stage.** No folder/status transitions, no flow wiring. The optional ticket arg only routes the report + lesson; it doesn't move the ticket.
 
 ## Examples
