@@ -167,7 +167,7 @@ Use the code explorer results to ask informed questions:
 - **Escalate to depth-first grilling on high-coupling branches**: if a single decision has answers that cascade into multiple dependent sub-decisions (e.g., "schema-first vs code-first" each implying different storage / migration / API choices), drop the batched cadence for that branch. Switch to one question at a time, walk the decision tree depth-first, and resolve each fork before backing out. Keep providing your recommended default at every node. Return to themed batching once the branch is resolved.
 - **Stop when coverage is good enough** to write a clear spec — driven by coverage, not by a fixed count. Simple features may need a single batch; high-coupling or ambiguous ones may take many, especially with depth-first detours.
 - **Match depth to complexity** — don't over-question simple features, and don't under-discover coupled ones (that is what the depth-first escalation above is for).
-- **Respect "enough"**: if the developer says "that's enough" or "let's move on", proceed to scope assessment with the best understanding you have and create the best ticket(s) you can. (In exploration mode, leaving without a ticket is instead the exploration-mode carve-out — see `references/exploration-mode.md`.)
+- **Respect "enough"**: if the developer says "that's enough" or "let's move on", proceed to scope assessment with the best understanding you have and create the best ticket(s) you can. (In exploration mode, leaving without a ticket is instead the exploration-mode carve-out — see [`references/exploration-mode.md`](references/exploration-mode.md).)
 
 ---
 
@@ -312,6 +312,6 @@ Question cadence, defaults, synthesis, and depth rules live in Phase 3 ("Recomme
 4. **Exploration lives once per discovery session** — at the epic-folder level for multi-sibling, at the ticket-folder level for single. No per-child duplication.
 5. **Epics are non-pipelineable** — `kind: epic` in PRD frontmatter; `plan`/`build` will refuse to run against an epic ID. Children are the pipelineable items.
 6. **No `breakdown.md` artifact** — decomposition rationale and AC coverage live as sections inside `prd.md`, not in a separate file
-7. **Create the artifact(s), don't just discuss** — always end with concrete tickets on disk, with one carve-out: exploration mode may end without a ticket when the developer chooses to leave (see `references/exploration-mode.md`)
+7. **Create the artifact(s), don't just discuss** — always end with concrete tickets on disk, with one carve-out: exploration mode may end without a ticket when the developer chooses to leave (see [`references/exploration-mode.md`](references/exploration-mode.md))
 8. **No implementation** — this skill discovers and documents, it does not code
 9. **`title` is descriptive, never the bare `<ID>`** — every template (`task.md`, `prd.md`) already declares `title`; when you fill the template, give it a human-readable title, not the ticket ID. This is a value-quality rule, not a schema-list to maintain — boards, flow's epic-walker progress, and PR-title construction all render the title, and a bare ID reads as a missing one.
