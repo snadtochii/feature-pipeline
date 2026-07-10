@@ -16,7 +16,7 @@ argument-hint: "[pr-number-or-url] [--auto]"
 
 Fetch the **inline + summary** review comments on a pull request — both the findings a `feature:review` pass posted **and human comments** (the author or a teammate commenting on the PR directly) — validate each against the real code (**ACCEPT** if it holds, **DISMISS** if it does not, **ANSWER** for a human question that needs a response but no code change — each with a one-line reason), apply code fixes for the accepted ones, and post one **signed reply** per thread. The reply for an accepted finding notes the fix; the reply for a dismissed finding explains why it does not apply; the reply for an answered question responds to it. Every reply carries the visible role footer and a hidden head-SHA marker so the loop is self-identifying and idempotent.
 
-**This skill runs in the main conversation, standalone** — a peer of `/feature:review`, `/feature:sync`, `/feature:ship`, and `/feature:debug`, **not a pipeline stage**. It spawns **no subagents** (no `Task`) and uses **no MCP**, so it behaves identically on Claude Code and Codex, including headless/scheduled `--auto` runs. It is **PR-coupled**: it operates on one PR in the repo it is invoked in and never resolves a ticket.
+**This skill runs in the main conversation, standalone** — **not a pipeline stage**. It spawns **no subagents** (no `Task`) and uses **no MCP**, so it behaves identically on Claude Code and Codex, including headless/scheduled `--auto` runs. It is **PR-coupled**: it operates on one PR in the repo it is invoked in and never resolves a ticket.
 
 It is the **mutating** sibling of `feature:review`: it edits repository code to apply accepted fixes (those edits trigger the PostToolUse validation hook, with a body-level lint/typecheck fallback like build), but it **never approves, merges, or closes** the PR. The comment/footer/marker/reply rules are the shared contract in [`../review/references/pr-comments.md`](../review/references/pr-comments.md) — this skill **consumes** that file (the §1 footer, §2/§9 markers, §9 reply patterns) rather than restating it, so review comments and address replies share one format.
 
@@ -39,11 +39,7 @@ The flag may appear in any position; `$1` is the first non-flag argument.
 
 ## Preconditions (fail-closed)
 
-Address-review reads and posts PR state via `gh`, and reads the diff context via `git`. Before any work, check — in order; on the first failure, print one line ("couldn't address review (gh unavailable: `<reason>`)"), change nothing, and exit cleanly (this is graceful degradation, not an error):
-
-1. `command -v gh` — gh installed?
-2. `gh auth status` exits 0 — authenticated?
-3. `git remote get-url origin` matches `github.com` (both `git@github.com:` and `https://github.com/` forms) — GitHub origin?
+Address-review reads and posts PR state via `gh`, and reads the diff context via `git`. Before any work, run the shared fail-closed check sequence in [`../review/references/gh-preconditions.md`](../review/references/gh-preconditions.md); this skill's skip message is "couldn't address review (gh unavailable: `<reason>`)".
 
 ## Process
 
@@ -164,27 +160,9 @@ If `gh`/auth/origin was unavailable, the preconditions already printed the one-l
 
 ## Boundaries
 
-**Will:**
-- Resolve one PR (current branch by default, or `$1` as a number/URL), fetch its inline + summary review comments **and human comments**, and skip threads already addressed at the current head SHA (unless a human follow-up re-opened them).
-- Validate each thread ACCEPT/DISMISS/ANSWER with a one-line reason against the real code.
-- Edit repository code to apply accepted fixes (triggering the PostToolUse validation hook + a body-level lint/typecheck fallback), reporting rather than proceeding when a fix can't land cleanly.
-- Post one signed reply per thread (accepted-fixed, accepted-fix-failed, dismissed, or answered), each carrying the visible role footer and hidden `fp-address` head-SHA marker, anchored to the original comment.
-- Remove the `auto-reviewed` label after posting replies (§8 — marks the review round as answered; the next review pass re-adds it).
-- Run interactively by default (triage → go-signal → fix → reply on approval) or autonomously under `--auto`.
-- Degrade fail-closed when `gh`/auth/origin is unavailable — change nothing, print one skip line, exit cleanly.
-
 **Will Not:**
 - Approve (`gh pr review --approve`), request changes, merge (`gh pr merge`), or close (`gh pr close`) the PR — it only edits code and posts replies.
-- Produce a review or **add** the `auto-reviewed` label — that's `/feature:review`; this skill only removes it.
-- Re-triage or reply to its own prior `fp-address` replies, reply to bot comments, or double-reply to a thread already addressed at the current head with no newer human follow-up.
-- Spawn subagents (no `Task`) or use MCP — inline-only for cross-platform/headless parity.
-- Restate the comment/footer/marker/reply contract — it consumes [`../review/references/pr-comments.md`](../review/references/pr-comments.md).
 
 ## Error Handling
 
-- `gh` missing / unauthenticated / non-GitHub origin → "couldn't address review (gh unavailable)", no changes, clean exit.
-- No `$1` and no PR for the current branch, or `$1` not an open PR, or the PR is closed/merged → report and exit cleanly (nothing to address).
-- No un-addressed threads (automated or human) at the current head → report "No outstanding review comments to address" and exit cleanly, leaving the label untouched.
-- `gh api`/`gh pr comment` errors posting one reply → record `? Couldn't post (<reason>)` for that thread and continue with the rest (one failed reply never aborts the pass).
-- A fix that won't pass validation → mark the finding `fix-failed`, keep the tree green, post the accepted-fix-failed reply, and surface it under `⚠ Accepted, fix failed` — never post a "fixed" reply for a fix that didn't land.
 - **Security-heuristic flag** on posting under the user's own `gh` identity → expected when the user authorized the address hop (running `/feature:address-review` is that authorization); not an error (mirrors [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §5).
