@@ -87,7 +87,7 @@ Canonical sources in `skills/flow/SKILL.md`:
 - **Artifact Convention** — numbering rules, layout illustrations (solo + nested epic)
 - **Resumption auto-detection** — routing table for on-disk artifacts; users delete artifacts to start fresh
 
-Centralized cross-stage rules live in `skills/flow/references/`:
+Centralized cross-stage rules live in `skills/flow/references/` (the folder also holds flow-private references like `epic-walk.md`; only the cross-stage ones are listed here):
 
 `ticket-resolution.md`:
 - **Step 1** — ticket-folder resolution (path or ID, including nested children under `tasks/`)
