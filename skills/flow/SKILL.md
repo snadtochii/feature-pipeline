@@ -14,14 +14,14 @@ argument-hint: "[ticket-id|epic-id] [--pr] [--no-ui-testing]"
 
 Thin sequencer with two modes:
 
-- **Single-ticket mode** (default): runs `plan → build` on the resolved ticket. Each stage owns its own state transitions (folder moves, frontmatter status) per [`references/state-transitions.md`](references/state-transitions.md); build owns the verdict gate end-to-end.
-- **Epic mode** (when the resolved folder has `kind: epic` on `prd.md`): walks children in `blocked_by` topological order, recursively invoking `Skill flow` per child. Per-child state transitions and the Epic-completion-predicate-gated epic-subtree move fire inside each child's build verdict gate.
+- **Single-ticket mode** (default): runs `plan → build` on the resolved ticket.
+- **Epic mode** (when the resolved folder has `kind: epic` on `prd.md`): walks children in `blocked_by` topological order, recursively invoking `Skill flow` per child.
 
-Flow's job in both modes is to resolve, validate, decide what to invoke, and invoke. It does not touch folder state, frontmatter, or artifact files directly.
+Flow's job in both modes is to resolve, validate, decide what to invoke, and invoke — the full ownership split (what flow owns vs. what the stages own) is the Responsibilities section below.
 
 Each stage is a separate skill that can also be invoked directly:
-- `/feature:plan` — pre-plan synthesis (codebase exploration + open-questions surfacing) followed by plan design; writes `02-plan.md`. Performs the start-of-pipeline state transition itself. Flow invokes it non-interactively — see STAGE EXECUTION's `--auto` wiring.
-- `/feature:build` — implement → review → test as in-loop checkpoints; exits with verdict `pass | partial | stuck`; writes `03-implementation.md`, `04-review.md`, `05-tests.md`, `06-summary.md`. Owns the verdict gate and the end-of-pipeline transitions.
+- `/feature:plan` — pre-plan synthesis (codebase exploration + open-questions surfacing) followed by plan design; writes `02-plan.md`. Flow invokes it non-interactively — see STAGE EXECUTION's `--auto` wiring.
+- `/feature:build` — implement → review → test as in-loop checkpoints; exits with verdict `pass | partial | stuck`; writes `03-implementation.md`, `04-review.md`, `05-tests.md`, `06-summary.md`.
 
 ## Arguments
 
@@ -131,9 +131,7 @@ Apply the "Resumption auto-detection" routing table (above) to decide which stag
 
 `--pr` and `--no-ui-testing`, if passed, are propagated to `Skill build` **only** (plan has neither a PR nor a UI-test concept).
 
-Plan and build perform their own state transitions (start-of-pipeline at start, end-of-pipeline at build's verdict gate) per [`references/state-transitions.md`](references/state-transitions.md). Flow does not touch folder state or frontmatter `status` directly.
-
-After build returns, flow's work is done — build owns the verdict gate and has already applied the final transition. Flow exits cleanly.
+After build returns, flow's work is done — the verdict gate and every state transition have already fired inside the stages, per the Responsibilities split. Flow exits cleanly.
 
 ---
 
@@ -302,7 +300,7 @@ Stage skills handle their own ticket resolution and blocker validation; flow is 
 
 Resumption is auto-detected — see "Resumption auto-detection" above, including how the user signals "start fresh".
 
-When build exits `partial` or `stuck`, the verdict gate (owned by build) presents `accept-as-partial | continue-with-hint | abort`. The `continue-with-hint` path continues the build loop in-process with the user's hint added to context — there is no flow-level re-invocation.
+When build exits `partial` or `stuck`, the verdict gate presents `accept-as-partial | continue-with-hint | abort`. The `continue-with-hint` path continues the build loop in-process with the user's hint added to context — there is no flow-level re-invocation.
 
 ## Error Handling
 
