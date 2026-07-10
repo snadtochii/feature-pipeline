@@ -48,7 +48,7 @@ feature-pipeline/
 │   ├── address-review/      # Standalone — validate + address a PR's review comments, post signed replies (not a pipeline stage)
 │   ├── ship/                # Standalone — autonomous build→review loop over a ticket or chain, ending at an open PR (not a pipeline stage)
 │   ├── lessons-consolidate/ # Standalone — sweep _lessons.md to the atomic format via a human-approved diff (not a pipeline stage)
-│   ├── guide/               # Standalone — index of the user-invoked standalone skills and when to reach for each (not a pipeline stage)
+│   ├── guide/               # Standalone — index of the standalone skills and when to reach for each (not a pipeline stage)
 │   ├── plan/                # Stage 1 (pre-plan synthesis + plan design)
 │   └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
 ├── README.md                # End-user docs
