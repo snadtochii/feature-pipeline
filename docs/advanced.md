@@ -12,6 +12,7 @@ Deeper material that doesn't belong in the [README](../README.md) front door: th
   - [Ticket prefix](#ticket-prefix)
   - [Validation hook](#validation-hook)
   - [App test config](#app-test-config)
+  - [Worktree setup](#worktree-setup)
   - [MCP servers](#mcp-servers)
 
 ## Auto-PR (`--pr`) and the review → merge flow
@@ -117,6 +118,50 @@ test:
 Every key is optional; with no `test:` block the test checkpoint discovers the URL and handles auth inside the tester. **No secrets in `config.yaml`** — it is committed, so `auth.storage_state` is a path to a gitignored session file, never an inline credential.
 
 `auth.storage_state` is loaded by the `ui-tester` via the Playwright MCP `browser_set_storage_state` tool (it restores the saved cookies/localStorage before navigating); on a Playwright MCP version that doesn't expose that tool, the tester falls back to `attach_tab`. The file must sit inside the project/workspace root (Playwright MCP restricts file access to the workspace root unless launched with `--allow-unrestricted-file-access`). Produce it once with your normal Playwright auth setup, or let the tester save it after a one-time login (it confirms the path is gitignored before saving, since the file holds live session cookies). When the app is unreachable and no `start` is declared (or it times out), the checkpoint records a non-blocking skip and proceeds.
+
+### Worktree setup
+
+An optional `worktree:` block declares how to make a fresh `git worktree` buildable. A new worktree starts without gitignored files (`.env`, auth storage-state, local config) and without installed dependencies; this contract fixes both, declared once per project. Like `test:`, the block is read by the model, never by `hooks/validate.sh` (the hook's parsers extract only the `validate:` block).
+
+```yaml
+prefix: FP
+worktree:
+  setup: "pnpm install"   # run once inside a fresh worktree, after include-files are copied
+```
+
+- `worktree.setup` — string, a shell command run once inside a fresh worktree, after the `.worktreeinclude`-matched files are copied. Missing block (or missing key) → no setup step: a fresh worktree needs manual setup, exactly as without this contract.
+
+The block pairs with a `.worktreeinclude` file:
+
+#### The `.worktreeinclude` file
+
+A file at the consuming repo's root, **committed** to the repo, containing gitignore-style glob patterns, one per line. It lists the gitignored files a fresh worktree needs. The contract for whoever creates a worktree — you by hand, a script, or a skill — is **copy, then setup**:
+
+1. `git worktree add <path> <branch>`
+2. Copy every file matching a `.worktreeinclude` pattern from the main checkout into the fresh worktree, preserving relative paths.
+3. Run `worktree.setup` inside the worktree.
+
+The split is deliberate: the copy is generic mechanics owned by the worktree creator; `setup` owns the project-specific steps (dependency install, codegen).
+
+Worked example — an app with a `.env`, a Playwright saved session, and pnpm:
+
+```
+# .worktreeinclude — at the repo root, committed
+.env
+.auth/admin.json
+```
+
+```yaml
+# claudedocs/tickets/config.yaml
+worktree:
+  setup: "pnpm install"
+```
+
+A fresh worktree then receives `.env` and `.auth/admin.json` (the Playwright storage-state file that `test.auth.storage_state` points at) copied from the main checkout — both remain gitignored in the worktree — and `pnpm install` produces its `node_modules`. The worktree builds, validates, and UI-tests like the main checkout.
+
+**Trust and secrets.** `worktree.setup` is the user's own declared command — the same trust tier as `validate.lint` and `test.start` — and follows the same execution discipline as `test.start` (see `skills/build/references/test-preflight.md`): the command is written verbatim into a script file (or a nonce-delimited single-quoted heredoc), never substituted into a shell command line, and ticket-derived text never goes into it. **No secrets in `config.yaml` or `.worktreeinclude`** — both are committed; patterns reference paths, never secret values, and the copied files stay gitignored in the worktree too.
+
+**Single-repo assumption.** The contract is per-repository: `.worktreeinclude` lives at the git repo's root, and `worktree.setup` assumes `config.yaml` sits inside the repo it describes. Multi-repo workspaces — where `config.yaml` is workspace-level and tickets carry `repos:` frontmatter — are not covered by this contract.
 
 ### MCP servers
 
