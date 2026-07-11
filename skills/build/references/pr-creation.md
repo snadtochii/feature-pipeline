@@ -11,11 +11,7 @@ Build has no `Skill` tool, so the branch/commit conventions are inlined here rat
 
 ## §0 Preconditions (short-circuit to commit-only)
 
-Run before any branch/push work, in order; first failure → degrade (do NOT proceed to push):
-
-1. `command -v gh` — gh installed?
-2. `gh auth status` exits 0 — authenticated?
-3. `git remote get-url origin` matches `github.com` (both `git@github.com:` and `https://github.com/` forms) — GitHub origin?
+Run the shared check sequence from [`../../review/references/gh-preconditions.md`](../../review/references/gh-preconditions.md) before any branch/push work, in order; first failure → degrade (do NOT proceed to push). Only the sequence is shared — that reference's fail-closed contract (change nothing, exit cleanly) does **not** apply here; §0's consequence is its own:
 
 On any failure: still create the branch + local commit (§1–§3, skipping push/PR), print one specific line (e.g. `--pr: gh not installed — committed to <branch>, finalized to done/.`), finalize via Transition 2 (`done/`), and record the reason in `06-summary.md`. Never abort the verdict gate.
 

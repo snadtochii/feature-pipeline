@@ -10,7 +10,7 @@ allowed-tools:
   - Bash
   - Task
   - TodoWrite
-argument-hint: "[ticket-id]"
+argument-hint: "[ticket-id] [--pr] [--no-ui-testing] [--hint text]"
 ---
 
 # Build Stage
@@ -51,7 +51,7 @@ Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/referenc
 
 Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6. If any entry in `blocked_by` is not yet done (frontmatter `status: done` or `cancelled`, or folder under `done/`), abort with the message in Step 6 listing the unblocked blockers. If a `blocked_by` entry is wrong, edit this ticket's `blocked_by` frontmatter.
 
-When `blocked_by` is non-empty, build composes a **blocker context block** and prepends it to the review-checkpoint reviewer prompts (see Step 2). The block uses each blocker's verbatim `01-spec.md` + `06-summary.md`. **Fallback when a blocker's `06-summary.md` is missing** (e.g. a `cancelled` blocker): use that blocker's `02-plan.md`; if `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker.
+When `blocked_by` is non-empty, build composes a **blocker context block** and prepends it to the review-checkpoint reviewer prompts. The block's artifact sources and missing-artifact fallback chain are defined where the composition happens — Process step 2b.
 
 ## State setup
 
@@ -65,35 +65,7 @@ Before the implement checkpoint, perform the start-of-pipeline transition per [`
 
 ## Behavioral Mindset
 
-Ship working code in one continuous loop. Implement plan steps incrementally, edit small, verify often. When validation fails, fix in-context — never queue failures for later. When reviewers find issues, apply the high-confidence fixes in the same conversation; don't punt to a separate stage. When tests fail un-fixably, exit with `verdict: partial` — don't fake completion. The loop is the work; rewinding to earlier stages would discard the context the loop was just operating in.
-
-Watch for stuck patterns (action↔observation repetition, agent monologue, ping-pong, repeated context errors, plus the outer-loop arbiter for logical oscillation — see `references/stuck-detection.md`). Emit `Turn N/25` at every iteration boundary so the count is recoverable from the transcript. On a stuck pattern or `Turn 26`, exit with `verdict: stuck` — surface the human gate, don't keep spinning.
-
-## Focus Areas
-
-- **Plan Execution**: Follow `02-plan.md` step-by-step, respecting task order and file boundaries; update `03-implementation.md` as a live checkpoint
-- **Continuous Validation**: Run lint/typecheck after every meaningful change (skill-body fallback always on, regardless of whether a `PostToolUse` hook is also configured — see `references/validation-hook.md`)
-- **In-Context Fixes**: Apply review findings (≥ 80 confidence) and test failures inside the same loop; defer only what's genuinely un-fixable in this run
-- **Stuck Awareness**: Self-monitor for stuck patterns and the 25-turn ceiling; exit cleanly with `verdict: stuck` rather than spin
-- **Single Source of Truth**: Compose reviewer prompts at spawn time with the shared confidence scale (`references/confidence-scale.md`) and any blocker context — do not delegate the rubric to agent bodies
-- **Verdict Discipline**: Exit with one of `pass | partial | stuck`; always write `06-summary.md` regardless of verdict so downstream readers (and reopened-ticket regressions) have a uniform contract
-
-## Boundaries
-
-**Will:**
-- Run implement, review, and test as in-loop checkpoints in one main-context invocation
-- Spawn the 4 reviewer subagents in parallel (single message, four `Task` calls); merge findings into `04-review.md`
-- Spawn the `ui-tester` subagent at the test checkpoint when the plan has UI signals (unless `--no-ui-testing` forces the browser-portion skip); otherwise write a skip artifact to `05-tests.md`
-- Apply review and test fixes in-context, with a documented tiebreak when fixes are mutually exclusive
-- Update `03-implementation.md`, `04-review.md`, `05-tests.md`, `06-summary.md` per the artifact contract
-- Emit `Turn N/25` lines and self-detect stuck patterns
-
-**Will Not:**
-- Re-invoke `/feature:plan` or any other skill mid-loop (build is forward-only)
-- Persist iteration state to disk — turn count and stuck patterns are conversational state, observed in-transcript
-- Inline the confidence rubric into reviewer agent bodies (the rubric is build-injected at spawn time, agent bodies must stay rubric-free)
-- Skip validation steps; leave failing tests; add features beyond what `02-plan.md` specifies
-- Exit silently on a stuck pattern or turn-cap hit — always write `06-summary.md` describing the loop state
+Ship working code in one continuous loop. Implement plan steps incrementally, edit small, verify often. When validation fails, fix in-context — never queue failures for later. When reviewers find issues, apply the high-confidence fixes in the same conversation; don't punt to a separate stage. When tests fail un-fixably, exit with `verdict: partial` — don't fake completion. Build only what `02-plan.md` specifies — no features beyond it. The loop is forward-only: never re-invoke `/feature:plan` or any other skill mid-loop — rewinding to earlier stages would discard the context the loop was just operating in. Emit `Turn N/25` at every iteration boundary so the count is recoverable from the transcript; on a stuck pattern or the turn cap, exit with `verdict: stuck` — surface the human gate, don't keep spinning.
 
 ---
 
@@ -137,8 +109,6 @@ d. **After all plan steps are implemented**, run final validation across all cha
      ```
    - Proceed directly to the test checkpoint (step 3 of this Process).
 4. Otherwise, proceed to step a below.
-
-The thresholds (`complexity: S`, < 50 lines, < 3 files) are conservative — false-positive risk (a real bug in a 50-line diff) is mitigated because the test checkpoint still runs (or skips per its own logic), and the verdict gate still requires user approval. False-negative risk (real-bug ticket sized M+ but with a 30-line diff) is the more common case and that path runs full review.
 
 a. **Collect the diff.**
 
@@ -191,7 +161,7 @@ d. **Merge findings into `<ticket-folder>/04-review.md`**:
    - **Top-of-file summary** with counts per severity + per reviewer
    - **Reviewer failure handling**: if a reviewer subagent fails, report it inside the merged artifact and continue with results from the other reviewers (graceful partial-merge). All four failing → write a single error entry in `04-review.md` and exit with `verdict: stuck`.
 
-e. **Apply applicable fixes in-context.** The model uses judgment to apply fixes from the merged findings. **Tiebreak when fixes are mutually exclusive**: `security > correctness > architecture > performance`. **Rationale (called out so future readers don't reverse-engineer it)**: security failures have the largest blast radius (real-world exposure); correctness is the AC contract; architecture is internal consistency that can be repaired later; performance is the most local and most easily revisited.
+e. **Apply applicable fixes in-context.** The model uses judgment to apply fixes from the merged findings. **Tiebreak when fixes are mutually exclusive**: `security > correctness > architecture > performance` — security has the largest blast radius, correctness is the AC contract, architecture can be repaired later, performance is the most local and most easily revisited.
 
    Unresolvable conflicts go into `04-review.md` as `status: deferred (conflict)` with both reviewers' findings preserved. Deferred conflicts surface only via downstream `verdict: partial` if they end up causing AC failures.
 
@@ -199,7 +169,7 @@ f. **After fixes are applied**, run validation again (lint/typecheck) and update
 
 ### 3. Test checkpoint
 
-**Flag override — `--no-ui-testing`.** Checked first, before the skip-detection scan. If the build was invoked with `--no-ui-testing` (propagated from flow, or passed directly), skip the browser/ui-tester portion entirely: do **not** run the skip-detection scan (step a) or spawn `ui-tester` (step b). Write the flag-skip variant of the artifact to `05-tests.md` (see step c) and proceed straight to step d. This is independent of plan content — it forces the skip even when the plan has UI signals, so it does not depend on (or touch) the substring scan at all. Non-browser checks (lint/typecheck) are unaffected: they run in the implement checkpoint and still gate the verdict. Browser-level acceptance-criteria verification is deferred to a human at PR review. As with a no-UI skip, `skipped` here is a test-checkpoint label, not a verdict — build can still exit `pass`. The flag also short-circuits the reachability pre-flight below — a forced skip resolves no URL, runs no `curl`, and boots no `test.start` command (the pre-flight only runs where a spawn was actually going to happen).
+**Flag override — `--no-ui-testing`.** Checked first, before the skip-detection scan. If the build was invoked with `--no-ui-testing` (propagated from flow, or passed directly), skip the browser/ui-tester portion entirely: do **not** run the skip-detection scan (step a) or spawn `ui-tester` (step b). Write the flag-skip variant of the artifact to `05-tests.md` (see step c) and proceed straight to step d. This is independent of plan content — it forces the skip even when the plan has UI signals, so it does not depend on (or touch) the substring scan at all. Non-browser checks (lint/typecheck) are unaffected: they run in the implement checkpoint and still gate the verdict. Browser-level acceptance-criteria verification is deferred to a human at PR review. The flag also short-circuits the reachability pre-flight below — a forced skip resolves no URL, runs no `curl`, and boots no `test.start` command (the pre-flight only runs where a spawn was actually going to happen).
 
 a. **Skip-detection scan.** Read `02-plan.md` and search the text (case-insensitive substring match) for any of: `component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial`. Match → run the reachability pre-flight (below) before any spawn. No match → skip (step c).
 
@@ -346,7 +316,7 @@ At build start, before the implement checkpoint, inspect on-disk artifacts and r
 | `03-implementation.md` is partial (some plan steps not yet checked off) | Continue from the next un-implemented plan step. |
 | Nothing relevant exists | Fresh start: implement step 1, Turn 1/25. |
 
-**Turn-counter reset on resume**. Resumed sessions start at `Turn 1/25` — the prior budget is forfeited by design. A resumed session is a fresh attempt, and reusing an old counter would mislead.
+**Turn-counter reset on resume**. Resumed sessions start at `Turn 1/25` — the prior budget is forfeited.
 
 **`--hint` flag**. When present (e.g., `/feature:build BL-1 --hint "the failing test wants the ARIA label inside the button, not on it"`), the hint text becomes part of the resumed (or fresh) loop's context. Used by flow's verdict-gate `continue-with-hint` option to thread user guidance into a follow-up build invocation.
 

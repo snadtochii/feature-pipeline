@@ -104,7 +104,7 @@ The agent consumes this recipe with priority `storage_state → attach_tab → e
 
 ## §6 Skip artifact (app unreachable)
 
-When unreachable with no `start` (or `start` timed out), write `<ticket-folder>/05-tests.md` and proceed to the verdict **without** spawning `ui-tester`, **without** any mid-loop prompt or hard-pause. `skipped` is a test-checkpoint label, not a fourth build verdict — build can still exit `pass`. The skip is recorded in `06-summary.md` / the exit summary (surfaced, not hidden):
+When unreachable with no `start` (or `start` timed out), write `<ticket-folder>/05-tests.md` and proceed to the verdict **without** spawning `ui-tester`, **without** any mid-loop prompt or hard-pause. What the `skipped` label means for the build verdict is defined at SKILL.md §3 step c. The skip is recorded in `06-summary.md` / the exit summary (surfaced, not hidden):
 
 ```
 verdict: skipped (app unreachable)

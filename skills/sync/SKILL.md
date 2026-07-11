@@ -16,7 +16,7 @@ argument-hint: "[ticket-id]"
 
 Scan every ticket whose `status` is `in-review` (by frontmatter — not just the ones sitting in `review/`, since an epic child can be `in-review` while its subtree is still in `in-progress/`) and check each PR's merge state on GitHub. **Merged** → finalize the ticket to `done/` (Transition 6). **Open** → report it. **Closed-unmerged** → flag it for your attention. Report everything at the end.
 
-**This skill runs in the main conversation, standalone** — a peer of `/feature:discover` and `/feature:debug`, **not a pipeline stage**. It spawns no subagents. Unlike the other standalone skills, sync *does* perform a state transition — but only the safe, terminal merge finalization (Transition 6: a merged ticket's `in-review → done`) on a confirmed-merged PR.
+**This skill runs in the main conversation, standalone** — **not a pipeline stage**. It spawns no subagents. Unlike the other standalone skills, sync *does* perform a state transition — but only the safe, terminal merge finalization (Transition 6: a merged ticket's `in-review → done`) on a confirmed-merged PR.
 
 Run it **manually** to finalize merged reviews in one pass. Sync is **stateless** — each run is a fresh scan.
 
@@ -35,11 +35,7 @@ Run it **manually** to finalize merged reviews in one pass. Sync is **stateless*
 
 ## Preconditions (fail-closed)
 
-Sync reads PR state from GitHub via `gh`. Before any work, check — in order; on the first failure, report "couldn't check (gh unavailable: `<reason>`)", change nothing, and exit cleanly (this is graceful degradation, not an error):
-
-1. `command -v gh` — gh installed?
-2. `gh auth status` exits 0 — authenticated?
-3. `git remote get-url origin` matches `github.com` — GitHub origin?
+Sync reads PR state from GitHub via `gh`. Before any work, run the shared fail-closed check sequence in [`../review/references/gh-preconditions.md`](../review/references/gh-preconditions.md); sync's skip message is "couldn't check (gh unavailable: `<reason>`)".
 
 ## Process
 
@@ -107,19 +103,10 @@ The `⚠ Needs attention` group carries closed-unmerged PRs, inconsistent-state 
 
 ## Boundaries
 
-**Will:**
-- Scan in-review tickets (all, or one when `$1` is given), find each PR by ticket ID, and report.
-- Promote tickets whose PR is `MERGED` **and reachable from `<base>`** to `done/` via Transition 6, including the epic promotion gated by the Epic-completion predicate (declared `children:` roster reconciliation). A PR merged only into an `integration/<epic-id>` branch is left in `review/` until it reaches `<base>`.
-- Degrade fail-closed when `gh`/auth/origin is unavailable — change nothing, report why.
-
 **Will Not:**
 - Push, create, or close PRs — sync is read-only on GitHub (that's the `--pr` flow's job).
-- Auto-revert closed-unmerged tickets — flag only.
-- Reimplement Transition 6 or the merge rule — it invokes Transition 6 and shares the `MERGED`-and-reachable → `done` rule (reachability gate defined once in `pr-creation.md`).
 
 ## Error Handling
 
-- `gh` missing / unauthenticated / non-GitHub origin → "couldn't check (gh unavailable)", no changes, clean exit.
 - `gh pr list` errors for one ticket → record `couldn't-check (<reason>)` for that ticket and continue with the rest (one bad ticket never aborts the scan).
 - Folder-move failure mid-promotion → surface it, stop that ticket (frontmatter still reflects the prior state for recovery), continue with the rest.
-- Malformed frontmatter on a ticket → warn; a `review/` location still counts as in-review for the scan set (solo and children both land there), but an `in-progress/` location does not (an unparseable child there can't be told from an active sibling) — exclude it. Skip the status edit if it can't be parsed safely.

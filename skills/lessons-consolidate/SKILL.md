@@ -17,7 +17,7 @@ argument-hint: "[path-to-_lessons.md]"
 
 Cluster the same-subject entries in `claudedocs/tickets/_lessons.md`, propose **conservative merges** and **stale-entry retirements** as a **human-approved unified diff** (exact before/after), and rewrite the file **only after approval**. **Git is the ground-truth anchor** — it holds the prior version, so an over-eager merge is always recoverable. The same sweep **doubles as the one-time migration** for an existing bloated log: it reshapes dense multi-topic paragraph entries into atomic, subject-keyed lines.
 
-**This skill runs in the main conversation, standalone** — a peer of `/feature:sync`, `/feature:review`, and `/feature:debug`, **not a pipeline stage**. It spawns **no subagents** (no `Task`) and does **no** folder/status transitions and no flow wiring. It only reshapes one file, and only after you approve the diff.
+**This skill runs in the main conversation, standalone** — **not a pipeline stage**. It spawns **no subagents** (no `Task`) and does **no** folder/status transitions and no flow wiring. It only reshapes one file, and only after you approve the diff.
 
 The output target is the **atomic entry format** defined in the shared contract at [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) — what build and debug write and plan/ship grep. This skill normalizes an existing file to that contract; it does not invent a new one.
 
@@ -107,23 +107,10 @@ On rejection or a headless run, report that nothing was written and the diff was
 
 ## Boundaries
 
-**Will:**
-- Cluster same-subject entries, propose conservative merges (combine / prefer-newest, keep the sharpest phrasing) and stale-entry retirements, and reshape dense multi-topic legacy entries into atomic subject-keyed lines.
-- Show every change as a human-approved unified diff and rewrite the file **only after approval**, with git (or a `.bak` fallback) as the anchor.
-- Recommend a sweep when the log crosses the soft size cap, while still running on explicit invocation regardless of size.
-- Operate on any consumer's `_lessons.md` via an optional path argument, without baking this repo's prefix or gitignore assumptions into the sweep.
-
 **Will Not:**
-- Rewrite the file unattended — no approval (or no human present) means no write.
-- Re-summarize or hallucinate-rewrite an entry's content, or fuse two lines that carry distinct still-true facts — merges stay conservative and re-slice existing text.
 - Capture new lessons, promote to `CLAUDE.md`, move ticket folders, flip `status`, or touch flow state — it only reshapes one file.
 - Spawn subagents (no `Task`) or use MCP.
-- Commit the rewrite — it leaves the change unstaged so git remains the live anchor.
 
 ## Error Handling
 
-- File missing at the resolved path → "No `_lessons.md` to consolidate", no changes, clean exit.
-- Not a git repo, or file ignored/untracked → no git anchor; write `<file>.bak` before the rewrite and note it (never assume git recoverability — a consumer may gitignore `claudedocs/`).
-- Tracked file with uncommitted changes → warn that the anchor is the last commit; proceed only on confirmation, or stop so the file can be committed first.
-- Headless / no user to approve → print the proposed diff and stop without writing (advisory-only).
 - Malformed / unparseable entry → leave it byte-for-byte and surface it in the report; never drop or "repair" a line the parser can't classify.

@@ -15,7 +15,7 @@ argument-hint: "[pr-number-or-url]"
 
 Enumerate the current repo's open pull requests, skip any whose **current head SHA** was already reviewed, apply the embedded maintainability rubric ([`references/review-rubric.md`](references/review-rubric.md)) to each remaining PR, and post findings — inline where line-anchored, plus one summary comment, or a single signed "no blocking issues" comment when clean. Add the model-neutral `auto-reviewed` label (removal belongs to `feature:address-review`), then print a per-run summary.
 
-**This skill runs in the main conversation, standalone** — a peer of `/feature:sync`, `/feature:ship`, and `/feature:debug`, **not a pipeline stage**. It spawns **no subagents** (no `Task`) and uses **no MCP**, so it behaves identically on Claude Code and Codex, including headless/scheduled runs. It is **repo-scoped and PR-coupled**: it operates on the repo it is invoked in and never resolves a ticket.
+**This skill runs in the main conversation, standalone** — **not a pipeline stage**. It spawns **no subagents** (no `Task`) and uses **no MCP**, so it behaves identically on Claude Code and Codex, including headless/scheduled runs. It is **repo-scoped and PR-coupled**: it operates on the repo it is invoked in and never resolves a ticket.
 
 It **never approves a PR and never mutates repository code** — it only posts comments and adjusts its own label. The comment/marker/label rules are the shared contract in [`references/pr-comments.md`](references/pr-comments.md); this skill references that file rather than restating it, so `feature:address-review` posts replies in the same format.
 
@@ -37,11 +37,7 @@ The external scheduler (the automation that lists repos and sets the cadence) is
 
 ## Preconditions (fail-closed)
 
-Review reads and posts PR state via `gh`. Before any work, check — in order; on the first failure, print one line ("couldn't review (gh unavailable: `<reason>`)"), change nothing, and exit cleanly (this is graceful degradation, not an error):
-
-1. `command -v gh` — gh installed?
-2. `gh auth status` exits 0 — authenticated?
-3. `git remote get-url origin` matches `github.com` (both `git@github.com:` and `https://github.com/` forms) — GitHub origin?
+Review reads and posts PR state via `gh`. Before any work, run the shared fail-closed check sequence in [`references/gh-preconditions.md`](references/gh-preconditions.md); review's skip message is "couldn't review (gh unavailable: `<reason>`)".
 
 ## Process
 
@@ -100,24 +96,9 @@ The `⚠ Failures` group carries any per-PR `gh` error (one bad PR never aborts 
 
 ## Boundaries
 
-**Will:**
-- Enumerate open PRs (all, or one when `$1` is given), skip already-reviewed head SHAs, and review the rest against the embedded rubric.
-- Post inline + summary findings as one logical review (or one signed empty-review comment when clean), each carrying the visible role footer and hidden head-SHA marker.
-- Add the model-neutral `auto-reviewed` label after posting (create if missing; add-only — `address-review` owns removal).
-- Degrade fail-closed when `gh`/auth/origin is unavailable — change nothing, print one skip line, exit cleanly.
-- Print a per-run summary (PRs reviewed, PRs skipped as already-reviewed, labels updated, failures).
-
 **Will Not:**
-- Approve a PR (`gh pr review --approve`), request changes, merge (`gh pr merge`), or close (`gh pr close`) — it only comments and labels.
-- Edit, push, or delete any repository file — review never mutates repo code.
 - Put automation mechanics (label, idempotency, head-SHA, scheduling) into visible comment text — the only machine metadata is the hidden marker.
-- Spawn subagents (no `Task`) or use MCP — inline-only for cross-platform/headless parity.
-- Add repo-list or scheduling config — the scheduler is external; each run is a stateless single-repo scan.
 
 ## Error Handling
 
-- `gh` missing / unauthenticated / non-GitHub origin → "couldn't review (gh unavailable)", no changes, clean exit.
-- `gh pr diff`/`gh api`/post errors for one PR → record `⚠ <reason>` for that PR in the summary and continue with the rest (one bad PR never aborts the scan).
-- **Self-review blocked** (PR author == the posting `gh` identity) → fall back from the Reviews API to a single `gh pr comment` ([`references/pr-comments.md`](references/pr-comments.md) §5); the marker still lands so the run stays idempotent.
-- **Security-heuristic flag** on posting under the user's own identity → expected when the user authorized the review hop; not an error (§5).
-- No open PRs / single arg not an open PR → report and exit cleanly.
+- **Security-heuristic flag** on posting under the user's own identity → expected when the user authorized the review hop; not an error ([`references/pr-comments.md`](references/pr-comments.md) §5).

@@ -48,6 +48,7 @@ feature-pipeline/
 │   ├── address-review/      # Standalone — validate + address a PR's review comments, post signed replies (not a pipeline stage)
 │   ├── ship/                # Standalone — autonomous build→review loop over a ticket or chain, ending at an open PR (not a pipeline stage)
 │   ├── lessons-consolidate/ # Standalone — sweep _lessons.md to the atomic format via a human-approved diff (not a pipeline stage)
+│   ├── guide/               # Standalone — index of the standalone skills and when to reach for each (not a pipeline stage)
 │   ├── plan/                # Stage 1 (pre-plan synthesis + plan design)
 │   └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
 ├── README.md                # End-user docs
@@ -87,7 +88,7 @@ Canonical sources in `skills/flow/SKILL.md`:
 - **Artifact Convention** — numbering rules, layout illustrations (solo + nested epic)
 - **Resumption auto-detection** — routing table for on-disk artifacts; users delete artifacts to start fresh
 
-Centralized cross-stage rules live in `skills/flow/references/`:
+Centralized cross-stage rules live in `skills/flow/references/` (the folder also holds flow-private references like `epic-walk.md`; only the cross-stage ones are listed here):
 
 `ticket-resolution.md`:
 - **Step 1** — ticket-folder resolution (path or ID, including nested children under `tasks/`)
@@ -138,6 +139,7 @@ Typical budget per role, expressed as unordered tool sets. The build *skill* may
 | `address-review` (standalone PR feedback addresser) | Read, Write, Edit, Glob, Grep, Bash, TodoWrite — the mutating sibling of `review`: `Bash` for `gh` review-comment reads + signed reply posts, `Write`/`Edit` to apply accepted fixes (triggers the validation hook), `TodoWrite` to track threads; no `Task` (inline for cross-platform/headless parity), no MCP |
 | `ship` (standalone autonomous build→review→merge loop) | Read, Glob, Grep, Bash, TodoWrite, Task — `Task` to spawn the per-ticket implementer subagent, `Bash` for `git`/`gh`/test verification of each merge; orchestrates `feature:flow` + an independent reviewer and never edits ticket code itself |
 | `lessons-consolidate` (standalone `_lessons.md` sweep) | Read, Grep, Glob, Edit, Write, Bash, TodoWrite — `Read`/`Grep`/`Glob` to parse and cluster entries, `Bash` for the size-cap measure (`grep -c '^## '`, `wc`) and the git-anchor checks (`git check-ignore`/`ls-files`), `Write`/`Edit` to rewrite the file only after diff approval; no `Task` — spawns no subagents, no MCP |
+| `guide` (standalone skill index) | Read — the body is static guidance; no `Task`, no `Write`/`Edit`, no `Bash`, no MCP — spawns no subagents, mutates nothing |
 
 If you need a tool not in this table, add it explicitly and document why.
 
@@ -225,10 +227,11 @@ Not every stage runs as a subagent. The rule:
 | `address-review` (standalone PR feedback addresser; reads/posts PR state via `gh`, edits code to apply accepted fixes; spawns no subagents) | |
 | `ship` (standalone autonomous build→review→merge orchestrator; spawns the per-ticket implementer subagent, never runs as one) | |
 | `lessons-consolidate` (standalone `_lessons.md` sweep; proposes a diff, rewrites on approval; spawns no subagents) | |
+| `guide` (standalone skill index; static guidance only; spawns no subagents) | |
 
 **Rule:** run in main context only when you need *interactivity* or *plan mode*. Otherwise prefer a subagent — it keeps the main context clean.
 
-The `build` skill folds the implementer mindset (focus areas, boundaries) directly into the SKILL.md body rather than delegating to a subagent — this is intentional, since the implement checkpoint needs main-context interactivity for iterative coding + validation. See `skills/build/SKILL.md` for the canonical implementer mindset.
+The `build` skill folds the implementer mindset directly into the SKILL.md body rather than delegating to a subagent — this is intentional, since the implement checkpoint needs main-context interactivity for iterative coding + validation. See `skills/build/SKILL.md` for the canonical implementer mindset.
 
 ---
 
@@ -316,7 +319,7 @@ Before committing changes to skills or agents:
 
 1. **Lint the frontmatter** — no angle brackets, no markdown in descriptions, valid YAML, every tool listed in `allowed-tools`/`tools` actually exists.
 2. **Check tool budget** against the table above — reviewers must not have write access.
-3. **Check invocation control** — skills that are only ever user-invoked (`debug`, `sync`, `review`, `ship`, `lessons-consolidate`) set `disable-model-invocation: true` (user-only; description not loaded into context). Skills invoked programmatically by another skill via the Skill tool (`flow`, `plan`, `build`, `discover`, `address-review` — the last invoked by `ship`'s address hop) stay model-invocable but carry a terse one-line description with no auto-trigger phrases.
+3. **Check invocation control** — skills that are only ever user-invoked (`debug`, `sync`, `review`, `ship`, `lessons-consolidate`, `guide`) set `disable-model-invocation: true` (user-only; description not loaded into context). Skills invoked programmatically by another skill via the Skill tool (`flow`, `plan`, `build`, `discover`, `address-review` — the last invoked by `ship`'s address hop) stay model-invocable but carry a terse one-line description with no auto-trigger phrases.
 4. **Walk the stage contract in `skills/flow/SKILL.md`** — if you changed inputs/outputs, update the Stage Contract table *and* every consuming stage's `Required Input` section.
 5. **Sweep for cross-skill drift** — when a filename, skill name, or schema changes, grep across `skills/` and `agents/` for stale references and update them. The "Editing discipline" section below applies.
 6. **Build skill tool-budget audit** — grep `skills/build/SKILL.md` for any tool reference outside its `allowed-tools` (Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite). Should return no matches.
@@ -356,3 +359,4 @@ Decisions evaluated and explicitly *not* adopted, kept here so future maintenanc
 - **PR auto-review and reviewer-feedback loops *inside the pipeline stages*** (plan/build/flow auto-reviewing GitHub PRs and folding reviewer comments back through the pipeline). The pipeline stages stay review-free and ticket-folder-driven — PR *creation* is the only GitHub coupling they have: the opt-in `--pr` flag opens a PR on a passing build and lands the ticket in `review/`, degrading to a local commit when `gh`/GitHub is absent (see `skills/build/references/pr-creation.md`). The autonomous-review capability itself lives in the **standalone `ship` skill** (`skills/ship/`): on top of `--pr`, `ship` orchestrates an independent reviewer that posts to the PR plus an autonomous address loop over a ticket or dependency chain — merging per-ticket PRs into an integration branch on chains and leaving the resulting PR open for human review by default (`--merge` lands it). Keeping it out of the stages preserves the pipeline as general-purpose; `ship` is the opt-in layer for the full autonomous loop.
 - **Clean-abort routine for `flow`** (`flow --abort`). Small standalone change; the existing verdict gate's `abort` choice covers the common case (revert folder + reset frontmatter). A dedicated flag would standardize multi-step abort behavior across deeper future flow surfaces.
 - **Validator auto-detection in `hooks/validate.sh`** (project-type detection, e.g., infer "run pyright" from a `pyproject.toml`). Currently the user explicitly declares `validate.lint` and `validate.typecheck`. Auto-detection is too magic for a plugin that should respect existing project conventions; revisit if explicit-config maintenance becomes a real friction.
+- **Default-on end-of-run UI verification in `ship`** (flip `ship`'s end-of-run browser pass from the opt-in `--ui-test` to default-on, opted out via the shared `--no-ui-testing`). Deferred until the end-of-run pass proves itself on real runs; adopting it would leave `ship` with a single UI-testing switch instead of a positive/negative flag pair, matching the one-axis-one-flag naming convention.

@@ -14,14 +14,14 @@ argument-hint: "[ticket-id|epic-id] [--pr] [--no-ui-testing]"
 
 Thin sequencer with two modes:
 
-- **Single-ticket mode** (default): runs `plan → build` on the resolved ticket. Each stage owns its own state transitions (folder moves, frontmatter status) per [`references/state-transitions.md`](references/state-transitions.md); build owns the verdict gate end-to-end.
-- **Epic mode** (when the resolved folder has `kind: epic` on `prd.md`): walks children in `blocked_by` topological order, recursively invoking `Skill flow` per child. Per-child state transitions and the Epic-completion-predicate-gated epic-subtree move fire inside each child's build verdict gate.
+- **Single-ticket mode** (default): runs `plan → build` on the resolved ticket.
+- **Epic mode** (when the resolved folder has `kind: epic` on `prd.md`): walks children in `blocked_by` topological order, recursively invoking `Skill flow` per child.
 
-Flow's job in both modes is to resolve, validate, decide what to invoke, and invoke. It does not touch folder state, frontmatter, or artifact files directly.
+Flow's job in both modes is to resolve, validate, decide what to invoke, and invoke — the full ownership split (what flow owns vs. what the stages own) is the Responsibilities section below.
 
 Each stage is a separate skill that can also be invoked directly:
-- `/feature:plan` — pre-plan synthesis (codebase exploration + open-questions surfacing) followed by plan design; writes `02-plan.md`. Performs the start-of-pipeline state transition itself. Flow invokes it non-interactively — see STAGE EXECUTION's `--auto` wiring.
-- `/feature:build` — implement → review → test as in-loop checkpoints; exits with verdict `pass | partial | stuck`; writes `03-implementation.md`, `04-review.md`, `05-tests.md`, `06-summary.md`. Owns the verdict gate and the end-of-pipeline transitions.
+- `/feature:plan` — pre-plan synthesis (codebase exploration + open-questions surfacing) followed by plan design; writes `02-plan.md`. Flow invokes it non-interactively — see STAGE EXECUTION's `--auto` wiring.
+- `/feature:build` — implement → review → test as in-loop checkpoints; exits with verdict `pass | partial | stuck`; writes `03-implementation.md`, `04-review.md`, `05-tests.md`, `06-summary.md`.
 
 ## Arguments
 
@@ -102,7 +102,7 @@ Flow inspects on-disk artifacts at start and routes to the right stage automatic
 
 The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and downstream `03-`/`04-`/`05-`/`06-`, if any). On the next flow invocation, the routing table matches the "neither exists" row and runs from scratch. Internal build checkpoints (implement → review → test inside one build invocation) write directly to the canonical artifacts — no special-casing needed.
 
-**Epic-mode** has its own implicit resumption: the walker skips children whose `status` is already `done`, `partial-completion`, or `cancelled` (per EPIC-MODE EXECUTION step 4a). Each remaining child inherits the single-ticket routing table above via the recursive flow call.
+**Epic-mode** has its own implicit resumption: the walker skips children whose `status` is already `done`, `partial-completion`, or `cancelled` (per [`references/epic-walk.md`](references/epic-walk.md) step 4a). Each remaining child inherits the single-ticket routing table above via the recursive flow call.
 
 ---
 
@@ -111,7 +111,7 @@ The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and
 1. **Resolve the ticket** using the canonical logic in [`references/ticket-resolution.md`](references/ticket-resolution.md). The ticket argument is `$1`.
 
 2. **Branch on `kind`** (read from frontmatter — `prd.md` if the folder is an epic, `01-spec.md` otherwise):
-   - `kind: epic` → proceed to **EPIC-MODE EXECUTION** below; skip the remaining SETUP steps (epic walker handles per-child blocker validation and artifact invalidation by recursing into single-ticket flow per child).
+   - `kind: epic` → epic mode: read and follow [`references/epic-walk.md`](references/epic-walk.md) (the epic walker); skip the remaining SETUP steps (the walker handles per-child blocker validation and artifact invalidation by recursing into single-ticket flow per child).
    - Otherwise (no `kind` field, or `kind` has a non-`epic` value) → single-ticket mode; continue with steps 3–4.
 
 3. **Validate blockers** per [`references/ticket-resolution.md`](references/ticket-resolution.md) Step 6. If the ticket has `blocked_by` entries that aren't done, abort with the Step 6 message listing the unblocked blockers.
@@ -131,116 +131,7 @@ Apply the "Resumption auto-detection" routing table (above) to decide which stag
 
 `--pr` and `--no-ui-testing`, if passed, are propagated to `Skill build` **only** (plan has neither a PR nor a UI-test concept).
 
-Plan and build perform their own state transitions (start-of-pipeline at start, end-of-pipeline at build's verdict gate) per [`references/state-transitions.md`](references/state-transitions.md). Flow does not touch folder state or frontmatter `status` directly.
-
-After build returns, flow's work is done — build owns the verdict gate and has already applied the final transition. Flow exits cleanly.
-
----
-
-## EPIC-MODE EXECUTION
-
-Entered when SETUP step 2 detects `kind: epic` on the resolved folder. Flow walks the epic's children in `blocked_by` topological order, invoking `/feature:flow <CHILD-ID>` recursively for each child. Per-child state transitions (and the Epic-completion predicate that moves the epic subtree to `done/` once the last declared child is materialized and terminal) fire from each child's build invocation per [`references/state-transitions.md`](references/state-transitions.md) Transition 2 — flow's epic walker doesn't perform any state transitions itself.
-
-### 1. Load epic context
-
-a. Read `<epic-folder>/prd.md` frontmatter: `id`, `children` (list), `status`.
-
-b. If `status: done` (epic already complete), print:
-   ```
-   Epic <EPIC-ID> already complete. Delete artifacts inside individual children or re-run a specific child via `/feature:flow <CHILD-ID>` to redo work.
-   ```
-   Exit cleanly.
-
-c. If `children` is empty or missing, print "Epic `<EPIC-ID>` has no children — nothing to walk." Exit cleanly.
-
-d. For each child ID in `children`, locate the child folder under `<epic-folder>/tasks/<CHILD-ID>/` and read its `01-spec.md` frontmatter: `id`, `title`, `status`, `blocked_by` (defaults to `[]`).
-
-   If a child folder is missing on disk, warn the user and skip that child (continue with the others). The data is corrupted but the walk is still useful.
-
-### 2. Topological sort
-
-a. Build a directed graph from `blocked_by`: an edge points from each blocker TO its dependent. So blockers come BEFORE dependents in topological order.
-
-b. Sort the `children` list topologically. Ties (children with the same dependency depth) break by the order in `prd.md`'s `children` list — `discover` already chose a sensible order.
-
-c. **Cycle detection**: if the graph has a cycle, abort with an error listing the cycle's children and instruct the user to fix `blocked_by` in the offending specs. Cycles shouldn't occur because `discover` validates first-child-has-no-blockers + DAG shape, but defensive.
-
-### 3. Print initial aggregate progress
-
-```
-## Epic <EPIC-ID> — <epic-slug> (<N>/<M> children complete)
-
-  ✓ <CHILD-1-ID>: <title> (done)
-  ◐ <CHILD-2-ID>: <title> (partial-completion)
-  ► <CHILD-3-ID>: <title> (next — backlog)
-    <CHILD-4-ID>: <title> (backlog)
-    <CHILD-5-ID>: <title> (backlog, blocked_by: <CHILD-3-ID>)
-
-Starting walk through remaining children in dependency order.
-```
-
-**Status icon mapping**:
-- `done` → ✓
-- `partial-completion` → ◐
-- `cancelled` → ⨯
-- `in-review` → ◓ (PR open, awaiting merge — non-terminal)
-- `in-progress` → ► (rare on entry; expected only mid-walk or after a crash)
-- `backlog` → (space)
-
-The "next" child gets a ► marker on the line that's about to start. `<M>` = total children; `<N>` = count of children with terminal status (`done`, `partial-completion`, or `cancelled`).
-
-### 4. Walk children
-
-For each child in topologically-sorted order:
-
-a. **Skip if already terminal.** If the child's `status` is `done`, `partial-completion`, or `cancelled`, skip silently to the next child. (Auto-resumption of an in-flight epic relies on this — completed children are passed over.)
-
-b. **Print the running message**:
-   ```
-   → Running <CHILD-ID>: <title>
-   ```
-
-c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs plan + build per the existing logic. Propagate `--pr` and `--no-ui-testing` if the epic-level invocation had them (a `--pr` epic run opens one PR per child; `--no-ui-testing` skips the browser checkpoint for every child).
-
-d. **Re-read the child's `01-spec.md` frontmatter** after the recursive flow returns. Build's verdict gate (inside the child's flow run) already moved the folder and updated `status` per `state-transitions.md`. The new status determines the walker's next move:
-
-   - `done` or `partial-completion` → child completed cleanly (build verdict `pass` + commit confirmed/declined, or verdict `partial`/`stuck` + user choice `accept-as-partial`). Continue walker silently.
-   - `in-review` → child's PR was opened (build ran with `--pr`); the PR is open, awaiting merge. Non-terminal but an expected outcome — the child is "advanced enough." Continue the walker; the child finalizes to `done/` on a future walk once its PR merges (build's `review/` pass-through fires Transition 6).
-   - `backlog` → user chose `abort` at the child's verdict gate. The child has been reverted. Stop the walker. Print:
-     ```
-     Child <CHILD-ID> aborted (reverted to backlog/). Stopping epic walk.
-     Run /feature:flow <EPIC-ID> again to resume.
-     ```
-     Exit cleanly.
-   - `in-progress` → shouldn't happen (build always finalizes). Treat as anomaly: warn the user, stop the walker. Print:
-     ```
-     Child <CHILD-ID> is unexpectedly still in-progress after flow returned. Stopping epic walk for safety. Inspect the child's artifacts and re-run when state is consistent.
-     ```
-     Exit cleanly.
-
-e. **Print updated aggregate progress** (same format as Step 3, with the just-completed child now marked terminal).
-
-### 5. Completion
-
-After the loop exits successfully (all children walked, no aborts):
-
-a. The Epic-completion predicate inside the **last child's** build verdict gate (Transition 2's epic variant in `state-transitions.md`) already moved the epic subtree from `in-progress/<EPIC>/` to `done/<EPIC>/` and updated `prd.md`'s `status` to `done` — in epic-mode the walker runs every declared child, so by the final child the predicate's roster check is satisfied. Flow does NOT repeat this — it has already happened.
-
-b. Print:
-   ```
-   ## Epic <EPIC-ID> — done (<M>/<M> children complete)
-
-   All artifacts: claudedocs/tickets/done/<EPIC-ID>/
-   ```
-
-c. Exit cleanly.
-
-### Error handling (epic-mode specific)
-
-- **Recursive flow crashes on a child**: surface to the user, list which child failed, ask whether to continue with remaining children or abort the walk.
-- **Topological sort detects a cycle**: abort with the cycle listed; user must fix the `blocked_by` chain manually.
-- **`prd.md` malformed or missing**: defer to ticket-resolution.md's error handling.
-- **Child folder missing for a `children` entry**: warn, skip that child, continue with the others.
+After build returns, flow's work is done — the verdict gate and every state transition have already fired inside the stages, per the Responsibilities split. Flow exits cleanly.
 
 ---
 
@@ -302,7 +193,7 @@ Stage skills handle their own ticket resolution and blocker validation; flow is 
 
 Resumption is auto-detected — see "Resumption auto-detection" above, including how the user signals "start fresh".
 
-When build exits `partial` or `stuck`, the verdict gate (owned by build) presents `accept-as-partial | continue-with-hint | abort`. The `continue-with-hint` path continues the build loop in-process with the user's hint added to context — there is no flow-level re-invocation.
+When build exits `partial` or `stuck`, the verdict gate presents `accept-as-partial | continue-with-hint | abort`. The `continue-with-hint` path continues the build loop in-process with the user's hint added to context — there is no flow-level re-invocation.
 
 ## Error Handling
 
