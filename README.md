@@ -119,9 +119,13 @@ validate:                        # lint/typecheck run after each edit (opt-in)
 test:                            # lets build reach your app for the UI checkpoint
   url: http://localhost:4200
   start: "npm start"
+worktree:                        # makes a fresh git worktree buildable
+  setup: "pnpm install"
 ```
 
-The pipeline also reads your project's `CLAUDE.md` for conventions. Full reference — auth/`storage_state`, hook internals, and MCP setup — is in [docs/advanced.md](docs/advanced.md#configuration-reference).
+`worktree.setup` pairs with a committed `.worktreeinclude` file at the repo root — gitignore-style patterns listing the gitignored files (`.env`, auth sessions) a worktree creator copies into a fresh worktree before running setup.
+
+The pipeline also reads your project's `CLAUDE.md` for conventions. Full reference — auth/`storage_state`, hook internals, the worktree contract, and MCP setup — is in [docs/advanced.md](docs/advanced.md#configuration-reference).
 
 ## Requirements
 
