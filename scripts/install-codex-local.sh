@@ -117,6 +117,19 @@ cat >"$marketplace_manifest" <<'JSON'
 JSON
 
 codex plugin marketplace add "$marketplace_root"
+if ! initial_plugin_list=$(codex plugin list); then
+  echo "Could not read the current plugin installation state." >&2
+  exit 1
+fi
+stable_was_installed=false
+local_was_installed=false
+if printf '%s\n' "$initial_plugin_list" | grep -E '^feature@feature[[:space:]]+installed' >/dev/null; then
+  stable_was_installed=true
+fi
+if printf '%s\n' "$initial_plugin_list" | grep -E '^feature@feature-local[[:space:]]+installed' >/dev/null; then
+  local_was_installed=true
+fi
+
 previous_plugin="$marketplace_root/plugins/.feature.previous"
 if [ -e "$previous_plugin" ] || [ -L "$previous_plugin" ]; then
   rm -rf -- "$previous_plugin"
@@ -135,7 +148,12 @@ restore_previous_local() {
   rm -rf -- "$staged_plugin"
   if [ -d "$previous_plugin" ]; then
     mv "$previous_plugin" "$staged_plugin"
-    codex plugin add feature@feature-local >/dev/null 2>&1 || true
+    if [ "$local_was_installed" = true ]; then
+      codex plugin add feature@feature-local >/dev/null 2>&1 || true
+    fi
+  fi
+  if [ "$stable_was_installed" = true ]; then
+    codex plugin add feature@feature >/dev/null 2>&1 || true
   fi
 }
 if ! codex plugin add feature@feature-local; then
@@ -156,7 +174,26 @@ if ! printf '%s\n' "$plugin_list" | grep -F 'feature@feature-local' >/dev/null |
   exit 1
 fi
 
-codex plugin remove feature@feature >/dev/null 2>&1 || true
+if [ "$stable_was_installed" = true ]; then
+  if ! codex plugin remove feature@feature; then
+    restore_previous_local
+    echo "Could not remove the stable Feature Pipeline install; the previous plugin state was restored." >&2
+    exit 1
+  fi
+fi
+if ! plugin_list=$(codex plugin list); then
+  restore_previous_local
+  echo "Could not verify the final plugin source; the previous plugin state was restored." >&2
+  exit 1
+fi
+if ! printf '%s\n' "$plugin_list" | grep -F 'feature@feature-local' >/dev/null || \
+  ! printf '%s\n' "$plugin_list" | grep -F "$local_version" >/dev/null || \
+  printf '%s\n' "$plugin_list" | grep -E '^feature@feature[[:space:]]+installed' >/dev/null; then
+  restore_previous_local
+  echo "Final plugin source verification failed; the previous plugin state was restored." >&2
+  exit 1
+fi
+
 rm -rf -- "$previous_plugin"
 printf '%s\n' "$plugin_list"
 
