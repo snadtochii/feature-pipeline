@@ -61,7 +61,7 @@ Run directly, outside the pipeline:
 | Command | What it does |
 |---|---|
 | `/feature:guide` | Index of the standalone helpers — what each one does and when to reach for it. |
-| `/feature:ship <id>` | Autonomous build → review → address loop over a ticket or `blocked_by` chain, ending at an open PR (`--merge` to land it). |
+| `/feature:ship <id>` | Autonomous build → review → address loop over a ticket or `blocked_by` chain, ending at an open PR (`--merge` to land it, `--parallel` to build independent tickets concurrently in isolated worktrees). See [ship's flags](docs/advanced.md#ship-flags---base---merge---ui-test---parallel). |
 | `/feature:review [<pr>]` | Review open PRs against a maintainability rubric; post inline + summary findings. Never approves or edits code. Omit `<pr>` to scan every open PR. |
 | `/feature:address-review [<pr>]` | Validate a PR's review feedback — automated findings and human comments — fix the accepted ones, and post signed replies. Omit `<pr>` to use the current branch's PR. |
 | `/feature:debug <description>` | Runtime-evidence root-cause debugger: hypothesize → reproduce → fix (gated) → verify. |
