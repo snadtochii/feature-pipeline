@@ -26,10 +26,43 @@ claude --plugin-dir /path/to/feature-pipeline
 
 ### Codex
 
-The repo ships a Codex manifest (`.codex-plugin/plugin.json`) and marketplace file (`.agents/plugins/marketplace.json`):
+The repo ships a Codex manifest (`.codex-plugin/plugin.json`) and marketplace file (`.agents/plugins/marketplace.json`).
+
+Install the stable plugin from GitHub:
 
 ```bash
-codex plugin marketplace add /path/to/feature-pipeline
+codex plugin marketplace add snadtochii/feature-pipeline --ref main
+codex plugin list                           # verify feature@feature is available
+codex plugin add feature@feature
+codex plugin list                           # verify installed version and status
+```
+
+Start a new Codex task after installation so the task loads the plugin's skills, agents, and hooks.
+
+Refresh an existing GitHub installation after a release:
+
+```bash
+codex plugin marketplace upgrade feature
+codex plugin add feature@feature            # reinstall from the refreshed snapshot
+codex plugin list                           # verify the new version is active
+```
+
+For local development, run the helper from your Feature Pipeline checkout. It stages tracked files plus non-ignored uncommitted files into a separate local marketplace and applies a local-only cachebuster before reinstalling. Gitignored files such as local credentials are not copied. It does not change the checkout's release manifest and does not silently substitute the stable GitHub copy. The helper requires Bash, Git, rsync, and the Codex CLI; on Windows, run it from WSL.
+
+```bash
+cd /path/to/feature-pipeline
+scripts/install-codex-local.sh
+codex plugin list                           # verify feature@feature-local is installed
+```
+
+Set `CODEX_HOME` to test against an isolated Codex home, or `FEATURE_CODEX_LOCAL_MARKETPLACE` to choose a different staging root. Both locations must be outside the checkout. Re-run the helper after local edits, then start a new Codex task to load the refreshed plugin.
+
+Switch back to the stable GitHub installation:
+
+```bash
+codex plugin remove feature@feature-local
+codex plugin add feature@feature
+codex plugin list                           # verify feature@feature is installed
 ```
 
 The validation hook uses Codex's hook system — enable `codex_hooks` and `plugin_hooks` in your Codex config. See [docs/advanced.md](docs/advanced.md#validation-hook) for the hook setup.
