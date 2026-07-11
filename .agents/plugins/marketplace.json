@@ -7,8 +7,9 @@
     {
       "name": "feature",
       "source": {
-        "source": "local",
-        "path": "./."
+        "source": "url",
+        "url": "snadtochii/feature-pipeline",
+        "ref": "main"
       },
       "policy": {
         "installation": "AVAILABLE",
