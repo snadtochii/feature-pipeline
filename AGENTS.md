@@ -67,7 +67,7 @@ discover → ticket(s) → flow → plan → build → completion
                                ├─────────────┤
                                │  implement  │
                                │      ↓      │
-                               │  review     │ (4 parallel reviewer subagents)
+                               │  review     │ (4 reviewers, 2 parallel at a time)
                                │      ↓      │
                                │  test       │ (ui-tester subagent or skip; --no-ui-testing forces the skip)
                                │      ↓      │

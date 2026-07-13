@@ -105,7 +105,7 @@ d. **After all plan steps are implemented**, run final validation across all cha
      verdict: skipped (trivial diff)
 
      ## Reason
-     Ticket complexity is S; diff is <X> lines across <Y> files (threshold: < 50 lines, < 3 files). Skipping the parallel reviewer subagents — token cost outweighs expected signal on small changes.
+     Ticket complexity is S; diff is <X> lines across <Y> files (threshold: < 50 lines, < 3 files). Skipping the reviewer fan-out — token cost outweighs expected signal on small changes.
      ```
    - Proceed directly to the test checkpoint (step 3 of this Process).
 4. Otherwise, proceed to step a below.
@@ -133,7 +133,7 @@ b. **Compose the shared base for reviewer prompts** (single composition, used by
    4. **Blocker context** (only when `blocked_by` is non-empty per the Blocker validation section above): a `## Blocker context (from completed siblings)` block. For each blocker: include verbatim `01-spec.md` + `06-summary.md`. **Fallback when `06-summary.md` is missing** (e.g. a `cancelled` blocker): use the blocker's `02-plan.md`; when `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker. Omit the entire block when `blocked_by` is empty.
    5. **Confidence scale**: the verbatim contents of `references/confidence-scale.md` under a `## Confidence scale (use this exactly)` header. (The rubric lives in the reference and build injects it here — reviewer agent bodies stay rubric-free.)
 
-c. **Spawn four reviewer subagents in parallel.** All four run **concurrently** — launch them in a single message with four `Task` tool calls. Each prompt = the shared base from step b + a per-reviewer suffix:
+c. **Spawn four reviewer subagents in two parallel waves.** Preserve all four roles while capping the fan-out at two active reviewers: launch reviewers **a + b concurrently** in one message with two `Task` calls, wait until both are terminal, then launch reviewers **c + d concurrently** in one message with two `Task` calls and wait until both are terminal. Only after all four results are terminal may the merge step begin. This keeps a nested `ship` run within four total agent threads (root orchestrator + implementer + two reviewers) without weakening review coverage. A failed reviewer still counts as terminal for wave scheduling and is handled by step d. Each prompt = the shared base from step b + a per-reviewer suffix:
 
    **a. `feature:code-reviewer`** (correctness + quality):
    > Review these code changes for correctness, bugs, logic errors, and adherence to project conventions. Use the confidence scale above — only report issues with confidence ≥ 80.
