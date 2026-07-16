@@ -63,7 +63,7 @@ Iterate with the user until they approve, adjust, or collapse to single-ticket. 
    - `kind: epic` — marks this non-pipelineable, so `plan`/`build` refuse to run against it
    - `epic: <epic-slug>`
    - `children: [<CHILD-1-ID>, <CHILD-2-ID>, ...]` — the declared roster
-   - `repos:` — only in a multi-repo workspace, appended per the Phase 1 convention: the union of the children's repos.
+   - `repos:` — only in a multi-repo workspace, appended per [`multi-repo.md`](multi-repo.md): the union of the children's repos.
 
    Everything else (`status`, `created`, `project`, `priority`, `tags`, …) comes straight from the template — the template is the one place that list lives.
 
@@ -83,7 +83,7 @@ Iterate with the user until they approve, adjust, or collapse to single-ticket. 
    - `siblings: [<other-CHILD-IDs>]` — informational; the others, not self
    - `blocked_by: [<CHILD-ID>, ...]` — omit if no blockers
 
-   In a multi-repo workspace, also append `repos:` per the Phase 1 convention — this child's repos, from the Phase 3.5 decomposition table.
+   In a multi-repo workspace, also append `repos:` per [`multi-repo.md`](multi-repo.md) — this child's repos, from the Phase 3.5 decomposition table.
 
    As you fill the standard fields the template already lists, give them child-specific values: `id` (the `<CHILD-ID>` allocated in the *Generate ticket IDs* block, SKILL.md Phase 4), `title` (descriptive, from the Phase 3.5 decomposition table — never the bare `<CHILD-ID>`; this is what boards, flow's epic-walker progress, and PR titles render), `complexity` (assessed per child), and `priority`/`tags` (inherit from the epic, plus any child-specific tags).
 
