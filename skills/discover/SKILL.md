@@ -26,14 +26,11 @@ Interactive requirements discovery that transforms a rough idea into one or more
 - `$ARGUMENTS` — the rough idea, feature request, or problem statement (can include pasted text, images, file references) plus optional flags
 - `--project <name>` — which personal project this is for (used in ticket frontmatter)
 - `--id <XX-N>` — explicit ticket ID. In single-ticket mode, this is the ticket's ID. In multi-sibling mode, this is the **parent epic's** ID; children get the next available IDs in sequence.
-- `--explore` — force **exploration mode** (the very-vague/outcome-uncommitted branch) regardless of how detailed the input reads. Overrides input-shape detection: a well-formed idea still gets challenged one question at a time instead of routed toward ticket creation, and the session may end without a ticket. Use when you want to stress-test an idea before deciding whether it deserves a ticket.
+- `--explore` — force **exploration mode** regardless of how detailed the input reads (see "Very vague or outcome-uncommitted input" below)
 
 ### Examples
 ```
-/feature:discover I want to add dark mode to the app
 /feature:discover I need a way to filter the task list by priority and date range --project big-leaves
-/feature:discover The settings page is confusing, users can't find where to change their email --project symphony --id SY-12
-/feature:discover (with screenshot pasted) This design needs to be implemented
 /feature:discover --explore Reworking how rate limiting works — challenge this before I commit to a ticket
 ```
 
@@ -72,11 +69,7 @@ The skill runs in **main context** (interactive) through these phases:
 
 ### PHASE 1: UNDERSTAND THE INPUT
 
-1. **Parse the input**:
-   - Extract the core idea/problem from the description
-   - Note any images — analyze them for UI designs, wireframes, error screenshots, or architecture diagrams
-   - Note any file references — read them for additional context
-   - Identify the project (from `--project` flag, or ask if not obvious)
+1. **Parse the input**: identify the project (from `--project` flag, or ask if not obvious); handle images and file references per "Handling Different Input Types" below
 
 2. **Determine project root**:
    - If `--project` is provided, locate it (check common paths, ask if ambiguous)
@@ -84,11 +77,9 @@ The skill runs in **main context** (interactive) through these phases:
    - The project root is needed for codebase exploration
 
 3. **Detect workspace shape** (single-repo vs multi-repo):
-   - The workspace is the folder holding `claudedocs/tickets/` (the same root Phase 0 establishes)
-   - **Multi-repo** iff the workspace root is not itself a git repo (no `.git` at the root) AND immediate child directories containing `.git` exist. Record those child directory names verbatim — they are the vocabulary for the `repos` frontmatter field (exact on-disk names, e.g. `big-leaves-api`, never shortened)
-   - Check immediate children only — no recursion (avoids `node_modules/.git` and vendored-tree false positives)
-   - **The repos-append convention** (every later `repos` mention defers here): in a multi-repo workspace, each artifact discovery writes (solo spec, epic PRD, child spec) gets `repos: [<exact-dir-names>]` **appended** as real frontmatter — never a commented placeholder; the templates carry only the fields every ticket has. Write the field even when the ticket touches just one repo (explicitness beats omission once the workspace is multi-repo). Which repos go in the list is decided per artifact at its write step.
-   - Any other shape (workspace root is a git repo, or no child repos found) is **single-repo**: the `repos` field is omitted everywhere downstream, and every repos-related step below is skipped — single-repo output is byte-identical to a workspace where the concept doesn't exist
+   - The workspace is the folder holding `claudedocs/tickets/` (the same root Phase 0 establishes). **Multi-repo** iff the workspace root is not itself a git repo (no `.git` at the root) AND immediate child directories containing `.git` exist — check immediate children only, no recursion (avoids `node_modules/.git` and vendored-tree false positives)
+   - **Multi-repo** → read and follow [`references/multi-repo.md`](references/multi-repo.md): the repos-append convention every later `repos` mention defers to
+   - Any other shape is **single-repo**: the `repos` field is omitted everywhere downstream, and every repos-related step is skipped — single-repo output is byte-identical to a workspace where the concept doesn't exist
 
 4. **Quick acknowledgment** — confirm what you understood:
    ```
@@ -143,7 +134,6 @@ Focus on the "what" and "why":
 Focus on defining edges:
 - What's the simplest version that would be useful? (MVP)
 - What should this explicitly NOT do? (Out of scope)
-- Any related features it needs to work with?
 - Any constraints (performance, accessibility, platform support)?
 
 #### Theme: User Experience (if UI-facing)
@@ -159,15 +149,14 @@ Use the code explorer results to ask informed questions:
 - "There's an existing [component/service] that does something related — should we extend it or build new?"
 - "The current [architecture layer] handles [related thing] — does this fit there?"
 - Any API/data requirements? New endpoints needed?
-- In a multi-repo workspace (per the Phase 1 detection), confirm the inferred repo list as one line of this theme: "This looks like it touches `<repo-a>` + `<repo-b>` — correct?" — inferred by matching the explorer output's file paths against the detected child-repo directory names. The user's answer wins over the inference.
+- In a multi-repo workspace, the one-line repo confirmation per [`references/multi-repo.md`](references/multi-repo.md)
 
 **Iteration rules**:
 - **Themes loop, they don't queue**: cover each relevant theme, but re-enter any theme as often as needed. There is no fixed number of batches and no rule that one theme must finish before another begins.
 - **Synthesize then check**: after each batch, restate what you've understood. If the user's answer is ambiguous, contradicts an earlier answer, leaves a hole the spec needs filled, or opens a sub-decision you didn't ask about, run another pass on that theme with clarifying questions before moving on. Don't paper over ambiguity to keep momentum.
 - **Escalate to depth-first grilling on high-coupling branches**: if a single decision has answers that cascade into multiple dependent sub-decisions (e.g., "schema-first vs code-first" each implying different storage / migration / API choices), drop the batched cadence for that branch. Switch to one question at a time, walk the decision tree depth-first, and resolve each fork before backing out. Keep providing your recommended default at every node. Return to themed batching once the branch is resolved.
 - **Stop when coverage is good enough** to write a clear spec — driven by coverage, not by a fixed count. Simple features may need a single batch; high-coupling or ambiguous ones may take many, especially with depth-first detours.
-- **Match depth to complexity** — don't over-question simple features, and don't under-discover coupled ones (that is what the depth-first escalation above is for).
-- **Respect "enough"**: if the developer says "that's enough" or "let's move on", proceed to scope assessment with the best understanding you have and create the best ticket(s) you can. (In exploration mode, leaving without a ticket is instead the exploration-mode carve-out — see [`references/exploration-mode.md`](references/exploration-mode.md).)
+- **Respect "enough"**: if the developer says "that's enough" or "let's move on", proceed to scope assessment with the best understanding you have and create the best ticket(s) you can.
 
 ---
 
@@ -204,14 +193,12 @@ Two modes: **single-ticket** (N=1, the default-collapsed output) and **multi-sib
 
 #### Generate ticket IDs
 
-Determine the next available number by scanning the **entire** `claudedocs/tickets/` tree — recursively, not just the top level. Child tickets of an epic live nested under `<state>/<EPIC>/tasks/<CHILD>/` and draw their IDs from the **same single sequential numbering space** as top-level tickets, so a top-level-only scan can hand out an ID a nested child already uses.
-
-Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` (`prefix` field), then collect every folder anywhere under `claudedocs/tickets/**` whose name matches `<PREFIX>-<N>` — the folder name IS the ID (no slug), so match folder names rather than parsing frontmatter. Ignore folders whose prefix doesn't match the configured one. Parse the numeric `<N>` from each match, take the maximum, and allocate from `max + 1`. If no folder matches (first ticket of the project), start at `<PREFIX>-1`. Format: `<PREFIX>-<N>`, no leading zeros (e.g., `BL-1`, `BL-2`, `BL-15`); IDs need not be contiguous — gaps left by deleted tickets are fine, never backfill them.
+Scan the **entire** `claudedocs/tickets/` tree recursively — epic children live nested under `<state>/<EPIC>/tasks/<CHILD>/` and draw from the **same single sequential numbering space** as top-level tickets, so a top-level-only scan can hand out an ID a nested child already uses. Collect every folder anywhere under `claudedocs/tickets/**` whose name matches the configured `<PREFIX>-<N>` (the folder name IS the ID — match folder names, not frontmatter; ignore non-matching prefixes), take the maximum `<N>`, and allocate from `max + 1` (no matches → start at `<PREFIX>-1`). No leading zeros; gaps left by deleted tickets are fine — never backfill them.
 
 - **Single-mode**: allocate one ID — `<PREFIX>-<max+1>`.
-- **Multi-mode**: allocate `N + 1` IDs as `max+1 … max+1+N`. The first (`max+1`) goes to the parent epic, the next `N` go to the children in checkpoint order.
-- If `--id <XX-N>` was provided: in single-mode, that's the ticket's ID; in multi-mode, that's the parent epic's ID, and the children are allocated from the tree-wide scan as the next IDs after `max(existing tree max, supplied epic N)` — not blindly `<XX-N+1>`, which can collide with a higher-numbered nested child.
-- **`--id` collision check**: before using any `--id`-supplied ID, check whether a folder with that ID already exists anywhere in the tree — top-level or nested under `tasks/`. If it does, warn the user and pause for explicit confirmation before reusing it; never silently overwrite or proceed.
+- **Multi-mode**: allocate `N + 1` IDs — the first goes to the parent epic, the next `N` to the children in checkpoint order.
+- If `--id <XX-N>` was provided: in single-mode, that's the ticket's ID; in multi-mode, that's the parent epic's ID, and the children are allocated as the next IDs after `max(existing tree max, supplied epic N)` — not blindly `<XX-N+1>`, which can collide with a higher-numbered nested child.
+- **`--id` collision check**: before using any `--id`-supplied ID, check whether a folder with that ID already exists anywhere in the tree. If it does, warn the user and pause for explicit confirmation; never silently overwrite or proceed.
 
 #### Single-mode (N=1)
 
@@ -219,7 +206,7 @@ Scan mechanic: read the configured prefix from `claudedocs/tickets/config.yaml` 
 
 2. **Write the spec** to `claudedocs/tickets/backlog/<TICKET-ID>/01-spec.md` using `templates/task.md`. The spec file IS the ticket — frontmatter for metadata, body for the content.
 
-   In a multi-repo workspace, append `repos:` per the Phase 1 convention — this ticket's repos, from Phase 2 exploration reconciled with the Phase 3 confirmation.
+   In a multi-repo workspace, append `repos:` per [`references/multi-repo.md`](references/multi-repo.md).
 
 3. **Write the exploration** to `claudedocs/tickets/backlog/<TICKET-ID>/exploration.md` (no `00-` prefix — numbering is reserved for stage artifacts in task folders). Include a short header at the top:
    ```
@@ -277,9 +264,6 @@ If the developer doesn't specify priority, assess from context:
 
 ## Handling Different Input Types
 
-### Text-only description
-Standard flow — go through all phases.
-
 ### Description + images
 - Analyze images in Phase 1
 - If they're UI designs: extract layout, components, interactions, states
@@ -292,9 +276,9 @@ Standard flow — go through all phases.
 - Use file content to understand existing context
 - Skip redundant codebase exploration for areas already covered by referenced files
 
-### Very vague or outcome-uncommitted input ("I want to improve things", "let's explore", "not sure this is a ticket yet")
-- Entered automatically when the input reads vague or uncommitted, or **explicitly via the `--explore` flag** — the flag forces this branch even for a well-formed, detailed idea (it beats the "Very detailed input" routing)
-- When this branch is entered, read and follow [`references/exploration-mode.md`](references/exploration-mode.md) — the full mode: one-question-at-a-time depth-first cadence, deferred explorer spawn, commit-to-ticket handoff, and the leave-without-a-ticket carve-out
+### Very vague or outcome-uncommitted input ("I want to improve things", "not sure this is a ticket yet")
+- Entered automatically when the input reads vague or uncommitted, or **forced via `--explore`** — the flag beats the "Very detailed input" routing: a well-formed idea still gets challenged, and the session may end without a ticket
+- Read and follow [`references/exploration-mode.md`](references/exploration-mode.md) — one-question-at-a-time depth-first cadence, deferred explorer spawn, commit-to-ticket handoff, and the leave-without-a-ticket carve-out
 
 ### Very detailed input (pre-thought-out feature)
 - Acknowledge the detail level
@@ -304,14 +288,10 @@ Standard flow — go through all phases.
 
 ## Important Rules
 
-Question cadence, defaults, synthesis, and depth rules live in Phase 3 ("Recommend, don't just elicit" + "Iteration rules"); the checkpoint gate lives in Phase 3.5. The rules below are the ones no phase body states.
+Question cadence, defaults, synthesis, and depth rules live in Phase 3 ("Recommend, don't just elicit" + "Iteration rules"); the checkpoint gate lives in Phase 3.5; multi-sibling rules (PRD scope, epic non-pipelineability, shared exploration) live in [`references/multi-sibling.md`](references/multi-sibling.md). The rules below are the ones no phase body states.
 
 1. **Be conversational, not interrogative** — this is a dialogue, not a survey
 2. **Use codebase context** — make questions specific to the project, not generic
-3. **PRD is feature-level, children are task-level** — the PRD is not a duplicate of children's specs combined; it captures only what spans siblings (problem, cross-cutting constraints, decomposition, discovery notes)
-4. **Exploration lives once per discovery session** — at the epic-folder level for multi-sibling, at the ticket-folder level for single. No per-child duplication.
-5. **Epics are non-pipelineable** — `kind: epic` in PRD frontmatter; `plan`/`build` will refuse to run against an epic ID. Children are the pipelineable items.
-6. **No `breakdown.md` artifact** — decomposition rationale and AC coverage live as sections inside `prd.md`, not in a separate file
-7. **Create the artifact(s), don't just discuss** — always end with concrete tickets on disk, with one carve-out: exploration mode may end without a ticket when the developer chooses to leave (see [`references/exploration-mode.md`](references/exploration-mode.md))
-8. **No implementation** — this skill discovers and documents, it does not code
-9. **`title` is descriptive, never the bare `<ID>`** — every template (`task.md`, `prd.md`) already declares `title`; when you fill the template, give it a human-readable title, not the ticket ID. This is a value-quality rule, not a schema-list to maintain — boards, flow's epic-walker progress, and PR-title construction all render the title, and a bare ID reads as a missing one.
+3. **Create the artifact(s), don't just discuss** — always end with concrete tickets on disk, with one carve-out: exploration mode may end without a ticket when the developer chooses to leave (see [`references/exploration-mode.md`](references/exploration-mode.md))
+4. **No implementation** — this skill discovers and documents, it does not code
+5. **`title` is descriptive, never the bare `<ID>`** — every template (`task.md`, `prd.md`) already declares `title`; fill it with a human-readable title, not the ticket ID — boards, flow's epic-walker progress, and PR-title construction all render it, and a bare ID reads as a missing one

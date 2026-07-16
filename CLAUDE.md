@@ -201,6 +201,8 @@ Agents in this plugin live at `agents/*.md` and are loaded as subagent types nam
 
 Every agent pins `model: opus` rather than inheriting. Rationale: the pipeline is for personal projects where per-run velocity and reasoning quality matter more than throughput cost. Reviewers, architects, explorers, and analysts all benefit from deeper reasoning on per-ticket work where volume is low. Exception: if a future agent does purely mechanical work where Opus's reasoning is wasted, `sonnet` or `haiku` are acceptable — none currently qualify.
 
+`code-explorer` additionally sets `effort: high` — exploration is many-tool-call work where extra per-step deliberation (what to search next, which lead to follow) pays off, and its output is cached as `exploration.md` and trusted downstream by `plan`, so gathering quality caps ticket quality.
+
 ### Body template
 
 Every agent in this plugin uses the body structure: **Triggers / Behavioral Mindset / Focus Areas / Key Actions / Outputs / Boundaries**. Rationale: the explicit `Triggers` body section reinforces delegation accuracy for parallel-review scenarios, and the structured shape makes it easy to compare agents against the tool-budget table above when reviewing changes.
