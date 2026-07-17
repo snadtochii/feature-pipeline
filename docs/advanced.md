@@ -20,7 +20,7 @@ Deeper material that doesn't belong in the [README](../README.md) front door: th
 
 By default a passing build stops at the verdict gate and asks whether to commit. With `--pr`, build ships non-interactively instead: it detects the base branch, creates a branch (forking from `main` when needed), commits, pushes to `origin`, opens a **GitHub pull request** via `gh`, and lands the ticket in a `review/` state (`status: in-review`) rather than `done/`. You're notified with the PR URL.
 
-Once the PR merges, re-run `/feature:flow <id>` (or `/feature:build <id>`) — build detects the merge and finalizes the ticket to `done/`. To finalize merged reviews in batch or unattended, run `/feature:sync`: it scans every `in-review` ticket by status and promotes the merged ones to `done/` in one pass. In epic mode, `--pr` opens one PR per child.
+Once the PR merges, re-run `/feature:flow <id>` (or `/feature:build <id>`) — build detects the merge and finalizes the ticket to `done/`. To finalize merged reviews in batch or unattended, run `/feature:sync`: it scans every ticket in `backlog/`, `in-progress/`, and `review/` and promotes the merged ones to `done/` in one pass. In epic mode, `--pr` opens one PR per child.
 
 `--pr` needs the GitHub CLI (`gh`) installed and authenticated and a GitHub `origin` remote. If any is missing, build degrades gracefully — it commits locally, finalizes to `done/`, and prints one line explaining why the PR step was skipped. It never blocks the verdict gate.
 

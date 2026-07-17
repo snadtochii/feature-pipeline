@@ -43,7 +43,7 @@ feature-pipeline/
 │   ├── flow/                # Orchestrator (plan → build with completion gate)
 │   ├── discover/            # Step 0 — ticket creation (Socratic dialogue, may emit 1..N tickets)
 │   ├── debug/               # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
-│   ├── sync/                # Standalone — reconcile in-review tickets with GitHub PR state (not a pipeline stage)
+│   ├── sync/                # Standalone — reconcile every ticket in backlog/in-progress/review with GitHub PR state (not a pipeline stage)
 │   ├── review/              # Standalone — repo-scoped PR reviewer with shared comment rules + embedded rubric (not a pipeline stage)
 │   ├── address-review/      # Standalone — validate + address a PR's review comments, post signed replies (not a pipeline stage)
 │   ├── ship/                # Standalone — autonomous build→review loop over a ticket or chain, ending at an open PR (not a pipeline stage)
@@ -102,7 +102,7 @@ Centralized cross-stage rules live in `skills/flow/references/` (the folder also
 - **Transition 3** — Abort (`in-progress` → `backlog`); invoked by `build` on `partial`/`stuck` + user choice `abort`. Includes the inverse all-children check for epic children.
 - **Transition 4** — Partial-completion (frontmatter only, no folder move); invoked by `build` on `partial`/`stuck` + `continue-with-hint` (and as a precursor to T2 on `accept-as-partial`).
 - **Transition 5** — Open-PR (`in-progress` → `review`, status `in-review`); invoked by `build` at the verdict gate on `pass` + `--pr`. The `--pr` flag and the push/`gh pr create` are part of the `--pr` auto-PR flow; T5 owns the folder move + status.
-- **Transition 6** — Merge (`review` → `done`); invoked when `build` is re-run on a `review/` ticket, or when `sync` scans an `in-review` ticket (by status, wherever it sits), and the PR is detected merged (the merge check is part of the `--pr` auto-PR flow). T2's body re-pointed at the ticket's current state folder as source (`review/` for a solo ticket or an at-review epic; `in-progress/` for an epic child that `sync` promotes in place while a sibling is still mid-build).
+- **Transition 6** — Merge (current state folder → `done`); invoked when `build` is re-run on a `review/` ticket, or when `sync` scans a ticket in `backlog/`, `in-progress/`, or `review/` (folder-keyed, not by status) and its PR is detected merged (the merge check is part of the `--pr` auto-PR flow). T2's body re-pointed at the ticket's current state folder as source: for `build` a solo source is always `review/` (or an at-review epic); for `sync` a solo source is whichever of `backlog/`/`in-progress/`/`review/` the scan found it in (a crash, re-plan, or manual merge can park a merged PR outside `review/`); an epic child flips in place while a sibling is still mid-build.
 - **Decision table** — verdict + user choice → which transitions fire. The contract `build` uses at the verdict gate.
 - **Status query** — read-only inspection for future epic-walker tooling.
 
