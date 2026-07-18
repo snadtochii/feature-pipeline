@@ -73,7 +73,11 @@ Read all upfront inputs:
 - **Blocker artifacts** — for each `blocked_by` entry, the blocker's `01-spec.md` and (if present) `02-plan.md`
 - `claudedocs/tickets/_lessons.md` — cross-ticket lessons learned, if the file exists. Consume it per the shared contract in [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) §8 — grep-scoped by subject keywords derived from this ticket, never full-loaded. From the grep matches, **select at most 5 entries relevant to this ticket** — prefer the most specific. The selected entries — never the whole file — become the lessons block passed to the requirements-analyst subagent in Step 1.3, so prior gotchas (deviating tools, invalidated assumptions, naming gotchas after refactors) inform the open-questions surface at bounded context cost. No file, or no matching entries → omit the lessons block entirely.
 
+**Extract the `complexity` field** from `01-spec.md`'s frontmatter and keep it bound for the two spawns that follow — it is the tiering key for Steps 1.2 and 1.3 per [`../flow/references/model-selection.md`](../flow/references/model-selection.md) §2. An absent or unrecognized value is not an error: it resolves to top tier.
+
 ### Step 1.2 — Spawn `code-explorer` subagent (incremental)
+
+This is a downgradable spawn site — spawn at mid tier when the bound `complexity` is `S` or `M`, otherwise at top tier, per [`../flow/references/model-selection.md`](../flow/references/model-selection.md) §2–§3. The tier is a spawn argument only; both prompt variants below are unchanged by it. Mid-tier output is vetted per §7 before load-bearing use.
 
 **If `exploration.md` exists**, prompt the explorer to do incremental work:
 
@@ -86,6 +90,8 @@ Read all upfront inputs:
 ### Step 1.3 — Spawn `requirements-analyst` subagent (focused on open questions)
 
 The analyst's job here is **NOT** to write a long analysis. It's to surface a short, actionable Open Questions list.
+
+This is a downgradable spawn site — spawn at mid tier when the bound `complexity` is `S` or `M`, otherwise at top tier, per [`../flow/references/model-selection.md`](../flow/references/model-selection.md) §2–§3. Mid-tier output is vetted per §7 before load-bearing use. The complexity reassessment this spawn returns arrives after the fact and does not re-tier or re-spawn either Phase 1 subagent (§3).
 
 > "Review this feature spec against the codebase context to surface every open question whose answer materially shapes the implementation. Spec: `<ticket content>`. Codebase context: `<exploration.md content if present>` + `<incremental explorer output>`. Blocker context (if any): `<blocker spec(s) + plan(s) per Blocker Context format>`. Cross-ticket lessons (only if Step 1.1 selected any): `<the selected entries — at most 5>` — these are project-specific gotchas captured at prior tickets' exit gates; weight them when scanning for open questions, since a recurring constraint that bit a prior ticket is exactly the kind of question worth surfacing here.
 >
