@@ -109,6 +109,9 @@ Centralized cross-stage rules live in `skills/flow/references/` (the folder also
 `lessons-log.md`:
 - The cross-ticket lessons-log contract — atomic entry format, write-time supersession check, prefer-newest on conflict, promotion on recurrence, format overflow, grep-scoped consumption. Producers (`build`, `debug`) and consumers (`plan`, `ship`), plus the standalone `lessons-consolidate` normalizer, all point here; summary in the Cross-ticket lessons log section below.
 
+`model-selection.md`:
+- The subagent model-tiering contract — the two tiers, the complexity-keyed allowlist downgrade rule, the downgradable spawn sites (keyed by site, not by agent), the never-downgrade set, the harness mapping, the always-upward fallback, and the vetting obligation on mid-tier output. Consumers are `plan` (both Phase 1 spawns) and `build` (test-checkpoint spawn, and the review checkpoint's never-downgrade pointer); `discover` and `ship` are explicit non-consumers. Summary in the Model tiering section below.
+
 Individual stage skills (`skills/<stage>/SKILL.md`) own their own `Required Input` and `Output` sections, which are the authoritative per-stage contracts. Flow's Stage Contract table is a consolidated summary of those.
 
 ### Dev-side rule
@@ -197,11 +200,13 @@ Agents in this plugin live at `agents/*.md` and are loaded as subagent types nam
 
 **Serena semantic tools** (optional enhancement — additive, agents fall back to Grep/Glob/Read when Serena MCP is unavailable): `mcp__serena__find_symbol`, `mcp__serena__find_referencing_symbols`, `mcp__serena__get_symbols_overview`. Added to agents whose core work is symbol-level navigation or cross-file pattern recognition. Not added to reviewers — they work on diffs, not codebase navigation, and the tools would be noise.
 
-### Model: opus for every agent in this plugin
+### Model tiering: top-tier pins, complexity-keyed downgrade
 
-Every agent pins `model: opus` rather than inheriting. Rationale: the pipeline is for personal projects where per-run velocity and reasoning quality matter more than throughput cost. Reviewers, architects, explorers, and analysts all benefit from deeper reasoning on per-ticket work where volume is low. Exception: if a future agent does purely mechanical work where Opus's reasoning is wasted, `sonnet` or `haiku` are acceptable — none currently qualify.
+Every agent pins `model: opus` rather than inheriting. Rationale: the pipeline is for personal projects where per-run velocity and reasoning quality matter more than throughput cost. Reviewers, architects, explorers, and analysts all benefit from deeper reasoning on per-ticket work where volume is low. Exception: if a future agent does purely mechanical work where Opus's reasoning is wasted, pinning `sonnet` or `haiku` in its frontmatter is acceptable — none currently qualify.
 
-`code-explorer` additionally sets `effort: high` — exploration is many-tool-call work where extra per-step deliberation (what to search next, which lead to follow) pays off, and its output is cached as `exploration.md` and trusted downstream by `plan`, so gathering quality caps ticket quality.
+The frontmatter pin is the default and the fallback, not the whole policy. Three spawn sites — `code-explorer` and `requirements-analyst` at `plan` Phase 1, and `ui-tester` at `build`'s test checkpoint — downgrade to a mid tier via a per-spawn model override when the ticket's `complexity` is `S` or `M`. The two `plan` sites are read-only evidence-gathering whose reports the main thread re-verifies before acting on them; `ui-tester` is the one downgradable site that mutates the tree, so its clause in the reference guards the writes rather than the report. The four reviewers never downgrade at any complexity: vetting cannot recover a finding that was never surfaced. `discover`'s explorer spawn and `ship`'s `ui-tester` spawn are outside the scheme — neither has a single ticket `complexity` to key on. The full contract — tiers, the allowlist rule, the spawn-site list, harness mapping, and the always-upward fallback — lives in `skills/flow/references/model-selection.md`.
+
+`code-explorer` additionally sets `effort: high` — exploration is many-tool-call work where extra per-step deliberation (what to search next, which lead to follow) pays off, and its output is cached as `exploration.md` and consumed downstream by `plan`, so gathering quality caps ticket quality — which is why the per-step effort setting is retained at either tier.
 
 ### Body template
 
@@ -315,7 +320,7 @@ Build owns artifact slots `03-implementation.md` through `06-summary.md`. Slot `
 
 1. Create `agents/<name>.md` using the canonical body template (Template B).
 2. Set `tools` explicitly based on the tool budget table.
-3. Set `model` — default to `opus`.
+3. Set `model` — default to `opus`. Then decide whether any of the agent's spawn sites belong on the downgradable list in `skills/flow/references/model-selection.md` §3; leaving them off is the safe default.
 4. Reference the agent from a skill (otherwise it's dead weight — unused agents shouldn't ship).
 
 ---
@@ -332,6 +337,7 @@ Before committing changes to skills or agents:
 6. **Build skill tool-budget audit** — grep `skills/build/SKILL.md` for any tool reference outside its `allowed-tools` (Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite). Should return no matches.
 7. **Reviewer-agent read-only audit** — confirm `agents/code-reviewer.md`, `agents/security-engineer.md`, `agents/performance-engineer.md`, and `agents/code-architect.md` list no `Bash` or `Edit` in their `tools:`. Reviewers must not mutate the tree they review.
 8. **Failed-criteria placement** — failed test criteria live inside `05-tests.md` under a `## Failed Criteria` section. Verify build-skill output stays consistent with this placement.
+9. **Model-tiering audit** — confirm the downgradable spawn sites listed in `skills/flow/references/model-selection.md` §3 match the spawn instructions in the skill bodies (`skills/plan/SKILL.md` Steps 1.2 and 1.3, `skills/build/SKILL.md`'s test checkpoint), in both directions: every site in §3 carries a tier annotation, and no annotated site is missing from §3. Each annotated site must also cite §7 — a downgrade shipped without its vetting clause reachable is the failure mode this item exists to catch. Confirm the four reviewers appear only in §4.
 
 There's no automated test suite for the plugin itself. Validation is by manual pipeline runs on real tickets.
 

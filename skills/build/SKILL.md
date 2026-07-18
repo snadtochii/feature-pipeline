@@ -61,6 +61,8 @@ Before the implement checkpoint, perform the start-of-pipeline transition per [`
 
 `<ticket-folder>` is rebound to the new location for the rest of this run.
 
+**Bind the ticket's `complexity`.** Read the `complexity` field from `01-spec.md` frontmatter and keep it bound for the whole run. Two consumers read it: the review checkpoint's triviality short-circuit (Process step 2) and the test checkpoint's spawn tier (Process step 3b). Binding it here — alongside the other spec-frontmatter reads, and upstream of the step-5 resumption routing — means every entry path carries the value, including the resumptions that re-enter directly at the review or test checkpoint without passing through the implement checkpoint. An absent or unrecognized value is not an error: it resolves to top tier per [`../flow/references/model-selection.md`](../flow/references/model-selection.md) §2.
+
 ---
 
 ## Behavioral Mindset
@@ -97,7 +99,7 @@ d. **After all plan steps are implemented**, run final validation across all cha
 
 **Pre-check — Triviality short-circuit.** Before spawning reviewer subagents, check whether the diff is small enough that the four-subagent review is overkill (token cost > expected signal):
 
-1. Read `01-spec.md` frontmatter — extract the `complexity` field.
+1. Use the `complexity` bound in State setup.
 2. Run `git diff --shortstat <base>...HEAD` (and add unstaged) to count lines and files changed.
 3. If **all three** conditions hold — `complexity: S`, lines changed < 50, files changed < 3 — short-circuit:
    - Write `<ticket-folder>/04-review.md`:
@@ -133,7 +135,7 @@ b. **Compose the shared base for reviewer prompts** (single composition, used by
    4. **Blocker context** (only when `blocked_by` is non-empty per the Blocker validation section above): a `## Blocker context (from completed siblings)` block. For each blocker: include verbatim `01-spec.md` + `06-summary.md`. **Fallback when `06-summary.md` is missing** (e.g. a `cancelled` blocker): use the blocker's `02-plan.md`; when `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker. Omit the entire block when `blocked_by` is empty.
    5. **Confidence scale**: the verbatim contents of `references/confidence-scale.md` under a `## Confidence scale (use this exactly)` header. (The rubric lives in the reference and build injects it here — reviewer agent bodies stay rubric-free.)
 
-c. **Spawn four reviewer subagents in parallel.** All four run **concurrently** — launch them in a single message with four `Task` tool calls. Each prompt = the shared base from step b + a per-reviewer suffix:
+c. **Spawn four reviewer subagents in parallel.** All four run **concurrently** — launch them in a single message with four `Task` tool calls. All four always run at top tier, at every complexity, per [`../flow/references/model-selection.md`](../flow/references/model-selection.md) §4. Each prompt = the shared base from step b + a per-reviewer suffix:
 
    **a. `feature:code-reviewer`** (correctness + quality):
    > Review these code changes for correctness, bugs, logic errors, and adherence to project conventions. Use the confidence scale above — only report issues with confidence ≥ 80.
@@ -173,13 +175,13 @@ f. **After fixes are applied**, run validation again (lint/typecheck) and update
 
 a. **Skip-detection scan.** Read `02-plan.md` and search the text (case-insensitive substring match) for any of: `component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial`. Match → run the reachability pre-flight (below) before any spawn. No match → skip (step c).
 
-**Reachability pre-flight (per [`references/test-preflight.md`](references/test-preflight.md)).** When step a matched UI signals (and `--no-ui-testing` was not set), run the pre-flight gate *before* spawning the Opus `ui-tester` — the cheap `curl` is always paid first. It resolves a URL (`test.url` → project `CLAUDE.md` → common-port probe), `curl`s it (reachable iff HTTP `200/301/302/401/403`), and on an unreachable app optionally boots a declared `test.start` (backgrounded, bounded ~60s poll) that it then owns for teardown:
+**Reachability pre-flight (per [`references/test-preflight.md`](references/test-preflight.md)).** When step a matched UI signals (and `--no-ui-testing` was not set), run the pre-flight gate *before* spawning the `ui-tester` — the cheap `curl` is always paid first. It resolves a URL (`test.url` → project `CLAUDE.md` → common-port probe), `curl`s it (reachable iff HTTP `200/301/302/401/403`), and on an unreachable app optionally boots a declared `test.start` (backgrounded, bounded ~60s poll) that it then owns for teardown:
    - **Reachable** (directly, or after the `test.start` boot responds) → compose the auth recipe + resolved URL (test-preflight.md §5) and continue to step b.
    - **Unreachable with no `test.start`, or `test.start` timed out** → write the *app unreachable* skip artifact (step c), tear down any server the pre-flight started (step e), do **not** spawn `ui-tester`, do **not** prompt mid-loop or hard-pause, and proceed to the verdict (step 4). The skip is recorded in `06-summary.md`.
 
    The pre-flight reads the `test:` block by model-reading `claudedocs/tickets/config.yaml`; it never invokes `yq`/`jq` or `hooks/validate.sh`. Absent a `test:` block, URL resolution falls through to the CLAUDE.md → port-probe path and no `test.start` is booted.
 
-b. **Spawn `feature:ui-tester`** (when reachable). Read the project's `CLAUDE.md` for a test framework hint (`## Testing` section, `## Commands` section, or inline references like "Playwright specs in `e2e/`"). Single `Task` call:
+b. **Spawn `feature:ui-tester`** (when reachable). Read the project's `CLAUDE.md` for a test framework hint (`## Testing` section, `## Commands` section, or inline references like "Playwright specs in `e2e/`"). Single `Task` call. This is a downgradable spawn site — spawn at mid tier when the `complexity` bound in State setup is `S` or `M`, otherwise at top tier, per [`../flow/references/model-selection.md`](../flow/references/model-selection.md) §2–§3; the tier is a spawn argument only and the prompt below is unchanged by it. Mid-tier output is vetted per §7 before load-bearing use:
 
    > Test this feature through real browser interaction. Spec with acceptance criteria: `<contents of 01-spec.md>`. Implementation summary: `<from 03-implementation.md>`. Application URL: `<the reachability-pre-flight-resolved URL — already verified reachable; do not re-discover it>`. Project test framework hint: `<from CLAUDE.md, or 'none documented'>`. Auth recipe: `<composed by the pre-flight per references/test-preflight.md §5 — auth.storage_state path and/or auth.attach_tab, or 'none declared'>`.
    >
