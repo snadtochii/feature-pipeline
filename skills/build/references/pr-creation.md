@@ -129,7 +129,7 @@ gh pr create --base "<base>" --title "$PR_TITLE" --body-file "<06-summary.md pat
 
 ## Merge predicate (single definition — referenced by build's `review/` resumption row and the `sync` skill)
 
-For an `in-review` ticket (a solo ticket or an at-review epic in `review/`, or — for the `sync` caller — an epic child whose subtree is still in `in-progress/`), determine whether its PR has merged. **The rule is shared; the lookup key depends on the caller:**
+Determine whether a ticket's PR has merged. The scan set depends on the caller: **build** applies this to an `in-review` ticket it is resuming (a solo ticket or an at-review epic in `review/`); **sync** applies it to every ticket in its folder-keyed scan set (any solo ticket in `backlog/`, `in-progress/`, or `review/`, plus epic children reached via the `*/tasks/*` glob, including a child whose subtree is still in `in-progress/`). **The rule is shared; the lookup key depends on the caller:**
 
 - **Branch-keyed** — build's per-ticket `review/` resumption, which has the current checkout:
   ```bash

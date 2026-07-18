@@ -1,6 +1,6 @@
 ---
 name: sync
-description: "Reconcile in-review tickets with their GitHub PR state, promoting tickets with merged PRs to done and flagging PRs closed unmerged."
+description: "Reconcile every ticket in backlog, in-progress, and review with its GitHub PR state, promoting tickets with merged PRs to done and flagging PRs closed unmerged."
 disable-model-invocation: true
 allowed-tools:
   - Read
@@ -12,11 +12,11 @@ allowed-tools:
 argument-hint: "[ticket-id]"
 ---
 
-# Sync — reconcile in-review tickets with GitHub PR state
+# Sync — reconcile active-state tickets with GitHub PR state
 
-Scan every ticket whose `status` is `in-review` (by frontmatter — not just the ones sitting in `review/`, since an epic child can be `in-review` while its subtree is still in `in-progress/`) and check each PR's merge state on GitHub. **Merged** → finalize the ticket to `done/` (Transition 6). **Open** → report it. **Closed-unmerged** → flag it for your attention. Report everything at the end.
+Scan every ticket sitting in `backlog/`, `in-progress/`, or `review/` (solo tickets and epic children alike; `done/` is terminal and never scanned) and check each PR's merge state on GitHub. **Merged** → finalize the ticket to `done/` (Transition 6). **Open** → report it. **Closed-unmerged** → flag it for your attention. Report everything at the end. Scanning by folder rather than by frontmatter `status` catches a merged PR wherever it landed — a ship crash, a re-plan (`review → in-progress`), or a manually opened/merged PR can leave a merged PR attached to a ticket that never reached `review/`.
 
-**This skill runs in the main conversation, standalone** — **not a pipeline stage**. It spawns no subagents. Unlike the other standalone skills, sync *does* perform a state transition — but only the safe, terminal merge finalization (Transition 6: a merged ticket's `in-review → done`) on a confirmed-merged PR.
+**This skill runs in the main conversation, standalone** — **not a pipeline stage**. It spawns no subagents. Unlike the other standalone skills, sync *does* perform a state transition — but only the safe, terminal merge finalization (Transition 6: a merged ticket's promotion to `done/`) on a confirmed-merged PR.
 
 Run it **manually** to finalize merged reviews in one pass. Sync is **stateless** — each run is a fresh scan.
 
@@ -26,7 +26,7 @@ Run it **manually** to finalize merged reviews in one pass. Sync is **stateless*
 /feature:sync $ARGUMENTS
 ```
 
-`$1` (optional) = a ticket ID to reconcile just that one ticket. Omit it to scan **all** in-review tickets.
+`$1` (optional) = a ticket ID to reconcile just that one ticket. Omit it to scan **every** ticket in `backlog/`, `in-progress/`, and `review/`.
 
 ## When NOT to run
 - To build/implement a ticket → `/feature:build`.
@@ -39,18 +39,17 @@ Sync reads PR state from GitHub via `gh`. Before any work, run the shared fail-c
 
 ## Process
 
-### 1. Enumerate in-review tickets (by status)
+### 1. Enumerate tickets (by state folder)
 
-Sync's scan set is every ticket whose frontmatter `status` is `in-review` — **not** every ticket sitting in `review/`. Solo tickets in `review/` and epic children whose subtree reached `review/` are both `in-review`, but an epic child can *also* be `in-review` while its subtree still sits in `in-progress/<EPIC>/` — a sibling is mid-build, so the precedence rule (`in-progress` ⊐ `review` ⊐ `done`) keeps the epic out of `review/`. A `review/`-only scan misses those children, so enumeration keys on the frontmatter `status` field, not the folder.
+Sync's scan set is every ticket sitting in `backlog/`, `in-progress/`, or `review/` — the **folder** is the authoritative scan dimension; frontmatter `status` is a consistency signal, not a filter. `done/` is terminal and never scanned. Folder-keying reaches every ticket that could carry a merged PR, including a solo ticket parked in `backlog/`/`in-progress/` after a crash or re-plan, and an epic child that is `in-review` in place while its subtree still sits in `in-progress/<EPIC>/` (a sibling is mid-build, so the precedence rule `in-progress` ⊐ `review` ⊐ `done` keeps the epic out of `review/` — the `in-progress/` folder scan still reaches the child via the `*/tasks/*` glob).
 
-- **All (no arg)**: glob `claudedocs/tickets/*/*/01-spec.md` (solo tickets, any state) and `claudedocs/tickets/*/*/tasks/*/01-spec.md` (epic children, any state). Use the `Glob` tool — a no-match pattern returns nothing, not an error; don't rely on raw shell globbing, which can abort on no-match. The `*/tasks/*` depth is fixed at one level (epics nest exactly one level: parent → `tasks/<child>/`); do not use `**`.
-- **Single (`$1` given)**: resolve the ID per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 1, then read its `01-spec.md` frontmatter. Accept it if `status` is `in-review`, regardless of which state folder it lives in; otherwise report "`<id>` is not in-review (status: `<actual>`) — nothing to sync" and exit.
-- **Classify** every kept `in-review` ticket — from the no-arg glob (read each globbed `01-spec.md` frontmatter, keep only `status: in-review`) **or** the single-arg accept above — by where it sits. The single-arg path runs this *same* classification, so an accepted-but-inconsistent `$1` (e.g. stale `in-review` frontmatter in `done/`/`backlog/`) is bucketed inconsistent and is never PR-checked or moved, exactly as a globbed one would be:
-  - **Actionable** — a solo ticket in `review/<id>/`, or an epic child in `review/<EPIC>/tasks/<id>/` **or** `in-progress/<EPIC>/tasks/<id>/`. These get the PR check in Step 2.
-  - **Inconsistent** — any *other* location for an `in-review` ticket: a solo ticket outside `review/`, or any ticket under `done/`/`backlog/`. No transition can reach those states (Transition 5 sets `in-review` only in `review/` for solo, or in `review/`/`in-progress/` for a child), so the frontmatter is stale or hand-edited. Record these for an `⚠` report line (Step 4); never PR-check or move them.
-- **Malformed/unparseable frontmatter**: a `review/` location is itself a positive `in-review` signal (solo and epic children both land there) — include + warn. An `in-progress/` location is **not** a positive signal — an unparseable child there can't be distinguished from an active sibling — so exclude + warn. Skip any status edit that can't be parsed safely.
+- **All (no arg)**: glob `claudedocs/tickets/*/*/01-spec.md` (solo tickets) and `claudedocs/tickets/*/*/tasks/*/01-spec.md` (epic children). Use the `Glob` tool — a no-match pattern returns nothing, not an error; don't rely on raw shell globbing, which can abort on no-match. The `*/tasks/*` depth is fixed at one level (epics nest exactly one level: parent → `tasks/<child>/`); do not use `**`. **Keep by folder**: from each matched path, read the state-folder segment (the directory right under `claudedocs/tickets/`) and keep the ticket iff that segment is `backlog`, `in-progress`, or `review`; drop anything under `done/`.
+- **Single (`$1` given)**: resolve the ID per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 1. Accept it if its resolved folder is under `backlog/`, `in-progress/`, or `review/`, regardless of frontmatter `status`; if it resolves under `done/`, report "`<id>` is already in done/ — nothing to sync" and exit.
+- **Every kept ticket is PR-checked the same way** in Step 2 — folder membership alone determines the scan set. The ticket's current state folder is carried alongside it (it drives the Step 3 solo `mv` source and the Step 3/4 report shaping).
+- **Terminal short-circuit**: skip the Step 2 PR check for any kept ticket whose frontmatter `status` is already `done` or `cancelled` (nothing to promote — a stale terminal status inside an active folder is a no-op for sync). Every other status — `backlog`, `in-progress`, `in-review`, `partial-completion` — is PR-checked. Skipped-terminal tickets are excluded from the PR-checked set and are **not** counted in the no-PR aggregate (they were never PR candidates).
+- **Malformed/unparseable frontmatter**: the ticket is still PR-checked (folder membership, not status, put it in the scan set) — its status simply can't be compared for the mismatch note in Step 3. Skip any status edit that can't be parsed safely.
 
-If there are no `in-review` tickets at all (nothing actionable and nothing inconsistent), report "No in-review tickets." and exit cleanly. Otherwise proceed to Steps 2–4 — even if every actionable ticket later resolves to couldn't-check, the Step 4 report still prints (the `? Couldn't check` group surfaces them; every non-empty group always prints, regardless of whether any promotion occurred).
+If the scan set is empty (no ticket in any of the three folders), report "Nothing to sync — no tickets in `backlog/`, `in-progress/`, or `review/`." and exit cleanly. Otherwise proceed to Steps 2–4.
 
 ### 2. Find each ticket's PR (ID-keyed)
 
@@ -64,20 +63,19 @@ gh pr list --search "<TICKET-ID> in:title" --state all \
 - Quote `"<TICKET-ID>"` (controlled `<PREFIX>-<N>` token, no raw free-text interpolation). The `startswith("<TICKET-ID>:")` post-filter rejects titles that merely mention the ID (e.g. a multi-ID title), so only the ticket's own PR survives.
 - `mergeCommit.oid` is carried for the **reachability gate** the shared predicate applies in Step 3 (a `MERGED` PR promotes only when its merge commit has reached `<base>`).
 - **Multiple survivors** (e.g. a reopened PR): `sort_by(.createdAt) | last` picks the newest; note that in the report.
-- **No survivor**: record `couldn't-check (no PR found)`; change nothing.
+- **No survivor**: record `no-PR-found`; change nothing. Step 4 reports this per the ticket's current folder — a silent aggregate count for `backlog/`/`in-progress/` tickets (most active tickets legitimately have no PR), a loud per-ticket `? Couldn't check` line for `review/` tickets (no PR on a `review/` ticket is an anomaly).
 
 ### 3. Act on the PR state
 
-Run Step 2's PR lookup only for the **actionable** tickets from Step 1. Inconsistent tickets skip straight to the Step 4 report — no PR check, no move.
+Run Step 2's PR lookup for every kept ticket from Step 1 (except the terminal short-circuit — `done`/`cancelled` status tickets are never PR-checked). Each ticket carries its **current state folder** from Step 1; that folder drives the solo `mv` source and the report shaping below.
 
-- **`MERGED` and reachable from `<base>`** → the shared merge predicate's **reachability gate** decides this: after a `git fetch`, resolve `<base>` and require the PR's merge commit to be an ancestor of `origin/<base>` (`git merge-base --is-ancestor`) — the exact rule lives once in [`../build/references/pr-creation.md`](../build/references/pr-creation.md)'s Merge predicate; apply it, don't fork the gate here. Only a merge that has actually reached `<base>` promotes; finalize via **Transition 6** (`review → done`) per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) — invoke it, don't reimplement the move logic:
-  - *Solo ticket*: move the folder first — `mv "claudedocs/tickets/review/<id>" "claudedocs/tickets/done/<id>"` — then `Edit` its `01-spec.md` frontmatter `status` → `done`. A solo `in-review` ticket always lives in `review/` (Transition 5's solo path moves the folder before flipping the status), so this path stays `review/`-specific — do not unify it with the epic-child path below.
-  - *Epic child*: no child-folder move — `Edit` the child's `status` → `done`. The child's subtree may be in `review/` **or** still in `in-progress/` (a sibling is mid-build); either way the child flips in place. **Defer** Transition 6's **Epic-completion predicate** to once per affected epic at the end of the pass: collect the epics whose children you promoted this pass; for each, re-resolve `<epic-folder>` (the deepest ancestor containing `prd.md`, at its **current** location) and apply the **Epic-completion predicate** (see [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md)) *after* all in-pass child flips are written — invoke it, don't reimplement the roster/sibling scan. On `promote`, `mv` the whole epic subtree from its current folder — `<epic-folder> → done/<EPIC>` (source is wherever the epic currently sits, `in-progress/` or `review/`, **not** a hardcoded `review/<EPIC>`) — and set `prd.md` `status` → `done`. On `stay`, leave the epic where it is: the child flip stands and the epic stays put under the precedence rule. The predicate gates on the epic's **declared `children:` roster**, so a just-in-time epic whose later-phase children aren't materialized yet correctly stays put even when every authored child is terminal. Render any predicate warnings (roster-unknown when `children:` can't be read; roster-drift when a materialized child isn't in the roster) as `⚠ Needs attention` report lines (Step 4). (Deferring once per epic avoids re-applying the predicate per merged child, where only the last child's check can succeed.)
+- **`MERGED` and reachable from `<base>`** → the shared merge predicate's **reachability gate** decides this: after a `git fetch`, resolve `<base>` and require the PR's merge commit to be an ancestor of `origin/<base>` (`git merge-base --is-ancestor`) — the exact rule lives once in [`../build/references/pr-creation.md`](../build/references/pr-creation.md)'s Merge predicate; apply it, don't fork the gate here. Only a merge that has actually reached `<base>` promotes; finalize via **Transition 6** (current state folder → `done`) per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) — invoke it, don't reimplement the move logic:
+  - *Solo ticket*: move the folder first from its **current** state folder — `mv "claudedocs/tickets/<current-state>/<id>" "claudedocs/tickets/done/<id>"`, where `<current-state>` is the `backlog`/`in-progress`/`review` folder the Step 1 scan matched (**not** a hardcoded `review/`) — then `Edit` its `01-spec.md` frontmatter `status` → `done`. Do not unify this solo path with the epic-child path below (a child flips in place without a folder move). **Mismatch note**: when the source folder is *not* `review/` — a merged PR reached a solo ticket that never went through the normal `review → done` path — add one `⚠` note line for it in Step 4 (e.g. `⚠ <id> promoted from <folder>/ — merged outside the review→done path`). A promotion from `review/` is the normal path and gets no note.
+  - *Epic child*: no child-folder move — `Edit` the child's `status` → `done`. The child's subtree may be in `review/` **or** still in `in-progress/` (a sibling is mid-build); either way the child flips in place, and no mismatch note is emitted (an epic child's status/folder decoupling is by design, not an anomaly). **Defer** Transition 6's **Epic-completion predicate** to once per affected epic at the end of the pass: collect the epics whose children you promoted this pass; for each, re-resolve `<epic-folder>` (the deepest ancestor containing `prd.md`, at its **current** location) and apply the **Epic-completion predicate** (see [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md)) *after* all in-pass child flips are written — invoke it, don't reimplement the roster/sibling scan. On `promote`, `mv` the whole epic subtree from its current folder — `<epic-folder> → done/<EPIC>` (source is wherever the epic currently sits, `in-progress/` or `review/`, **not** a hardcoded `review/<EPIC>`) — and set `prd.md` `status` → `done`. On `stay`, leave the epic where it is: the child flip stands and the epic stays put under the precedence rule. The predicate gates on the epic's **declared `children:` roster**, so a just-in-time epic whose later-phase children aren't materialized yet correctly stays put even when every authored child is terminal. Render any predicate warnings (roster-unknown when `children:` can't be read; roster-drift when a materialized child isn't in the roster) as `⚠ Needs attention` report lines (Step 4). (Deferring once per epic avoids re-applying the predicate per merged child, where only the last child's check can succeed.)
   - Record `✓ promoted → done/` + the PR URL (and the epic move, if it fired).
 - **`MERGED` but not yet reachable from `<base>`** (an epic child squash-merged only into `integration/<epic-id>`, or `git`/`gh` couldn't resolve the merge commit or base — e.g. offline) → the reachability gate treats it as **still pending**: record `… merged into integration, not yet on <base>` + the PR URL; change nothing. Never promote on an unverifiable merge. It promotes on a later pass once the integration PR lands on `<base>`.
-- **`OPEN`** → record `… open` + the PR URL; change nothing.
-- **`CLOSED`** (unmerged) → record `⚠ closed unmerged — needs your call`; change nothing. Do NOT auto-revert — reverting `review → backlog` is a judgment call (you may reopen or rework).
-- **Inconsistent** (from Step 1, no PR lookup ran) → record `⚠ inconsistent (status: in-review, but in <folder>)`; change nothing. The status is unreachable for that location — surface it so the corruption isn't silently skipped, but don't guess a move.
+- **`OPEN`** → record `… open` + the PR URL; change nothing. For a `backlog/` or `in-progress/` ticket, tag the ticket's folder in the report (`… open — ticket in <folder>/`) — sync is a merge-finalizer only and performs **no** Transition 5 (an open PR on an active ticket is reported, never promoted to `review/`).
+- **`CLOSED`** (unmerged) → record `⚠ closed unmerged — needs your call`; change nothing. Do NOT auto-revert — reverting to `backlog` is a judgment call (you may reopen or rework).
 
 Atomicity (per `state-transitions.md`): always move the folder before editing frontmatter, so a move failure leaves the prior state recoverable.
 
@@ -86,20 +84,24 @@ Atomicity (per `state-transitions.md`): always move the folder before editing fr
 Print a grouped summary with counts; omit empty groups:
 
 ```
-## Sync — <N> in-review ticket(s) checked
+## Sync — <N> ticket(s) checked
 
 ✓ Promoted to done/ (<n>):
   - <id> — PR <url>
 … Still open (<n>):
-  - <id> — PR <url>
+  - <id> — PR <url> — ticket in <folder>/   (folder tag on backlog/in-progress; a review/ ticket shows a bare `… open`)
 ⚠ Needs attention (<n>):
+  - <id> — promoted from <folder>/ — merged outside the review→done path
   - <id> — closed unmerged — PR <url>
-  - <id> — inconsistent (status: in-review, but in <folder>) — left as-is
 ? Couldn't check (<n>):
-  - <id> — <reason>
+  - <id> — no PR found (in review/)
+  - <id> — couldn't-check (<reason>)   (gh error, any folder)
 ```
 
-The `⚠ Needs attention` group carries closed-unmerged PRs, inconsistent-state tickets (Step 1's inconsistent bucket), and any Epic-completion-predicate warnings (roster-unknown / roster-drift) raised while finalizing an epic, each tagged inline — no separate section. If a promotion finalized an epic's last child, add a line noting the epic subtree moved to `done/`.
+- **Header** counts every PR-checked ticket (terminal short-circuits from Step 1 are excluded — they were never PR candidates).
+- The `⚠ Needs attention` group carries closed-unmerged PRs, the solo-promotion mismatch notes (a merged ticket promoted from a non-`review/` folder), and any Epic-completion-predicate warnings (roster-unknown / roster-drift) raised while finalizing an epic, each tagged inline — no separate section. If a promotion finalized an epic's last child, add a line noting the epic subtree moved to `done/`.
+- The `? Couldn't check` group lists `review/` tickets with **no PR found** (an anomaly worth surfacing loudly) plus any ticket — of any folder — whose `gh pr list` errored (per Error Handling below); the reachability check being unresolvable (offline / merge-into-integration) is reported in its own line via Step 3, not here. No-PR `backlog/` and `in-progress/` tickets are silently skipped — most active tickets legitimately have no PR — and collapse into a single aggregate line: `<n> backlog/in-progress ticket(s) had no PR (silently skipped).`
+- **No-op run**: when nothing was promoted, open, or flagged and every PR-checked ticket was a no-PR silent-skip, print one quiet line instead of the empty groups: `Nothing to sync — <N> ticket(s) had no PR.`
 
 ## Boundaries
 
