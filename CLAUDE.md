@@ -18,7 +18,7 @@ The primary audience for edits to this repo is Claude working on the plugin's ow
 
 Editing a skill or agent while another Claude Code session is open:
 
-1. Make your edit in `skills/<name>/SKILL.md` or `agents/<name>.md`
+1. Make your edit in `plugins/feature/skills/<name>/SKILL.md` or `plugins/feature/agents/<name>.md`
 2. In the consuming Claude Code session (not this repo — see below), run `/reload-plugins` — the updated skill/agent takes effect without a restart
 3. Invoke the skill or trigger the agent to verify the change
 
@@ -30,7 +30,7 @@ Editing a skill or agent while another Claude Code session is open:
 
 The repo is a **multi-plugin marketplace**: the two marketplace files stay at the repo root and index the plugins under `plugins/`; each plugin carries both runtime manifests.
 
-Path convention for the rest of this file: unqualified `skills/`, `agents/`, `hooks/`, and `docs/` paths are relative to the `feature` plugin root (`plugins/feature/`); repo-root-relative paths are written in full from the repo root.
+Path convention: in prose references throughout this file, an unqualified `skills/`, `agents/`, `hooks/`, or `docs/` path names the item inside the `feature` plugin (i.e. `plugins/feature/…`). Operational commands and audit steps use the full repo-root-relative `plugins/feature/…` path so they run as written from the repo root.
 
 ```
 feature-pipeline/
@@ -352,9 +352,9 @@ Before committing changes to skills or agents:
 2. **Check tool budget** against the table above — reviewers must not have write access.
 3. **Check invocation control** — skills that are only ever user-invoked (`debug`, `sync`, `review`, `ship`, `lessons-consolidate`, `guide`) set `disable-model-invocation: true` (user-only; description not loaded into context). Skills invoked programmatically by another skill via the Skill tool (`flow`, `plan`, `build`, `discover`, `address-review` — the last invoked by `ship`'s address hop) stay model-invocable but carry a terse one-line description with no auto-trigger phrases.
 4. **Walk the stage contract in `skills/flow/SKILL.md`** — if you changed inputs/outputs, update the Stage Contract table *and* every consuming stage's `Required Input` section.
-5. **Sweep for cross-skill drift** — when a filename, skill name, or schema changes, grep across `skills/` and `agents/` for stale references and update them. The "Editing discipline" section below applies.
-6. **Build skill tool-budget audit** — grep `skills/build/SKILL.md` for any tool reference outside its `allowed-tools` (Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite). Should return no matches.
-7. **Reviewer-agent read-only audit** — confirm `agents/code-reviewer.md`, `agents/security-engineer.md`, `agents/performance-engineer.md`, and `agents/code-architect.md` list no `Bash` or `Edit` in their `tools:`. Reviewers must not mutate the tree they review.
+5. **Sweep for cross-skill drift** — when a filename, skill name, or schema changes, grep across `plugins/feature/skills/` and `plugins/feature/agents/` for stale references and update them. The "Editing discipline" section below applies.
+6. **Build skill tool-budget audit** — grep `plugins/feature/skills/build/SKILL.md` for any tool reference outside its `allowed-tools` (Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite). Should return no matches.
+7. **Reviewer-agent read-only audit** — confirm `plugins/feature/agents/code-reviewer.md`, `plugins/feature/agents/security-engineer.md`, `plugins/feature/agents/performance-engineer.md`, and `plugins/feature/agents/code-architect.md` list no `Bash` or `Edit` in their `tools:`. Reviewers must not mutate the tree they review.
 8. **Failed-criteria placement** — failed test criteria live inside `05-tests.md` under a `## Failed Criteria` section. Verify build-skill output stays consistent with this placement.
 
 There's no automated test suite for the plugin itself. Validation is by manual pipeline runs on real tickets.
