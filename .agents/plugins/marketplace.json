@@ -7,8 +7,23 @@
     {
       "name": "feature",
       "source": {
-        "source": "url",
-        "url": "snadtochii/feature-pipeline",
+        "source": "git-subdir",
+        "url": "https://github.com/snadtochii/feature-pipeline.git",
+        "path": "./plugins/feature",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "stack-first",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/snadtochii/feature-pipeline.git",
+        "path": "./plugins/stack-first",
         "ref": "main"
       },
       "policy": {

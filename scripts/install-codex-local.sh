@@ -68,12 +68,13 @@ cleanup_fresh_root() {
 }
 trap cleanup_fresh_root EXIT
 
-git -C "$repo_root" ls-files --cached --others --exclude-standard -z | \
+plugin_source_root="$repo_root/plugins/feature"
+git -C "$plugin_source_root" ls-files --cached --others --exclude-standard -z | \
   while IFS= read -r -d '' source_path; do
-    if [ -e "$repo_root/$source_path" ] || [ -L "$repo_root/$source_path" ]; then
+    if [ -e "$plugin_source_root/$source_path" ] || [ -L "$plugin_source_root/$source_path" ]; then
       printf '%s\0' "$source_path"
     fi
-  done | rsync -a --from0 --files-from=- "$repo_root/" "$fresh_plugin/"
+  done | rsync -a --from0 --files-from=- "$plugin_source_root/" "$fresh_plugin/"
 
 staged_plugin_manifest="$fresh_plugin/.codex-plugin/plugin.json"
 if [ ! -f "$staged_plugin_manifest" ]; then

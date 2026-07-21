@@ -13,20 +13,23 @@ A Claude Code & Codex plugin that runs an agentic feature-development pipeline f
 ### Claude Code
 
 ```bash
-/plugin marketplace add <github-user>/feature-pipeline   # add the repo as a marketplace
-/plugin install feature@<github-user>-feature            # install the plugin
+/plugin marketplace add <github-user>/feature-pipeline   # add the repo as a marketplace (ships both plugins)
+/plugin install feature@<github-user>-feature            # install the pipeline plugin
+/plugin install stack-first@<github-user>-feature        # optional: the dependency-guard plugin
 /reload-plugins                                          # activate
 ```
+
+The marketplace ships two independent plugins: `feature` (the pipeline) and `stack-first` (a stack-agnostic dependency guard). Install either or both. `stack-first` has its own [README](plugins/stack-first/README.md).
 
 Local development:
 
 ```bash
-claude --plugin-dir /path/to/feature-pipeline
+claude --plugin-dir /path/to/feature-pipeline/plugins/feature
 ```
 
 ### Codex
 
-The repo ships a Codex manifest (`.codex-plugin/plugin.json`) and marketplace file (`.agents/plugins/marketplace.json`).
+Each plugin carries its own Codex manifest (`plugins/feature/.codex-plugin/plugin.json`, `plugins/stack-first/.codex-plugin/plugin.json`); the repo-root marketplace file (`.agents/plugins/marketplace.json`) indexes both with subdirectory-aware sources.
 
 Install the stable plugin from GitHub:
 
@@ -34,6 +37,7 @@ Install the stable plugin from GitHub:
 codex plugin marketplace add snadtochii/feature-pipeline --ref main
 codex plugin list                           # verify feature@feature is available
 codex plugin add feature@feature
+codex plugin add stack-first@feature        # optional: the dependency-guard plugin
 codex plugin list                           # verify installed version and status
 ```
 
@@ -65,7 +69,7 @@ codex plugin add feature@feature
 codex plugin list                           # verify feature@feature is installed
 ```
 
-The validation hook uses Codex's hook system — enable `codex_hooks` and `plugin_hooks` in your Codex config. See [docs/advanced.md](docs/advanced.md#validation-hook) for the hook setup.
+The validation hook uses Codex's hook system — enable `codex_hooks` and `plugin_hooks` in your Codex config. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#validation-hook) for the hook setup.
 
 ## Quick start
 
@@ -85,7 +89,7 @@ The validation hook uses Codex's hook system — enable `codex_hooks` and `plugi
 | `/feature:plan <id>` | Plan stage alone — pre-plan synthesis (codebase patterns + open questions), then interactive plan mode. |
 | `/feature:build <id>` | Build loop alone — implement → review (4 parallel reviewers) → test (real-browser UI). Auto-resumes from on-disk artifacts. |
 
-Resumption is auto-detected from the artifacts on disk; delete them to start a stage fresh. See [docs/advanced.md](docs/advanced.md) for the `--pr` auto-PR flow, `--no-ui-testing`, epics, and blocker dependencies.
+Resumption is auto-detected from the artifacts on disk; delete them to start a stage fresh. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md) for the `--pr` auto-PR flow, `--no-ui-testing`, epics, and blocker dependencies.
 
 ## Standalone helpers
 
@@ -94,7 +98,7 @@ Run directly, outside the pipeline:
 | Command | What it does |
 |---|---|
 | `/feature:guide` | Index of the standalone helpers — what each one does and when to reach for it. |
-| `/feature:ship <id>` | Autonomous build → review → address loop over a ticket or `blocked_by` chain, ending at an open PR (`--merge` to land it, `--parallel` to build independent tickets concurrently in isolated worktrees). See [ship's flags](docs/advanced.md#ship-flags---base---merge---ui-test---parallel). |
+| `/feature:ship <id>` | Autonomous build → review → address loop over a ticket or `blocked_by` chain, ending at an open PR (`--merge` to land it, `--parallel` to build independent tickets concurrently in isolated worktrees). See [ship's flags](plugins/feature/docs/advanced.md#ship-flags---base---merge---ui-test---parallel). |
 | `/feature:review [<pr>]` | Review open PRs against a maintainability rubric; post inline + summary findings. Never approves or edits code. Omit `<pr>` to scan every open PR. |
 | `/feature:address-review [<pr>]` | Validate a PR's review feedback — automated findings and human comments — fix the accepted ones, and post signed replies. Omit `<pr>` to use the current branch's PR. |
 | `/feature:debug <description>` | Runtime-evidence root-cause debugger: hypothesize → reproduce → fix (gated) → verify. |
@@ -138,7 +142,7 @@ claudedocs/tickets/<state>/FP-1/
     └── FP-4/
 ```
 
-`/feature:flow <EPIC-ID>` walks the children in `blocked_by` order; `plan` and `build` refuse to run against an epic directly (run them on a child). See [docs/advanced.md](docs/advanced.md#epics-and-blocker-dependencies) for epics and blocker dependencies.
+`/feature:flow <EPIC-ID>` walks the children in `blocked_by` order; `plan` and `build` refuse to run against an epic directly (run them on a child). See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#epics-and-blocker-dependencies) for epics and blocker dependencies.
 
 ## Configuration
 
@@ -158,7 +162,7 @@ worktree:                        # makes a fresh git worktree buildable
 
 `worktree.setup` pairs with a committed `.worktreeinclude` file at the repo root — gitignore-style patterns listing the gitignored files (`.env`, auth sessions) a worktree creator copies into a fresh worktree before running setup.
 
-The pipeline also reads your project's `CLAUDE.md` for conventions. Full reference — auth/`storage_state`, hook internals, the worktree contract, and MCP setup — is in [docs/advanced.md](docs/advanced.md#configuration-reference).
+The pipeline also reads your project's `CLAUDE.md` for conventions. Full reference — auth/`storage_state`, hook internals, the worktree contract, and MCP setup — is in [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#configuration-reference).
 
 ## Requirements
 
@@ -169,4 +173,4 @@ The pipeline also reads your project's `CLAUDE.md` for conventions. Full referen
 
 ---
 
-**Advanced usage & full configuration reference:** [docs/advanced.md](docs/advanced.md).
+**Advanced usage & full configuration reference:** [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md).

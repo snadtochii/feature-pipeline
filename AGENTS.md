@@ -28,30 +28,54 @@ Editing a skill or agent while another Codex session is open:
 
 ## Repository layout
 
+The repo is a **multi-plugin marketplace**: the two marketplace files stay at the repo root and index the plugins under `plugins/`; each plugin carries both runtime manifests.
+
+Path convention for the rest of this file: unqualified `skills/`, `agents/`, `hooks/`, and `docs/` paths are relative to the `feature` plugin root (`plugins/feature/`); repo-root-relative paths are written in full from the repo root.
+
 ```
 feature-pipeline/
-├── .claude-plugin/          # Plugin/marketplace metadata
-│   ├── plugin.json
-│   └── marketplace.json
-├── .codex-plugin/           # Codex plugin metadata
-│   └── plugin.json
-├── hooks/                   # PostToolUse validation hook
-│   ├── hooks.json           # Declares file-edit matcher → validate.sh
-│   └── validate.sh          # Reads validate: block from claudedocs/tickets/config.yaml
-├── agents/                  # Subagent definitions (one .md per agent)
-├── skills/                  # Skill definitions (folder per skill, SKILL.md inside)
-│   ├── flow/                # Orchestrator (plan → build with completion gate)
-│   ├── discover/            # Step 0 — ticket creation (Socratic dialogue, may emit 1..N tickets)
-│   ├── debug/               # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
-│   ├── sync/                # Standalone — reconcile every ticket in backlog/in-progress/review with GitHub PR state (not a pipeline stage)
-│   ├── review/              # Standalone — repo-scoped PR reviewer with shared comment rules + embedded rubric (not a pipeline stage)
-│   ├── address-review/      # Standalone — validate + address a PR's review comments, post signed replies (not a pipeline stage)
-│   ├── ship/                # Standalone — autonomous build→review loop over a ticket or chain, ending at an open PR (not a pipeline stage)
-│   ├── lessons-consolidate/ # Standalone — sweep _lessons.md to the atomic format via a human-approved diff (not a pipeline stage)
-│   ├── guide/               # Standalone — index of the standalone skills and when to reach for each (not a pipeline stage)
-│   ├── plan/                # Stage 1 (pre-plan synthesis + plan design)
-│   └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
+├── .claude-plugin/
+│   └── marketplace.json     # Claude marketplace — indexes plugins/* (stays at repo root)
+├── .agents/
+│   └── plugins/
+│       └── marketplace.json # Codex marketplace — indexes plugins/* (stays at repo root)
+├── scripts/
+│   └── install-codex-local.sh  # Local Codex install helper (stages plugins/feature/)
+├── plugins/
+│   ├── feature/             # The feature-development pipeline plugin
+│   │   ├── .claude-plugin/
+│   │   │   └── plugin.json
+│   │   ├── .codex-plugin/
+│   │   │   └── plugin.json
+│   │   ├── hooks/           # PostToolUse validation hook
+│   │   │   ├── hooks.json   # Declares file-edit matcher → validate.sh
+│   │   │   └── validate.sh  # Reads validate: block from claudedocs/tickets/config.yaml
+│   │   ├── agents/          # Subagent definitions (one .md per agent)
+│   │   ├── docs/            # Advanced usage & configuration reference (bundled with the plugin)
+│   │   └── skills/          # Skill definitions (folder per skill, SKILL.md inside)
+│   │       ├── flow/                # Orchestrator (plan → build with completion gate)
+│   │       ├── discover/            # Step 0 — ticket creation (Socratic dialogue, may emit 1..N tickets)
+│   │       ├── debug/               # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
+│   │       ├── sync/                # Standalone — reconcile every ticket in backlog/in-progress/review with GitHub PR state (not a pipeline stage)
+│   │       ├── review/              # Standalone — repo-scoped PR reviewer with shared comment rules + embedded rubric (not a pipeline stage)
+│   │       ├── address-review/      # Standalone — validate + address a PR's review comments, post signed replies (not a pipeline stage)
+│   │       ├── ship/                # Standalone — autonomous build→review loop over a ticket or chain, ending at an open PR (not a pipeline stage)
+│   │       ├── lessons-consolidate/ # Standalone — sweep _lessons.md to the atomic format via a human-approved diff (not a pipeline stage)
+│   │       ├── guide/               # Standalone — index of the standalone skills and when to reach for each (not a pipeline stage)
+│   │       ├── plan/                # Stage 1 (pre-plan synthesis + plan design)
+│   │       └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
+│   └── stack-first/         # Stack-agnostic dependency-guard plugin (independent versions)
+│       ├── .claude-plugin/
+│       │   └── plugin.json
+│       ├── .codex-plugin/
+│       │   └── plugin.json
+│       ├── hooks/           # Non-blocking PreToolUse install-command guard
+│       │   ├── hooks.json
+│       │   └── stack-first-guard.sh
+│       └── skills/
+│           └── stack-first/ # Five-step tech-selection procedure + docs/STACK.md contract
 ├── README.md                # End-user docs
+├── CLAUDE.md                # Claude twin of this file
 └── AGENTS.md                # This file
 ```
 
@@ -340,7 +364,7 @@ There's no automated test suite for the plugin itself. Validation is by manual p
 - No marketing language in commit messages ("magnificent", "blazingly fast", etc.).
 - Reference the issue/feature the commit addresses.
 - Keep commits small — one concern per commit.
-- **Bump the plugin version every PR.** Update `version` in BOTH `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two manifests must stay in lockstep. The discover → plan → build pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/build step.
+- **Bump the plugin version every PR.** For the `feature` plugin, update `version` in BOTH `plugins/feature/.claude-plugin/plugin.json` and `plugins/feature/.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two `feature` manifests must stay in lockstep. `stack-first` versions independently: when a change touches it, bump its own lockstep pair (`plugins/stack-first/.claude-plugin/plugin.json` + `plugins/stack-first/.codex-plugin/plugin.json`); the two plugins' versions are not coupled. The discover → plan → build pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/build step.
 
 ## Editing discipline
 

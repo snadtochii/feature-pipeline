@@ -8,7 +8,13 @@
     {
       "name": "feature",
       "description": "Agentic feature development pipeline.",
-      "source": "./",
+      "source": "./plugins/feature",
+      "category": "development"
+    },
+    {
+      "name": "stack-first",
+      "description": "Stack-agnostic dependency guard: consult the preferred ecosystem before adding a library and record every ruling.",
+      "source": "./plugins/stack-first",
       "category": "development"
     }
   ]

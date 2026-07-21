@@ -1,0 +1,9 @@
+{
+  "name": "stack-first",
+  "description": "Stack-agnostic dependency guard: consult the preferred ecosystem before adding a library and record every ruling.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Serhii Nadtochii"
+  },
+  "license": "MIT"
+}
