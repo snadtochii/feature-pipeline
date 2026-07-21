@@ -32,14 +32,21 @@ fi
 # Global options that consume the FOLLOWING token as their value. They must be
 # skipped together with their value, so a workspace/filter selector is mistaken
 # for neither the subcommand (`pnpm --filter web add …`) nor a package argument
-# (`pnpm install --filter web` adds nothing). `-w` is deliberately excluded: it
-# is boolean in pnpm (`pnpm -w add react`), and npm's value form is normally
-# written after the subcommand.
+# (`pnpm install --filter web` adds nothing). Value consumption is MANAGER-AWARE
+# because the same flag differs across CLIs: npm/yarn `-w`/`--workspace` take a
+# workspace value (`npm -w web install zod`), while pnpm's `-w` is boolean
+# (`pnpm -w add react`) and pnpm selects workspaces with `--filter <pkg>`.
+# $1 = manager (pnpm|npm|yarn|bun), $2 = token.
 value_opt() {
-    case "$1" in
-        --filter|--workspace|--cwd|-C|--dir|--prefix) return 0 ;;
-        *) return 1 ;;
+    # Common to all managers.
+    case "$2" in
+        --cwd|-C|--dir|--prefix) return 0 ;;
     esac
+    case "$1" in
+        pnpm) case "$2" in --filter) return 0 ;; esac ;;
+        npm|yarn) case "$2" in -w|--workspace) return 0 ;; esac ;;
+    esac
+    return 1
 }
 
 # Decide whether a single sub-command adds a package.
@@ -56,6 +63,7 @@ decide_fire() {
     while [ "$i" -lt "$n" ]; do
         case "${toks[$i]}" in
             pnpm|npm|yarn|bun)
+                local mgr="${toks[$i]}"
                 # Locate the subcommand, skipping leading global options (and the
                 # values of value-consuming ones) between the manager and it.
                 local j=$((i + 1))
@@ -70,7 +78,7 @@ decide_fire() {
                             j=$((j + 1))           # --opt=value, single token — skip
                             ;;
                         -*)
-                            if value_opt "${toks[$j]}"; then
+                            if value_opt "$mgr" "${toks[$j]}"; then
                                 j=$((j + 2))       # option + its value
                             else
                                 j=$((j + 1))       # boolean flag
@@ -89,7 +97,7 @@ decide_fire() {
                         case "${toks[$k]}" in
                             --*=*) k=$((k + 1)) ;;                        # --save-dev=… etc — skip
                             -*)
-                                if value_opt "${toks[$k]}"; then
+                                if value_opt "$mgr" "${toks[$k]}"; then
                                     k=$((k + 2))
                                 else
                                     k=$((k + 1))
