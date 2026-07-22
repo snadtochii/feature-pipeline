@@ -1,7 +1,6 @@
 ---
 name: ship
 description: "Autonomously build, independently review, and address a ticket, an epic, or several solo tickets, ending at open pull requests left for human review (pass --merge to land them)."
-disable-model-invocation: true
 allowed-tools:
   - Read
   - Glob

@@ -1,6 +1,6 @@
 # Advanced usage & configuration reference
 
-Deeper material that doesn't belong in the [README](../README.md) front door: the auto-PR and review→merge flow, epics and blocker dependencies, and the full configuration reference.
+Deeper material that doesn't belong in the [README](../../../README.md) front door: the auto-PR and review→merge flow, epics and blocker dependencies, and the full configuration reference.
 
 ## Contents
 

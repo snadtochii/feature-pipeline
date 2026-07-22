@@ -1,0 +1,36 @@
+{
+  "name": "stack-first",
+  "displayName": "Stack First",
+  "description": "Stack-agnostic dependency guard: consult the preferred ecosystem before adding a library and record every ruling.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Serhii Nadtochii",
+    "url": "https://github.com/snadtochii"
+  },
+  "homepage": "https://github.com/snadtochii/feature-pipeline",
+  "repository": "https://github.com/snadtochii/feature-pipeline",
+  "license": "MIT",
+  "keywords": [
+    "dependencies",
+    "ecosystem",
+    "governance",
+    "stack",
+    "guard"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "Stack First",
+    "shortDescription": "Consult the preferred ecosystem and record a ruling before adding any dependency.",
+    "longDescription": "A stack-agnostic dependency guard. A model-invocable skill runs a five-step tech-selection procedure against the consuming project's docs/STACK.md ledger, and a non-blocking install-command hook reminds you to run it. Ships zero ecosystem facts and zero project rulings — everything project-specific lives in the consuming repo.",
+    "developerName": "Serhii Nadtochii",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Interactive"
+    ],
+    "websiteURL": "https://github.com/snadtochii/feature-pipeline",
+    "brandColor": "#2F6B4F"
+  }
+}

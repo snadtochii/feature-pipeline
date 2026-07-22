@@ -18,7 +18,7 @@ The primary audience for edits to this repo is Codex working on the plugin's own
 
 Editing a skill or agent while another Codex session is open:
 
-1. Make your edit in `skills/<name>/SKILL.md` or `agents/<name>.md`
+1. Make your edit in `plugins/feature/skills/<name>/SKILL.md` or `plugins/feature/agents/<name>.md`
 2. In the consuming Codex session (not this repo — see below), run `/reload-plugins` — the updated skill/agent takes effect without a restart
 3. Invoke the skill or trigger the agent to verify the change
 
@@ -28,30 +28,54 @@ Editing a skill or agent while another Codex session is open:
 
 ## Repository layout
 
+The repo is a **multi-plugin marketplace**: the two marketplace files stay at the repo root and index the plugins under `plugins/`; each plugin carries both runtime manifests.
+
+Path convention: in prose references throughout this file, an unqualified `skills/`, `agents/`, `hooks/`, or `docs/` path names the item inside the `feature` plugin (i.e. `plugins/feature/…`). Operational commands and audit steps use the full repo-root-relative `plugins/feature/…` path so they run as written from the repo root.
+
 ```
 feature-pipeline/
-├── .claude-plugin/          # Plugin/marketplace metadata
-│   ├── plugin.json
-│   └── marketplace.json
-├── .codex-plugin/           # Codex plugin metadata
-│   └── plugin.json
-├── hooks/                   # PostToolUse validation hook
-│   ├── hooks.json           # Declares file-edit matcher → validate.sh
-│   └── validate.sh          # Reads validate: block from claudedocs/tickets/config.yaml
-├── agents/                  # Subagent definitions (one .md per agent)
-├── skills/                  # Skill definitions (folder per skill, SKILL.md inside)
-│   ├── flow/                # Orchestrator (plan → build with completion gate)
-│   ├── discover/            # Step 0 — ticket creation (Socratic dialogue, may emit 1..N tickets)
-│   ├── debug/               # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
-│   ├── sync/                # Standalone — reconcile every ticket in backlog/in-progress/review with GitHub PR state (not a pipeline stage)
-│   ├── review/              # Standalone — repo-scoped PR reviewer with shared comment rules + embedded rubric (not a pipeline stage)
-│   ├── address-review/      # Standalone — validate + address a PR's review comments, post signed replies (not a pipeline stage)
-│   ├── ship/                # Standalone — autonomous build→review loop over a ticket or chain, ending at an open PR (not a pipeline stage)
-│   ├── lessons-consolidate/ # Standalone — sweep _lessons.md to the atomic format via a human-approved diff (not a pipeline stage)
-│   ├── guide/               # Standalone — index of the standalone skills and when to reach for each (not a pipeline stage)
-│   ├── plan/                # Stage 1 (pre-plan synthesis + plan design)
-│   └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
+├── .claude-plugin/
+│   └── marketplace.json     # Claude marketplace — indexes plugins/* (stays at repo root)
+├── .agents/
+│   └── plugins/
+│       └── marketplace.json # Codex marketplace — indexes plugins/* (stays at repo root)
+├── scripts/
+│   └── install-codex-local.sh  # Local Codex install helper (stages plugins/feature/)
+├── plugins/
+│   ├── feature/             # The feature-development pipeline plugin
+│   │   ├── .claude-plugin/
+│   │   │   └── plugin.json
+│   │   ├── .codex-plugin/
+│   │   │   └── plugin.json
+│   │   ├── hooks/           # PostToolUse validation hook
+│   │   │   ├── hooks.json   # Declares file-edit matcher → validate.sh
+│   │   │   └── validate.sh  # Reads validate: block from claudedocs/tickets/config.yaml
+│   │   ├── agents/          # Subagent definitions (one .md per agent)
+│   │   ├── docs/            # Advanced usage & configuration reference (bundled with the plugin)
+│   │   └── skills/          # Skill definitions (folder per skill, SKILL.md inside)
+│   │       ├── flow/                # Orchestrator (plan → build with completion gate)
+│   │       ├── discover/            # Step 0 — ticket creation (Socratic dialogue, may emit 1..N tickets)
+│   │       ├── debug/               # Standalone — reactive runtime-evidence debugger (not a pipeline stage)
+│   │       ├── sync/                # Standalone — reconcile every ticket in backlog/in-progress/review with GitHub PR state (not a pipeline stage)
+│   │       ├── review/              # Standalone — repo-scoped PR reviewer with shared comment rules + embedded rubric (not a pipeline stage)
+│   │       ├── address-review/      # Standalone — validate + address a PR's review comments, post signed replies (not a pipeline stage)
+│   │       ├── ship/                # Standalone — autonomous build→review loop over a ticket or chain, ending at an open PR (not a pipeline stage)
+│   │       ├── lessons-consolidate/ # Standalone — sweep _lessons.md to the atomic format via a human-approved diff (not a pipeline stage)
+│   │       ├── guide/               # Standalone — index of the standalone skills and when to reach for each (not a pipeline stage)
+│   │       ├── plan/                # Stage 1 (pre-plan synthesis + plan design)
+│   │       └── build/               # Stage 2 — continuous loop with implement/review/test checkpoints
+│   └── stack-first/         # Stack-agnostic dependency-guard plugin (independent versions)
+│       ├── .claude-plugin/
+│       │   └── plugin.json
+│       ├── .codex-plugin/
+│       │   └── plugin.json
+│       ├── hooks/           # Non-blocking PreToolUse install-command guard
+│       │   ├── hooks.json
+│       │   └── stack-first-guard.sh
+│       └── skills/
+│           └── stack-first/ # Five-step tech-selection procedure + docs/STACK.md contract
 ├── README.md                # End-user docs
+├── CLAUDE.md                # Claude twin of this file
 └── AGENTS.md                # This file
 ```
 
@@ -326,9 +350,9 @@ Before committing changes to skills or agents:
 2. **Check tool budget** against the table above — reviewers must not have write access.
 3. **Check invocation control** — skills that are only ever user-invoked (`debug`, `sync`, `review`, `ship`, `lessons-consolidate`, `guide`) set `disable-model-invocation: true` (user-only; description not loaded into context). Skills invoked programmatically by another skill via the Skill tool (`flow`, `plan`, `build`, `discover`, `address-review` — the last invoked by `ship`'s address hop) stay model-invocable but carry a terse one-line description with no auto-trigger phrases.
 4. **Walk the stage contract in `skills/flow/SKILL.md`** — if you changed inputs/outputs, update the Stage Contract table *and* every consuming stage's `Required Input` section.
-5. **Sweep for cross-skill drift** — when a filename, skill name, or schema changes, grep across `skills/` and `agents/` for stale references and update them. The "Editing discipline" section below applies.
-6. **Build skill tool-budget audit** — grep `skills/build/SKILL.md` for any tool reference outside its `allowed-tools` (Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite). Should return no matches.
-7. **Reviewer-agent read-only audit** — confirm `agents/code-reviewer.md`, `agents/security-engineer.md`, `agents/performance-engineer.md`, and `agents/code-architect.md` list no `Bash` or `Edit` in their `tools:`. Reviewers must not mutate the tree they review.
+5. **Sweep for cross-skill drift** — when a filename, skill name, or schema changes, grep across `plugins/feature/skills/` and `plugins/feature/agents/` for stale references and update them. The "Editing discipline" section below applies.
+6. **Build skill tool-budget audit** — grep `plugins/feature/skills/build/SKILL.md` for any tool reference outside its `allowed-tools` (Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite). Should return no matches.
+7. **Reviewer-agent read-only audit** — confirm `plugins/feature/agents/code-reviewer.md`, `plugins/feature/agents/security-engineer.md`, `plugins/feature/agents/performance-engineer.md`, and `plugins/feature/agents/code-architect.md` list no `Bash` or `Edit` in their `tools:`. Reviewers must not mutate the tree they review.
 8. **Failed-criteria placement** — failed test criteria live inside `05-tests.md` under a `## Failed Criteria` section. Verify build-skill output stays consistent with this placement.
 
 There's no automated test suite for the plugin itself. Validation is by manual pipeline runs on real tickets.
@@ -340,7 +364,7 @@ There's no automated test suite for the plugin itself. Validation is by manual p
 - No marketing language in commit messages ("magnificent", "blazingly fast", etc.).
 - Reference the issue/feature the commit addresses.
 - Keep commits small — one concern per commit.
-- **Bump the plugin version every PR.** Update `version` in BOTH `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two manifests must stay in lockstep. The discover → plan → build pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/build step.
+- **Bump the plugin version every PR.** For the `feature` plugin, update `version` in BOTH `plugins/feature/.claude-plugin/plugin.json` and `plugins/feature/.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two `feature` manifests must stay in lockstep. `stack-first` versions independently: when a change touches it, bump its own lockstep pair (`plugins/stack-first/.claude-plugin/plugin.json` + `plugins/stack-first/.codex-plugin/plugin.json`); the two plugins' versions are not coupled. The discover → plan → build pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/build step.
 
 ## Editing discipline
 
