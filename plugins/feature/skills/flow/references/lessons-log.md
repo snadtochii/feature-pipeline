@@ -31,7 +31,7 @@ Examples:
 - `## FP-12 (partial, 2026-07-06): validate.lint must keep ESLint — bun's typecheck doesn't surface unused-import errors.`
 - `## FP-15 (stuck, 2026-07-06): canonical auth-middleware path is src/security/auth.ts (after the lib/ → src/ rename).`
 
-**Server-native**: the header's structured parts live as row fields — `ticket_id` for the ID, `verdict` for the verdict, the row's creation timestamp for the date. The row **body** is just the atomic lesson text (one subject, same atomicity and splitting rules as above); don't duplicate ID/verdict/date into it. A merged entry (§4) cites the additional ticket IDs inline in the body, since a row carries one `ticket_id`.
+**Server-native**: the header's structured parts live as row fields — `ticket_id` for the ID, `verdict` for the verdict, the row's creation timestamp for the date. The row's `verdict` field accepts only the server enum (`pass | fail | partial`); a producer whose header slot carries any other token — `debug`'s `debug`, or its standalone exit tokens (`fixed`, `diagnosed-unfixed`, `cannot-reproduce`, `exhausted`) — **omits `verdict`** and keeps that token in the body text (e.g. a `(debug)` prefix), so the write is never contract-rejected. The row **body** is otherwise just the atomic lesson text (one subject, same atomicity and splitting rules as above); don't duplicate ID/verdict/date into it. A merged entry (§4) cites the additional ticket IDs inline in the body, since a row carries one `ticket_id`.
 
 ## §3 What to capture
 
