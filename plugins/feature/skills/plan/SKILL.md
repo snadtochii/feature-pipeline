@@ -11,6 +11,12 @@ allowed-tools:
   - Task
   - TodoWrite
   - AskUserQuestion
+  - pipeline_get_ticket
+  - pipeline_get_artifact
+  - pipeline_list_artifacts
+  - pipeline_write_artifact
+  - pipeline_transition_ticket
+  - pipeline_list_lessons
 argument-hint: "[ticket-id]"
 ---
 
@@ -42,6 +48,8 @@ Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/r
 - `01-spec.md` — the ticket specification
 - `exploration.md` — optional, produced by `discover` if the ticket went through it; if present, used as a seed for incremental exploration. **Path depends on ticket shape**: at `<ticket-folder>/exploration.md` for solo tickets, or at `<epic-folder>/exploration.md` (one level above `tasks/<child>/`) for child tickets — see `../flow/references/ticket-resolution.md` Step 5.
 
+In server-native mode both inputs are artifact reads (the Read artifact operation in [`../flow/references/storage.md`](../flow/references/storage.md)): the spec is the ticket's `01-spec.md` artifact, and `exploration.md` is read from the ticket's own handle (solo) or the parent epic's handle (child) per the same Step 5 rule.
+
 ## Epic refusal
 
 Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 4 before any work. If the ticket has `kind: epic`, abort and instruct the user to run plan against a child ticket instead — epics are non-pipelineable.
@@ -66,12 +74,12 @@ Spawned automatically before plan design. Produces a tight synthesis the user ca
 
 ### Step 1.1 — Load context
 
-Read all upfront inputs:
+Read all upfront inputs. In server-native mode every ticket-store read below goes through the [`../flow/references/storage.md`](../flow/references/storage.md) operations — spec/exploration/blocker artifacts via Read artifact, ticket metadata via Read ticket metadata; `complexity`, `blocked_by`, and `kind` always come from ticket metadata (frontmatter in fs-native mode, the row in server-native mode), never parsed out of artifact bodies:
 - `<ticket-folder>/01-spec.md` — the spec
 - `exploration.md` — discover-time exploration if present (path resolution per ticket-resolution.md Step 5)
-- Project `CLAUDE.md` — conventions, lint/test commands, architectural rules
-- **Blocker artifacts** — for each `blocked_by` entry, the blocker's `01-spec.md` and (if present) `02-plan.md`
-- `claudedocs/tickets/_lessons.md` — cross-ticket lessons learned, if the file exists. Consume it per the shared contract in [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) §8 — grep-scoped by subject keywords derived from this ticket, never full-loaded. From the grep matches, **select at most 5 entries relevant to this ticket** — prefer the most specific. The selected entries — never the whole file — become the lessons block passed to the requirements-analyst subagent in Step 1.3, so prior gotchas (deviating tools, invalidated assumptions, naming gotchas after refactors) inform the open-questions surface at bounded context cost. No file, or no matching entries → omit the lessons block entirely.
+- Project `CLAUDE.md` — conventions, lint/test commands, architectural rules (a local repo file in both modes)
+- **Blocker artifacts** — for each `blocked_by` entry, the blocker's `01-spec.md` and (if present) `02-plan.md`. Server-native: check which artifacts the blocker has via List artifacts on the blocker's handle, then Read artifact for each.
+- The cross-ticket lessons log, if the project has one. Consume it per the shared contract in [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) §8, in the project's storage mode (fs-native: grep `claudedocs/tickets/_lessons.md`; server-native: `pipeline_list_lessons` + the same keyword match in memory) — scoped by subject keywords derived from this ticket, never full-loaded. From the matches, **select at most 5 entries relevant to this ticket** — prefer the most specific. The selected entries — never the whole store — become the lessons block passed to the requirements-analyst subagent in Step 1.3, so prior gotchas (deviating tools, invalidated assumptions, naming gotchas after refactors) inform the open-questions surface at bounded context cost. No store, or no matching entries → omit the lessons block entirely.
 
 ### Step 1.2 — Spawn `code-explorer` subagent (incremental)
 
@@ -237,7 +245,7 @@ If any item fails, refine the plan before writing it.
 
 ## Output
 
-- **Artifact**: `<ticket-folder>/02-plan.md`
+- **Artifact**: `<ticket-folder>/02-plan.md` — written via the Write artifact operation in [`../flow/references/storage.md`](../flow/references/storage.md) (server-native: `pipeline_write_artifact`; a plan carries no `verdict`, and its body is frontmatter-free like every server-native artifact)
 
 ## Presentation
 
