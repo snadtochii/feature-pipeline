@@ -74,11 +74,11 @@ If the scan set is empty (fs-native: no ticket in any of the three folders; serv
 
 ```bash
 gh pr list --search "<TICKET-ID> in:title" --state all \
-  --json number,state,url,createdAt,title,mergeCommit \
+  --json number,state,url,createdAt,title,mergeCommit,baseRefName \
   --jq '[.[] | select(.title | startswith("<TICKET-ID>:"))] | sort_by(.createdAt) | last'
 ```
 - Quote `"<TICKET-ID>"` (controlled `<PREFIX>-<N>` token, no raw free-text interpolation). The `startswith("<TICKET-ID>:")` post-filter rejects titles that merely mention the ID (e.g. a multi-ID title), so only the ticket's own PR survives.
-- `mergeCommit.oid` is carried for the **reachability gate** the shared predicate applies in Step 3 (a `MERGED` PR promotes only when its merge commit has reached `<base>`).
+- `mergeCommit.oid` and `baseRefName` are carried for the **reachability gate** the shared predicate applies in Step 3 (a `MERGED` PR promotes only when its merge commit has reached `<base>`; the gate consumes the PR's own base as `PR_BASE`).
 - **Multiple survivors** (e.g. a reopened PR): `sort_by(.createdAt) | last` picks the newest; note that in the report.
 - **No survivor**: record `no-PR-found`; change nothing. Step 4 reports this per the ticket's current folder — a silent aggregate count for `backlog/`/`in-progress/` tickets (most active tickets legitimately have no PR), a loud per-ticket `? Couldn't check` line for `review/` tickets (no PR on a `review/` ticket is an anomaly).
 
