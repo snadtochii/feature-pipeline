@@ -60,7 +60,7 @@ Sync reads PR state from GitHub via `gh`. Before any work, run the shared fail-c
 - **Single (`$1` given)**: resolve per ticket-resolution Step 1 (mode-aware — `pipeline_get_ticket`). Accept the row if its status is non-terminal; if `done` or `cancelled`, report "`<id>` is already done — nothing to sync" and exit.
 - **Carry each kept row's status** alongside it — it stands in for the fs state folder (it drives Step 3's CAS `from` and the Step 3/4 report shaping).
 
-If the scan set is empty (fs-native: no ticket in any of the three folders; server-native: no row at a non-terminal status), report "Nothing to sync — no tickets in `backlog/`, `in-progress/`, or `review/`." and exit cleanly. Otherwise proceed to Steps 2–4.
+If the scan set is empty (fs-native: no ticket in any of the three folders; server-native: no row at a non-terminal status), report "Nothing to sync — no tickets in `backlog/`, `in-progress/`, or `review/`." (server-native: "Nothing to sync — no tickets at a non-terminal status.") and exit cleanly. Otherwise proceed to Steps 2–4.
 
 ### 2. Find each ticket's PR
 
