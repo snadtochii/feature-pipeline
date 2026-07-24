@@ -87,7 +87,7 @@ The validation hook uses Codex's hook system — enable `codex_hooks` and `plugi
 | `/feature:discover <idea>` | Socratic intake → one ticket, or an epic with child tickets when the scope splits. Add `--explore` to challenge an idea before committing. |
 | `/feature:flow <id>` | Runs `plan → build` with a single verdict gate. Walks an epic's children in dependency order. Flags: `--pr`, `--no-ui-testing`. |
 | `/feature:plan <id>` | Plan stage alone — pre-plan synthesis (codebase patterns + open questions), then interactive plan mode. |
-| `/feature:build <id>` | Build loop alone — implement → review (4 parallel reviewers) → test (real-browser UI). Auto-resumes from on-disk artifacts. |
+| `/feature:build <id>` | Build loop alone — implement → review (4 parallel reviewers) → test (real-browser UI). Auto-resumes from the ticket's existing artifacts. |
 
 Resumption is auto-detected from the artifacts on disk; delete them to start a stage fresh. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md) for the `--pr` auto-PR flow, `--no-ui-testing`, epics, and blocker dependencies.
 

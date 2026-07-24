@@ -7,6 +7,11 @@ allowed-tools:
   - Grep
   - TodoWrite
   - Skill
+  - pipeline_get_ticket
+  - pipeline_list_tickets
+  - pipeline_get_artifact
+  - pipeline_list_artifacts
+  - pipeline_delete_artifact
 argument-hint: "[ticket-id|epic-id] [--pr] [--no-ui-testing]"
 ---
 
@@ -78,7 +83,7 @@ flow owns:
 4. Stage invocation via `Skill plan` and `Skill build`
 
 It does NOT own:
-- State transitions (folder moves, frontmatter `status` updates) — plan and build perform these themselves per `references/state-transitions.md`
+- State transitions (folder moves / status flips, in the project's storage mode per `references/storage.md`) — plan and build perform these themselves per `references/state-transitions.md`
 - The verdict gate — build owns it end-to-end (verdict, option menu, user-choice capture, transition dispatch)
 - Stage internals — plan owns its Phase 1 synthesis and plan design; build owns its loop and checkpoints
 - Agent coordination — plan and build spawn their own subagents
@@ -102,6 +107,11 @@ Flow inspects on-disk artifacts at start and routes to the right stage automatic
 
 The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and downstream `03-`/`04-`/`05-`/`06-`, if any). On the next flow invocation, the routing table matches the "neither exists" row and runs from scratch. Internal build checkpoints (implement → review → test inside one build invocation) write directly to the canonical artifacts — no special-casing needed.
 
+**Server-native keying.** In server-native storage mode (detected per [`references/storage.md`](references/storage.md)) the same routing table applies with its signals read from the server instead of the tree:
+- The first row keys on the ticket row's status `in-review` (there is no `review/` folder) — read via `pipeline_get_ticket`. **Deliberate mode divergence** for an epic child flipped `in-review` in place (per Transition 5, the subtree can still sit in `in-progress/` while the child's own status is `in-review`): fs keying reads the folder, so such a child falls through to the `06-summary.md` verdict-`pass` row and exits as already complete; server-native keys on the row status, so the same child routes to build's merge-check pass-through. The row status is the native signal in a mode without folders, and the merge-check is the more useful outcome; fs keying stays folder-based. Build's Server-native keying block shares this divergence.
+- Artifact presence (`06-summary.md`, `02-plan.md`) comes from `pipeline_list_artifacts`; the `06-summary.md` verdict comes from that artifact row's `verdict` field, or from its body via `pipeline_get_artifact` when the field is unset.
+- The start-fresh signal is the same deletion, performed user-side with `pipeline_delete_artifact` (`02-plan.md` and any downstream artifacts) — permanent, no server-side history; copy anything worth keeping first.
+
 **Epic-mode** has its own implicit resumption: the walker skips children whose `status` is already `done`, `partial-completion`, or `cancelled` (per [`references/epic-walk.md`](references/epic-walk.md) step 4a). Each remaining child inherits the single-ticket routing table above via the recursive flow call.
 
 ---
@@ -110,16 +120,16 @@ The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and
 
 1. **Resolve the ticket** using the canonical logic in [`references/ticket-resolution.md`](references/ticket-resolution.md). The ticket argument is `$1`.
 
-2. **Branch on `kind`** (read from frontmatter — `prd.md` if the folder is an epic, `01-spec.md` otherwise):
+2. **Branch on `kind`** (via the Read ticket metadata operation in [`references/storage.md`](references/storage.md) — fs-native: frontmatter of `prd.md` if the folder is an epic, `01-spec.md` otherwise; server-native: the ticket row's `kind` field):
    - `kind: epic` → epic mode: read and follow [`references/epic-walk.md`](references/epic-walk.md) (the epic walker); skip the remaining SETUP steps (the walker handles per-child blocker validation and artifact invalidation by recursing into single-ticket flow per child).
    - Otherwise (no `kind` field, or `kind` has a non-`epic` value) → single-ticket mode; continue with steps 3–4.
 
 3. **Validate blockers** per [`references/ticket-resolution.md`](references/ticket-resolution.md) Step 6. If the ticket has `blocked_by` entries that aren't done, abort with the Step 6 message listing the unblocked blockers.
 
-4. **Invalidate downstream artifacts** if `02-plan.md` is missing AND any of `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` exist on disk:
-   - Delete each existing build artifact (the user signalled "start fresh" by removing `02-plan.md`).
+4. **Invalidate downstream artifacts** if `02-plan.md` is missing AND any of `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` exist (fs-native: on disk; server-native: in the `pipeline_list_artifacts` listing):
+   - Delete each existing build artifact (the user signalled "start fresh" by removing `02-plan.md`) — fs-native: delete the file; server-native: `pipeline_delete_artifact` per artifact (the one skill-side artifact deletion in the pipeline — see the Delete artifact operation in [`references/storage.md`](references/storage.md)).
    - Print: "Removed N downstream artifacts before re-running plan."
-   - Skip this step on pure forward progress (no build artifacts on disk) or on auto-resumption runs that found `02-plan.md`.
+   - Skip this step on pure forward progress (no build artifacts exist) or on auto-resumption runs that found `02-plan.md`.
 
 ---
 
@@ -137,7 +147,7 @@ After build returns, flow's work is done — the verdict gate and every state tr
 
 ## Artifact Convention
 
-All artifacts live inside the per-ticket folder, numbered by stage order. There are two layouts depending on whether the ticket is solo or a child of a discover-produced epic.
+All artifacts live inside the per-ticket folder, numbered by stage order. There are two layouts depending on whether the ticket is solo or a child of a discover-produced epic. (The layouts below are the fs-native storage shape; in server-native mode the same artifact names key artifact rows on the ticket — see `references/storage.md`.)
 
 ### Solo ticket layout
 

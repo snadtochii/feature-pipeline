@@ -1,14 +1,19 @@
 # State Transitions — Shared Logic
 
-Canonical logic for moving ticket folders between state directories (`backlog/`, `in-progress/`, `review/`, `done/`) and updating frontmatter `status` fields. Referenced by `plan`, `build`, `flow`, and the standalone `sync` skill.
+Canonical logic for moving tickets through the state machine. Referenced by `plan`, `build`, `flow`, and the standalone `sync` skill.
 
 This file is the single source of truth for the ticket state machine. Stage skills do not duplicate the logic inline — they invoke the relevant transition from this reference.
 
+Every transition dispatches on the project's **storage mode** — detect it once per run per [`storage.md`](storage.md) §Mode detection, and see its Transition status operation for the mechanism each mode uses:
+
+- **fs-native**: folder moves between state directories (`backlog/`, `in-progress/`, `review/`, `done/`) plus frontmatter `status` edits — the per-transition mechanics below.
+- **server-native**: one `pipeline_transition_ticket` CAS call per status change (`from[]` = the transition's valid source statuses, `to` = its target), under [`storage.md`](storage.md) §CAS conflict doctrine. There are no folders to move — the status column is the entire state; the fs↔server status correspondence is [`storage.md`](storage.md) §Status mapping. Where a transition also touches non-status fields, those go through `pipeline_update_ticket`. Each transition below carries a **Server-native** paragraph with its `from[]`/`to`.
+
 ---
 
-## Layout context
+## Layout context (fs-native)
 
-A ticket has one of two shapes, established by `discover`:
+In fs-native mode, a ticket has one of two shapes, established by `discover` (in server-native mode there are no state folders — a ticket is a row, an epic is a row whose children carry `parent`, and "the epic's location" is the epic row's own status):
 
 ### Solo ticket (single-mode discover)
 
@@ -43,36 +48,36 @@ Variables used throughout:
 
 The single definition of "is this epic finished?" Both end-state transitions (Transition 2 §3 in-progress → done, Transition 6 §3 review → done), the read-only Status query, and the standalone `sync` skill invoke this predicate by name rather than restating the sibling scan. Changing the completion rule means editing **here** — there are no per-transition copies to keep in step.
 
-**Inputs**: `<epic-folder>` (the epic's current location, under `in-progress/` or `review/`) and its `prd.md`.
+**Inputs**: the epic's handle — in fs-native mode `<epic-folder>` (the epic's current location, under `in-progress/` or `review/`) and its `prd.md`; in server-native mode the epic row plus its child listing (List tickets / list children in [`storage.md`](storage.md)).
 
-**Output**: a decision — `promote` or `stay` — plus zero or more warnings. The predicate reads only: it never moves folders or writes frontmatter. The invoking transition performs the move (always from the epic's **current** folder, never a hardcoded source) and sets `prd.md` status; the invoking caller renders the warnings in its own channel (`build` inline at the verdict gate, `sync` as `⚠` report lines).
+**Output**: a decision — `promote` or `stay` — plus zero or more warnings. The predicate reads only: it never moves folders, writes frontmatter, or issues transitions. The invoking transition performs the promotion (fs-native: the move, always from the epic's **current** folder, never a hardcoded source, plus the `prd.md` status edit; server-native: the epic row's CAS transition); the invoking caller renders the warnings in its own channel (`build` inline at the verdict gate, `sync` as `⚠` report lines).
 
-**Definitions**:
-- `declared` = the set of child IDs listed in `prd.md`'s `children:` field. This is the **authoritative roster contract** for the epic.
-- A child is **materialized** when `<epic-folder>/tasks/<id>/01-spec.md` exists and has parseable `status` frontmatter. A bare `tasks/<id>/` folder with no readable spec is **not** materialized.
-- `materialized` = the set of child IDs with a materialized spec under `tasks/*/`.
-- A child is **terminal** when its `status` is `done`, `cancelled`, or `partial-completion`. `in-review` is **not** terminal — an open PR keeps the epic out of `done/`.
+**Definitions** (fs-native / server-native per line):
+- `declared` = the epic's child roster. **fs-native**: the set of child IDs in `prd.md`'s `children:` field — an upfront declaration that may name children whose specs are not yet written. **server-native**: the set of IDs of the rows whose `parent_id` is the epic's ID (the epic row carries no roster field — the roster is **derived** from the child rows). This is the authoritative roster contract for the epic in each mode.
+- A child is **materialized** when its spec exists with readable status — fs-native: `<epic-folder>/tasks/<id>/01-spec.md` exists and has parseable `status` frontmatter (a bare `tasks/<id>/` folder with no readable spec is **not** materialized); server-native: a ticket row exists for the ID (row existence implies a readable status column).
+- `materialized` = the set of child IDs with a materialized spec.
+- A child is **terminal** when its `status` is `done`, `cancelled`, or `partial-completion`. `in-review` is **not** terminal — an open PR keeps the epic out of `done`.
 
 **Decision — return `promote` iff all three hold**:
-1. **(R) roster present** — `prd.md` has a parseable `children:` list.
+1. **(R) roster present** — fs-native: `prd.md` has a parseable `children:` list. Server-native: the child listing succeeded and returned at least one row (a failed listing already stopped the run per `storage.md`'s loud-failure doctrine; an epic with zero child rows fails (R) — see roster-unknown below).
 2. **(C) coverage** — every ID in `declared` is in `materialized` (`declared ⊆ materialized`).
 3. **(T) terminal** — every child in `materialized` is terminal.
 
 Otherwise return `stay`: the epic is not promoted and remains at its precedence-derived location (`in-progress` ⊐ `review` ⊐ `done`).
 
-Why coverage (C) matters: a **just-in-time / expanding epic** declares its full `children:` roster upfront but authors child specs later, as the pipeline reaches each phase. Without (C), the check sees only the materialized subset and promotes the epic to `done/` the moment those are terminal — while later-phase children remain unwritten. Reconciling against `declared` closes that hole; it reuses an already-populated signal, so no new frontmatter or lifecycle step is needed.
+Why coverage (C) matters: a **just-in-time / expanding epic** declares its full `children:` roster upfront but authors child specs later, as the pipeline reaches each phase. Without (C), the check sees only the materialized subset and promotes the epic to `done/` the moment those are terminal — while later-phase children remain unwritten. Reconciling against `declared` closes that hole; it reuses an already-populated signal, so no new frontmatter or lifecycle step is needed. **Server-native**: with the roster derived from child rows, `declared` = `materialized` by construction, so (C) is trivially satisfied — a just-in-time epic's yet-uncreated children are invisible to the predicate, and only the zero-row guard in (R) holds an empty epic back. The protection (C) provides in fs mode has no server analog until every planned child's row exists.
 
 **Warnings** (surface them, but they block promotion only when they also break R/C/T):
-- **roster-unknown** — `children:` is missing, has no key, or is unparseable → return `stay` + warn. Fail safe: never auto-promote an epic whose roster can't be read.
+- **roster-unknown** — fs-native: `children:` is missing, has no key, or is unparseable; server-native: the epic has zero child rows → return `stay` + warn. Fail safe: never auto-promote an epic whose roster can't be read or is empty.
 - **roster-drift** — a materialized child is **not** in `declared` → warn. The extra child still counts toward (T): it must itself be terminal for the epic to promote, but its presence alone does not block a fully-delivered epic.
 
-A declared child with **no** materialized folder is the **expected** mid-flight state of a just-in-time epic. It fails (C) → `stay`, with no warning — that is normal, not an anomaly.
+A declared child with **no** materialized spec is the **expected** mid-flight state of a just-in-time epic (fs-native only — server-native has no such state: an uncreated child has no row, so it is not in `declared` either). It fails (C) → `stay`, with no warning — that is normal, not an anomaly.
 
 **Fail-safe composition**: a materialized child whose spec is present but whose `status` is missing or unparseable is treated as `backlog` (non-terminal) → fails (T) → `stay`. This preserves the existing malformed-sibling rule (worst-case assumption keeps the epic out of `done/`) and composes with the roster rules above rather than replacing it.
 
-**Descope escape hatch**: a declared child that will never be built must be reflected in the roster, or it blocks (C) indefinitely. Two manual operator remediations:
-- Remove the child's ID from `prd.md`'s `children:` (shrinks `declared`), **or**
-- Materialize `tasks/<id>/01-spec.md` as a stub with `status: cancelled` (adds it to `materialized` as a terminal child).
+**Descope escape hatch**: a declared child that will never be built must be reflected in the roster, or it blocks the predicate indefinitely. Manual operator remediations, per mode:
+- **fs-native** (the child blocks (C)): remove the child's ID from `prd.md`'s `children:` (shrinks `declared`), **or** materialize `tasks/<id>/01-spec.md` as a stub with `status: cancelled` (adds it to `materialized` as a terminal child).
+- **server-native** (an existing non-terminal row blocks (T)): transition the child's row to `cancelled` — it becomes terminal. There is no roster list to edit; the roster is the rows.
 
 Either satisfies the predicate. There is no automated roster mutation — descoping is a deliberate human edit.
 
@@ -108,9 +113,15 @@ Either satisfies the predicate. There is no automated roster mutation — descop
 
 4. **Variable rebinding**: `<ticket-folder>` and `<epic-folder>` resolve to their new locations.
 
+### Server-native
+
+- **Solo ticket**: read the row's status first; already `in-progress` → no-op (no CAS call). Otherwise `pipeline_transition_ticket` with `from: [backlog, in-review, done, partial-completion, cancelled]`, `to: in-progress`.
+- **Child of an epic**: the same CAS for the child row. Then the epic row (resolved from the child's `parent`): already `in-progress` → no-op; otherwise CAS `from: [backlog, in-review, done]`, `to: in-progress`. Sibling rows are not touched.
+- A CAS failure follows [`storage.md`](storage.md) §CAS conflict doctrine.
+
 ### Idempotency
 
-If the ticket is already in `in-progress/` with the expected frontmatter, this transition is a no-op (no folder move, frontmatter overwrite is harmless). This is what lets plan and build both invoke Transition 1 without conflict — whichever runs first triggers the move; the second one is a no-op.
+If the ticket is already in progress with the expected status — fs-native: folder in `in-progress/`; server-native: row status `in-progress` — this transition is a no-op (no folder move / no CAS call; the fs frontmatter overwrite is harmless). This is what lets plan and build both invoke Transition 1 without conflict — whichever runs first triggers the move; the second one is a no-op.
 
 ---
 
@@ -142,9 +153,16 @@ If the ticket is already in `in-progress/` with the expected frontmatter, this t
    - On `stay`: the epic stays out of `done/` — its location follows the precedence `in-progress` ⊐ `review` ⊐ `done` (any sibling still `in-progress` → `in-progress/`; else any `in-review` → `review/`). The subtree only moves to `done/` once the predicate returns `promote` — i.e. the full declared `children:` roster is materialized and every materialized child is terminal.
    - Surface any predicate warnings (roster-unknown, roster-drift) inline at build's verdict gate.
 
-### Folder-move-then-frontmatter atomicity
+### Server-native
 
-Always move the folder first, then update frontmatter. If the folder move fails (permission, disk error), the frontmatter still reflects the prior `in-progress` state, so a retry can detect the mismatch and recover. If the frontmatter update fails after a successful move, the folder location is the authoritative signal (the user can manually fix the frontmatter).
+- **Solo ticket, verdict `pass`**: `pipeline_transition_ticket` with `from: [in-progress, partial-completion]`, `to: done` (`partial-completion` is a valid source because a `continue-with-hint` loop that later passes arrives here from Transition 4's flag).
+- **Solo ticket, `accept-as-partial`**: Transition 4 has already CAS-moved the row to `partial-completion` — a terminal status. The fs finalization move to `done/` has no server analog; no further transition fires.
+- **Child of an epic**: the same per-verdict CAS for the child row. Then apply the **Epic-completion predicate** (above) over the rows: on `promote`, CAS the epic row `from: [in-progress, in-review]`, `to: done`; on `stay`, the epic row keeps its precedence-derived status. Surface predicate warnings the same way.
+- A CAS failure follows [`storage.md`](storage.md) §CAS conflict doctrine.
+
+### Folder-move-then-frontmatter atomicity (fs-native)
+
+Always move the folder first, then update frontmatter. If the folder move fails (permission, disk error), the frontmatter still reflects the prior `in-progress` state, so a retry can detect the mismatch and recover. If the frontmatter update fails after a successful move, the folder location is the authoritative signal (the user can manually fix the frontmatter). Server-native has no two-step to order — the CAS transition is a single atomic call.
 
 ---
 
@@ -167,7 +185,13 @@ Always move the folder first, then update frontmatter. If the folder move fails 
 
 3. **Inverse all-children-done check**: scan siblings. If **every** sibling is now `backlog` or `cancelled` (the inverse of the done check), move the epic subtree back from `in-progress/<EPIC>/` to `backlog/<EPIC>/` and set `prd.md` frontmatter `status` to `backlog`. A sibling that is `done`, `in-progress`, or `in-review` blocks this revert. Rare in practice — typically a child abort doesn't trigger this — but the rule keeps the epic's folder location consistent with its children's aggregate state.
 
-**`review/` is not a Transition 3 source.** A ticket whose PR is open lives in `review/`, and Transition 3 fires only from the `in-progress/` verdict gate. To back out a `review/` ticket, re-build it first (Transition 1 pulls `review/ → in-progress/`), then abort through the normal gate. Closed-unmerged-PR handling is out of scope here.
+### Server-native
+
+- **Solo ticket**: `pipeline_transition_ticket` with `from: [in-progress, partial-completion]`, `to: backlog` (`partial-completion` covers an abort after a `continue-with-hint` attempt).
+- **Child of an epic**: the same CAS for the child row. Then the inverse all-children check over the sibling rows: if **every** sibling is now `backlog` or `cancelled`, CAS the epic row `from: [in-progress]`, `to: backlog`; otherwise the epic row is untouched.
+- A CAS failure follows [`storage.md`](storage.md) §CAS conflict doctrine.
+
+**`in-review` is not a Transition 3 source.** A ticket whose PR is open sits at `in-review` (fs-native: in `review/`), and Transition 3 fires only from the `in-progress` verdict gate. To back out an `in-review` ticket, re-build it first (Transition 1 pulls it back to `in-progress`), then abort through the normal gate. Closed-unmerged-PR handling is out of scope here.
 
 ---
 
@@ -188,6 +212,11 @@ Always move the folder first, then update frontmatter. If the folder move fails 
 1. **No folder move**: child stays inside the epic subtree, which stays in `in-progress/`.
 
 2. **Frontmatter update**: set the child's `01-spec.md` frontmatter `status` to `partial-completion`.
+
+### Server-native
+
+- Solo or child alike: read the row's status first; already `partial-completion` (a repeat `continue-with-hint` round) → no-op, matching the harmless fs frontmatter overwrite. Otherwise `pipeline_transition_ticket` with `from: [in-progress]`, `to: partial-completion`. The epic row is untouched (`partial-completion` is terminal for aggregation but the sibling scan happens in the transitions that read it).
+- A CAS failure follows [`storage.md`](storage.md) §CAS conflict doctrine.
 
 ---
 
@@ -215,7 +244,14 @@ Ticket lands here when its PR is open but not yet merged — a **non-terminal** 
    - If **no** sibling is `in-progress` AND **at least one** is `in-review` (the rest done/cancelled/partial-completion): move the **entire epic subtree** from `claudedocs/tickets/in-progress/<EPIC>/` to `claudedocs/tickets/review/<EPIC>/` and set `prd.md` frontmatter `status` to `in-review`.
    - If any sibling is still `in-progress`: the epic stays in `in-progress/` — `in-progress` outranks `review`.
 
-### Folder-move-then-frontmatter atomicity
+### Server-native
+
+- **Solo ticket**: `pipeline_transition_ticket` with `from: [in-progress, partial-completion]`, `to: in-review` (`partial-completion` covers a `continue-with-hint` loop that then passes with `--pr`).
+- **Child of an epic**: the same CAS for the child row. Then the sibling scan over the child rows (List tickets / list children in [`storage.md`](storage.md)): if **no** sibling is `in-progress` and at least one is `in-review`, CAS the epic row `from: [in-progress]`, `to: in-review`; if any sibling is still `in-progress`, the epic row is untouched — `in-progress` outranks `in-review`.
+- When the invoking flow has the opened PR's URL, record it on the row via `pipeline_update_ticket` (`pr_url`) — a non-status field, outside the CAS.
+- A CAS failure follows [`storage.md`](storage.md) §CAS conflict doctrine.
+
+### Folder-move-then-frontmatter atomicity (fs-native)
 
 Same rule as Transition 2: move the folder first, then update frontmatter. On a move failure the frontmatter still reflects the prior `in-progress` state, so a retry can recover.
 
@@ -224,7 +260,7 @@ Same rule as Transition 2: move the folder first, then update frontmatter. On a 
 ## Transition 6 — Merge (current state folder → done)
 
 **Invoked by**:
-- `build` (or `flow` delegating to `build`) when re-invoked on a `review/` ticket, **or** the standalone `sync` skill scanning tickets across `backlog/`, `in-progress/`, and `review/` in batch, when the ticket's PR is detected merged **and reachable from `<base>`** via the shared merge predicate in build's `pr-creation.md` reference (`state == MERGED` **and** the PR's merge commit is an ancestor of `origin/<base>` — a merge only into an `integration/<epic-id>` branch does not qualify until it reaches `<base>`; build uses the branch-keyed lookup, sync the ID-keyed one). Transition 6 is Transition 2's body re-pointed at the ticket's **current** state folder as the source. For the **build** caller a solo source is always `review/` (or an epic whose subtree reached `review/`), and an epic child can be `in-progress/`. For the **sync** caller a solo source is whichever of `backlog/`, `in-progress/`, or `review/` its folder-keyed scan found the ticket in — a merged PR can attach to a solo ticket parked outside `review/` after a crash, re-plan, or manual merge — and an epic child that `sync` promotes while a sibling is still mid-build flips `in-review → done` in place (see the child path below).
+- `build` (or `flow` delegating to `build`) when re-invoked on a `review/` ticket, **or** the standalone `sync` skill scanning tickets across `backlog/`, `in-progress/`, and `review/` in batch, when the ticket's PR is detected merged **and reachable from `<base>`** via the shared merge predicate in build's `pr-creation.md` reference (`state == MERGED` **and** the PR's merge commit is an ancestor of `origin/<base>` — a merge only into an `integration/<epic-id>` branch does not qualify until it reaches `<base>`; build uses the branch-keyed lookup, sync the ID-keyed one — in server-native mode both prefer the row's `pr_url` when set). Transition 6 is Transition 2's body re-pointed at the ticket's **current** state folder as the source. For the **build** caller a solo source is always `review/` (or an epic whose subtree reached `review/`), and an epic child can be `in-progress/`. For the **sync** caller a solo source is whichever of `backlog/`, `in-progress/`, or `review/` its folder-keyed scan found the ticket in — a merged PR can attach to a solo ticket parked outside `review/` after a crash, re-plan, or manual merge — and an epic child that `sync` promotes while a sibling is still mid-build flips `in-review → done` in place (see the child path below).
 
 ### Solo ticket
 
@@ -240,7 +276,13 @@ Same rule as Transition 2: move the folder first, then update frontmatter. On a 
 
 3. **Epic-completion check**: apply the **Epic-completion predicate** (above). On `promote`, move the epic subtree to `done/` — from its **current** folder (`in-progress/<EPIC>` or `review/<EPIC>`, whichever it sits in under the precedence rule, **not** a hardcoded `review/` source) — and set `prd.md` `status` to `done`. On `stay`, the epic stays under the precedence rule (`in-progress/` or `review/`). When `sync` promotes a merged child whose epic still has a non-terminal sibling, an unmaterialized declared child, or an unreadable roster, the predicate returns `stay`: the child's `in-review → done` flip stands, and the epic stays put. Surface predicate warnings (roster-unknown, roster-drift) in the caller's channel (`sync` as `⚠` report lines).
 
-### Folder-move-then-frontmatter atomicity
+### Server-native
+
+- **Solo ticket**: `pipeline_transition_ticket` with `from: [backlog, in-progress, in-review, partial-completion]`, `to: done` — the same caller-dependent breadth as the fs sources: build arrives from `in-review`; `sync`'s scan can find a merged PR on a row parked at `backlog`, `in-progress`, or `partial-completion` after a crash, re-plan, or manual merge (`sync` PR-checks every non-`done`/`cancelled` status).
+- **Child of an epic**: the same CAS for the child row (a child flips to `done` while a sibling is still mid-build — no epic-level precondition). Then apply the **Epic-completion predicate** over the rows: on `promote`, CAS the epic row `from: [in-progress, in-review]`, `to: done`; on `stay`, the epic row keeps its current status. Surface predicate warnings in the caller's channel.
+- A CAS failure follows [`storage.md`](storage.md) §CAS conflict doctrine.
+
+### Folder-move-then-frontmatter atomicity (fs-native)
 
 Same as Transition 2.
 
@@ -249,6 +291,8 @@ Same as Transition 2.
 ## Decision table — verdict + user choice → transition(s)
 
 This is the canonical mapping build uses at the verdict gate. The decision table is the load-bearing contract for future epic-walker work: an epic-walker reads the verdict from each child's `06-summary.md` and predicts which transitions fired based on this table.
+
+The table's Effect column describes the fs-native mechanics; in server-native mode the same transitions fire as their **Server-native** CAS forms (folder → `done/` reads as status → `done`, etc.). The verdict → transition mapping is mode-independent.
 
 | Verdict | User choice            | Transitions               | Effect                                                                  |
 |---------|------------------------|---------------------------|-------------------------------------------------------------------------|
@@ -271,7 +315,7 @@ Used by future tooling (notably the epic-mode flow walker) to inspect aggregate 
 
 ### Per-ticket status
 
-Read `<ticket-folder>/01-spec.md` frontmatter `status` field. Possible values:
+Read the ticket's `status` — fs-native: `<ticket-folder>/01-spec.md` frontmatter; server-native: the row field via `pipeline_get_ticket`. Possible values:
 - `backlog` — not yet started.
 - `in-progress` — currently in the pipeline.
 - `in-review` — build passed with `--pr`; PR open, awaiting merge. A **solo** ticket lives in `review/`; an **epic child** can be `in-review` while its subtree is still in `in-progress/` (a sibling is mid-build, so the precedence rule keeps the epic out of `review/`). So `in-review` is found by frontmatter `status`, not by folder location alone. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking), but included in every folder search and resumption path.
@@ -279,13 +323,13 @@ Read `<ticket-folder>/01-spec.md` frontmatter `status` field. Possible values:
 - `partial-completion` — finalized but with un-fixable failures (treated as terminal for aggregate calculations).
 - `cancelled` — abandoned (lives in `done/` per the discover convention; treated as terminal).
 
-Frontmatter is authoritative; folder location is a fallback when frontmatter is missing or malformed.
+Frontmatter is authoritative; folder location is a fallback when frontmatter is missing or malformed. Server-native has one source: the status column.
 
 ### Epic aggregate status
 
-For an epic (`prd.md` present):
-- Read `prd.md` frontmatter `status` field for the epic's own state-folder location.
-- Iterate every child under `<epic-folder>/tasks/*/01-spec.md` and read each child's `status`.
+For an epic (fs-native: `prd.md` present; server-native: row with `kind: epic`):
+- Read the epic's own `status` — `prd.md` frontmatter (it tracks the state-folder location), or the epic row.
+- Iterate every child — `<epic-folder>/tasks/*/01-spec.md`, or the child rows (List tickets / list children in [`storage.md`](storage.md)) — and read each child's `status`.
 - Derived states:
   - **Epic-completion predicate returns `promote`** (the full declared `children:` roster is materialized and every materialized child is terminal): epic should be in `done/` (Transition 2 / Transition 6 moves it there on the last child's finalization). A roster that outruns the materialized set — some declared child not yet authored — does NOT qualify; the epic stays under the precedence rule below.
   - **Any child in-progress**: epic should be in `in-progress/`.
@@ -303,7 +347,9 @@ This subsection is the read-side contract for epic-mode; the write-side contract
 
 ## Error handling
 
-- **Folder move fails (permission, disk error)**: surface the failure to the user immediately; leave frontmatter at its previous value (move first, frontmatter second — never optimistic). The user can investigate and either retry or fix manually.
+- **Folder move fails (permission, disk error)** (fs-native): surface the failure to the user immediately; leave frontmatter at its previous value (move first, frontmatter second — never optimistic). The user can investigate and either retry or fix manually.
+- **CAS transition fails (stale `from[]`)** (server-native): follow [`storage.md`](storage.md) §CAS conflict doctrine — re-read the row, re-evaluate against the invoking transition and the decision table, proceed with the corrected source status or stop and report. Never widen `from[]` just to force the call through.
+- **Pipeline MCP tools unavailable or a call errors** (server-native): stop per [`storage.md`](storage.md) §Loud failure — never perform the fs mechanics as a fallback.
 - **Frontmatter parse error during status update**: warn the user; do not silently corrupt the file. Ask before retrying.
 - **Epic-completion predicate finds a malformed materialized sibling spec** (missing or unparseable `status` frontmatter): treat as `backlog` (worst-case assumption — non-terminal, so the epic stays in `in-progress/` rather than prematurely promoting to `done/`).
 - **Epic-completion predicate can't read the roster** (`prd.md` `children:` missing, keyless, or unparseable): return `stay` + a roster-unknown warning — never auto-promote an epic whose declared roster can't be read. Same conservative instinct as the malformed-sibling rule.
