@@ -96,6 +96,13 @@ Read the ticket's structured fields. The two stores name them differently — us
 - **fs**: `Write`/`Edit` `<ticket-folder>/<name>`.
 - **server-native**: `pipeline_write_artifact` with the ticket ID, artifact name, and body — upsert by name, idempotent (a re-run overwrites safely). Pass the optional `verdict` (`pass | fail | partial`) when the artifact carries one (e.g. a build summary). Artifact names are whitelisted server-side: `01-…` through `07-…` numbered artifacts (`0N-<name>.md`), `exploration.md`, `prd.md`.
 
+### Delete artifact
+
+A user-side reset action (build's start-fresh signal: delete `03-implementation.md` onward before re-invoking) — no pipeline skill deletes artifacts.
+
+- **fs**: delete `<ticket-folder>/<name>`; git history retains the body if a backup is wanted.
+- **server-native**: `pipeline_delete_artifact` with the ticket ID and artifact name — permanent; a deleted body has no server-side history, so copy anything worth keeping before deleting.
+
 ### List artifacts (names + timestamps)
 
 - **fs**: `Glob` the ticket folder; recency comes from file mtimes.

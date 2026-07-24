@@ -11,6 +11,7 @@ allowed-tools:
   - Task
   - TodoWrite
   - pipeline_get_ticket
+  - pipeline_list_tickets
   - pipeline_get_artifact
   - pipeline_list_artifacts
   - pipeline_write_artifact
@@ -37,7 +38,7 @@ Build the ticket through one continuous loop with internal checkpoints (implemen
 
 `$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)), `--no-ui-testing` (skip only the browser/ui-tester portion of the test checkpoint; lint/typecheck still run and still gate the verdict — see the test checkpoint's flag override).
 
-Resumption is auto-detected from the ticket's existing artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build (server-native: delete the same artifacts with `pipeline_delete_artifact` — a user-side action; build itself never deletes artifacts).
+Resumption is auto-detected from the ticket's existing artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build (server-native: delete the same artifacts via the Delete artifact operation in [`../flow/references/storage.md`](../flow/references/storage.md) — a user-side action; build itself never deletes artifacts).
 
 ## Ticket Resolution & Artifacts Setup
 
@@ -71,11 +72,11 @@ Before the implement checkpoint, perform the start-of-pipeline transition per [`
 
 **`review/` is intercepted before this transition.** If the ticket is in `review/` (status `in-review`), the step-5 resumption check (first row) runs first: build inspects the PR's merge state and finalizes via Transition 6 (`review → done`) if merged, or reports the still-open PR and exits — it does NOT rebuild. The `review/ → in-progress` re-plan path (revise an open PR's code) belongs to `plan`, not build.
 
-`<ticket-folder>` is rebound to the new location for the rest of this run.
+`<ticket-folder>` is rebound to the new location for the rest of this run (fs-native — server-native has no state folders; see the Working copy block below for what `<ticket-folder>` denotes there).
 
 **Bind ticket metadata — before the step-5 resumption routing.** Values read only inside a checkpoint are unbound on resumed runs that re-enter downstream of it, so build binds them here, upstream of the router: read `status`, `complexity` (used by the review checkpoint's triviality short-circuit), `kind`, `blocked_by`, and (server-native) `pr_url` once via the Read ticket metadata operation in [`../flow/references/storage.md`](../flow/references/storage.md) — frontmatter in fs-native mode, the ticket row in server-native mode, never parsed out of artifact bodies.
 
-**Working copy (server-native only).** Pull `01-spec.md`, `02-plan.md`, and whichever of `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md` exist (per the List artifacts operation) into a session-scratchpad directory — an ephemeral location outside the repository; nothing is ever materialized under `claudedocs/tickets/`, which is not a ticket store in this mode. All in-loop reading (including the per-step `Read` offset/limit re-read of the plan) works off these copies, and subagent spawn prompts reference scratchpad paths — subagents never touch the ticket store; the build skill is its only reader/writer in this loop. The copies are disposable: every run re-pulls from the server; a scratchpad tree left by a prior run is never trusted or reused.
+**Working copy (server-native only).** Pull `01-spec.md`, `02-plan.md`, and whichever of `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md` exist (per the List artifacts operation) into a session-scratchpad directory — an ephemeral location outside the repository; nothing is ever materialized under `claudedocs/tickets/`, which is not a ticket store in this mode. In this mode `<ticket-folder>` denotes this working-copy directory: every `<ticket-folder>/0N-*.md` read/write site in this skill operates on the copies, with writes pushed per the next block. All in-loop reading (including the per-step `Read` offset/limit re-read of the plan) works off these copies, and subagent spawn prompts reference scratchpad paths — subagents never touch the ticket store; the build skill is its only reader/writer in this loop. The copies are disposable: every run re-pulls from the server; a scratchpad tree left by a prior run is never trusted or reused.
 
 **Per-checkpoint push (server-native only).** Every artifact write named in this skill is upserted to the server via the Write artifact operation the moment the producing step completes — `03-implementation.md` after each update (no `verdict`), `04-review.md`, `05-tests.md`, and `06-summary.md` each with the `verdict` rule stated at its write site. Update the scratchpad copy and push in the same step; a crash then loses at most the in-flight checkpoint's output, and a re-run resumes from exactly what the server holds.
 
@@ -149,7 +150,7 @@ b. **Compose the shared base for reviewer prompts** (single composition, used by
    1. **Ticket context**: contents of `01-spec.md`, `02-plan.md`, `03-implementation.md`.
    2. **Diff**: output from step a.
    3. **Project root path**.
-   4. **Blocker context** (only when `blocked_by` is non-empty per the Blocker validation section above): a `## Blocker context (from completed siblings)` block. For each blocker: include verbatim `01-spec.md` + `06-summary.md`. **Fallback when `06-summary.md` is missing** (e.g. a `cancelled` blocker): use the blocker's `02-plan.md`; when `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker. Omit the entire block when `blocked_by` is empty.
+   4. **Blocker context** (only when `blocked_by` is non-empty per the Blocker validation section above): a `## Blocker context (from completed siblings)` block. For each blocker: include verbatim `01-spec.md` + `06-summary.md`. **Fallback when `06-summary.md` is missing** (e.g. a `cancelled` blocker): use the blocker's `02-plan.md`; when `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker. Omit the entire block when `blocked_by` is empty. Server-native: blocker artifacts belong to *other* tickets, so they are outside this ticket's working-copy pull — check what each blocker has via List artifacts on the blocker's handle, then Read artifact for each (per [`../flow/references/storage.md`](../flow/references/storage.md)); "missing" means absent from that blocker's artifact listing.
    5. **Confidence scale**: the verbatim contents of `references/confidence-scale.md` under a `## Confidence scale (use this exactly)` header. (The rubric lives in the reference and build injects it here — reviewer agent bodies stay rubric-free.)
 
 c. **Spawn four reviewer subagents in parallel.** All four run **concurrently** — launch them in a single message with four `Task` tool calls. Each prompt = the shared base from step b + a per-reviewer suffix:
@@ -179,7 +180,7 @@ d. **Merge findings into `<ticket-folder>/04-review.md`**:
    - **Tag each finding** with `[correctness]` / `[security]` / `[performance]` / `[architecture]`
    - **Top-of-file summary** with counts per severity + per reviewer
    - **Reviewer failure handling**: if a reviewer subagent fails, report it inside the merged artifact and continue with results from the other reviewers (graceful partial-merge). All four failing → write a single error entry in `04-review.md` and exit with `verdict: stuck`.
-   - **Artifact verdict (server-native)**: upsert the merged artifact with `verdict: pass` (the checkpoint completed — findings are merged and step e applies the fixes). The all-four-failed error entry is written with `verdict: fail`.
+   - **Artifact verdict (server-native)**: upsert the merged artifact with `verdict: pass` when all four reviewers returned (the checkpoint completed cleanly — findings are merged and step e applies the fixes); a graceful partial-merge (1–3 reviewers failed) upserts `verdict: partial`, so the degraded-review signal lives on the row and not only in the body. The all-four-failed error entry is written with `verdict: fail`.
 
 e. **Apply applicable fixes in-context.** The model uses judgment to apply fixes from the merged findings. **Tiebreak when fixes are mutually exclusive**: `security > correctness > architecture > performance` — security has the largest blast radius, correctness is the AC contract, architecture can be repaired later, performance is the most local and most easily revisited.
 
@@ -326,7 +327,7 @@ After the transition fires, print:
 
 ### 5. Auto-resumption from existing artifacts
 
-At build start, before the implement checkpoint, inspect the ticket's existing artifacts and route accordingly. The user signals "start fresh" by deleting `03-implementation.md` (and downstream — server-native: with `pipeline_delete_artifact`); the build skill itself never asks. Version history if a backup is wanted: git in fs-native mode; in server-native mode a deleted artifact body is gone, so copy anything worth keeping before deleting.
+At build start, before the implement checkpoint, inspect the ticket's existing artifacts and route accordingly. The user signals "start fresh" by deleting `03-implementation.md` (and downstream — server-native: via the Delete artifact operation in [`../flow/references/storage.md`](../flow/references/storage.md)); the build skill itself never asks. Version history if a backup is wanted: git in fs-native mode; in server-native mode a deleted artifact body is gone, so copy anything worth keeping before deleting.
 
 **Routing table** (checked in order, first match wins):
 
