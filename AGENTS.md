@@ -159,7 +159,7 @@ Typical budget per role, expressed as unordered tool sets. The build *skill* may
 | Skill | Typical budget |
 |---|---|
 | `flow` (thin sequencer) | Read, Glob, Grep, TodoWrite, Skill |
-| `discover` (intake) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite |
+| `discover` (intake) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite + pipeline MCP tools (`pipeline_create_ticket`, `pipeline_update_ticket`, `pipeline_write_artifact`, `pipeline_get_ticket`, `pipeline_list_tickets`) — used only in server-native storage mode for ticket creation; referenced by `pipeline_*` name, namespace bound via the user's MCP config |
 | `plan` (pre-plan synthesis + plan design) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite, AskUserQuestion (Task for Phase 1 subagents; AskUserQuestion for auto mode's batched no-default open-questions pause) |
 | `build` (continuous loop) | Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite (Task for the 4 reviewer subagents at the review checkpoint and the ui-tester subagent at the test checkpoint; Write for `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md`) |
 | `debug` (standalone runtime debugger) | Read, Write, Edit, Glob, Grep, Bash, TodoWrite + additive-optional browser-capture MCP subset (Playwright/Chrome read/observe); no Task — this skill spawns no subagents |

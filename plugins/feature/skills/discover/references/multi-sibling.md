@@ -2,7 +2,7 @@
 
 Canonical logic for discover's multi-sibling output. Read when Phase 3.5's scope assessment lands on N>1 (multiple sibling tickets under an epic) — a single-ticket discovery (N=1) never needs this file. Referenced by `discover` only.
 
-Ticket IDs come from the *Generate ticket IDs* block in SKILL.md Phase 4 — it serves both modes and includes the multi-mode allocation rules (parent epic first, then children in checkpoint order).
+Ticket IDs come from the *Generate ticket IDs* block in SKILL.md Phase 4 — it serves both output modes (single- and multi-ticket) and includes the multi-mode allocation rules (parent epic first, then children in checkpoint order). In server-native storage mode that block is skipped — IDs are server-allocated at create time per [`server-create.md`](server-create.md), and the checkpoint renders positional placeholders for ID references (defined there).
 
 ## Phase 3.5 checkpoint
 
@@ -52,6 +52,8 @@ The `Repos` column appears only in a multi-repo workspace (per the Phase 1 detec
 Iterate with the user until they approve, adjust, or collapse to single-ticket. On "collapse", proceed to Phase 4 single-mode (SKILL.md) using the gathered material.
 
 ## Phase 4 multi-mode generation (after checkpoint approval)
+
+**Storage-mode gate:** in server-native mode (per [`../../flow/references/storage.md`](../../flow/references/storage.md)), the generation steps live in [`server-create.md`](server-create.md) §Multi-mode — the checkpoint above applies unchanged in both storage modes (with server-native's positional-placeholder rendering for ID references, defined there); the numbered steps below are fs-native.
 
 1. **Create the parent epic folder** at `claudedocs/tickets/backlog/<EPIC-ID>/` and the children container at `claudedocs/tickets/backlog/<EPIC-ID>/tasks/`.
 
