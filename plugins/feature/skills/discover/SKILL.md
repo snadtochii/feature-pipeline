@@ -10,6 +10,11 @@ allowed-tools:
   - Bash
   - Task
   - TodoWrite
+  - pipeline_create_ticket
+  - pipeline_update_ticket
+  - pipeline_write_artifact
+  - pipeline_get_ticket
+  - pipeline_list_tickets
 argument-hint: "[description] [--project name] [--id XX-N] [--explore]"
 ---
 
@@ -42,7 +47,9 @@ The skill runs in **main context** (interactive) through these phases:
 
 ### PHASE 0: ENSURE TICKET INFRASTRUCTURE
 
-**Exploration-mode gate (runs first):** if this session enters exploration mode — the `--explore` flag, or vague/outcome-uncommitted input per the input-type branches below — **skip this phase entirely for now**: no directories, no `config.yaml`, no prefix prompt. Run it only at the moment the developer commits to a ticket. An exploration session that ends with no ticket must leave the project untouched.
+**Exploration-mode gate (runs first):** if this session enters exploration mode — the `--explore` flag, or vague/outcome-uncommitted input per the input-type branches below — **skip this phase entirely for now**: no directories, no `config.yaml`, no prefix prompt, no server calls. Run it only at the moment the developer commits to a ticket. An exploration session that ends with no ticket must leave the project — tree and server alike — untouched.
+
+**Storage-mode dispatch:** detect the storage mode once per run per [`../flow/references/storage.md`](../flow/references/storage.md) (model-read `claudedocs/tickets/config.yaml`; fs-native default, config-error and unknown-value handling per that contract). In **server-native** mode, the marker (`mode: server-native` + `project`) must already exist in `config.yaml` — discover never flips a project's mode and never creates the fs state folders. Skip steps 1–3 below entirely (no directories, no prefix — server IDs come from the registry-configured prefix) and run only step 4 (templates); ticket generation then follows [`references/server-create.md`](references/server-create.md) at Phase 4. In **fs-native** mode, run steps 1–4 below unchanged.
 
 1. **Check if `claudedocs/tickets/` directory exists** in the project root
 2. If not:
@@ -76,7 +83,7 @@ The skill runs in **main context** (interactive) through these phases:
    - If in a project directory already, use current working directory
    - The project root is needed for codebase exploration
 
-3. **Detect workspace shape** (single-repo vs multi-repo):
+3. **Detect workspace shape** (single-repo vs multi-repo) — fs-native mode only; in server-native mode skip this step and treat the workspace as single-repo (`repos` has no server-side representation and is dropped per [`references/server-create.md`](references/server-create.md)):
    - The workspace is the folder holding `claudedocs/tickets/` (the same root Phase 0 establishes). **Multi-repo** iff the workspace root is not itself a git repo (no `.git` at the root) AND immediate child directories containing `.git` exist — check immediate children only, no recursion (avoids `node_modules/.git` and vendored-tree false positives)
    - **Multi-repo** → read and follow [`references/multi-repo.md`](references/multi-repo.md): the repos-append convention every later `repos` mention defers to
    - Any other shape is **single-repo**: the `repos` field is omitted everywhere downstream, and every repos-related step is skipped — single-repo output is byte-identical to a workspace where the concept doesn't exist
@@ -193,6 +200,8 @@ Two modes: **single-ticket** (N=1, the default-collapsed output) and **multi-sib
 
 #### Generate ticket IDs
 
+**Server-native storage mode: skip this block.** The server allocates IDs atomically at create time (per [`references/server-create.md`](references/server-create.md)) — there is no local scan. `--id` is **rejected** in this mode with a one-line explanation: server-allocated IDs leave nothing for the flag to set. The scan below is fs-native only.
+
 Scan the **entire** `claudedocs/tickets/` tree recursively — epic children live nested under `<state>/<EPIC>/tasks/<CHILD>/` and draw from the **same single sequential numbering space** as top-level tickets, so a top-level-only scan can hand out an ID a nested child already uses. Collect every folder anywhere under `claudedocs/tickets/**` whose name matches the configured `<PREFIX>-<N>` (the folder name IS the ID — match folder names, not frontmatter; ignore non-matching prefixes), take the maximum `<N>`, and allocate from `max + 1` (no matches → start at `<PREFIX>-1`). No leading zeros; gaps left by deleted tickets are fine — never backfill them.
 
 - **Single-mode**: allocate one ID — `<PREFIX>-<max+1>`.
@@ -201,6 +210,8 @@ Scan the **entire** `claudedocs/tickets/` tree recursively — epic children liv
 - **`--id` collision check**: before using any `--id`-supplied ID, check whether a folder with that ID already exists anywhere in the tree. If it does, warn the user and pause for explicit confirmation; never silently overwrite or proceed.
 
 #### Single-mode (N=1)
+
+In server-native storage mode, follow the single-mode procedure in [`references/server-create.md`](references/server-create.md) instead of the steps below (which are fs-native).
 
 1. **Create the ticket folder** at `claudedocs/tickets/backlog/<TICKET-ID>/` (folder name is just the ID — no slug).
 
@@ -236,7 +247,7 @@ Scan the **entire** `claudedocs/tickets/` tree recursively — epic children liv
 
 #### Multi-mode (N>1)
 
-Generation steps live in [`references/multi-sibling.md`](references/multi-sibling.md), read at the Phase 3.5 N>1 branch point — epic folder creation, epic slug, PRD write, shared exploration write, child specs, and the result presentation. Epic and child IDs come from the *Generate ticket IDs* block above.
+Generation steps live in [`references/multi-sibling.md`](references/multi-sibling.md), read at the Phase 3.5 N>1 branch point — epic folder creation, epic slug, PRD write, shared exploration write, child specs, and the result presentation. Epic and child IDs come from the *Generate ticket IDs* block above. In server-native storage mode, the generation steps live in [`references/server-create.md`](references/server-create.md) instead — the Phase 3.5 checkpoint from `multi-sibling.md` applies unchanged in both modes.
 
 ---
 
@@ -292,6 +303,6 @@ Question cadence, defaults, synthesis, and depth rules live in Phase 3 ("Recomme
 
 1. **Be conversational, not interrogative** — this is a dialogue, not a survey
 2. **Use codebase context** — make questions specific to the project, not generic
-3. **Create the artifact(s), don't just discuss** — always end with concrete tickets on disk, with one carve-out: exploration mode may end without a ticket when the developer chooses to leave (see [`references/exploration-mode.md`](references/exploration-mode.md))
+3. **Create the artifact(s), don't just discuss** — always end with concrete tickets in the ticket store (fs folders, or server rows per the storage mode), with one carve-out: exploration mode may end without a ticket when the developer chooses to leave (see [`references/exploration-mode.md`](references/exploration-mode.md))
 4. **No implementation** — this skill discovers and documents, it does not code
 5. **`title` is descriptive, never the bare `<ID>`** — every template (`task.md`, `prd.md`) already declares `title`; fill it with a human-readable title, not the ticket ID — boards, flow's epic-walker progress, and PR-title construction all render it, and a bare ID reads as a missing one

@@ -53,6 +53,8 @@ Iterate with the user until they approve, adjust, or collapse to single-ticket. 
 
 ## Phase 4 multi-mode generation (after checkpoint approval)
 
+**Storage-mode gate:** in server-native mode (per [`../../flow/references/storage.md`](../../flow/references/storage.md)), the generation steps live in [`server-create.md`](server-create.md) §Multi-mode — the checkpoint above applies unchanged in both modes (with server-native's positional-placeholder rendering for the *Tentative ID* column, defined there); the numbered steps below are fs-native.
+
 1. **Create the parent epic folder** at `claudedocs/tickets/backlog/<EPIC-ID>/` and the children container at `claudedocs/tickets/backlog/<EPIC-ID>/tasks/`.
 
 2. **Generate an `epic` slug** from the discovery topic (lowercase, hyphenated; e.g., `dark-mode-rollout`). This becomes the shared `epic:` value across the parent and all children.
