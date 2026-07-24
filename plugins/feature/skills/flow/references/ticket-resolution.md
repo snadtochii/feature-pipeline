@@ -115,10 +115,10 @@ Check the `kind` field — frontmatter in fs-native mode, the row field (Read ti
   <ID> is an epic (kind: epic), not a pipelineable ticket. Epics group siblings — they hold the PRD, the shared exploration, and the decomposition table, but they don't go through plan/build themselves.
 
   Run the pipeline against one of its children instead:
-  <list the IDs from the epic's `children:` frontmatter field>
+  <list the child IDs from the epic's roster — fs-native: the `children:` frontmatter field; server-native: the derived roster per the List tickets / list children operation in [`storage.md`](storage.md)>
   ```
 
-- **`flow`** — branches to **epic-mode** when `kind: epic` is present. The epic walker iterates over `children` in `blocked_by` topological order and recursively invokes `Skill flow <CHILD-ID>` per child. See [`epic-walk.md`](epic-walk.md). Flow does NOT refuse on epics.
+- **`flow`** — branches to **epic-mode** when `kind: epic` is present. The epic walker iterates over the epic's children roster in `blocked_by` topological order and recursively invokes `Skill flow <CHILD-ID>` per child. See [`epic-walk.md`](epic-walk.md). Flow does NOT refuse on epics.
 
 - If `kind` is absent or has any other value, the ticket is pipelineable for all consumers. Proceed normally.
 

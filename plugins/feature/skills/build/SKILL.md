@@ -342,7 +342,7 @@ At build start, before the implement checkpoint, inspect the ticket's existing a
 | Nothing relevant exists | Fresh start: implement step 1, Turn 1/25. |
 
 **Server-native keying.** The routing table's signals map onto the ticket row plus `pipeline_list_artifacts` (artifact rows carrying `created_at`/`updated_at`), read after State setup's metadata binding and working-copy pull:
-- The first row keys on row status `in-review` (there is no `review/` folder); the pushed branch for the merge predicate is recovered from the `06-summary.md` artifact body or the current checkout, and the row's `pr_url` (when set) identifies the PR directly.
+- The first row keys on row status `in-review` (there is no `review/` folder); the pushed branch for the merge predicate is recovered from the `06-summary.md` artifact body or the current checkout, and the row's `pr_url` (when set) identifies the PR directly. For an epic child flipped `in-review` in place this keying deliberately diverges from fs (which reads the folder and exits at the verdict-`pass` row) — the divergence note in flow's Server-native keying block applies here identically.
 - Artifact presence comes from the listing; verdict and `## Failed Criteria` checks read the pulled artifact bodies.
 - The two `04-review.md` recency rows compare `04-review.md`'s `updated_at` against `03-implementation.md`'s — `03-implementation.md` is re-upserted after every implement update and after review fixes, so it carries the "implementation diverged after review" signal. `04-review.md` newer → apply pending fixes; `03-implementation.md` newer → re-enter the review checkpoint.
 
