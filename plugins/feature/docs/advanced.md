@@ -48,7 +48,7 @@ Run an epic with `/feature:flow <EPIC-ID>` — it walks the children in `blocked
 - **`--base <branch>`** — the trunk of the run (default `main`): the branch feature/integration branches are cut from and the branch the resulting PR(s) target. It doesn't change the branch strategy — an epic still gets an `integration/<epic-id>` branch; solo and multi-solo tickets still ship on per-ticket feature branches.
 - **`--merge`** — merge the resulting PR(s) into `<base>` at the end of the run instead of leaving them open (solo/multi-solo: squash each; an epic's integration PR: a merge commit, preserving the per-ticket squashed commits). In an epic run, per-ticket merges into the integration branch happen regardless — the chain needs them. If branch protection blocks a merge, ship stops and reports.
 - **`--ui-test`** — opt-in end-of-run browser pass (default off). After the resulting PR(s) are open, one `ui-tester` subagent verifies the acceptance criteria's behavioral checks against the assembled branch and posts the evidence to the PR(s). Per-ticket builds always run headless regardless of this flag.
-- **`--parallel [N]`** — opt-in concurrent walk (default off — the walk is serial). Ship computes the **ready set** — tickets whose `blocked_by` dependencies are all terminal — and builds each ready ticket concurrently in its own isolated git worktree, up to N in flight (default 3), greedily dispatching newly-unblocked tickets as workers finish. It applies to epic runs and multi-solo runs; a pure dependency chain walks one ticket at a time either way. Integration merges (one at a time, revalidated per merge), ticket state transitions, and lessons-log writes stay serialized in the orchestrator, and a failed worker doesn't abort its siblings — the end-of-run report names what needs a serial resume. Parallel mode requires the [worktree setup contract](#worktree-setup) (`worktree:` block + optional `.worktreeinclude`); when the contract is absent or a worktree setup fails, ship logs why and falls back to the serial walk.
+- **`--parallel [N]`** — opt-in concurrent walk (default off — the walk is serial). Ship computes the **ready set** — tickets whose `blocked_by` dependencies are all terminal — and builds each ready ticket concurrently in its own isolated git worktree, up to N in flight (default 3), greedily dispatching newly-unblocked tickets as workers finish. It applies to epic runs and multi-solo runs; a pure dependency chain walks one ticket at a time either way. In a [multi-repo workspace](#multi-repo-workspaces) the run is partitioned into **per-repo lanes** from the tickets' `repos:` frontmatter: lanes run concurrently against their own repo checkouts (cross-repo parallelism needs no worktrees), worktrees are provisioned only for a lane running two or more of its tickets at once, and N stays one global cap across lanes. Integration merges (one at a time, revalidated per merge), ticket state transitions, and lessons-log writes stay serialized in the orchestrator, and a failed worker doesn't abort its siblings — the end-of-run report names what needs a serial resume. Parallel mode requires the [worktree setup contract](#worktree-setup) (`worktree:` block + optional `.worktreeinclude`) — in a multi-repo workspace only for lanes doing intra-repo concurrency; when the contract is absent or a worktree setup fails, ship logs why and falls back to the serial walk (per lane, in a lane run).
 
 ## Multi-repo workspaces
 
@@ -60,8 +60,9 @@ repos: [big-leaves-api, big-leaves-astro]
 
 - Values are **exact on-disk directory names**, never shortened.
 - Epics carry the union of their children's repos; each child carries its own subset. The decomposition tables show a `Repos` column so you can check whether a split follows repo seams.
-- The field is **informational-only** — it gives you at-a-glance visibility into a ticket's repo footprint; no stage parses or enforces it.
+- One consumer parses the field: `ship --parallel` partitions its run into per-repo lanes from `repos:` (see the flag above). Everywhere else it is informational — at-a-glance visibility into a ticket's repo footprint.
 - Single-repo workspaces (the common case) never see the field or the table column.
+- The worktree setup contract has a multi-repo convention — workspace-level `worktree.setup`, per-repo `.worktreeinclude` — documented in [Worktree setup](#worktree-setup).
 
 ## Configuration reference
 
@@ -171,7 +172,15 @@ A fresh worktree then receives `.env` and `.auth/admin.json` (the Playwright sto
 
 **Trust and secrets.** `worktree.setup` is the user's own declared command — the same trust tier as `validate.lint` and `test.start` — and follows the same execution discipline as `test.start` (see `skills/build/references/test-preflight.md`): the command is written verbatim into a script file with the Write tool — on a Bash-only surface, via a nonce-delimited single-quoted heredoc (`skills/review/references/pr-comments.md` §4) — never substituted into a shell command line, and ticket-derived text never goes into it. **No secrets in `config.yaml` or `.worktreeinclude`** — both are committed; patterns reference paths, never secret values, and the copied files stay gitignored in the worktree too.
 
-**Single-repo assumption.** The contract is per-repository: `.worktreeinclude` lives at the git repo's root, and `worktree.setup` assumes `config.yaml` sits inside the repo it describes. Multi-repo workspaces — where `config.yaml` is workspace-level and tickets carry `repos:` frontmatter — are not covered by this contract.
+**Multi-repo workspaces.** In a [multi-repo workspace](#multi-repo-workspaces) — where `config.yaml` is workspace-level and tickets carry `repos:` frontmatter — the contract splits along that line: `worktree.setup` is workspace-level config shared by every repo, so write it as **one repo-agnostic command** via manifest sniffing, while `.worktreeinclude` stays at each child repo's root (each repo lists its own gitignored needs; a repo may have none). Worked example for a workspace mixing Node and Go repos:
+
+```yaml
+# claudedocs/tickets/config.yaml — at the workspace root
+worktree:
+  setup: "if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; fi; if [ -f go.mod ]; then go mod download; fi"
+```
+
+The command runs inside whichever repo's worktree is being provisioned and sniffs that repo's manifests — the Node repos install dependencies, the Go repo downloads modules, and a repo matching neither runs nothing. The trust discipline above applies unchanged. Note on validation: a repo-relative `.worktreeinclude` pattern cannot reach the workspace-level `config.yaml` (it sits above the repo root) — and doesn't need to: multi-repo worktrees are created under the workspace root, so the validation hook's ancestor walk-up finds the workspace `config.yaml` and per-edit validation keeps firing inside them.
 
 ### MCP servers
 
