@@ -26,7 +26,7 @@ d. For each child in the roster, read its metadata: `id`, `title`, `status`, `bl
 
 a. Build a directed graph from `blocked_by`: an edge points from each blocker TO its dependent. So blockers come BEFORE dependents in topological order.
 
-b. Sort the children roster topologically. Ties (children with the same dependency depth) break by roster order — fs-native: the order in `prd.md`'s `children` list (`discover` already chose a sensible order); server-native: ascending ticket ID (the server allocates IDs sequentially at creation, so ID order preserves discover's creation order).
+b. Sort the children roster topologically. Ties (children with the same dependency depth) break by roster order — fs-native: the order in `prd.md`'s `children` list (`discover` already chose a sensible order); server-native: ascending numeric ID suffix — compare the `<N>` in `<PREFIX>-<N>` as a number, never lexicographically (`FP-9` sorts before `FP-10`; the server allocates IDs sequentially at creation, so numeric order preserves discover's creation order).
 
 c. **Cycle detection**: if the graph has a cycle, abort with an error listing the cycle's children and instruct the user to fix `blocked_by` in the offending specs. Cycles shouldn't occur because `discover` validates first-child-has-no-blockers + DAG shape, but defensive.
 
