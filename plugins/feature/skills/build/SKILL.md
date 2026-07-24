@@ -61,7 +61,7 @@ Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/referenc
 
 ## Blocker validation
 
-Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6. If any entry in `blocked_by` is not yet done (frontmatter `status: done` or `cancelled`, or folder under `done/`), abort with the message in Step 6 listing the unblocked blockers. If a `blocked_by` entry is wrong, edit this ticket's `blocked_by` frontmatter.
+Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6. If any entry in `blocked_by` is not yet done (status `done` or `cancelled` per Step 6's completion test, in either storage mode), abort with the message in Step 6 listing the unblocked blockers. If a `blocked_by` entry is wrong, edit this ticket's `blocked_by` frontmatter.
 
 When `blocked_by` is non-empty, build composes a **blocker context block** and prepends it to the review-checkpoint reviewer prompts. The block's artifact sources and missing-artifact fallback chain are defined where the composition happens — Process step 2b.
 
