@@ -57,7 +57,7 @@ Omit `status` on every create — the server defaults new tickets to `backlog`. 
 
 ## Multi-mode (N>1, after checkpoint approval)
 
-The Phase 3.5 checkpoint (`multi-sibling.md`) applies unchanged — approve/adjust/collapse, the validation rules, the table shape. One rendering difference: the server allocates IDs only at create time, so the checkpoint's *Tentative ID* column shows positional placeholders (`#1` … `#N`, epic `#E`), and its `blocked_by` column references siblings by those placeholders. Real IDs replace them during generation below.
+The Phase 3.5 checkpoint (`multi-sibling.md`) applies unchanged — approve/adjust/collapse, the validation rules, the table shape. One rendering difference: the server allocates IDs only at create time, so every sibling/epic ID reference anywhere in the checkpoint uses positional placeholders (`#1` … `#N` for children, `#E` for the epic) — the *Tentative ID* column, the `blocked_by` column, the `**Parent epic**` header line, and the AC-coverage checklist alike. Real IDs replace them during generation below.
 
 **Creation ordering** (IDs are known only post-create, so linkage happens in this exact order):
 

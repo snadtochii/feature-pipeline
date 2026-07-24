@@ -49,7 +49,7 @@ The skill runs in **main context** (interactive) through these phases:
 
 **Exploration-mode gate (runs first):** if this session enters exploration mode — the `--explore` flag, or vague/outcome-uncommitted input per the input-type branches below — **skip this phase entirely for now**: no directories, no `config.yaml`, no prefix prompt, no server calls. Run it only at the moment the developer commits to a ticket. An exploration session that ends with no ticket must leave the project — tree and server alike — untouched.
 
-**Storage-mode dispatch:** detect the storage mode once per run per [`../flow/references/storage.md`](../flow/references/storage.md) (model-read `claudedocs/tickets/config.yaml`; fs-native default, config-error and unknown-value handling per that contract). In **server-native** mode, the marker (`mode: server-native` + `project`) must already exist in `config.yaml` — discover never flips a project's mode and never creates the fs state folders. Skip steps 1–3 below entirely (no directories, no prefix — server IDs come from the registry-configured prefix) and run only step 4 (templates); ticket generation then follows [`references/server-create.md`](references/server-create.md) at Phase 4. In **fs-native** mode, run steps 1–4 below unchanged.
+**Storage-mode dispatch:** detect the storage mode once per run per [`../flow/references/storage.md`](../flow/references/storage.md) (model-read `claudedocs/tickets/config.yaml`; fs-native default, config-error and unknown-value handling per that contract). In **server-native** mode, the marker (`mode: server-native` + `project`) must already exist in `config.yaml` — discover never flips a project's mode and never creates the fs state folders. Skip steps 1–3 below entirely (no directories, no prefix — server IDs come from the registry-configured prefix) and run only step 4 (templates); ticket generation then follows [`references/server-create.md`](references/server-create.md) at Phase 4. If `--id` was passed, reject it **now** with a one-line explanation — server-allocated IDs leave nothing for the flag to set — and continue the run without the flag (don't let the discovery dialogue complete before surfacing this). In **fs-native** mode, run steps 1–4 below unchanged.
 
 1. **Check if `claudedocs/tickets/` directory exists** in the project root
 2. If not:
@@ -190,7 +190,7 @@ Proceed directly to Phase 4 (single-mode). Do not show a checkpoint UI — there
 
 #### When N>1: present the checkpoint
 
-When the assessment lands on N>1, read and follow [`references/multi-sibling.md`](references/multi-sibling.md) — it holds the checkpoint presentation (shown before any tickets are created), its validation rules, and Phase 4's multi-mode generation steps. Ticket IDs still come from Phase 4's *Generate ticket IDs* block below, which serves both modes.
+When the assessment lands on N>1, read and follow [`references/multi-sibling.md`](references/multi-sibling.md) — it holds the checkpoint presentation (shown before any tickets are created), its validation rules, and Phase 4's multi-mode generation steps. Ticket IDs still come from Phase 4's *Generate ticket IDs* block below, which serves both output modes.
 
 ---
 
@@ -200,7 +200,7 @@ Two modes: **single-ticket** (N=1, the default-collapsed output) and **multi-sib
 
 #### Generate ticket IDs
 
-**Server-native storage mode: skip this block.** The server allocates IDs atomically at create time (per [`references/server-create.md`](references/server-create.md)) — there is no local scan. `--id` is **rejected** in this mode with a one-line explanation: server-allocated IDs leave nothing for the flag to set. The scan below is fs-native only.
+**Server-native storage mode: skip this block.** The server allocates IDs atomically at create time (per [`references/server-create.md`](references/server-create.md)) — there is no local scan, and `--id` was already rejected at Phase 0's storage-mode dispatch (one-line explanation, run continues without the flag). The scan below is fs-native only.
 
 Scan the **entire** `claudedocs/tickets/` tree recursively — epic children live nested under `<state>/<EPIC>/tasks/<CHILD>/` and draw from the **same single sequential numbering space** as top-level tickets, so a top-level-only scan can hand out an ID a nested child already uses. Collect every folder anywhere under `claudedocs/tickets/**` whose name matches the configured `<PREFIX>-<N>` (the folder name IS the ID — match folder names, not frontmatter; ignore non-matching prefixes), take the maximum `<N>`, and allocate from `max + 1` (no matches → start at `<PREFIX>-1`). No leading zeros; gaps left by deleted tickets are fine — never backfill them.
 
@@ -247,7 +247,7 @@ In server-native storage mode, follow the single-mode procedure in [`references/
 
 #### Multi-mode (N>1)
 
-Generation steps live in [`references/multi-sibling.md`](references/multi-sibling.md), read at the Phase 3.5 N>1 branch point — epic folder creation, epic slug, PRD write, shared exploration write, child specs, and the result presentation. Epic and child IDs come from the *Generate ticket IDs* block above. In server-native storage mode, the generation steps live in [`references/server-create.md`](references/server-create.md) instead — the Phase 3.5 checkpoint from `multi-sibling.md` applies unchanged in both modes.
+Generation steps live in [`references/multi-sibling.md`](references/multi-sibling.md), read at the Phase 3.5 N>1 branch point — epic folder creation, epic slug, PRD write, shared exploration write, child specs, and the result presentation. Epic and child IDs come from the *Generate ticket IDs* block above. In server-native storage mode, the generation steps live in [`references/server-create.md`](references/server-create.md) instead — the Phase 3.5 checkpoint from `multi-sibling.md` applies unchanged in both storage modes.
 
 ---
 
