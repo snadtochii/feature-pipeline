@@ -15,6 +15,7 @@ allowed-tools:
   - pipeline_write_artifact
   - pipeline_get_ticket
   - pipeline_list_tickets
+  - pipeline_list_artifacts
 argument-hint: "[description] [--project name] [--id XX-N] [--explore]"
 ---
 

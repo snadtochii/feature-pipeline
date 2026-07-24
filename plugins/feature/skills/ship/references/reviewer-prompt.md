@@ -1,6 +1,26 @@
 # Ship — reviewer prompt template (bias isolation is the crux)
 
-Read this file at exactly one point: PER TICKET Step 2, when the orchestrator spawns the independent reviewer subagent. Inline the template below **verbatim** into the reviewer's spawn prompt, filling `<N>` (the real PR number), `<REPO_PATH>`, and `<SPEC_PATH>` — the subagent does not share the orchestrator's context and cannot follow relative links, so the template text itself must land in the brief (the same spawn-time injection pattern as build's `references/confidence-scale.md`).
+Read this file at exactly one point: PER TICKET Step 2, when the orchestrator spawns the independent reviewer subagent. Inline the template below **verbatim** into the reviewer's spawn prompt, filling `<N>` (the real PR number), `<REPO_PATH>`, and the `<GROUND_TRUTH_BLOCK>` — the subagent does not share the orchestrator's context and cannot follow relative links, so the template text itself must land in the brief (the same spawn-time injection pattern as build's `references/confidence-scale.md`).
+
+**`<GROUND_TRUTH_BLOCK>` is mode-dependent** (storage mode per [`../../flow/references/storage.md`](../../flow/references/storage.md)) — the reviewer subagent has no ticket-store access of its own, so the orchestrator resolves the ground truth before spawning:
+
+- **fs-native** — fill the block with:
+  ```
+  GROUND TRUTH is the ticket spec at <SPEC_PATH> — read it and judge the diff against it.
+  For carry-forward gotchas, grep claudedocs/tickets/_lessons.md by subject for the keywords
+  this ticket touches (paths, tools, commands, areas) and read only the matching atomic
+  entries — do not load the whole file.
+  ```
+- **server-native** — the orchestrator pulls the frontmatter-free `01-spec.md` body via `pipeline_get_artifact` and the matching lesson rows via `pipeline_list_lessons` (subject-keyword match in memory, per the lessons contract §8 — only the matched entries, never the full store), then fills the block with:
+  ```
+  GROUND TRUTH is the ticket spec, inlined below — judge the diff against it.
+  --- SPEC (01-spec.md) ---
+  <spec body>
+  --- END SPEC ---
+  Carry-forward gotchas from prior tickets (pre-matched to this ticket's areas; may be empty):
+  <matched lesson entries, one per line>
+  ```
+  These are neutral ticket inputs (spec + lessons), not the implementer's narrative — inlining them preserves bias isolation.
 
 ```
 You are an independent, skeptical code reviewer. Review GitHub PR #<N> in <REPO_PATH>.
@@ -10,10 +30,7 @@ Get the change: `gh pr diff <N>`, `gh pr view <N> --json title,body,headRefName,
 and read the surrounding source/tests as needed. The PR body carries only a one-line inner-cycle
 review provenance, not the implementer's rationale — judge the diff against the spec yourself.
 
-GROUND TRUTH is the ticket spec at <SPEC_PATH> — read it and judge the diff against it.
-For carry-forward gotchas, grep claudedocs/tickets/_lessons.md by subject for the keywords
-this ticket touches (paths, tools, commands, areas) and read only the matching atomic
-entries — do not load the whole file.
+<GROUND_TRUTH_BLOCK>
 
 Review in priority order: (1) correctness vs each acceptance criterion; (2) bugs / edge cases /
 concurrency / the carry-forward lessons; (3) project boundary or architecture violations;

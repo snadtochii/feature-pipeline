@@ -89,7 +89,7 @@ The Phase 3.5 checkpoint (`multi-sibling.md`) applies unchanged — approve/adju
 
 Multi-mode creation is **not transactional**. If a create, update, or artifact write fails midway:
 
-1. **Report exactly what exists**: the IDs created so far (epic, which children), which `blocked_by` updates landed, which artifacts were written — re-read with `pipeline_get_ticket` / `pipeline_list_tickets` (filter client-side by `parent_id`) where the local record is uncertain.
+1. **Report exactly what exists**: the IDs created so far (epic, which children), which `blocked_by` updates landed, which artifacts were written — where the local record is uncertain, re-read with `pipeline_get_ticket` / `pipeline_list_tickets` (filter client-side by `parent_id`) for tickets and `blocked_by`, and `pipeline_list_artifacts` per created ticket for the artifact rows.
 2. **Report exactly what remains**: the children not yet created, the updates and artifact writes still pending, in order.
 3. **Stop** — per the loud-failure doctrine. Never delete server tickets to "roll back", and never write fs tickets to compensate.
 
