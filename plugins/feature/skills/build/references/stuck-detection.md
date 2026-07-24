@@ -12,7 +12,7 @@ At the start of every implement / review / test iteration, build emits a `Turn N
 
 The hard ceiling is **25 turns per build invocation**. On hitting `Turn 26`, exit with `verdict: stuck` regardless of semantic-pattern detection.
 
-**Compaction caveat.** If Claude Code summarizes/compacts the conversation mid-loop, the turn counter visibly resets — older `Turn N/25` lines drop out of the working transcript. Defer to the most recent visible `Turn N/25` line; if compaction happened, the budget effectively renews. This is acceptable: compaction means the loop has produced enough work to fill the context window, and starting fresh with the artifacts already on disk (`03-implementation.md`, `04-review.md`, `05-tests.md`) is the right posture.
+**Compaction caveat.** If Claude Code summarizes/compacts the conversation mid-loop, the turn counter visibly resets — older `Turn N/25` lines drop out of the working transcript. Defer to the most recent visible `Turn N/25` line; if compaction happened, the budget effectively renews. This is acceptable: compaction means the loop has produced enough work to fill the context window, and starting fresh with the artifacts already persisted (`03-implementation.md`, `04-review.md`, `05-tests.md`) is the right posture.
 
 ## Semantic patterns
 
@@ -64,6 +64,6 @@ Cost: roughly one Haiku turn per fired arbiter call. The 4-turn gate keeps it fr
 Exit the build loop with `verdict: stuck`. Write `06-summary.md` describing:
 - The detected pattern (which of the six above, or "turn cap exceeded")
 - The last 3-5 iterations' actions, briefly
-- A suggested next move for the user (e.g., "fix the import path manually then re-run `/feature:build <id>` (auto-resumes from on-disk artifacts)", or "the plan's step N may need a smaller break-down")
+- A suggested next move for the user (e.g., "fix the import path manually then re-run `/feature:build <id>` (auto-resumes from the ticket's existing artifacts)", or "the plan's step N may need a smaller break-down")
 
 Surface the human gate per `build/SKILL.md`'s Verdict Semantics section. The user picks: accept-as-partial, continue-with-hint (re-enter the loop with a user note, fresh 25-turn budget), or abort.

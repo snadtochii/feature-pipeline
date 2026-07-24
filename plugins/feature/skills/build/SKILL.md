@@ -10,6 +10,16 @@ allowed-tools:
   - Bash
   - Task
   - TodoWrite
+  - pipeline_get_ticket
+  - pipeline_get_artifact
+  - pipeline_list_artifacts
+  - pipeline_write_artifact
+  - pipeline_transition_ticket
+  - pipeline_update_ticket
+  - pipeline_add_lesson
+  - pipeline_list_lessons
+  - pipeline_update_lesson
+  - pipeline_delete_lesson
 argument-hint: "[ticket-id] [--pr] [--no-ui-testing] [--hint text]"
 ---
 
@@ -27,7 +37,7 @@ Build the ticket through one continuous loop with internal checkpoints (implemen
 
 `$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)), `--no-ui-testing` (skip only the browser/ui-tester portion of the test checkpoint; lint/typecheck still run and still gate the verdict — see the test checkpoint's flag override).
 
-Resumption is auto-detected from on-disk artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build.
+Resumption is auto-detected from the ticket's existing artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build (server-native: delete the same artifacts with `pipeline_delete_artifact` — a user-side action; build itself never deletes artifacts).
 
 ## Ticket Resolution & Artifacts Setup
 
@@ -38,10 +48,12 @@ Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/r
 - `01-spec.md` — the ticket specification (for acceptance criteria)
 - `02-plan.md` — the approved implementation plan (**required** — if not found, refuse with: "Plan stage hasn't run. Run `/feature:plan $1` first.")
 
-For auto-resumption, also read whichever of these exist on disk to reconstruct state (see step 5 below for resumption logic):
+For auto-resumption, also read whichever of these exist to reconstruct state (see step 5 below for resumption logic):
 - `03-implementation.md` — completed plan steps from a prior build invocation
 - `04-review.md` — review state from a prior build invocation
 - `05-tests.md` — test state from a prior build invocation
+
+In server-native mode every input above is an artifact read pulled into the session working copy at State setup — see the Working copy block there.
 
 ## Epic refusal
 
@@ -60,6 +72,12 @@ Before the implement checkpoint, perform the start-of-pipeline transition per [`
 **`review/` is intercepted before this transition.** If the ticket is in `review/` (status `in-review`), the step-5 resumption check (first row) runs first: build inspects the PR's merge state and finalizes via Transition 6 (`review → done`) if merged, or reports the still-open PR and exits — it does NOT rebuild. The `review/ → in-progress` re-plan path (revise an open PR's code) belongs to `plan`, not build.
 
 `<ticket-folder>` is rebound to the new location for the rest of this run.
+
+**Bind ticket metadata — before the step-5 resumption routing.** Values read only inside a checkpoint are unbound on resumed runs that re-enter downstream of it, so build binds them here, upstream of the router: read `status`, `complexity` (used by the review checkpoint's triviality short-circuit), `kind`, `blocked_by`, and (server-native) `pr_url` once via the Read ticket metadata operation in [`../flow/references/storage.md`](../flow/references/storage.md) — frontmatter in fs-native mode, the ticket row in server-native mode, never parsed out of artifact bodies.
+
+**Working copy (server-native only).** Pull `01-spec.md`, `02-plan.md`, and whichever of `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md` exist (per the List artifacts operation) into a session-scratchpad directory — an ephemeral location outside the repository; nothing is ever materialized under `claudedocs/tickets/`, which is not a ticket store in this mode. All in-loop reading (including the per-step `Read` offset/limit re-read of the plan) works off these copies, and subagent spawn prompts reference scratchpad paths — subagents never touch the ticket store; the build skill is its only reader/writer in this loop. The copies are disposable: every run re-pulls from the server; a scratchpad tree left by a prior run is never trusted or reused.
+
+**Per-checkpoint push (server-native only).** Every artifact write named in this skill is upserted to the server via the Write artifact operation the moment the producing step completes — `03-implementation.md` after each update (no `verdict`), `04-review.md`, `05-tests.md`, and `06-summary.md` each with the `verdict` rule stated at its write site. Update the scratchpad copy and push in the same step; a crash then loses at most the in-flight checkpoint's output, and a re-run resumes from exactly what the server holds.
 
 ---
 
@@ -97,7 +115,7 @@ d. **After all plan steps are implemented**, run final validation across all cha
 
 **Pre-check — Triviality short-circuit.** Before spawning reviewer subagents, check whether the diff is small enough that the four-subagent review is overkill (token cost > expected signal):
 
-1. Read `01-spec.md` frontmatter — extract the `complexity` field.
+1. Take the `complexity` value bound at State setup (ticket metadata — never re-parsed from an artifact body).
 2. Run `git diff --shortstat <base>...HEAD` (and add unstaged) to count lines and files changed.
 3. If **all three** conditions hold — `complexity: S`, lines changed < 50, files changed < 3 — short-circuit:
    - Write `<ticket-folder>/04-review.md`:
@@ -107,6 +125,7 @@ d. **After all plan steps are implemented**, run final validation across all cha
      ## Reason
      Ticket complexity is S; diff is <X> lines across <Y> files (threshold: < 50 lines, < 3 files). Skipping the parallel reviewer subagents — token cost outweighs expected signal on small changes.
      ```
+     Server-native: `skipped` is outside the server's verdict enum — write the artifact **without** `verdict`; the label stays in the body (per [`../flow/references/storage.md`](../flow/references/storage.md) §Write artifact).
    - Proceed directly to the test checkpoint (step 3 of this Process).
 4. Otherwise, proceed to step a below.
 
@@ -160,6 +179,7 @@ d. **Merge findings into `<ticket-folder>/04-review.md`**:
    - **Tag each finding** with `[correctness]` / `[security]` / `[performance]` / `[architecture]`
    - **Top-of-file summary** with counts per severity + per reviewer
    - **Reviewer failure handling**: if a reviewer subagent fails, report it inside the merged artifact and continue with results from the other reviewers (graceful partial-merge). All four failing → write a single error entry in `04-review.md` and exit with `verdict: stuck`.
+   - **Artifact verdict (server-native)**: upsert the merged artifact with `verdict: pass` (the checkpoint completed — findings are merged and step e applies the fixes). The all-four-failed error entry is written with `verdict: fail`.
 
 e. **Apply applicable fixes in-context.** The model uses judgment to apply fixes from the merged findings. **Tiebreak when fixes are mutually exclusive**: `security > correctness > architecture > performance` — security has the largest blast radius, correctness is the AC contract, architecture can be repaired later, performance is the most local and most easily revisited.
 
@@ -189,13 +209,15 @@ b. **Spawn `feature:ui-tester`** (when reachable). Read the project's `CLAUDE.md
    >
    > **Auth — use the injected recipe first, in priority order.** The build skill already resolved the URL and composed any declared auth recipe into this prompt (above), so don't re-discover the URL. Apply `auth.storage_state` (load it with `mcp__playwright__browser_set_storage_state`, filename = the injected path, BEFORE navigating; if that tool isn't exposed by the running Playwright MCP, fall through) → `auth.attach_tab` (attach to an already-authenticated same-origin tab) → your existing fallback (CLAUDE.md bypass hint → ask). If no recipe was injected, use your existing auth fallback unchanged.
 
-   Save subagent output to `<ticket-folder>/05-tests.md`. Failed criteria become a `## Failed Criteria` section inside `05-tests.md`. If specs were codified, list their paths under a `## Codified specs` section.
+   Save subagent output to `<ticket-folder>/05-tests.md`. Failed criteria become a `## Failed Criteria` section inside `05-tests.md`. If specs were codified, list their paths under a `## Codified specs` section. Server-native `verdict`: `pass` when every acceptance criterion passed; `partial` when a `## Failed Criteria` section is present.
 
 c. **Skip artifact** (when the skip-detection scan matched no UI signals, when `--no-ui-testing` forced the skip, OR when the reachability pre-flight found the app unreachable and un-bootable). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth build verdict. The build verdict set is `pass | partial | stuck`. When the test checkpoint is skipped, build can still exit with `verdict: pass` if the implement and review checkpoints completed cleanly. Write `<ticket-folder>/05-tests.md` with the variant matching the skip cause — when writing one, read [`references/skip-artifacts.md`](references/skip-artifacts.md) for the verbatim template bodies (the app-unreachable body lives in [`references/test-preflight.md`](references/test-preflight.md) §6, beside the pre-flight that produces it):
 
    - **No UI signals in the plan** — the skip-detection scan found nothing.
    - **Forced by `--no-ui-testing`** — the plan may well have UI work; browser verification is deferred, not absent.
    - **App unreachable** — the reachability pre-flight could not reach or boot the app.
+
+   Server-native: skip labels are outside the server's verdict enum — write `05-tests.md` **without** `verdict`; the skip variant stays in the body (per [`../flow/references/storage.md`](../flow/references/storage.md) §Write artifact).
 
 d. **Apply test fixes in-context.** Test failures are observations the loop consumes — fix them inline using the same pattern as the review checkpoint. If fixes succeed, re-run the failing tests. If failures are un-fixable in this run, write the `## Failed Criteria` section to `05-tests.md` and prepare to exit with `verdict: partial`.
 
@@ -224,7 +246,9 @@ Choose one based on loop state:
 
 The uniform always-write contract means downstream readers (and reopened-ticket regressions) never have to handle a "missing summary = unknown verdict" failure mode.
 
-**Capture a lesson in `claudedocs/tickets/_lessons.md`** at the same time, following the shared contract in [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) end-to-end: file creation (§1), entry format (§2), what to capture vs skip (§3), the write-time supersession check (§4), prefer-newest on conflict (§5), promotion on recurrence (§6), and format overflow (§7). Build-specific wiring:
+Server-native `verdict` on the `06-summary.md` upsert: `pass` → `pass`, `partial` → `partial`; `stuck` is outside the server's verdict enum — omit `verdict` and keep the token in the body (per [`../flow/references/storage.md`](../flow/references/storage.md) §Write artifact).
+
+**Capture a lesson in the cross-ticket lessons log** at the same time, in the project's storage mode (fs-native: `claudedocs/tickets/_lessons.md`; server-native: the lesson tools — that contract's per-section Server-native notes govern), following the shared contract in [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) end-to-end: store creation (§1), entry format (§2), what to capture vs skip (§3), the write-time supersession check (§4), prefer-newest on conflict (§5), promotion on recurrence (§6), and format overflow (§7). Build-specific wiring:
 
 - The header's `<verdict>` token is this run's verdict: `pass` | `partial` | `stuck`.
 - A build run is **unattended** in the §6/§7 sense — no user present to answer, so the CLAUDE.md proposals are skipped — when it runs as an autonomous orchestrator's subagent or under headless `claude -p`.
@@ -281,7 +305,7 @@ Per [`../flow/references/state-transitions.md`](../flow/references/state-transit
 - **`pass` without `--pr`** (any commit decision) → Transition 2 (End-of-pipeline → `done/`).
   - If the user wants to commit, do the standard git workflow first (stage relevant files; create a commit message referencing the ticket ID).
   - Then apply Transition 2.
-- **`pass` with `--pr`** → run the [`references/pr-creation.md`](references/pr-creation.md) sequence (preconditions → branch-decision matrix → gitignore-aware stage → commit → push → `gh pr create`). On success: Transition 5 (→ `review/`, status `in-review`) and record the PR URL + branch in `06-summary.md`. On degradation (gh missing/unauthenticated, non-GitHub origin, or push/PR failure): Transition 2 (→ `done/`) and record the reason in `06-summary.md`. The verdict stays `pass` either way. The branch-decision matrix may pause for a safety choice (commits-ahead of base / detached HEAD / stash-pop conflict) — those are safety prompts, not the commit gate that `--pr` skips.
+- **`pass` with `--pr`** → run the [`references/pr-creation.md`](references/pr-creation.md) sequence (preconditions → branch-decision matrix → gitignore-aware stage → commit → push → `gh pr create`). On success: Transition 5 (→ `review/`, status `in-review`) and record the PR URL + branch in `06-summary.md` (server-native: also on the ticket row via `pipeline_update_ticket` `pr_url` — see pr-creation.md §5). On degradation (gh missing/unauthenticated, non-GitHub origin, or push/PR failure): Transition 2 (→ `done/`) and record the reason in `06-summary.md`. The verdict stays `pass` either way. The branch-decision matrix may pause for a safety choice (commits-ahead of base / detached HEAD / stash-pop conflict) — those are safety prompts, not the commit gate that `--pr` skips.
 
 - **`partial`** or **`stuck`** + **`accept-as-partial`** → Transition 4 (status flips to `partial-completion`), then Transition 2 (folder moves to `done/`, preserving `partial-completion` status).
 
@@ -300,9 +324,9 @@ After the transition fires, print:
 - On `backlog/` revert: "Ticket reverted to `backlog/`. Artifacts preserved in the folder."
 - On `continue-with-hint`: no additional message — the loop just continues.
 
-### 5. Auto-resumption from on-disk artifacts
+### 5. Auto-resumption from existing artifacts
 
-At build start, before the implement checkpoint, inspect on-disk artifacts and route accordingly. The user signals "start fresh" by deleting `03-implementation.md` (and downstream); the build skill itself never asks. Git is the version-history layer if a backup is wanted.
+At build start, before the implement checkpoint, inspect the ticket's existing artifacts and route accordingly. The user signals "start fresh" by deleting `03-implementation.md` (and downstream — server-native: with `pipeline_delete_artifact`); the build skill itself never asks. Version history if a backup is wanted: git in fs-native mode; in server-native mode a deleted artifact body is gone, so copy anything worth keeping before deleting.
 
 **Routing table** (checked in order, first match wins):
 
@@ -316,6 +340,11 @@ At build start, before the implement checkpoint, inspect on-disk artifacts and r
 | `03-implementation.md` is partial (some plan steps not yet checked off) | Continue from the next un-implemented plan step. |
 | Nothing relevant exists | Fresh start: implement step 1, Turn 1/25. |
 
+**Server-native keying.** The routing table's signals map onto the ticket row plus `pipeline_list_artifacts` (artifact rows carrying `created_at`/`updated_at`), read after State setup's metadata binding and working-copy pull:
+- The first row keys on row status `in-review` (there is no `review/` folder); the pushed branch for the merge predicate is recovered from the `06-summary.md` artifact body or the current checkout, and the row's `pr_url` (when set) identifies the PR directly.
+- Artifact presence comes from the listing; verdict and `## Failed Criteria` checks read the pulled artifact bodies.
+- The two `04-review.md` recency rows compare `04-review.md`'s `updated_at` against `03-implementation.md`'s — `03-implementation.md` is re-upserted after every implement update and after review fixes, so it carries the "implementation diverged after review" signal. `04-review.md` newer → apply pending fixes; `03-implementation.md` newer → re-enter the review checkpoint.
+
 **Turn-counter reset on resume**. Resumed sessions start at `Turn 1/25` — the prior budget is forfeited.
 
 **`--hint` flag**. When present (e.g., `/feature:build BL-1 --hint "the failing test wants the ARIA label inside the button, not on it"`), the hint text becomes part of the resumed (or fresh) loop's context. Used by flow's verdict-gate `continue-with-hint` option to thread user guidance into a follow-up build invocation.
@@ -324,7 +353,7 @@ At build start, before the implement checkpoint, inspect on-disk artifacts and r
 
 ## Output
 
-The build skill writes these artifacts to `<ticket-folder>/` over the course of the loop:
+The build skill writes these artifacts to `<ticket-folder>/` over the course of the loop (server-native: each is upserted per State setup's per-checkpoint push, with the verdict rule stated at its write site):
 
 - **`03-implementation.md`** — incremental updates, one section per plan step (live checkpoint, not post-hoc summary)
 - **`04-review.md`** — written once at the end of the review checkpoint (merged from 4 reviewer subagents)
@@ -343,4 +372,5 @@ The user-facing exit presentation is the verdict-gate blocks in Process step 4c.
 - **Application unreachable at the test checkpoint**: handled by the reachability pre-flight (`references/test-preflight.md`), not an interactive error — the app is reached, a declared `test.start` is booted, or the *app unreachable* skip artifact is written and the loop proceeds to the verdict without prompting. A pre-flight-started server is torn down afterward.
 - **Subagent failure** (reviewer or `ui-tester` crashes/timeouts): report inside the merged artifact and continue with results from the others. All four reviewers failing simultaneously → write degraded `04-review.md` and exit `verdict: stuck`.
 - **Validation commands not documented in project `CLAUDE.md`**: log warning, proceed without skill-body validation. Graceful degradation; the loop continues.
+- **Server-native storage operation fails mid-loop**: stop per [`../flow/references/storage.md`](../flow/references/storage.md) §Loud failure, and include a state report — which artifacts were pushed this run and which checkpoint's output was not, so the user knows exactly what the server holds before re-running. A CAS conflict at the verdict gate follows storage.md §CAS conflict doctrine (re-read, re-evaluate, proceed or stop — never widen `from[]`).
 - **Stuck pattern detected or `Turn 26` reached**: not an error — handled via `verdict: stuck`. Always write `06-summary.md` describing the loop state.
