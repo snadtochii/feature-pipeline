@@ -110,9 +110,9 @@ Move the ticket through the state machine. The per-transition semantics (sources
 
 ### Update ticket fields
 
-Write non-status fields — `title`, `priority`, `complexity`, `tags`, `pr_url`, `blocked_by`.
+Write non-status fields — `title`, `priority`, `complexity`, `tags`, `blocked_by`, and (server-native only) `pr_url`.
 
-- **fs**: frontmatter `Edit` on `01-spec.md` / `prd.md`.
+- **fs**: frontmatter `Edit` on `01-spec.md` / `prd.md`. `pr_url` has no fs frontmatter slot — build records the PR URL in `06-summary.md`, and `sync` rediscovers PRs by title search.
 - **server-native**: `pipeline_update_ticket`. Status is excluded (CAS-only, above).
 
 ### List tickets / list children
