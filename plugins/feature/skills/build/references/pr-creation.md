@@ -131,7 +131,7 @@ gh pr create --base "<base>" --title "$PR_TITLE" --body-file "<06-summary.md pat
 
 ## Merge predicate (single definition — referenced by build's `review/` resumption row and the `sync` skill)
 
-Determine whether a ticket's PR has merged. The scan set depends on the caller: **build** applies this to an `in-review` ticket it is resuming (a solo ticket or an at-review epic in `review/`); **sync** applies it to every ticket in its folder-keyed scan set (any solo ticket in `backlog/`, `in-progress/`, or `review/`, plus epic children reached via the `*/tasks/*` glob, including a child whose subtree is still in `in-progress/`). **The rule is shared; the lookup key depends on the caller:**
+Determine whether a ticket's PR has merged. The scan set depends on the caller: **build** applies this to an `in-review` ticket it is resuming (a solo ticket or an at-review epic in `review/`); **sync** applies it to every ticket in its scan set (fs-native: folder-keyed — any solo ticket in `backlog/`, `in-progress/`, or `review/`, plus epic children reached via the `*/tasks/*` glob, including a child whose subtree is still in `in-progress/`; server-native: every row at a non-terminal status). **The rule is shared; the lookup key depends on the caller:**
 
 - **Branch-keyed** — build's per-ticket `review/` resumption, which has the current checkout:
   ```bash
@@ -142,7 +142,7 @@ Determine whether a ticket's PR has merged. The scan set depends on the caller: 
   ```bash
   gh pr list --search "<TICKET-ID> in:title" --state all --json number,state,url,createdAt,title,mergeCommit,baseRefName --jq '[.[] | select(.title | startswith("<TICKET-ID>:"))] | sort_by(.createdAt) | last | .state + " " + (.mergeCommit.oid // "") + " " + .baseRefName'
   ```
-  Every PR/commit title leads with `<TICKET-ID>:`, so the `startswith` post-filter pins the ticket's own PR; `last` picks the newest. More robust than the branch when the branch isn't recoverable. As with the branch-keyed lookup, this yields `state`, the merge-commit SHA (`MERGE_SHA`), and the PR's own base branch (`PR_BASE`) for the reachability gate below.
+  Every PR/commit title leads with `<TICKET-ID>:`, so the `startswith` post-filter pins the ticket's own PR; `last` picks the newest. More robust than the branch when the branch isn't recoverable. In server-native mode the row's `pr_url`, when set, takes precedence here too (`gh pr view <url>` — the same live query) and this ID-keyed search is `sync`'s fallback for rows without it (`sync`'s Step 2 owns the fallback + back-fill procedure). As with the branch-keyed lookup, this yields `state`, the merge-commit SHA (`MERGE_SHA`), and the PR's own base branch (`PR_BASE`) for the reachability gate below.
 
 **Shared rule** (both lookups): a PR promotes to `done/` only when it is `MERGED` **and** its merge commit is **reachable from the base branch** — checking *that* a PR merged is not enough, because an epic child squash-merged only into `integration/<epic-id>` reports `MERGED` identically to a solo PR merged into the base. Gating on reachability keeps `sync` safe to run mid-epic-run: a child stays `in-review` until its code actually lands on `<base>`.
 
