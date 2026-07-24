@@ -117,7 +117,7 @@ Always report state on exit — one of four:
 Output is keyed to **whether there's a transferable lesson**, not to the exit type.
 
 - **Lessons log** — if the root cause is a *project-specific, would-recur constraint that static reasoning missed* (a non-obvious runtime behavior, a config/env coupling, a framework footgun specific to this codebase), append one line to `claudedocs/tickets/_lessons.md`. Write nothing for a self-contained bug (typo, local off-by-one, missing null check) even on `fixed`. Test: "would the next ticket's planning re-derive this the hard way if it weren't written?"
-  - Write the line per the shared contract in [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) — file creation and entry format (§1–§2) — and backtick any path token. Debug's deltas from that contract:
+  - Write the line per the shared contract in [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) — file creation and entry format (§1–§2), in the project's storage mode (that contract's server-native notes govern when the project is server-native) — and backtick any path token. Debug's deltas from that contract:
     - **ID forms** — with a ticket in scope: `## <ticket-id> (debug, <YYYY-MM-DD>): <one atomic lesson>`; standalone: `## debug/<short-slug> (<exit>, <YYYY-MM-DD>): <one atomic lesson>`.
     - **No supersession check** — §4 is build-owned; append only. Build's next capture merges (or prefers-newest on) any same-subject duplicate.
     - **No promotion/overflow proposals** — §6–§7 are build-owned; on a multi-subject finding, split into atomic lines only.
