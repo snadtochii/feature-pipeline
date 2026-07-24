@@ -98,7 +98,7 @@ Read the ticket's structured fields. The two stores name them differently — us
 
 ### Delete artifact
 
-A user-side reset action (build's start-fresh signal: delete `03-implementation.md` onward before re-invoking) — no pipeline skill deletes artifacts.
+The start-fresh reset. User-side for build's signal (delete `03-implementation.md` onward before re-invoking); skill-side in exactly one place — flow's SETUP downstream-artifact invalidation, which removes build artifacts when `02-plan.md` is absent. No other pipeline skill deletes artifacts.
 
 - **fs**: delete `<ticket-folder>/<name>`; git history retains the body if a backup is wanted.
 - **server-native**: `pipeline_delete_artifact` with the ticket ID and artifact name — permanent; a deleted body has no server-side history, so copy anything worth keeping before deleting.
