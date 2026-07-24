@@ -114,7 +114,11 @@ Canonical sources in `skills/flow/SKILL.md`:
 
 Centralized cross-stage rules live in `skills/flow/references/` (the folder also holds flow-private references like `epic-walk.md`; only the cross-stage ones are listed here):
 
+`storage.md`:
+- The storage adapter seam — the fs-native ↔ server-native switch every storage-touching reference dispatches through. Owns: **mode detection** (`config.yaml` `mode` + `project` keys; missing file/key or `mode: fs-native` → fs-native with zero network; `mode: server-native` + `project` → server-native), the **loud-failure doctrine** (a failed server-native op stops the skill, naming server and operation — never an fs fallback), the **fs↔server status mapping** (server status writable only via the CAS transition tool), the **CAS conflict doctrine** (re-read → re-evaluate → proceed-or-stop, never force), and the **operation vocabulary** (resolve, read metadata, read/write/list artifacts, transition status, update fields, list tickets/children, create, lessons) with an fs and a server-native procedure per operation. `ticket-resolution.md`, `state-transitions.md`, and `lessons-log.md` route through it.
+
 `ticket-resolution.md`:
+- Every step dispatches on the storage mode per `storage.md` — fs folder procedures, or server-native row + artifact operations
 - **Step 1** — ticket-folder resolution (path or ID, including nested children under `tasks/`)
 - **Step 4** — `kind: epic` refusal (epics are non-pipelineable)
 - **Step 5** — locating shared `exploration.md` (solo vs child)
@@ -129,9 +133,10 @@ Centralized cross-stage rules live in `skills/flow/references/` (the folder also
 - **Transition 6** — Merge (current state folder → `done`); invoked when `build` is re-run on a `review/` ticket, or when `sync` scans a ticket in `backlog/`, `in-progress/`, or `review/` (folder-keyed, not by status) and its PR is detected merged (the merge check is part of the `--pr` auto-PR flow). T2's body re-pointed at the ticket's current state folder as source: for `build` a solo source is always `review/` (or an at-review epic); for `sync` a solo source is whichever of `backlog/`/`in-progress/`/`review/` the scan found it in (a crash, re-plan, or manual merge can park a merged PR outside `review/`); an epic child flips in place while a sibling is still mid-build.
 - **Decision table** — verdict + user choice → which transitions fire. The contract `build` uses at the verdict gate.
 - **Status query** — read-only inspection for future epic-walker tooling.
+- Every transition also carries its **Server-native** CAS form (`from[]`/`to` via the transition tool), dispatched per `storage.md`; the fs mechanics above are the fs-native form.
 
 `lessons-log.md`:
-- The cross-ticket lessons-log contract — atomic entry format, write-time supersession check, prefer-newest on conflict, promotion on recurrence, format overflow, grep-scoped consumption. Producers (`build`, `debug`) and consumers (`plan`, `ship`), plus the standalone `lessons-consolidate` normalizer, all point here; summary in the Cross-ticket lessons log section below.
+- The cross-ticket lessons-log contract — atomic entry format, write-time supersession check, prefer-newest on conflict, promotion on recurrence, format overflow, grep-scoped consumption. Producers (`build`, `debug`) and consumers (`plan`, `ship`), plus the standalone `lessons-consolidate` normalizer, all point here; summary in the Cross-ticket lessons log section below. Dual-mode: fs appends to `_lessons.md`; server-native maps the same rules onto the lesson tools (per-section Server-native notes).
 
 Individual stage skills (`skills/<stage>/SKILL.md`) own their own `Required Input` and `Output` sections, which are the authoritative per-stage contracts. Flow's Stage Contract table is a consolidated summary of those.
 
@@ -281,6 +286,10 @@ Quick summary (full version in the reference):
 Tickets are markdown with YAML frontmatter — see `skills/discover/templates/task.md` (task spec, used for solo and child tickets) and `skills/discover/templates/prd.md` (epic PRD, used when discover emits multiple siblings) for the canonical schemas.
 
 - **Prefix** per project (e.g. `FP`, `MYAPP`, `WEB`). Stored as the `prefix` field in `claudedocs/tickets/config.yaml`. Discover creates the file on first run and infers from existing tickets if it's missing. `config.yaml` is the canonical home for tickets-system configuration — future fields (status flow customization, complexity scale, etc.) go here, not in new dotfiles.
+- **Storage mode** lives in the same `claudedocs/tickets/config.yaml` as optional top-level `mode` and `project` keys — the fs-native ↔ server-native switch, model-read at skill start per `skills/flow/references/storage.md`:
+  - `mode: fs-native`, a missing key, or a missing file — tickets are the folder tree described in this section, fully offline (zero network, detection included).
+  - `mode: server-native` with `project: <server-project-id>` — tickets are rows on the pipeline MCP server (`pipeline_*` tools); the state folders don't exist and artifact bodies are frontmatter-free (the row is the sole metadata source). Pipeline tools unavailable or a call failing → the skill stops loudly, never falls back to fs writes.
+  - `config.yaml` itself and `hooks/validate.sh` stay fs-local in both modes — the file is project execution config plus the mode marker, not ticket data. `prefix` remains meaningful only for fs allocation (server IDs come from the registry-configured prefix).
 - **Validation hook config** lives in the same `claudedocs/tickets/config.yaml` under an optional `validate:` block:
   - `validate.lint` — string, shell command run after each Write/Edit/MultiEdit (e.g. `"bun run lint"`).
   - `validate.typecheck` — string, shell command run after each Write/Edit/MultiEdit (e.g. `"bun run typecheck"`).

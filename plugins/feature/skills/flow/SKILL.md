@@ -78,7 +78,7 @@ flow owns:
 4. Stage invocation via `Skill plan` and `Skill build`
 
 It does NOT own:
-- State transitions (folder moves, frontmatter `status` updates) — plan and build perform these themselves per `references/state-transitions.md`
+- State transitions (folder moves / status flips, in the project's storage mode per `references/storage.md`) — plan and build perform these themselves per `references/state-transitions.md`
 - The verdict gate — build owns it end-to-end (verdict, option menu, user-choice capture, transition dispatch)
 - Stage internals — plan owns its Phase 1 synthesis and plan design; build owns its loop and checkpoints
 - Agent coordination — plan and build spawn their own subagents
@@ -137,7 +137,7 @@ After build returns, flow's work is done — the verdict gate and every state tr
 
 ## Artifact Convention
 
-All artifacts live inside the per-ticket folder, numbered by stage order. There are two layouts depending on whether the ticket is solo or a child of a discover-produced epic.
+All artifacts live inside the per-ticket folder, numbered by stage order. There are two layouts depending on whether the ticket is solo or a child of a discover-produced epic. (The layouts below are the fs-native storage shape; in server-native mode the same artifact names key artifact rows on the ticket — see `references/storage.md`.)
 
 ### Solo ticket layout
 
