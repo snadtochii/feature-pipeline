@@ -81,10 +81,10 @@ Turn a ticket argument (ID or path) into a working handle.
 
 ### Read ticket metadata
 
-Read the ticket's structured fields — `status`, `kind`, `parent`, `children`, `blocked_by`, `title`, `priority`, `complexity`, `tags`, `pr_url`.
+Read the ticket's structured fields. The two stores name them differently — use each mode's own names:
 
-- **fs**: YAML frontmatter of `01-spec.md` (solo/child) or `prd.md` (epic).
-- **server-native**: the row fields returned by `pipeline_get_ticket`. Artifact bodies are **frontmatter-free** in server-native mode — the row is the sole metadata source, so there is no second copy to drift.
+- **fs**: YAML frontmatter of `01-spec.md` (solo/child) or `prd.md` (epic) — `status`, `kind`, `parent`, `children`, `blocked_by`, `title`, `priority`, `complexity`, `tags`.
+- **server-native**: the row fields returned by `pipeline_get_ticket` — `status`, `kind`, `parent_id`, `blocked_by`, `title`, `priority`, `complexity`, `tags`, `pr_url`. The child-linkage field is `parent_id` (the fs frontmatter's `parent`); the row has **no `children` field** — an epic's roster is derived from its child rows (List tickets / list children, below). Artifact bodies are **frontmatter-free** in server-native mode — the row is the sole metadata source, so there is no second copy to drift.
 
 ### Read artifact
 
@@ -118,7 +118,7 @@ Write non-status fields — `title`, `priority`, `complexity`, `tags`, `pr_url`,
 ### List tickets / list children
 
 - **fs**: `Glob` the state folders (`claudedocs/tickets/*/*/01-spec.md`, `claudedocs/tickets/*/*/tasks/*/01-spec.md`); an epic's children live under `<epic-folder>/tasks/*/`.
-- **server-native**: `pipeline_list_tickets` for the project — it returns the project-wide list with no server-side status filter, so filter by status (or any field) client-side. An epic's children are the rows whose `parent` is the epic (the epic row's `children` field is the declared roster).
+- **server-native**: `pipeline_list_tickets` for the project — it returns the project-wide list with no server-side status filter, so filter by status (or any field) client-side. An epic's children are the rows whose `parent_id` is the epic's ID — the server-side roster is **derived** from the child rows; the epic row itself carries no `children` field.
 
 ### Create ticket
 

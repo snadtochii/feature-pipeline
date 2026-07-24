@@ -48,36 +48,36 @@ Variables used throughout:
 
 The single definition of "is this epic finished?" Both end-state transitions (Transition 2 §3 in-progress → done, Transition 6 §3 review → done), the read-only Status query, and the standalone `sync` skill invoke this predicate by name rather than restating the sibling scan. Changing the completion rule means editing **here** — there are no per-transition copies to keep in step.
 
-**Inputs**: the epic's handle — in fs-native mode `<epic-folder>` (the epic's current location, under `in-progress/` or `review/`) and its `prd.md`; in server-native mode the epic row.
+**Inputs**: the epic's handle — in fs-native mode `<epic-folder>` (the epic's current location, under `in-progress/` or `review/`) and its `prd.md`; in server-native mode the epic row plus its child listing (List tickets / list children in [`storage.md`](storage.md)).
 
 **Output**: a decision — `promote` or `stay` — plus zero or more warnings. The predicate reads only: it never moves folders, writes frontmatter, or issues transitions. The invoking transition performs the promotion (fs-native: the move, always from the epic's **current** folder, never a hardcoded source, plus the `prd.md` status edit; server-native: the epic row's CAS transition); the invoking caller renders the warnings in its own channel (`build` inline at the verdict gate, `sync` as `⚠` report lines).
 
 **Definitions** (fs-native / server-native per line):
-- `declared` = the set of child IDs the epic declares — `prd.md`'s `children:` field, or the epic row's `children` field. This is the **authoritative roster contract** for the epic.
+- `declared` = the epic's child roster. **fs-native**: the set of child IDs in `prd.md`'s `children:` field — an upfront declaration that may name children whose specs are not yet written. **server-native**: the set of IDs of the rows whose `parent_id` is the epic's ID (the epic row carries no roster field — the roster is **derived** from the child rows). This is the authoritative roster contract for the epic in each mode.
 - A child is **materialized** when its spec exists with readable status — fs-native: `<epic-folder>/tasks/<id>/01-spec.md` exists and has parseable `status` frontmatter (a bare `tasks/<id>/` folder with no readable spec is **not** materialized); server-native: a ticket row exists for the ID (row existence implies a readable status column).
 - `materialized` = the set of child IDs with a materialized spec.
 - A child is **terminal** when its `status` is `done`, `cancelled`, or `partial-completion`. `in-review` is **not** terminal — an open PR keeps the epic out of `done`.
 
 **Decision — return `promote` iff all three hold**:
-1. **(R) roster present** — `prd.md` has a parseable `children:` list.
+1. **(R) roster present** — fs-native: `prd.md` has a parseable `children:` list. Server-native: the child listing succeeded and returned at least one row (a failed listing already stopped the run per `storage.md`'s loud-failure doctrine; an epic with zero child rows fails (R) — see roster-unknown below).
 2. **(C) coverage** — every ID in `declared` is in `materialized` (`declared ⊆ materialized`).
 3. **(T) terminal** — every child in `materialized` is terminal.
 
 Otherwise return `stay`: the epic is not promoted and remains at its precedence-derived location (`in-progress` ⊐ `review` ⊐ `done`).
 
-Why coverage (C) matters: a **just-in-time / expanding epic** declares its full `children:` roster upfront but authors child specs later, as the pipeline reaches each phase. Without (C), the check sees only the materialized subset and promotes the epic to `done/` the moment those are terminal — while later-phase children remain unwritten. Reconciling against `declared` closes that hole; it reuses an already-populated signal, so no new frontmatter or lifecycle step is needed.
+Why coverage (C) matters: a **just-in-time / expanding epic** declares its full `children:` roster upfront but authors child specs later, as the pipeline reaches each phase. Without (C), the check sees only the materialized subset and promotes the epic to `done/` the moment those are terminal — while later-phase children remain unwritten. Reconciling against `declared` closes that hole; it reuses an already-populated signal, so no new frontmatter or lifecycle step is needed. **Server-native**: with the roster derived from child rows, `declared` = `materialized` by construction, so (C) is trivially satisfied — a just-in-time epic's yet-uncreated children are invisible to the predicate, and only the zero-row guard in (R) holds an empty epic back. The protection (C) provides in fs mode has no server analog until every planned child's row exists.
 
 **Warnings** (surface them, but they block promotion only when they also break R/C/T):
-- **roster-unknown** — `children:` is missing, has no key, or is unparseable → return `stay` + warn. Fail safe: never auto-promote an epic whose roster can't be read.
+- **roster-unknown** — fs-native: `children:` is missing, has no key, or is unparseable; server-native: the epic has zero child rows → return `stay` + warn. Fail safe: never auto-promote an epic whose roster can't be read or is empty.
 - **roster-drift** — a materialized child is **not** in `declared` → warn. The extra child still counts toward (T): it must itself be terminal for the epic to promote, but its presence alone does not block a fully-delivered epic.
 
-A declared child with **no** materialized folder is the **expected** mid-flight state of a just-in-time epic. It fails (C) → `stay`, with no warning — that is normal, not an anomaly.
+A declared child with **no** materialized spec is the **expected** mid-flight state of a just-in-time epic (fs-native only — server-native has no such state: an uncreated child has no row, so it is not in `declared` either). It fails (C) → `stay`, with no warning — that is normal, not an anomaly.
 
 **Fail-safe composition**: a materialized child whose spec is present but whose `status` is missing or unparseable is treated as `backlog` (non-terminal) → fails (T) → `stay`. This preserves the existing malformed-sibling rule (worst-case assumption keeps the epic out of `done/`) and composes with the roster rules above rather than replacing it.
 
-**Descope escape hatch**: a declared child that will never be built must be reflected in the roster, or it blocks (C) indefinitely. Two manual operator remediations:
-- Remove the child's ID from `prd.md`'s `children:` (shrinks `declared`), **or**
-- Materialize `tasks/<id>/01-spec.md` as a stub with `status: cancelled` (adds it to `materialized` as a terminal child).
+**Descope escape hatch**: a declared child that will never be built must be reflected in the roster, or it blocks the predicate indefinitely. Manual operator remediations, per mode:
+- **fs-native** (the child blocks (C)): remove the child's ID from `prd.md`'s `children:` (shrinks `declared`), **or** materialize `tasks/<id>/01-spec.md` as a stub with `status: cancelled` (adds it to `materialized` as a terminal child).
+- **server-native** (an existing non-terminal row blocks (T)): transition the child's row to `cancelled` — it becomes terminal. There is no roster list to edit; the roster is the rows.
 
 Either satisfies the predicate. There is no automated roster mutation — descoping is a deliberate human edit.
 
