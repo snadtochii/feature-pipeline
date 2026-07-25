@@ -150,6 +150,7 @@ Project config lives in `claudedocs/tickets/config.yaml`. Every block below the 
 
 ```yaml
 prefix: FP
+mode: fs-native                  # where tickets live; omit the key and you get this
 validate:                        # lint/typecheck run after each edit (opt-in)
   lint: "bun run lint"
   typecheck: "bun run typecheck"
@@ -160,6 +161,8 @@ worktree:                        # makes a fresh git worktree buildable
   setup: "pnpm install"
 ```
 
+`mode: fs-native` keeps tickets as the folder tree above, read and written locally. The alternative is `mode: server-native`, where tickets are rows on an MCP server exposing the `pipeline_*` tools; it additionally requires `project: <id>` naming the project in that server's registry, and there are no state folders. Setup for both platforms is in the full reference below.
+
 `worktree.setup` pairs with a committed `.worktreeinclude` file at each repo's root — gitignore-style patterns listing the gitignored files (`.env`, auth sessions) a worktree creator copies into a fresh worktree before running setup. In a multi-repo workspace, `worktree.setup` is workspace-level and repo-agnostic (manifest sniffing); see the worktree contract in the full reference below.
 
 The pipeline also reads your project's `CLAUDE.md` for conventions. Full reference — auth/`storage_state`, hook internals, the worktree contract, and MCP setup — is in [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#configuration-reference).
@@ -169,6 +172,7 @@ The pipeline also reads your project's `CLAUDE.md` for conventions. Full referen
 - Claude Code CLI or Codex CLI
 - Git — for build's review-checkpoint diff
 - Playwright MCP — for build's UI test checkpoint (optional; skip with `--no-ui-testing`)
+- An MCP server exposing the `pipeline_*` tools — only for `mode: server-native`, where it *is* the ticket store (optional; the default `fs-native` mode needs no server). On Claude Code the plugin declares it and prompts for a URL and token at install; on Codex you add it to `config.toml`. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#storage-mode-and-the-pipeline-mcp-server)
 - GitHub CLI (`gh`), authenticated, with a GitHub `origin` — for `--pr` and the `ship`/`review`/`address-review`/`sync` helpers; the pipeline degrades to local commits without it, and the PR helpers fail closed (change nothing) without it
 
 ---

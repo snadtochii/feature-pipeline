@@ -4,9 +4,9 @@ Canonical logic for discover's ticket generation when the storage mode is **serv
 
 Ground rules, all inherited from `storage.md` and restated here only as bindings:
 
-- **MCP-only, by `pipeline_*` name.** Every server operation goes through the pipeline MCP tools, referenced by their `pipeline_*` names — the `mcp__<server>__` namespace binding comes from the user's MCP config, never a hardcoded server name, and never raw HTTP.
+- **MCP-only, by `pipeline_*` name.** Every server operation goes through the pipeline MCP tools, named here by their bare `pipeline_*` names. The per-platform callable forms and the `allowed-tools` listing rule are defined once in [`../../flow/references/storage.md`](../../flow/references/storage.md) §Operation vocabulary; discover follows it unchanged. Discover never assembles a namespace at runtime and never speaks raw HTTP.
 - **Project scope.** Every call is scoped by the `project` value from `claudedocs/tickets/config.yaml` (read once in Phase 0).
-- **Loud failure, no fs fallback.** A failed or unavailable pipeline tool stops the skill with storage.md's loud-failure message naming the operation and project. Discover never creates files under `claudedocs/tickets/` as a fallback — see §Partial-failure honesty for what to report first.
+- **Loud failure, no fs fallback.** A failed or unavailable pipeline tool stops the skill with storage.md's loud-failure message naming the operation and project, and pointing at [`../../../docs/advanced.md`](../../../docs/advanced.md#storage-mode-and-the-pipeline-mcp-server) for setup. Discover never creates files under `claudedocs/tickets/` as a fallback — see §Partial-failure honesty for what to report first.
 - **The exploration-mode gate is unchanged.** An exploration session that ends without a ticket leaves both the project tree and the server untouched — no create call happens before the developer commits.
 
 ## Shared rules (both single- and multi-mode)

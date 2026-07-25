@@ -16,6 +16,12 @@ allowed-tools:
   - pipeline_get_ticket
   - pipeline_list_tickets
   - pipeline_list_artifacts
+  - mcp__plugin_feature_pipeline__pipeline_create_ticket
+  - mcp__plugin_feature_pipeline__pipeline_update_ticket
+  - mcp__plugin_feature_pipeline__pipeline_write_artifact
+  - mcp__plugin_feature_pipeline__pipeline_get_ticket
+  - mcp__plugin_feature_pipeline__pipeline_list_tickets
+  - mcp__plugin_feature_pipeline__pipeline_list_artifacts
 argument-hint: "[description] [--project name] [--id XX-N] [--explore]"
 ---
 

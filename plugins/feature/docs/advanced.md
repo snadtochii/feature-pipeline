@@ -15,6 +15,7 @@ Deeper material that doesn't belong in the [README](../../../README.md) front do
   - [App test config](#app-test-config)
   - [Worktree setup](#worktree-setup)
   - [MCP servers](#mcp-servers)
+  - [Storage mode and the pipeline MCP server](#storage-mode-and-the-pipeline-mcp-server)
 
 ## Auto-PR (`--pr`) and the review → merge flow
 
@@ -189,3 +190,86 @@ Recommended for full functionality, but optional:
 - **Playwright** — required for build's test checkpoint (UI testing).
 - **Chrome DevTools** — enhanced browser testing.
 - **Serena** — semantic code navigation; used by the `code-explorer` and `code-architect` agents when available, falling back to Grep/Glob/Read otherwise.
+- **Pipeline** — required only in server-native storage mode, where it *is* the ticket store. Setup for both platforms is below.
+
+### Storage mode and the pipeline MCP server
+
+A project stores its tickets in one of two modes, declared in `claudedocs/tickets/config.yaml`. Most projects want the default and can skip this section entirely.
+
+```yaml
+prefix: FP
+mode: fs-native        # default — omit the key entirely and you get this
+```
+
+```yaml
+prefix: FP
+mode: server-native    # tickets are rows on an MCP server, not files
+project: my-project    # required with server-native — the project's id in the server's registry
+```
+
+- **`fs-native`** — tickets are the folder tree under `claudedocs/tickets/` described in the [README](../../../README.md#tickets). A missing `mode` key or a missing `config.yaml` means this. Ticket reads and writes are entirely local.
+- **`server-native`** — tickets are authoritative rows on an MCP server exposing the `pipeline_*` tools, and `project:` names the project in that server's registry. The state folders (`backlog/`, `in-progress/`, `review/`, `done/`) do not exist, and artifact bodies carry no frontmatter — the row is the only metadata source. `mode: server-native` with no `project` key is a config error, not a fallback.
+
+`config.yaml` itself stays local in both modes: it is project execution config plus the mode marker, not ticket data.
+
+Nothing else in this section matters unless you run `server-native`. If a `pipeline_*` tool is unavailable or a call fails in that mode, the skill **stops** naming the server and the failed operation — it never silently writes local files instead.
+
+#### Claude Code setup
+
+The `feature` plugin declares the server itself, so installing the plugin is the setup. On install (or enable) Claude Code prompts for two values:
+
+- **Pipeline MCP server base URL** — the base URL only, *without* a trailing `/api/mcp`; the plugin appends that path.
+- **Pipeline MCP server token** — the Bearer token your server accepts. It is marked sensitive, so answering the prompt puts it in your OS keychain rather than in a settings file or the repo.
+
+Use an `https://` base URL. The token travels as an `Authorization: Bearer` header, so an `http://` host sends it in cleartext.
+
+**Both are optional. Leave them blank if you only use fs-native tickets** — there is then no server to connect to, and nothing about fs-native work changes. This is the opt-out: a plugin-declared server otherwise connects at session startup regardless of the storage mode a given project uses.
+
+Two things to know about that opt-out:
+
+- It is **per machine, not per project.** These values live in user-level settings, so if you run even one server-native project you keep them populated, and every fs-native session on that machine then opens the connection and carries the 13 `pipeline_*` tool definitions. That is the accepted cost of a plugin-declared server; the alternative — disabling the `feature` plugin per project — would take the skills with it.
+- Exactly *how* Claude Code treats a blank value in an MCP server URL is not specified upstream, so verify the behaviour on your own version before relying on it. A blank `server_url` leaves the URL with no host, which cannot produce a request — but whether that surfaces as a suppressed server or as a connection error in `/mcp` is version-dependent.
+
+Claude Code namespaces plugin-declared tools, so the callable names are `mcp__plugin_feature_pipeline__pipeline_get_ticket` and friends. The skills' `allowed-tools` already list them.
+
+**Setting the values by hand.** A session started with `--plugin-dir` (the local-development path) shows no install prompt, and an enable-time prompt can miss. Set the values in **`~/.claude/settings.json`** — your user settings:
+
+```json
+{
+  "pluginConfigs": {
+    "feature@feature-pipeline": {
+      "options": {
+        "server_url": "https://your-host.example"
+      }
+    }
+  }
+}
+```
+
+Use the plugin id as your installation reports it (`plugin@marketplace`). Only these locations count: user settings, a file passed with `--settings`, and managed settings. **A project's `.claude/settings.json` or `.claude/settings.local.json` is ignored for `pluginConfigs`** — pasting the block there does nothing, silently, and puts a credential inside a repo working tree for no benefit.
+
+The example sets only `server_url` deliberately. `api_token` is declared sensitive, which routes it to the keychain rather than to `pluginConfigs`, and setting a sensitive value by hand this way is not a documented read path — it may not be picked up. Prefer the enable-time prompt or the `/plugin` configure dialog for the token; if you must set it non-interactively, use `--settings` with a file outside any repo and confirm the server actually connects in `/mcp`.
+
+#### Codex setup
+
+The Codex manifest declares no MCP server, because Codex has no install-time prompting: the URL would have to be a committed literal. Add the server to your own `config.toml` instead:
+
+```toml
+[mcp_servers.pipeline]
+url = "https://<your-host>/api/mcp"
+bearer_token_env_var = "PERSONAL_SERVER_MCP_TOKEN"
+```
+
+Codex infers the transport from the presence of `url`, so the block needs no `type` key — unlike the Claude manifest, where `"type": "http"` is mandatory and a type-less entry is read as stdio and skipped.
+
+`bearer_token_env_var` names an environment variable — Codex reads the token from it and sends `Authorization: Bearer <token>`, so the secret stays in your environment rather than in the file. Export it wherever you keep shell secrets:
+
+```sh
+export PERSONAL_SERVER_MCP_TOKEN='…'
+```
+
+Codex namespaces MCP tools without a plugin segment, so keying the block `pipeline` (as above) yields `mcp__pipeline__pipeline_get_ticket`. The skills' `allowed-tools` list the bare `pipeline_*` names alongside the Claude-scoped ones; the bare entry is how the skills name the tool, standing in for whatever your `config.toml` key makes the callable name. If your Codex version enforces `allowed-tools` against the qualified MCP name, add the qualified form to the affected skill's frontmatter — that name depends on your server key, which is why the plugin does not hardcode one.
+
+#### Already had this server configured?
+
+If you added the same server to your own MCP config before installing the plugin, remove your entry on the Claude side after installing — otherwise the session exposes the same `pipeline_*` tools twice, under two namespaces, and it becomes ambiguous which connection a call went through. The Codex side is unaffected: your `config.toml` entry *is* the binding there.

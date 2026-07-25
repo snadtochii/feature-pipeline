@@ -1,9 +1,33 @@
 {
   "name": "feature",
   "description": "Agentic feature development pipeline.",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "author": {
     "name": "Serhii Nadtochii"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "mcpServers": {
+    "pipeline": {
+      "type": "http",
+      "url": "${user_config.server_url}/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${user_config.api_token}"
+      }
+    }
+  },
+  "userConfig": {
+    "server_url": {
+      "type": "string",
+      "title": "Pipeline MCP server base URL",
+      "description": "Base URL only, without a trailing /api/mcp. Use https so the token is not sent in cleartext. Leave blank if you only use fs-native tickets.",
+      "required": false
+    },
+    "api_token": {
+      "type": "string",
+      "title": "Pipeline MCP server token",
+      "description": "Bearer token the server accepts. Leave blank if you only use fs-native tickets.",
+      "sensitive": true,
+      "required": false
+    }
+  }
 }

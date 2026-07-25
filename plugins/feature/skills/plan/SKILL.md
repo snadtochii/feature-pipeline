@@ -17,6 +17,12 @@ allowed-tools:
   - pipeline_write_artifact
   - pipeline_transition_ticket
   - pipeline_list_lessons
+  - mcp__plugin_feature_pipeline__pipeline_get_ticket
+  - mcp__plugin_feature_pipeline__pipeline_get_artifact
+  - mcp__plugin_feature_pipeline__pipeline_list_artifacts
+  - mcp__plugin_feature_pipeline__pipeline_write_artifact
+  - mcp__plugin_feature_pipeline__pipeline_transition_ticket
+  - mcp__plugin_feature_pipeline__pipeline_list_lessons
 argument-hint: "[ticket-id]"
 ---
 
