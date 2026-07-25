@@ -172,7 +172,7 @@ The pipeline also reads your project's `CLAUDE.md` for conventions. Full referen
 - Claude Code CLI or Codex CLI
 - Git — for build's review-checkpoint diff
 - Playwright MCP — for build's UI test checkpoint (optional; skip with `--no-ui-testing`)
-- An MCP server exposing the `pipeline_*` tools — only for `mode: server-native`, where it *is* the ticket store (optional; the default `fs-native` mode needs no server). On Claude Code the plugin declares it and prompts for a URL and token at install; on Codex you add it to `config.toml`. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#storage-mode-and-the-pipeline-mcp-server)
+- An MCP server exposing the `pipeline_*` tools — only for `mode: server-native`, where it *is* the ticket store (optional; the default `fs-native` mode needs no server). On Claude Code install the separate `pipeline-mcp` plugin alongside `feature` and it prompts for a URL and token; on Codex add the server to `config.toml`. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#storage-mode-and-the-pipeline-mcp-server)
 - GitHub CLI (`gh`), authenticated, with a GitHub `origin` — for `--pr` and the `ship`/`review`/`address-review`/`sync` helpers; the pipeline degrades to local commits without it, and the PR helpers fail closed (change nothing) without it
 
 ---

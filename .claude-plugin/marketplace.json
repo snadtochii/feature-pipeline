@@ -12,6 +12,12 @@
       "category": "development"
     },
     {
+      "name": "pipeline-mcp",
+      "description": "Pipeline MCP server connector: install alongside feature to use server-native ticket storage.",
+      "source": "./plugins/pipeline-mcp",
+      "category": "development"
+    },
+    {
       "name": "stack-first",
       "description": "Stack-agnostic dependency guard: consult the preferred ecosystem before adding a library and record every ruling.",
       "source": "./plugins/stack-first",

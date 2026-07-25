@@ -190,7 +190,7 @@ Recommended for full functionality, but optional:
 - **Playwright** — required for build's test checkpoint (UI testing).
 - **Chrome DevTools** — enhanced browser testing.
 - **Serena** — semantic code navigation; used by the `code-explorer` and `code-architect` agents when available, falling back to Grep/Glob/Read otherwise.
-- **Pipeline** — required only in server-native storage mode, where it *is* the ticket store. Setup for both platforms is below.
+- **Pipeline** — required only in server-native storage mode, where it *is* the ticket store. Shipped as a separate `pipeline-mcp` plugin you install alongside `feature`; setup for both platforms is below.
 
 ### Storage mode and the pipeline MCP server
 
@@ -216,28 +216,30 @@ Nothing else in this section matters unless you run `server-native`. If a `pipel
 
 #### Claude Code setup
 
-The `feature` plugin declares the server itself, so installing the plugin is the setup. On install (or enable) Claude Code prompts for two values:
+The server is **not** declared by the `feature` plugin. It lives in a second, separate plugin — **`pipeline-mcp`** — that carries nothing but the server declaration: no skills, no agents, no hooks.
 
-- **Pipeline MCP server base URL** — the base URL only, *without* a trailing `/api/mcp`; the plugin appends that path.
+That split is the whole opt-in mechanism. Install `feature` alone and no MCP server is declared, so none connects and there is nothing to configure or switch off. Install `pipeline-mcp` alongside it only when you actually run server-native projects:
+
+```
+feature                    → the 7 skills. Everyone installs this.
+feature + pipeline-mcp     → the same skills, plus the pipeline server.
+```
+
+`pipeline-mcp` asks for two values when you install or enable it:
+
+- **Pipeline MCP server base URL** — the base URL only, *without* a trailing `/api/mcp`; the plugin appends that path. Use `https://` — the token travels as an `Authorization: Bearer` header, so an `http://` host sends it in cleartext.
 - **Pipeline MCP server token** — the Bearer token your server accepts. It is marked sensitive, so answering the prompt puts it in your OS keychain rather than in a settings file or the repo.
 
-Use an `https://` base URL. The token travels as an `Authorization: Bearer` header, so an `http://` host sends it in cleartext.
+Both are **required**, which is deliberate: an unconfigured value means the server is not registered at all rather than registered with a broken address. There is no "install it but leave it blank" state to reason about — you either install the connector and configure it, or you don't install it.
 
-**Both are optional. Leave them blank if you only use fs-native tickets** — there is then no server to connect to, and nothing about fs-native work changes. This is the opt-out: a plugin-declared server otherwise connects at session startup regardless of the storage mode a given project uses.
+Claude Code namespaces plugin-declared tools by their **declaring** plugin, so the callable names are `mcp__plugin_pipeline-mcp_pipeline__pipeline_get_ticket` and friends — note `pipeline-mcp`, not `feature`. The `feature` skills' `allowed-tools` already list them; a skill in one plugin may use a server declared by another.
 
-Two things to know about that opt-out:
-
-- It is **per machine, not per project.** These values live in user-level settings, so if you run even one server-native project you keep them populated, and every fs-native session on that machine then opens the connection and carries the 13 `pipeline_*` tool definitions. That is the accepted cost of a plugin-declared server; the alternative — disabling the `feature` plugin per project — would take the skills with it.
-- Exactly *how* Claude Code treats a blank value in an MCP server URL is not specified upstream, so verify the behaviour on your own version before relying on it. A blank `server_url` leaves the URL with no host, which cannot produce a request — but whether that surfaces as a suppressed server or as a connection error in `/mcp` is version-dependent.
-
-Claude Code namespaces plugin-declared tools, so the callable names are `mcp__plugin_feature_pipeline__pipeline_get_ticket` and friends. The skills' `allowed-tools` already list them.
-
-**Setting the values by hand.** A session started with `--plugin-dir` (the local-development path) shows no install prompt, and an enable-time prompt can miss. Set the values in **`~/.claude/settings.json`** — your user settings:
+**Configuring it outside the prompt.** The enable-time prompt does not fire in every context — notably a session started with `--plugin-dir`, the local-development path, and there are open reports of it being skipped on install. Where the prompt doesn't appear, use the `/plugin` configure dialog, or set the values in **`~/.claude/settings.json`** (user settings) or a file passed with `--settings`:
 
 ```json
 {
   "pluginConfigs": {
-    "feature@feature-pipeline": {
+    "pipeline-mcp@feature-pipeline": {
       "options": {
         "server_url": "https://your-host.example"
       }
@@ -246,9 +248,9 @@ Claude Code namespaces plugin-declared tools, so the callable names are `mcp__pl
 }
 ```
 
-Use the plugin id as your installation reports it (`plugin@marketplace`). Only these locations count: user settings, a file passed with `--settings`, and managed settings. **A project's `.claude/settings.json` or `.claude/settings.local.json` is ignored for `pluginConfigs`** — pasting the block there does nothing, silently, and puts a credential inside a repo working tree for no benefit.
+Use the plugin id as your installation reports it (`plugin@marketplace`); `pluginConfigs` is keyed by that id, and a wrong key fails silently. Put the file outside any repo — the token is a live credential.
 
-The example sets only `server_url` deliberately. `api_token` is declared sensitive, which routes it to the keychain rather than to `pluginConfigs`, and setting a sensitive value by hand this way is not a documented read path — it may not be picked up. Prefer the enable-time prompt or the `/plugin` configure dialog for the token; if you must set it non-interactively, use `--settings` with a file outside any repo and confirm the server actually connects in `/mcp`.
+**Known limitation.** Under `--plugin-dir` there is no marketplace-assigned plugin id, and `userConfig` values could not be supplied by any settings key in testing — the server is simply absent. For local development against this repo, configure the pipeline server through **your own MCP config** instead (see Codex setup below for the equivalent shape); the skills' bare `pipeline_*` names cover that binding.
 
 #### Codex setup
 
@@ -272,4 +274,4 @@ Codex namespaces MCP tools without a plugin segment, so keying the block `pipeli
 
 #### Already had this server configured?
 
-If you added the same server to your own MCP config before installing the plugin, remove your entry on the Claude side after installing — otherwise the session exposes the same `pipeline_*` tools twice, under two namespaces, and it becomes ambiguous which connection a call went through. The Codex side is unaffected: your `config.toml` entry *is* the binding there.
+If you added the same server to your own MCP config before installing `pipeline-mcp`, remove one of them — otherwise the session exposes the same `pipeline_*` tools twice, under two namespaces, and it becomes ambiguous which connection a call went through. Keep whichever suits you: the connector plugin (prompted, keychain-stored) or your own MCP config entry (the path local `--plugin-dir` development uses anyway). The Codex side is unaffected: your `config.toml` entry *is* the binding there.

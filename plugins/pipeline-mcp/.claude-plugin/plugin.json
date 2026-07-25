@@ -1,0 +1,33 @@
+{
+  "name": "pipeline-mcp",
+  "description": "Pipeline MCP server connector for server-native ticket storage.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Serhii Nadtochii"
+  },
+  "license": "MIT",
+  "mcpServers": {
+    "pipeline": {
+      "type": "http",
+      "url": "${user_config.server_url}/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${user_config.api_token}"
+      }
+    }
+  },
+  "userConfig": {
+    "server_url": {
+      "type": "string",
+      "title": "Pipeline MCP server base URL",
+      "description": "Base URL only, without a trailing /api/mcp. Use https so the token is not sent in cleartext.",
+      "required": true
+    },
+    "api_token": {
+      "type": "string",
+      "title": "Pipeline MCP server token",
+      "description": "Bearer token the server accepts.",
+      "sensitive": true,
+      "required": true
+    }
+  }
+}
