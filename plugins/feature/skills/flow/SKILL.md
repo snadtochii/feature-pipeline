@@ -12,11 +12,11 @@ allowed-tools:
   - pipeline_get_artifact
   - pipeline_list_artifacts
   - pipeline_delete_artifact
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_get_ticket
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_list_tickets
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_get_artifact
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_list_artifacts
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_delete_artifact
+  - mcp__plugin_server-native_ps__pipeline_get_ticket
+  - mcp__plugin_server-native_ps__pipeline_list_tickets
+  - mcp__plugin_server-native_ps__pipeline_get_artifact
+  - mcp__plugin_server-native_ps__pipeline_list_artifacts
+  - mcp__plugin_server-native_ps__pipeline_delete_artifact
 argument-hint: "[ticket-id|epic-id] [--pr] [--no-ui-testing]"
 ---
 

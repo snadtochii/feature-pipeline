@@ -13,23 +13,18 @@ A Claude Code & Codex plugin that runs an agentic feature-development pipeline f
 ### Claude Code
 
 ```bash
-/plugin marketplace add <github-user>/feature-pipeline   # add the repo as a marketplace (ships both plugins)
+/plugin marketplace add <github-user>/feature-pipeline   # add the repo as a marketplace (ships three plugins)
 /plugin install feature@<github-user>-feature            # install the pipeline plugin
 /plugin install stack-first@<github-user>-feature        # optional: the dependency-guard plugin
+/plugin install server-native@<github-user>-feature      # optional: only for mode: server-native
 /reload-plugins                                          # activate
 ```
 
-The marketplace ships two independent plugins: `feature` (the pipeline) and `stack-first` (a stack-agnostic dependency guard). Install either or both. `stack-first` has its own [README](plugins/stack-first/README.md).
-
-Local development:
-
-```bash
-claude --plugin-dir /path/to/feature-pipeline/plugins/feature
-```
+The marketplace ships three independent plugins: `feature` (the pipeline), `stack-first` (a stack-agnostic dependency guard), and `server-native` (the MCP connector that turns on server-native ticket storage). Install whichever you need. `stack-first` has its own [README](plugins/stack-first/README.md).
 
 ### Codex
 
-Each plugin carries its own Codex manifest (`plugins/feature/.codex-plugin/plugin.json`, `plugins/stack-first/.codex-plugin/plugin.json`); the repo-root marketplace file (`.agents/plugins/marketplace.json`) indexes both with subdirectory-aware sources.
+The two runtime plugins carry their own Codex manifests (`plugins/feature/.codex-plugin/plugin.json`, `plugins/stack-first/.codex-plugin/plugin.json`); the repo-root marketplace file (`.agents/plugins/marketplace.json`) indexes both with subdirectory-aware sources. `server-native` is Claude-only — on Codex you bind the same server through `config.toml` (see the requirements bullet below).
 
 Install the stable plugin from GitHub:
 
@@ -161,7 +156,7 @@ worktree:                        # makes a fresh git worktree buildable
   setup: "pnpm install"
 ```
 
-`mode: fs-native` keeps tickets as the folder tree above, read and written locally. The alternative is `mode: server-native`, where tickets are rows on an MCP server exposing the `pipeline_*` tools; it additionally requires `project: <id>` naming the project in that server's registry, and there are no state folders. Setup for both platforms is in the full reference below.
+`mode: fs-native` keeps tickets as the folder tree above, read and written locally. The alternative is `mode: server-native`, where tickets are rows on a personal MCP server; it additionally requires `project: <id>` naming the project in that server's registry, and there are no state folders. Setup for both platforms is in the full reference below.
 
 `worktree.setup` pairs with a committed `.worktreeinclude` file at each repo's root — gitignore-style patterns listing the gitignored files (`.env`, auth sessions) a worktree creator copies into a fresh worktree before running setup. In a multi-repo workspace, `worktree.setup` is workspace-level and repo-agnostic (manifest sniffing); see the worktree contract in the full reference below.
 
@@ -172,7 +167,7 @@ The pipeline also reads your project's `CLAUDE.md` for conventions. Full referen
 - Claude Code CLI or Codex CLI
 - Git — for build's review-checkpoint diff
 - Playwright MCP — for build's UI test checkpoint (optional; skip with `--no-ui-testing`)
-- An MCP server exposing the `pipeline_*` tools — only for `mode: server-native`, where it *is* the ticket store (optional; the default `fs-native` mode needs no server). On Claude Code install the separate `pipeline-mcp` plugin alongside `feature` and it prompts for a URL and token; on Codex add the server to `config.toml`. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#storage-mode-and-the-pipeline-mcp-server)
+- A personal MCP server — only for `mode: server-native`, where it *is* the ticket store (optional; the default `fs-native` mode needs no server). Its tool surface spans several domains; the `feature` skills use only its `pipeline_*` tools. On Claude Code install the separate `server-native` plugin alongside `feature` and it prompts for a URL and token; on Codex add the server to `config.toml`. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#storage-mode-and-the-personal-server)
 - GitHub CLI (`gh`), authenticated, with a GitHub `origin` — for `--pr` and the `ship`/`review`/`address-review`/`sync` helpers; the pipeline degrades to local commits without it, and the PR helpers fail closed (change nothing) without it
 
 ---

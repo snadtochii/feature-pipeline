@@ -21,17 +21,17 @@ allowed-tools:
   - pipeline_list_lessons
   - pipeline_update_lesson
   - pipeline_delete_lesson
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_get_ticket
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_list_tickets
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_get_artifact
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_list_artifacts
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_write_artifact
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_transition_ticket
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_update_ticket
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_add_lesson
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_list_lessons
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_update_lesson
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_delete_lesson
+  - mcp__plugin_server-native_ps__pipeline_get_ticket
+  - mcp__plugin_server-native_ps__pipeline_list_tickets
+  - mcp__plugin_server-native_ps__pipeline_get_artifact
+  - mcp__plugin_server-native_ps__pipeline_list_artifacts
+  - mcp__plugin_server-native_ps__pipeline_write_artifact
+  - mcp__plugin_server-native_ps__pipeline_transition_ticket
+  - mcp__plugin_server-native_ps__pipeline_update_ticket
+  - mcp__plugin_server-native_ps__pipeline_add_lesson
+  - mcp__plugin_server-native_ps__pipeline_list_lessons
+  - mcp__plugin_server-native_ps__pipeline_update_lesson
+  - mcp__plugin_server-native_ps__pipeline_delete_lesson
 argument-hint: "[ticket-id] [--pr] [--no-ui-testing] [--hint text]"
 ---
 

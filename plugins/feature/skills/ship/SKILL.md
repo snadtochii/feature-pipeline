@@ -18,15 +18,15 @@ allowed-tools:
   - pipeline_transition_ticket
   - pipeline_add_lesson
   - pipeline_update_lesson
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_get_ticket
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_list_tickets
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_update_ticket
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_get_artifact
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_list_artifacts
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_list_lessons
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_transition_ticket
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_add_lesson
-  - mcp__plugin_pipeline-mcp_pipeline__pipeline_update_lesson
+  - mcp__plugin_server-native_ps__pipeline_get_ticket
+  - mcp__plugin_server-native_ps__pipeline_list_tickets
+  - mcp__plugin_server-native_ps__pipeline_update_ticket
+  - mcp__plugin_server-native_ps__pipeline_get_artifact
+  - mcp__plugin_server-native_ps__pipeline_list_artifacts
+  - mcp__plugin_server-native_ps__pipeline_list_lessons
+  - mcp__plugin_server-native_ps__pipeline_transition_ticket
+  - mcp__plugin_server-native_ps__pipeline_add_lesson
+  - mcp__plugin_server-native_ps__pipeline_update_lesson
 argument-hint: "[ticket-id ...] [--base branch] [--merge] [--ui-test] [--parallel [N]]"
 ---
 

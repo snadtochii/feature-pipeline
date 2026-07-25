@@ -14,7 +14,7 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
-connector_manifest="$repo_root/plugins/pipeline-mcp/.claude-plugin/plugin.json"
+connector_manifest="$repo_root/plugins/server-native/.claude-plugin/plugin.json"
 skills_dir="$repo_root/plugins/feature/skills"
 
 if [ ! -f "$connector_manifest" ]; then
