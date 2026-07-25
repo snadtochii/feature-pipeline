@@ -1,6 +1,6 @@
 # Storage — Shared Adapter Seam
 
-Canonical definition of how pipeline skills touch ticket storage. A project runs in exactly one of two **storage modes** — **fs-native** (tickets are files under `claudedocs/tickets/`, fully offline) or **server-native** (tickets are authoritative rows on a personal server, spoken to only through the pipeline MCP tools). This file owns the mode-detection contract, the failure doctrine, the status mapping, the CAS conflict doctrine, and the storage operation vocabulary with an fs procedure and a server-native procedure per operation.
+Canonical definition of how pipeline skills touch ticket storage. A project runs in exactly one of two **storage modes** — **fs-native** (tickets are files under `claudedocs/tickets/`, read and written entirely offline) or **server-native** (tickets are authoritative rows on a personal server, spoken to only through the pipeline MCP tools). This file owns the mode-detection contract, the failure doctrine, the status mapping, the CAS conflict doctrine, and the storage operation vocabulary with an fs procedure and a server-native procedure per operation.
 
 Referenced by [`ticket-resolution.md`](ticket-resolution.md), [`state-transitions.md`](state-transitions.md), and [`lessons-log.md`](lessons-log.md) — the per-concern references express their steps in terms of these operations and doctrines rather than restating them. Skills inherit the mode switch through those references.
 
@@ -17,7 +17,7 @@ Detect the mode **once per skill run**, locally, from `claudedocs/tickets/config
 
 Detection rules:
 
-- **Zero network in fs-native mode.** An fs-native run performs no server call of any kind — detection itself included.
+- **Zero network in fs-native mode.** An fs-native run performs no server call of any kind — detection itself included. The pipeline MCP server lives in a separate `pipeline-mcp` connector plugin that a fs-native machine simply does not install, so there is no server to connect to and nothing to opt out of; see [`../../../docs/advanced.md`](../../../docs/advanced.md#storage-mode-and-the-pipeline-mcp-server).
 - **Detection never consults the server registry.** The `project` id is taken on trust; a wrong id surfaces later as a loud operation failure, not as a detection-time round-trip.
 - The detected mode applies to **every storage operation** in the run. There is no per-operation mode mixing and no mid-run re-detection.
 
@@ -30,7 +30,7 @@ Detection rules:
 In server-native mode, when the pipeline MCP tools are unavailable (not exposed in the session) or a call fails, the skill **stops** with a clear message naming the pipeline MCP server and the failed operation, e.g.:
 
 ```
-Server-native storage operation failed: <operation> (pipeline_<tool>) against the pipeline MCP server for project <server-project-id>. <error detail>. Stopping — fix the server/MCP connection and re-run.
+Server-native storage operation failed: <operation> (pipeline_<tool>) against the pipeline MCP server for project <server-project-id>. <error detail>. Stopping — fix the server/MCP connection and re-run. Setup: plugins/feature/docs/advanced.md, "Storage mode and the pipeline MCP server".
 ```
 
 It never creates or edits files under `claudedocs/tickets/` as a fallback — a server-native project has exactly one source of truth, and silently forking it into local files is worse than stopping. The inverse holds too: an fs-native run never "upgrades" itself to server calls.
@@ -70,7 +70,12 @@ Defined once here; the transition procedures in `state-transitions.md` cite this
 
 ## Operation vocabulary
 
-Each operation names its fs procedure and its server-native procedure. MCP tools are referenced by their `pipeline_*` names only — the MCP server binding (namespace prefix) comes from the user's MCP config, never a hardcoded server name, and never raw HTTP.
+Each operation names its fs procedure and its server-native procedure. Every reference in this plugin **names** the MCP tools by their bare `pipeline_*` names — that is the vocabulary, here and in every other reference file. The **runtime binding** differs per platform:
+
+- **Claude Code** — the separate `pipeline-mcp` connector plugin declares the server, so the callable name is derived: `mcp__plugin_` + the connector's plugin name `pipeline-mcp` + `_` + its `mcpServers` key `pipeline` + `__` + the tool, giving `mcp__plugin_pipeline-mcp_pipeline__pipeline_*`. **This derivation is the canonical one**; every scoped literal elsewhere in this plugin is an instance of it, so changing the connector's plugin name or server key changes all of them. The connector is a separate install precisely so a project that never runs server-native has no server declared at all.
+- **Codex** — the server comes from the user's own MCP config, and the callable name is `mcp__<server>__pipeline_*`, where `<server>` is whatever key that user chose. There is no server key for the plugin to derive from, which is why none is hardcoded.
+
+Each skill's `allowed-tools` therefore lists two entries per tool: the Claude-scoped name, which is the grant the harness matches on that platform, and the bare name, which is how this plugin's prose refers to the tool and stands in for the user-keyed Codex form. A skill never assembles a namespace at runtime and never speaks raw HTTP: it calls a tool the harness has granted, or it stops per Loud failure above. Setup for both platforms: [`../../../docs/advanced.md`](../../../docs/advanced.md#storage-mode-and-the-pipeline-mcp-server).
 
 ### Resolve ticket (argument → handle)
 

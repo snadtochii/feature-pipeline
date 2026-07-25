@@ -13,6 +13,10 @@ allowed-tools:
   - pipeline_get_ticket
   - pipeline_transition_ticket
   - pipeline_update_ticket
+  - mcp__plugin_pipeline-mcp_pipeline__pipeline_list_tickets
+  - mcp__plugin_pipeline-mcp_pipeline__pipeline_get_ticket
+  - mcp__plugin_pipeline-mcp_pipeline__pipeline_transition_ticket
+  - mcp__plugin_pipeline-mcp_pipeline__pipeline_update_ticket
 argument-hint: "[ticket-id]"
 ---
 

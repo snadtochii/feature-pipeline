@@ -13,6 +13,9 @@ allowed-tools:
   - pipeline_get_ticket
   - pipeline_write_artifact
   - pipeline_add_lesson
+  - mcp__plugin_pipeline-mcp_pipeline__pipeline_get_ticket
+  - mcp__plugin_pipeline-mcp_pipeline__pipeline_write_artifact
+  - mcp__plugin_pipeline-mcp_pipeline__pipeline_add_lesson
   - mcp__playwright__browser_console_messages
   - mcp__playwright__browser_network_requests
   - mcp__playwright__browser_snapshot
