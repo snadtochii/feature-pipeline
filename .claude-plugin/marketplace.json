@@ -12,9 +12,9 @@
       "category": "development"
     },
     {
-      "name": "pipeline-mcp",
-      "description": "Pipeline MCP server connector: install alongside feature to use server-native ticket storage.",
-      "source": "./plugins/pipeline-mcp",
+      "name": "server-native",
+      "description": "MCP server connector: install alongside feature to use server-native ticket storage.",
+      "source": "./plugins/server-native",
       "category": "development"
     },
     {
