@@ -129,7 +129,7 @@ If the ticket is already in progress with the expected status — fs-native: fol
 
 **Invoked by**:
 - `build` after the verdict gate, when the user's choice resolves to "finalize as done":
-  - Verdict `pass` + commit decision (whether or not the user confirms the commit, the folder still moves).
+  - Verdict `pass` + any commit outcome (prompt-confirmed, prompt-declined, `git.commit: always`/`never`, or `--no-commit` — whether or not a commit is made, the folder still moves).
   - Verdict `partial` or `stuck` + user choice `accept-as-partial`.
 
 ### Solo ticket
@@ -296,8 +296,8 @@ The table's Effect column describes the fs-native mechanics; in server-native mo
 
 | Verdict | User choice            | Transitions               | Effect                                                                  |
 |---------|------------------------|---------------------------|-------------------------------------------------------------------------|
-| `pass` (no `--pr`) | commit confirmed | T2               | Folder → `done/`; status `done`; standard git commit workflow runs.     |
-| `pass` (no `--pr`) | commit declined  | T2               | Folder → `done/`; status `done`; no git commit. Same folder/frontmatter result as above. |
+| `pass` (no `--pr`) | commit made (prompt confirmed, or `git.commit: always`) | T2               | Folder → `done/`; status `done`; the commit runs per build's `commit.md` reference.     |
+| `pass` (no `--pr`) | no commit (prompt declined, `git.commit: never`, or `--no-commit`)  | T2               | Folder → `done/`; status `done`; no git commit. Same folder/frontmatter result as above. |
 | `pass` + `--pr` | non-interactive ship | T5             | Folder → `review/`; status `in-review`; branch pushed + PR opened. The `--pr` flag and the push/`gh pr create` live in build's `pr-creation.md` reference; T5 owns the folder move + status. |
 | in `review/` | re-invocation, PR merged + reachable | T6 | Folder → `done/`; status `done`. Merge detection (`gh pr view`) runs in build's `review/` resumption check; a `MERGED` result **reachable from `<base>`** fires T6 (a merge only into an integration branch does not). |
 | `partial` | `accept-as-partial`  | T4, then T2               | Status flips to `partial-completion`; then folder → `done/`, preserving that status. |

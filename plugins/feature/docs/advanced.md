@@ -6,6 +6,7 @@ Deeper material that doesn't belong in the [README](../../../README.md) front do
 
 - [Auto-PR (`--pr`) and the review → merge flow](#auto-pr---pr-and-the-review--merge-flow)
 - [Skip browser testing (`--no-ui-testing`)](#skip-browser-testing---no-ui-testing)
+- [Commit control (`--no-commit`)](#commit-control---no-commit)
 - [Epics and blocker dependencies](#epics-and-blocker-dependencies)
 - [Ship flags (`--base`, `--merge`, `--ui-test`, `--parallel`)](#ship-flags---base---merge---ui-test---parallel)
 - [Configuration reference](#configuration-reference)
@@ -13,13 +14,14 @@ Deeper material that doesn't belong in the [README](../../../README.md) front do
   - [Ticket prefix](#ticket-prefix)
   - [Validation hook](#validation-hook)
   - [App test config](#app-test-config)
+  - [Commit behavior](#commit-behavior)
   - [Worktree setup](#worktree-setup)
   - [MCP servers](#mcp-servers)
   - [Storage mode and the personal server](#storage-mode-and-the-personal-server)
 
 ## Auto-PR (`--pr`) and the review → merge flow
 
-By default a passing build stops at the verdict gate and asks whether to commit. With `--pr`, build ships non-interactively instead: it detects the base branch, creates a branch (forking from `main` when needed), commits, pushes to `origin`, opens a **GitHub pull request** via `gh`, and lands the ticket in a `review/` state (`status: in-review`) rather than `done/`. You're notified with the PR URL.
+By default a passing build stops at the verdict gate and asks whether to commit (configurable — see [Commit behavior](#commit-behavior)). With `--pr`, build ships non-interactively instead: it detects the base branch, creates a branch (forking from `main` when needed), commits, pushes to `origin`, opens a **GitHub pull request** via `gh`, and lands the ticket in a `review/` state (`status: in-review`) rather than `done/`. You're notified with the PR URL.
 
 Once the PR merges, re-run `/feature:flow <id>` (or `/feature:build <id>`) — build detects the merge and finalizes the ticket to `done/`. To finalize merged reviews in batch or unattended, run `/feature:sync`: it scans every ticket in `backlog/`, `in-progress/`, and `review/` and promotes the merged ones to `done/` in one pass. In epic mode, `--pr` opens one PR per child.
 
@@ -30,6 +32,12 @@ Once the PR merges, re-run `/feature:flow <id>` (or `/feature:build <id>`) — b
 Build's test checkpoint verifies UI tickets in a real browser via the `ui-tester` subagent (Playwright/Chrome MCP), which needs interactive MCP permission. That permission isn't available in a non-interactive/headless run (e.g. `claude -p`), so a UI ticket can stall at the browser checkpoint.
 
 Pass `--no-ui-testing` to skip **only** the browser portion of the test checkpoint — non-browser verification (your `validate.lint`/`validate.typecheck` checks) still runs and still gates the verdict. `05-tests.md` records that browser testing was skipped by flag (not "passed"), so the verdict and any PR stay honest about what was verified; browser-level verification then falls to a human at PR review. The flag propagates `flow → build` and, in epic mode, is forwarded to every child.
+
+## Commit control (`--no-commit`)
+
+On a passing non-`--pr` build, the verdict gate's commit question is governed by the [`git.commit` config default](#commit-behavior) — ask, always commit, or never commit. `--no-commit` is the per-run override on top of that: pass it to leave this run's changes uncommitted with no prompt, whatever the config says. The ticket still finalizes to `done/` — the commit decision affects git only, never the folder transition — and the final message points at `git status`.
+
+`--no-commit` contradicts `--pr` (an explicit "ship it", which must commit and push): passing both stops build at start with a one-line error. The flag propagates `flow → build` and, in epic mode, is forwarded to every child.
 
 ## Epics and blocker dependencies
 
@@ -130,6 +138,22 @@ test:
 Every key is optional; with no `test:` block the test checkpoint discovers the URL and handles auth inside the tester. **No secrets in `config.yaml`** — it is committed, so `auth.storage_state` is a path to a gitignored session file, never an inline credential.
 
 `auth.storage_state` is loaded by the `ui-tester` via the Playwright MCP `browser_set_storage_state` tool (it restores the saved cookies/localStorage before navigating); on a Playwright MCP version that doesn't expose that tool, the tester falls back to `attach_tab`. The file must sit inside the project/workspace root (Playwright MCP restricts file access to the workspace root unless launched with `--allow-unrestricted-file-access`). Produce it once with your normal Playwright auth setup, or let the tester save it after a one-time login (it confirms the path is gitignored before saving, since the file holds live session cookies). When the app is unreachable and no `start` is declared (or it times out), the checkpoint records a non-blocking skip and proceeds.
+
+### Commit behavior
+
+An optional `git:` block presets the verdict gate's commit question for passing non-`--pr` builds. Like `test:`, it is read by the build skill, never by `hooks/validate.sh`.
+
+```yaml
+prefix: FP
+git:
+  commit: prompt   # prompt (default) | always | never
+```
+
+- `prompt` (or an absent block/key) — the interactive ask, exactly as without the config.
+- `always` — skip the prompt and commit: staging is `git add -A` narrowed by exclusion guards (tracked `claudedocs/`, an un-ignored `test.auth.storage_state`), then a commit message referencing the ticket ID; no push, no PR. The sweep honors `.gitignore` but includes every other untracked file — keep secrets gitignored, because under `always` no human reviews what gets staged. `always` presets the prompt's answer to yes, nothing more — it commits onto the **current branch**, exactly as an interactive "yes" would, trunk included; use `--pr` or branch first if you don't want commits on `main`.
+- `never` — skip the prompt and leave the changes uncommitted; the ticket still finalizes to `done/` and the final message points at `git status`.
+
+An unrecognized value degrades to `prompt` with a one-line notice — a config typo never blocks a build. Per-run overrides beat the config: [`--no-commit`](#commit-control---no-commit) forces "leave uncommitted" over `always`/`prompt`, and `--pr` (the explicit ship authorization) commits, pushes, and opens the PR over `never`, with a one-line notice that the config default was overridden.
 
 ### Worktree setup
 

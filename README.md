@@ -80,11 +80,11 @@ The validation hook uses Codex's hook system — enable `codex_hooks` and `plugi
 | Command | What it does |
 |---|---|
 | `/feature:discover <idea>` | Socratic intake → one ticket, or an epic with child tickets when the scope splits. Add `--explore` to challenge an idea before committing. |
-| `/feature:flow <id>` | Runs `plan → build` with a single verdict gate. Walks an epic's children in dependency order. Flags: `--pr`, `--no-ui-testing`. |
+| `/feature:flow <id>` | Runs `plan → build` with a single verdict gate. Walks an epic's children in dependency order. Flags: `--pr`, `--no-commit`, `--no-ui-testing`. |
 | `/feature:plan <id>` | Plan stage alone — pre-plan synthesis (codebase patterns + open questions), then interactive plan mode. |
 | `/feature:build <id>` | Build loop alone — implement → review (4 parallel reviewers) → test (real-browser UI). Auto-resumes from the ticket's existing artifacts. |
 
-Resumption is auto-detected from the artifacts on disk; delete them to start a stage fresh. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md) for the `--pr` auto-PR flow, `--no-ui-testing`, epics, and blocker dependencies.
+Resumption is auto-detected from the artifacts on disk; delete them to start a stage fresh. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md) for the `--pr` auto-PR flow, `--no-ui-testing`, `--no-commit` and the `git.commit` config default, epics, and blocker dependencies.
 
 ## Standalone helpers
 
@@ -154,6 +154,8 @@ test:                            # lets build reach your app for the UI checkpoi
   start: "npm start"
 worktree:                        # makes a fresh git worktree buildable
   setup: "pnpm install"
+git:                             # presets the verdict gate's commit question
+  commit: prompt                 # prompt (default) | always | never
 ```
 
 `mode: fs-native` keeps tickets as the folder tree above, read and written locally. The alternative is `mode: server-native`, where tickets are rows on a personal MCP server; it additionally requires `project: <id>` naming the project in that server's registry, and there are no state folders. Setup for both platforms is in the full reference below.
