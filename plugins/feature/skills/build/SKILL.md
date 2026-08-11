@@ -32,7 +32,7 @@ allowed-tools:
   - mcp__plugin_server-native_ps__pipeline_list_lessons
   - mcp__plugin_server-native_ps__pipeline_update_lesson
   - mcp__plugin_server-native_ps__pipeline_delete_lesson
-argument-hint: "[ticket-id] [--pr] [--no-ui-testing] [--hint text]"
+argument-hint: "[ticket-id] [--pr] [--no-commit] [--no-ui-testing] [--hint text]"
 ---
 
 # Build Stage
@@ -47,7 +47,7 @@ Build the ticket through one continuous loop with internal checkpoints (implemen
 /feature:build $ARGUMENTS
 ```
 
-`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)), `--no-ui-testing` (skip only the browser/ui-tester portion of the test checkpoint; lint/typecheck still run and still gate the verdict — see the test checkpoint's flag override).
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)), `--no-ui-testing` (skip only the browser/ui-tester portion of the test checkpoint; lint/typecheck still run and still gate the verdict — see the test checkpoint's flag override), `--no-commit` (on verdict `pass`, leave the changes uncommitted this run, skipping the commit prompt and beating any `git.commit` config — see State setup's commit-mode binding; contradicts `--pr` and stops the build if both are passed — see Flag validation). On resumption routes that never reach the commit path, `--no-commit` is a harmless no-op.
 
 Resumption is auto-detected from the ticket's existing artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build (server-native: delete the same artifacts via the Delete artifact operation in [`../flow/references/storage.md`](../flow/references/storage.md) — a user-side action; build itself never deletes artifacts).
 
@@ -77,6 +77,10 @@ Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/refere
 
 When `blocked_by` is non-empty, build composes a **blocker context block** and prepends it to the review-checkpoint reviewer prompts. The block's artifact sources and missing-artifact fallback chain are defined where the composition happens — Process step 2b.
 
+## Flag validation
+
+`--pr` and `--no-commit` together contradict — `--pr` must commit and push. Like Epic refusal and Blocker validation, this check runs **before State setup**, so the stop precedes any state mutation: stop with one line — `--pr and --no-commit contradict — --pr must commit and push. Drop one and re-run.` No work happens, no artifacts are written, no transition fires. Flow performs the same rejection in its SETUP, so a flow run never reaches build with the pair; this check guards direct invocation.
+
 ## State setup
 
 Before the implement checkpoint, perform the start-of-pipeline transition per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Transition 1 (Start-of-pipeline → `in-progress`) — the transition dispatches on the project's storage mode per [`../flow/references/storage.md`](../flow/references/storage.md). Idempotent: if plan already ran in this pipeline invocation, the ticket is in `in-progress/` and only frontmatter is touched. If build is invoked directly on a `backlog/` ticket (re-run after manual artifact restoration, or unusual workflows), build moves the folder. (Build's own sources are `backlog/` and `in-progress/`; `review/` is handled separately — see the interception note below — and `done/` re-opens are a plan-side re-run.)
@@ -86,6 +90,12 @@ Before the implement checkpoint, perform the start-of-pipeline transition per [`
 `<ticket-folder>` is rebound to the new location for the rest of this run (fs-native — server-native has no state folders; see the Working copy block below for what `<ticket-folder>` denotes there).
 
 **Bind ticket metadata — before the step-5 resumption routing.** Values read only inside a checkpoint are unbound on resumed runs that re-enter downstream of it, so build binds them here, upstream of the router: read `status`, `complexity` (used by the review checkpoint's triviality short-circuit), `kind`, `blocked_by`, and (server-native) `pr_url` once via the Read ticket metadata operation in [`../flow/references/storage.md`](../flow/references/storage.md) — frontmatter in fs-native mode, the ticket row in server-native mode, never parsed out of artifact bodies.
+
+**Bind the commit mode — same placement rule.** Bind `commit_mode` from the `git.commit` key of the optional `git:` block in `claudedocs/tickets/config.yaml` — from the config content already model-read for storage-mode detection (per [`../flow/references/storage.md`](../flow/references/storage.md)); no second `Read`, and never `yq`/`jq` (the file stays a local repo file in both storage modes). Values: `prompt`, `always`, or `never`. Missing file, missing block, missing key, or `prompt` → `prompt`. Any other value → `prompt`, plus a one-line notice printed now — `git.commit: <value> is not a recognized mode (prompt | always | never) — treating as prompt.` — a config error never blocks a build. Then apply the per-run flags (the `--pr`+`--no-commit` pair was already rejected by Flag validation):
+- `--no-commit` → the effective `commit_mode` is `never` for this run, beating any config value.
+- `--pr` → the `--pr` path commits and pushes as ever ([`references/pr-creation.md`](references/pr-creation.md)); when the config says `never`, remember the override so the verdict gate prints its one-line notice (4c).
+
+The bound `commit_mode` is consumed only at the verdict gate (4c/4d); binding it here keeps it defined on every resumption row that funnels there.
 
 **Working copy (server-native only).** Pull `01-spec.md`, `02-plan.md`, and whichever of `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md` exist (per the List artifacts operation) into a session-scratchpad directory — an ephemeral location outside the repository; nothing is ever materialized under `claudedocs/tickets/`, which is not a ticket store in this mode. In this mode `<ticket-folder>` denotes this working-copy directory: every `<ticket-folder>/0N-*.md` read/write site in this skill operates on the copies, with writes pushed per the next block. All in-loop reading (including the per-step `Read` offset/limit re-read of the plan) works off these copies, and subagent spawn prompts reference scratchpad paths — subagents never touch the ticket store; the build skill is its only reader/writer in this loop. The copies are disposable: every run re-pulls from the server; a scratchpad tree left by a prior run is never trusted or reused.
 
@@ -252,7 +262,7 @@ Choose one based on loop state:
 #### 4b. Write summary and lesson artifacts
 
 **Always write `06-summary.md`** regardless of verdict. Content varies:
-- `pass`: completed work summary, files changed, validation passed, reviewer findings count, test results.
+- `pass`: completed work summary, files changed, validation passed, reviewer findings count, test results — plus the commit outcome: when the run leaves changes uncommitted (`git.commit: never` or `--no-commit`), say so explicitly and point at `git status`.
 - `partial`: references the `## Failed Criteria` section in `05-tests.md`, lists deferred conflicts from `04-review.md`, lists what was completed.
 - `stuck`: describes loop state at escalation — the detected stuck pattern (or "turn cap exceeded"), the last 3-5 iterations' actions, a suggested next-move for the user.
 
@@ -267,19 +277,25 @@ Server-native `verdict` on the `06-summary.md` upsert: `pass` → `pass`, `parti
 
 #### 4c. Present the verdict gate
 
-For **`pass`** (without `--pr`):
+For **`pass`** (without `--pr`) — dispatch on the `commit_mode` bound at State setup (`--no-commit` has already collapsed it to `never`):
 
-```
-## Build Complete — verdict: pass
+- **`prompt`** — the interactive gate:
 
-[Summary from 06-summary.md]
+  ```
+  ## Build Complete — verdict: pass
 
-All artifacts: <ticket-folder>/
+  [Summary from 06-summary.md]
 
-Would you like to commit these changes?
-```
+  All artifacts: <ticket-folder>/
 
-Capture the user's reply. Proceed to 4d regardless (commit decision affects git only, not the folder transition).
+  Would you like to commit these changes?
+  ```
+
+  Capture the user's reply. Proceed to 4d regardless (commit decision affects git only, not the folder transition).
+
+- **`always`** — skip the prompt: present the same block with the question line replaced by `Committing per git.commit: always.` Proceed to 4d with the commit decision preset to yes — `always` presets the prompt's answer, nothing more.
+
+- **`never`** — skip the prompt: present the same block with the question line replaced by `Leaving changes uncommitted (git.commit: never).` — or `(--no-commit)` when the flag set it. Proceed to 4d with the commit decision preset to no.
 
 For **`pass` with `--pr`**: skip the interactive commit prompt — `--pr` is the user's authorization to ship. Present a non-interactive summary, then proceed to 4d:
 
@@ -292,6 +308,8 @@ All artifacts: <ticket-folder>/
 
 Opening a pull request per --pr (see references/pr-creation.md): branch from base → commit → push → gh pr create → finalize into review/.
 ```
+
+When the config said `git.commit: never` (the override remembered at State setup), append one outcome-neutral line to the block: `Note: --pr overrides git.commit: never — proceeding with the pr-creation.md commit path.` Outcome-neutral on purpose: if the PR path later degrades to a local commit, pr-creation.md's own degradation line reports what actually happened, and this notice stays true.
 
 For **`partial`** or **`stuck`**:
 
@@ -314,10 +332,11 @@ Capture the user's choice. Proceed to 4d.
 
 Per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Decision Table:
 
-- **`pass` without `--pr`** (any commit decision) → Transition 2 (End-of-pipeline → `done/`).
-  - If the user wants to commit, do the standard git workflow first (stage relevant files; create a commit message referencing the ticket ID).
-  - Then apply Transition 2.
-- **`pass` with `--pr`** → run the [`references/pr-creation.md`](references/pr-creation.md) sequence (preconditions → branch-decision matrix → gitignore-aware stage → commit → push → `gh pr create`). On success: Transition 5 (→ `review/`, status `in-review`) and record the PR URL + branch in `06-summary.md` (server-native: also on the ticket row via `pipeline_update_ticket` `pr_url` — see pr-creation.md §5). On degradation (gh missing/unauthenticated, non-GitHub origin, or push/PR failure): Transition 2 (→ `done/`) and record the reason in `06-summary.md`. The verdict stays `pass` either way. The branch-decision matrix may pause for a safety choice (commits-ahead of base / detached HEAD / stash-pop conflict) — those are safety prompts, not the commit gate that `--pr` skips.
+- **`pass` without `--pr`** (any commit outcome) → Transition 2 (End-of-pipeline → `done/`).
+  - Commit decision **yes** (prompt confirmed, or `git.commit: always`) → commit first per [`references/commit.md`](references/commit.md): gitignore-aware staging (§1), then a §2 message referencing the ticket ID via `git commit -F`. Onto the current branch, no push, no PR — the mechanics are identical whichever mode said yes.
+  - Commit decision **no** (prompt declined, `git.commit: never`, or `--no-commit`) → touch nothing in git.
+  - Then apply Transition 2 — it fires identically for both outcomes.
+- **`pass` with `--pr`** → run the [`references/pr-creation.md`](references/pr-creation.md) sequence (preconditions → branch-decision matrix → gitignore-aware stage → commit → push → `gh pr create`). `commit_mode` never gates this path — a `never` config only adds the 4c override notice. On success: Transition 5 (→ `review/`, status `in-review`) and record the PR URL + branch in `06-summary.md` (server-native: also on the ticket row via `pipeline_update_ticket` `pr_url` — see pr-creation.md §5). On degradation (gh missing/unauthenticated, non-GitHub origin, or push/PR failure): Transition 2 (→ `done/`) and record the reason in `06-summary.md`. The verdict stays `pass` either way. The branch-decision matrix may pause for a safety choice (commits-ahead of base / detached HEAD / stash-pop conflict) — those are safety prompts, not the commit gate that `--pr` skips.
 
 - **`partial`** or **`stuck`** + **`accept-as-partial`** → Transition 4 (status flips to `partial-completion`), then Transition 2 (folder moves to `done/`, preserving `partial-completion` status).
 
@@ -332,7 +351,8 @@ Per [`../flow/references/state-transitions.md`](../flow/references/state-transit
 #### 4e. Final user-facing message
 
 After the transition fires, print:
-- On `done/` transition: "Ticket moved to `done/`. Run `git log -1` to see the commit (if you confirmed) or `git status` (if you didn't)."
+- On `done/` transition with a commit: "Ticket moved to `done/`. Run `git log -1` to see the commit."
+- On `done/` transition without a commit (declined, `git.commit: never`, or `--no-commit`): "Ticket moved to `done/`. Changes left uncommitted — run `git status` to review them."
 - On `backlog/` revert: "Ticket reverted to `backlog/`. Artifacts preserved in the folder."
 - On `continue-with-hint`: no additional message — the loop just continues.
 

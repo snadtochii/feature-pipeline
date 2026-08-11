@@ -2,11 +2,11 @@
 
 Build invokes this at the verdict gate (SKILL.md sub-step 4d) on verdict `pass` when `--pr` is present, after the implement → review → test checkpoints pass. It runs the branch → commit → push → open-PR sequence non-interactively (the `--pr` flag is the user's authorization for the outward-facing push), finalizes the ticket into `review/` via Transition 5 on success, and degrades to a local commit + `done/` (Transition 2) when GitHub tooling is unavailable — never crashing the verdict gate.
 
-Build has no `Skill` tool, so the branch/commit conventions are inlined here rather than borrowed from a separate skill. All git/gh work runs inline via `Bash`.
+Build has no `Skill` tool, so the branch conventions are inlined here rather than borrowed from a separate skill; the commit mechanics (staging + message) live in the shared [`commit.md`](commit.md). All git/gh work runs inline via `Bash`.
 
 ## When it runs
 
-- The full sequence (§0–§5): only on verdict `pass` with `--pr`. On `partial`/`stuck`, or without `--pr`, this reference is not used — the standard commit gate applies.
+- The full sequence (§0–§5): only on verdict `pass` with `--pr`. On `partial`/`stuck`, or without `--pr`, this reference is not used — the verdict gate's commit-mode dispatch (SKILL.md 4c/4d, driven by the bound `commit_mode`) applies instead.
 - The **Merge predicate** section only: referenced by build's `review/` resumption row, which runs on every re-invocation of a `review/` ticket regardless of whether `--pr` is on the command line.
 
 ## §0 Preconditions (short-circuit to commit-only)
@@ -38,63 +38,21 @@ Branch-decision matrix:
 
 `<branch>` = `<type>/<TICKET-ID>-<slug>` (see §2).
 
-## §2 Branch + commit-message conventions (inlined)
-
-Branch:
+## §2 Branch conventions (inlined)
 
 - **type**: infer from the work — new capability `feature`, bug `fix`, deps/chore `chore`, refactor `refactor`, docs `docs`, test `test`. Default `feature`.
 - **TICKET-ID**: the ticket's frontmatter `id` (uppercase prefix + number, no leading zeros).
 - **slug**: 2–5 words distilled from the ticket title, lowercased, **sanitized to `[a-z0-9-]`** (strip everything else, collapse consecutive dashes, trim to ≤40 chars). Sanitizing is mandatory — the slug is interpolated into a shell command.
 
-Commit message — the complete spec for the commit this path creates (the PR title/body are §4's concern):
+The commit message this path creates follows [`commit.md`](commit.md) §2 in full — subject/body/mechanics/attribution-trailer rules (the PR title/body are §4's concern).
 
-- **Subject format**: `<TICKET-ID>: <imperative subject>`. When no ticket ID is resolvable, omit the prefix entirely and start the subject with the imperative verb.
-- **Imperative mood**: the subject is an imperative-mood change description — it reads as a command completing "This commit will …" (Add / Fix / Extract / Update / Remove). Never past tense ("Added"), never third person ("Adds"), never a noun phrase — and **never the raw ticket title**. Reusing the ticket title as the subject is a forbidden anti-pattern: the title names the *feature*, the subject describes the *change*.
-- **Length & case**: sentence case after the colon; no trailing period; aim ≤50 characters after the prefix, hard limit ~72 for the whole subject line.
-- **Body**: one blank line after the subject, then what changed and why (distilled from `06-summary.md`) — not a line-by-line restatement of the diff. Wrap at ~72 columns; bullets allowed. Omit the body only for trivial commits.
-- **Mechanics**: build the message via a heredoc or a message file (`git commit -F`); never `eval` and never inline arbitrary ticket text into the command string.
-- **Hygiene**: no marketing language; one concern per commit.
-- **Attribution trailers** (`Co-Authored-By:`, `Claude-Session:`) — one explicit rule, three parts:
-  1. **Canonical**: commits carry no attribution trailers.
-  2. **Mechanism**: the consumer project disables harness attribution in `.claude/settings.json`:
-     ```json
-     { "attribution": { "commit": "", "pr": "", "sessionUrl": false } }
-     ```
-     (`includeCoAuthoredBy` is deprecated; `attribution` takes precedence over it.)
-  3. **Fallback**: when that setting is absent and the harness's built-in git instructions mandate attribution trailers, do not suppress or strip them — the mandated trailer block stands at the end of the message, verbatim as mandated. Currently-known forms, illustrative rather than exhaustive (exact names and values drift across harness versions and sessions): `Co-Authored-By: <model> <noreply@anthropic.com>`, `Claude-Session: <session-id>`.
+## §3 Stage + commit
 
-  Why three parts: an unspecified trailer outcome is itself a defect — trailer presence must be an explicit, reasoned decision, never a silent divergence from either the project convention or the harness mandate.
-
-Example — the bad subject pastes the ticket title verbatim (noun phrase, the forbidden anti-pattern); the good version describes the change imperatively:
-
-```
-# Bad — ticket title reused as the subject
-PS-38: Deep FakeInboxClient adapter at the InboxApi seam
-
-# Good — imperative change description
-PS-38: Add deep FakeInboxClient adapter at the InboxApi seam
-
-Route InboxApi reads through a FakeInboxClient so tests exercise the
-real adapter seam instead of stubbing the API layer.
-
-# Trailer block: fallback only — present ONLY when the harness mandates
-# trailers and the attribution setting is absent (trailer rule above)
-Co-Authored-By: <model> <noreply@anthropic.com>
-Claude-Session: <session-id>
-```
-
-## §3 Stage (gitignore-aware — honors the consumer's repo)
+Run [`commit.md`](commit.md) §1 (gitignore-aware staging — the `git check-ignore` gates on `claudedocs/` and the session-state backstop), then commit with the `commit.md` §2 message:
 
 ```bash
-if git check-ignore -q claudedocs; then
-  git add -A                                   # claudedocs/ is ignored → safe to sweep
-else
-  git add -A && git reset -q -- claudedocs/     # claudedocs/ is tracked → exclude ticket bookkeeping
-  echo "--pr: claudedocs/ is tracked in this repo — ticket artifacts excluded from the PR commit."
-fi
 git commit -F <message-file>
 ```
-Never assume `claudedocs/` is gitignored in the consumer repo — gate on the actual `.gitignore` so a project that tracks it doesn't sweep internal pipeline bookkeeping into the user's feature PR.
 
 ## §4 Push + open PR (injection-safe)
 
@@ -113,7 +71,7 @@ esac
 gh pr create --base "<base>" --title "$PR_TITLE" --body-file "<06-summary.md path>"
 ```
 - Ready PR (no `--draft`).
-- **Title** = `<TICKET-ID>: <01-spec.md title>` — the `<TICKET-ID>:` prefix mirrors the commit-message convention (§2) and is **required** by the §Merge predicate's ID-keyed lookup, which filters on `title startswith "<TICKET-ID>:"`; a prefix-less title makes `sync` miss the PR. **Body** = `06-summary.md` passed via `--body-file` (no shell interpolation of arbitrary text).
+- **Title** = `<TICKET-ID>: <01-spec.md title>` — the `<TICKET-ID>:` prefix mirrors the commit-message convention ([`commit.md`](commit.md) §2) and is **required** by the §Merge predicate's ID-keyed lookup, which filters on `title startswith "<TICKET-ID>:"`; a prefix-less title makes `sync` miss the PR. **Body** = `06-summary.md` passed via `--body-file` (no shell interpolation of arbitrary text).
 - **Epic child**: title = `<CHILD-ID>: <child title>` (same ID-prefix rule, using the child's own ID); prepend a one-line lead `Part of epic <EPIC-ID> (<epic-slug>).` to the body file; the commit references the child ID.
 - Capture the PR URL from `gh pr create` stdout.
 - **Push rejected**, or **`gh pr create` fails after a successful push** → degrade: report (branch is pushed; PR not opened, with the reason), finalize `done/`, record in `06-summary.md`.

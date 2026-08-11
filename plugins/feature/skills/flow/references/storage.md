@@ -21,7 +21,7 @@ Detection rules:
 - **Detection never consults the server registry.** The `project` id is taken on trust; a wrong id surfaces later as a loud operation failure, not as a detection-time round-trip.
 - The detected mode applies to **every storage operation** in the run. There is no per-operation mode mixing and no mid-run re-detection.
 
-`config.yaml` itself — and `hooks/validate.sh`, which parses only its `validate:` block — stays a **local file in both modes**. It is project execution config (`validate:`, `test:`, `worktree:`) plus the mode marker, not ticket data. In a server-native project, the state folders (`backlog/`, `in-progress/`, `review/`, `done/`) do not exist; `prefix` is meaningful only for fs allocation (server IDs come from the registry-configured prefix).
+`config.yaml` itself — and `hooks/validate.sh`, which parses only its `validate:` block — stays a **local file in both modes**. It is project execution config (`validate:`, `test:`, `worktree:`, `git:`) plus the mode marker, not ticket data. In a server-native project, the state folders (`backlog/`, `in-progress/`, `review/`, `done/`) do not exist; `prefix` is meaningful only for fs allocation (server IDs come from the registry-configured prefix).
 
 ---
 
