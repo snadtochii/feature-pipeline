@@ -74,7 +74,9 @@ The cheapest decisive check, so it runs first — nothing below is needed when a
 git -C "<repo-root>" worktree list
 ```
 
-- **`<wt-path>` is already registered** → **adopt it**; print one line naming the path and skip straight to step 6. A prior run (or a crash) provisioned it, so re-provisioning would fail and re-copying could clobber work. Adopting also skips step 2's prompt — the user answered that question when the worktree was created, and re-asking on every resume is noise on the flag's most common repeat path.
+- **`<wt-path>` is already registered** → **adopt it**; print one line naming the path, then run **step 4's verification only** (not its copy — the files are already there) and skip to step 6. A prior run (or a crash) provisioned it, so re-provisioning would fail and re-copying could clobber work. Adopting also skips step 2's prompt — the user answered that question when the worktree was created, and re-asking on every resume is noise on the flag's most common repeat path.
+
+  Re-running the verification is what keeps the exclusion list alive across a resume. That list is per-run state, so a crash after provisioning but before the commit would otherwise leave a worktree holding a copied secrets file this run has never checked, and `commit.md` §1 would stage it with an empty exclusion list. Re-deriving costs one `check-ignore` per `.worktreeinclude` match — all local — and is authoritative even when the recorded list is stale or predates the field.
 - **`<branch>` exists but has no worktree** (pushed pre-crash, its worktree pruned) → note it now; step 3 uses the re-attach form instead of `-b`.
 
 ### Step 2 — Preconditions on the main checkout
@@ -112,7 +114,9 @@ Copy every file matching a `.worktreeinclude` pattern from `<repo-root>` into `<
 git -C "<wt-path>" check-ignore -q "<rel-path>" || echo "not ignored: <rel-path>"
 ```
 
-Any path that comes back **not ignored** → print one line naming the file and the remedy (`commit its .gitignore entry to <BASE_BRANCH>`), and record the path so [`commit.md`](commit.md) §1 excludes it with `git reset -q -- "<rel-path>"` at every commit this run makes. This generalizes `commit.md` §1's single-path `test.auth.storage_state` backstop to the actual set of files provisioning moves.
+Any path that comes back **not ignored** → print one line naming the file and the remedy (`commit its .gitignore entry to <BASE_BRANCH>`), and add it to the run's **exclusion list**, which [`commit.md`](commit.md) §1 applies as `git reset -q -- "<rel-path>"` at every commit this run makes. This generalizes `commit.md` §1's single-path `test.auth.storage_state` backstop to the actual set of files provisioning moves.
+
+Write the list to the caller's worktree record too (build: the `## Worktree` block's `excluded:` field), so a resumed run can see what a prior pass found. Treat that record as a **hint, not the source of truth** — step 1's adopt path re-derives the list, because a record can be stale, absent, or predate the field, and an empty list silently disables the guard.
 
 ### Step 5 — Setup
 
@@ -136,9 +140,10 @@ The PostToolUse validation hook locates `claudedocs/tickets/config.yaml` by walk
 Walk up from `<wt-path>` looking for `claudedocs/tickets/config.yaml`:
 
 - **Found anywhere on the chain** → nothing to do. This is the normal case for a multi-repo workspace, where the worktrees sit under the workspace root alongside the repos and the walk-up reaches the workspace-level file; it is also the case for a repo that tracks `claudedocs/`, whose copy came along with the branch.
-- **Not found** → copy `<repo-root>/claudedocs/tickets/config.yaml` to `<wt-path>/claudedocs/tickets/config.yaml`. Conditional on purpose: an unconditional copy would overwrite a tracked file and dirty the worktree's tree.
+- **Not found, and `<repo-root>/claudedocs/tickets/config.yaml` exists** → copy it to `<wt-path>/claudedocs/tickets/config.yaml`. Conditional on purpose: an unconditional copy would overwrite a tracked file and dirty the worktree's tree.
+- **Not found, and there is no source to copy** → nothing to do; continue. A missing `config.yaml` is a valid fs-native project — the file is optional, and its absence means fs-native with no `validate:`/`test:`/`git:`/`worktree:` config (per [`../../flow/references/storage.md`](../../flow/references/storage.md) §Mode detection) — and §1 already keeps such a project eligible. Copying a source that does not exist would fail provisioning and strand a freshly-created worktree over a configuration that is explicitly supported.
 
-**Server-native only** — after the check above, assert the resolved `config.yaml` declares both `mode: server-native` and `project:` (the detection contract in [`../../flow/references/storage.md`](../../flow/references/storage.md) §Mode detection). Without them, detection resolves fs-native (missing file → fs-native) and the work stalls at bare-ID ticket resolution — a silent misdetection where the storage doctrine prescribes a loud failure. Assertion fails → stop with an error naming the fix: list `claudedocs/tickets/config.yaml` in `.worktreeinclude` so step 4 carries a marked copy.
+**Server-native only** — the no-source no-op above is fs-native's affordance and never server-native's: a run in this mode reached this point *because* a `config.yaml` declared `mode: server-native`, so "no source to copy" cannot arise, and an unreachable marker stays a hard stop. After the check above, assert the resolved `config.yaml` declares both `mode: server-native` and `project:` (the detection contract in [`../../flow/references/storage.md`](../../flow/references/storage.md) §Mode detection). Without them, detection resolves fs-native (missing file → fs-native) and the work stalls at bare-ID ticket resolution — a silent misdetection where the storage doctrine prescribes a loud failure. Assertion fails → stop with an error naming the fix: list `claudedocs/tickets/config.yaml` in `.worktreeinclude` so step 4 carries a marked copy.
 
 ---
 
