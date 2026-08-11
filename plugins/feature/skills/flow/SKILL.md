@@ -17,7 +17,7 @@ allowed-tools:
   - mcp__plugin_server-native_ps__pipeline_get_artifact
   - mcp__plugin_server-native_ps__pipeline_list_artifacts
   - mcp__plugin_server-native_ps__pipeline_delete_artifact
-argument-hint: "[ticket-id|epic-id] [--pr] [--no-commit] [--no-ui-testing]"
+argument-hint: "[ticket-id|epic-id] [--pr] [--no-commit] [--no-ui-testing] [--worktree]"
 ---
 
 # Feature Flow Pipeline
@@ -49,6 +49,7 @@ Remaining args = pipeline flags (see table below)
 | `--pr` | On verdict `pass`, build opens a GitHub PR and finalizes the ticket into `review/` instead of `done/` (see `build/references/pr-creation.md`). Propagated to `build` only; in epic-mode, forwarded per child (one PR per child). Degrades to a local commit + `done/` when GitHub tooling is absent. | `--pr` |
 | `--no-ui-testing` | Skip only the browser/ui-tester portion of build's test checkpoint; non-browser verification (lint/typecheck) still runs and still gates the verdict. Use when the run can't get interactive browser-MCP permission (e.g. headless `claude -p`); browser verification then falls to a human at PR review. Propagated to `build` only (plan has no UI-test concept); in epic-mode, forwarded per child. | `--no-ui-testing` |
 | `--no-commit` | On verdict `pass`, build leaves the changes uncommitted this run — no commit prompt, beating any `git.commit` config default (see `build`'s State setup commit-mode binding). Contradicts `--pr`: passing both stops at flow SETUP (or at build's own Flag validation when invoked directly) with a one-line error, before any stage runs. Propagated to `build` only (plan has no commit concept); in epic-mode, forwarded per child. | `--no-commit` |
+| `--worktree` | Build does its code work in a dedicated git worktree cut from `origin/<base>`, instead of the current checkout — the ticket branch is pre-created, `.worktreeinclude` files are copied, `worktree.setup` runs, and the worktree is torn down once the work is committed on the branch (see `build/references/worktree.md`). Propagated to `build` only (plan writes `02-plan.md` and has no worktree concept); in epic-mode, forwarded per child (one worktree per child). Contradicts nothing. Flow itself never provisions — it has no `Bash` — so every eligibility decision and every degrade notice (a ticket spanning 2+ repos, a `blocked_by` blocker whose code is not yet on the base) is printed by build, not here. | `--worktree` |
 
 Resumption is auto-detected from on-disk artifacts — see "Resumption auto-detection" below. To start fresh against a partially-run ticket, delete the relevant artifacts before invoking flow.
 
@@ -59,6 +60,7 @@ Resumption is auto-detected from on-disk artifacts — see "Resumption auto-dete
 /feature:flow BL-1 --pr                         # on pass, open a GitHub PR and land in review/
 /feature:flow BL-1 --pr --no-ui-testing         # headless-safe: skip browser checkpoint, still open a PR
 /feature:flow BL-1 --no-commit                  # on pass, leave changes uncommitted (beats git.commit config)
+/feature:flow BL-1 --worktree                   # build in a dedicated worktree; torn down once the work is committed
 /feature:flow EPIC-1                            # epic-mode: walks children in dependency order
 ```
 
@@ -148,7 +150,7 @@ Apply the "Resumption auto-detection" routing table (above) to decide which stag
 
 **`--auto` wiring** (stated once, here): flow always passes `--auto` to `Skill plan`. It makes plan run non-interactively — no plan-mode approval gate — which is what makes flow's plan→build handoff seamless: build's verdict gate is the only gate in a flow run. Run standalone (without flow), plan uses interactive plan mode instead. `--auto` is internal flow→plan wiring, not a user-facing flow flag — that's why it's absent from the Flags table above; build has no such flag, so it is never propagated to build.
 
-`--pr`, `--no-commit`, and `--no-ui-testing`, if passed, are propagated to `Skill build` **only** (plan has no PR, commit, or UI-test concept).
+`--pr`, `--no-commit`, `--no-ui-testing`, and `--worktree`, if passed, are propagated to `Skill build` **only** (plan has no PR, commit, UI-test, or worktree concept).
 
 After build returns, flow's work is done — the verdict gate and every state transition have already fired inside the stages, per the Responsibilities split. Flow exits cleanly.
 

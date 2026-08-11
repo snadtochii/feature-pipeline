@@ -80,11 +80,11 @@ The validation hook uses Codex's hook system — enable `codex_hooks` and `plugi
 | Command | What it does |
 |---|---|
 | `/feature:discover <idea>` | Socratic intake → one ticket, or an epic with child tickets when the scope splits. Add `--explore` to challenge an idea before committing. |
-| `/feature:flow <id>` | Runs `plan → build` with a single verdict gate. Walks an epic's children in dependency order. Flags: `--pr`, `--no-commit`, `--no-ui-testing`. |
+| `/feature:flow <id>` | Runs `plan → build` with a single verdict gate. Walks an epic's children in dependency order. Flags: `--pr`, `--no-commit`, `--no-ui-testing`, `--worktree`. |
 | `/feature:plan <id>` | Plan stage alone — pre-plan synthesis (codebase patterns + open questions), then interactive plan mode. |
 | `/feature:build <id>` | Build loop alone — implement → review (4 parallel reviewers) → test (real-browser UI). Auto-resumes from the ticket's existing artifacts. |
 
-Resumption is auto-detected from the artifacts on disk; delete them to start a stage fresh. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md) for the `--pr` auto-PR flow, `--no-ui-testing`, `--no-commit` and the `git.commit` config default, epics, and blocker dependencies.
+Resumption is auto-detected from the artifacts on disk; delete them to start a stage fresh. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md) for the `--pr` auto-PR flow, `--no-ui-testing`, `--no-commit` and the `git.commit` config default, `--worktree` isolation, epics, and blocker dependencies.
 
 ## Standalone helpers
 
@@ -93,7 +93,7 @@ Run directly, outside the pipeline:
 | Command | What it does |
 |---|---|
 | `/feature:guide` | Index of the standalone helpers — what each one does and when to reach for it. |
-| `/feature:ship <id>` | Autonomous build → review → address loop over a ticket or `blocked_by` chain, ending at an open PR (`--merge` to land it, `--parallel` to build independent tickets concurrently — in multi-repo workspaces per-repo lanes run side by side, with isolated worktrees where one repo builds several tickets at once). See [ship's flags](plugins/feature/docs/advanced.md#ship-flags---base---merge---ui-test---parallel). |
+| `/feature:ship <id>` | Autonomous build → review → address loop over a ticket or `blocked_by` chain, ending at an open PR (`--merge` to land it, `--parallel` to build independent tickets concurrently — in multi-repo workspaces per-repo lanes run side by side, with isolated worktrees where one repo builds several tickets at once). See [ship's flags](plugins/feature/docs/advanced.md#ship-flags---base---merge---ui-test---parallel---worktree). |
 | `/feature:review [<pr>]` | Review open PRs against a maintainability rubric; post inline + summary findings. Never approves or edits code. Omit `<pr>` to scan every open PR. |
 | `/feature:address-review [<pr>]` | Validate a PR's review feedback — automated findings and human comments — fix the accepted ones, and post signed replies. Omit `<pr>` to use the current branch's PR. |
 | `/feature:debug <description>` | Runtime-evidence root-cause debugger: hypothesize → reproduce → fix (gated) → verify. |
