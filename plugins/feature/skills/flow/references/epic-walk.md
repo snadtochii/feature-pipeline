@@ -65,7 +65,7 @@ b. **Print the running message**:
    → Running <CHILD-ID>: <title>
    ```
 
-c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs plan + build per the existing logic. Propagate `--pr`, `--no-commit`, and `--no-ui-testing` if the epic-level invocation had them (a `--pr` epic run opens one PR per child; `--no-commit` leaves every child's passing changes uncommitted; `--no-ui-testing` skips the browser checkpoint for every child).
+c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs plan + build per the existing logic. Propagate `--pr`, `--no-commit`, `--no-ui-testing`, and `--worktree` if the epic-level invocation had them (a `--pr` epic run opens one PR per child; `--no-commit` leaves every child's passing changes uncommitted; `--no-ui-testing` skips the browser checkpoint for every child; `--worktree` gives every child its own worktree, with build deciding per child whether one is eligible — a child whose `blocked_by` sibling finished without `--pr` has its code on a local branch that the base does not carry, so build degrades that child to an in-place build with a notice).
 
 d. **Re-read the child's metadata** after the recursive flow returns — fs-native: its `01-spec.md` frontmatter; server-native: the row via `pipeline_get_ticket`. Build's verdict gate (inside the child's flow run) already applied the state transition per `state-transitions.md` (fs-native: folder move + `status`; server-native: the CAS status write). The new status determines the walker's next move:
 

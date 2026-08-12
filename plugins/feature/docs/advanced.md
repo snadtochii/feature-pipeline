@@ -7,8 +7,9 @@ Deeper material that doesn't belong in the [README](../../../README.md) front do
 - [Auto-PR (`--pr`) and the review → merge flow](#auto-pr---pr-and-the-review--merge-flow)
 - [Skip browser testing (`--no-ui-testing`)](#skip-browser-testing---no-ui-testing)
 - [Commit control (`--no-commit`)](#commit-control---no-commit)
+- [Worktree isolation (`--worktree`)](#worktree-isolation---worktree)
 - [Epics and blocker dependencies](#epics-and-blocker-dependencies)
-- [Ship flags (`--base`, `--merge`, `--ui-test`, `--parallel`)](#ship-flags---base---merge---ui-test---parallel)
+- [Ship flags (`--base`, `--merge`, `--ui-test`, `--parallel`, `--worktree`)](#ship-flags---base---merge---ui-test---parallel---worktree)
 - [Configuration reference](#configuration-reference)
   - [Project conventions (CLAUDE.md)](#project-conventions-claudemd)
   - [Ticket prefix](#ticket-prefix)
@@ -39,6 +40,23 @@ On a passing non-`--pr` build, the verdict gate's commit question is governed by
 
 `--no-commit` contradicts `--pr` (an explicit "ship it", which must commit and push): passing both stops build at start with a one-line error. The flag propagates `flow → build` and, in epic mode, is forwarded to every child.
 
+## Worktree isolation (`--worktree`)
+
+Running several tickets at once means several sessions competing for one working tree. `--worktree` gives a build its own: before implementing, it fetches, pre-creates the ticket branch `<type>/<ID>-<slug>` from `origin/<base>`, adds a worktree at `../<repo-dirname>-worktrees/<TICKET-ID>` (a sibling of the repo, never inside it), copies the [`.worktreeinclude`](#worktree-setup) files, and runs [`worktree.setup`](#worktree-setup). Every git and project command for the rest of the run is aimed at that worktree; the ticket folder, state transitions, and the lessons log stay in the main checkout.
+
+The worktree is **removed** once the run ends with the work committed on the branch or pushed — commits are repository-level, so the worktree then holds nothing the repository does not. It is **left in place**, with its path printed, when the work is uncommitted (`--no-commit`, or `git.commit: never`) or the verdict is `partial`/`stuck` — uncommitted work is never silently orphaned. A resumed build re-attaches to a worktree recorded by a prior run whether or not you pass the flag again.
+
+`--worktree` contradicts nothing; it composes with `--pr`, `--no-commit`, and `--no-ui-testing`. It propagates `flow → build` and, in epic mode, is forwarded per child. Four cases degrade to an ordinary in-place build with a one-line notice:
+
+- The ticket's `repos:` names **2+ repos** — one worktree cannot span repositories. Exactly one entry is supported.
+- A `blocked_by` **blocker's code is not on the base** yet (it finished without `--pr`, so its commits sit on a local branch) — a fresh worktree would not contain it. If the current checkout does not carry it either, the notice says so plainly: building in place does not conjure the code, and you need to merge or check out that branch first.
+- On `ship`, combined with **`--parallel`**, which already provisions a worktree per dispatched ticket.
+- On `ship`, whenever the run's base is **not the repository's default branch** — an epic chain's `integration/<epic-id>`, or any run under `--base <non-default>`. Neither `flow` nor `build` takes a base argument, so build would resolve `origin/HEAD` and fork the worktree from the default trunk while the PR targets something else. Use `--parallel` for isolation on a chain.
+
+A missing [`worktree:` config block](#worktree-setup) is **not** a degrade: the worktree is still created and only the setup step is skipped, with a notice — the flag is an explicit isolation request, and dependency install is the only thing you then do by hand.
+
+**Cost.** `worktree.setup` runs once per worktree, and a fresh worktree means a fresh dependency tree — typically the flag's dominant cost in both wall-clock and disk. `flow --worktree <EPIC>` forwards per child and tears each worktree down as it finishes, so an N-child epic pays N installs back to back with no reuse. Worth pointing `worktree.setup` at a shared store (`pnpm install` against a global store, a warm package cache) before using the flag per epic child. Worktrees left in place by the endings above accumulate until you remove them.
+
 ## Epics and blocker dependencies
 
 When `/feature:discover` produces an epic, sibling child tickets can declare `blocked_by: [<sibling-id>]` in their frontmatter. The pipeline enforces this asymmetrically:
@@ -50,14 +68,15 @@ This lets you plan ahead while preventing builds on top of unfinished foundation
 
 Run an epic with `/feature:flow <EPIC-ID>` — it walks the children in `blocked_by` topological order, invoking flow per child, and moves the whole epic subtree to `done/` when the last child finalizes. `/feature:plan` and `/feature:build` refuse to run directly against an epic ID; run them against a child.
 
-## Ship flags (`--base`, `--merge`, `--ui-test`, `--parallel`)
+## Ship flags (`--base`, `--merge`, `--ui-test`, `--parallel`, `--worktree`)
 
-`/feature:ship` is the autonomous layer on top of the pipeline: per ticket it builds (`flow --pr`), spawns an independent reviewer, addresses the review, and ends the run at open PR(s) left as the human gate. Its four flags:
+`/feature:ship` is the autonomous layer on top of the pipeline: per ticket it builds (`flow --pr`), spawns an independent reviewer, addresses the review, and ends the run at open PR(s) left as the human gate. Its five flags:
 
 - **`--base <branch>`** — the trunk of the run (default `main`): the branch feature/integration branches are cut from and the branch the resulting PR(s) target. It doesn't change the branch strategy — an epic still gets an `integration/<epic-id>` branch; solo and multi-solo tickets still ship on per-ticket feature branches.
 - **`--merge`** — merge the resulting PR(s) into `<base>` at the end of the run instead of leaving them open (solo/multi-solo: squash each; an epic's integration PR: a merge commit, preserving the per-ticket squashed commits). In an epic run, per-ticket merges into the integration branch happen regardless — the chain needs them. If branch protection blocks a merge, ship stops and reports.
 - **`--ui-test`** — opt-in end-of-run browser pass (default off). After the resulting PR(s) are open, one `ui-tester` subagent verifies the acceptance criteria's behavioral checks against the assembled branch and posts the evidence to the PR(s). Per-ticket builds always run headless regardless of this flag.
 - **`--parallel [N]`** — opt-in concurrent walk (default off — the walk is serial). Ship computes the **ready set** — tickets whose `blocked_by` dependencies are all terminal — and builds each ready ticket concurrently in its own isolated git worktree, up to N in flight (default 3), greedily dispatching newly-unblocked tickets as workers finish. It applies to epic runs and multi-solo runs; a pure dependency chain walks one ticket at a time either way. In a [multi-repo workspace](#multi-repo-workspaces) the run is partitioned into **per-repo lanes** from the tickets' `repos:` frontmatter: lanes run concurrently against their own repo checkouts (cross-repo parallelism needs no worktrees), worktrees are provisioned only for a lane running two or more of its tickets at once, and N stays one global cap across lanes. Integration merges (one at a time, revalidated per merge), ticket state transitions, and lessons-log writes stay serialized in the orchestrator, and a failed worker doesn't abort its siblings — the end-of-run report names what needs a serial resume. Parallel mode requires the [worktree setup contract](#worktree-setup) (`worktree:` block + optional `.worktreeinclude`) — in a multi-repo workspace only for lanes doing intra-repo concurrency; when the contract is absent or a worktree setup fails, ship logs why and falls back to the serial walk (per lane, in a lane run).
+- **`--worktree`** — isolate each ticket's build in its own git worktree on the **serial** walk, by forwarding [`--worktree`](#worktree-isolation---worktree) down to `build`. Redundant with `--parallel` (which provisions worktrees already) and unusable on an epic chain (whose base is the integration branch, which `flow` cannot convey to build's provisioning) — dropped with a one-line notice in both cases.
 
 ## Multi-repo workspaces
 
@@ -158,6 +177,8 @@ An unrecognized value degrades to `prompt` with a one-line notice — a config t
 ### Worktree setup
 
 An optional `worktree:` block declares how to make a fresh `git worktree` buildable. A new worktree starts without gitignored files (`.env`, auth storage-state, local config) and without installed dependencies; this contract fixes both, declared once per project. Like `test:`, the block is read by the model, never by `hooks/validate.sh` (the hook's parsers extract only the `validate:` block).
+
+Two things consume it: [`ship --parallel`](#ship-flags---base---merge---ui-test---parallel---worktree), which needs the contract and walks serially without it, and [`--worktree`](#worktree-isolation---worktree), which creates the worktree either way and only skips the setup step when the block is absent.
 
 ```yaml
 prefix: FP

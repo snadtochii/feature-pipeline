@@ -28,7 +28,8 @@ base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^o
 ```
 `<base>` is the short branch name (e.g. `main`); `origin/<base>` (e.g. `origin/main`) is the remote-tracking ref. Current branch: `git rev-parse --abbrev-ref HEAD`.
 
-Branch-decision matrix:
+Branch-decision matrix — the first entry is a guard that wins over every row below it:
+- **A worktree was provisioned for this ticket** ([`worktree.md`](worktree.md) §2, via build's `--worktree` or `ship --parallel`) → **reuse `<branch>`**; it is already created and checked out in `<wt-path>`. Skip every row below: never `git checkout <base>` (the base is checked out in the main checkout, and git refuses one branch in two worktrees — that checkout is exactly what fails here), and never re-create the convention branch (it exists, and this worktree is on it). Proceed straight to §3 with all git work bound to `<wt-path>` per [`worktree.md`](worktree.md) §3.
 - **On `main`/`master`** → `git checkout -b <branch>` carrying the uncommitted changes (clean fork; the trunk stays put).
 - **On a feature branch, no commits ahead of base** (`git rev-list origin/<base>..HEAD` empty) → fork from base: `git stash -u` → `git checkout <base>` → `git pull --ff-only` → `git checkout -b <branch>` → `git stash pop` → commit.
 - **On a feature branch WITH commits ahead of base** (`git rev-list origin/<base>..HEAD` non-empty) → do NOT silently fork; the uncommitted work may depend on those commits. Pause and ask: **reuse current branch** / **fork anyway** / **abort**.
@@ -43,6 +44,8 @@ Branch-decision matrix:
 - **type**: infer from the work — new capability `feature`, bug `fix`, deps/chore `chore`, refactor `refactor`, docs `docs`, test `test`. Default `feature`.
 - **TICKET-ID**: the ticket's frontmatter `id` (uppercase prefix + number, no leading zeros).
 - **slug**: 2–5 words distilled from the ticket title, lowercased, **sanitized to `[a-z0-9-]`** (strip everything else, collapse consecutive dashes, trim to ≤40 chars). Sanitizing is mandatory — the slug is interpolated into a shell command.
+
+When the branch is named at **provisioning** time ([`worktree.md`](worktree.md) §2, before any code exists), `type` is inferred from `01-spec.md` and `02-plan.md` rather than from the finished diff; the rules above are otherwise unchanged, and the slug's sanitization is no less mandatory — the value reaches `git worktree add`.
 
 The commit message this path creates follows [`commit.md`](commit.md) §2 in full — subject/body/mechanics/attribution-trailer rules (the PR title/body are §4's concern).
 
@@ -77,6 +80,8 @@ gh pr create --base "<base>" --title "$PR_TITLE" --body-file "<06-summary.md pat
 - **Push rejected**, or **`gh pr create` fails after a successful push** → degrade: report (branch is pushed; PR not opened, with the reason), finalize `done/`, record in `06-summary.md`.
 
 **Injection discipline**: branch slug sanitized to `[a-z0-9-]`; PR title and ticket ID loaded into variables via command substitution from `01-spec.md` (NOT pasted into `"..."` literals — a double-quoted assignment doesn't neutralize backticks / `$()` / quotes) and concatenated into `$PR_TITLE`; PR body via `--body-file`; no `eval`. The push is outward-facing and is authorized only by `--pr`.
+
+**With a worktree bound**, the split runs through the middle of this block — `git push` and `gh pr create` are worktree-bound while the spec and `--body-file` paths stay in the main checkout. [`worktree.md`](worktree.md) §3 enumerates every site in this file, on both sides of that split; follow it there rather than re-deriving the split here.
 
 **Server-native**: there is no `01-spec.md` file to `sed` — the ticket's `id` and `title` are row fields (Read ticket metadata in [`../../flow/references/storage.md`](../../flow/references/storage.md)). The injection discipline is preserved by changing the source, not the mechanism: write each value to a session-scratchpad file with the Write tool, then load it with the same command substitution (`TICKET_ID=$(cat "<scratchpad id file>")`, likewise the title) — never paste row text into a `"…"` literal. The `--body-file` path is the session working copy of `06-summary.md` (pulled and pushed per build's State setup).
 

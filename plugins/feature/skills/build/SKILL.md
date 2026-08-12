@@ -32,7 +32,7 @@ allowed-tools:
   - mcp__plugin_server-native_ps__pipeline_list_lessons
   - mcp__plugin_server-native_ps__pipeline_update_lesson
   - mcp__plugin_server-native_ps__pipeline_delete_lesson
-argument-hint: "[ticket-id] [--pr] [--no-commit] [--no-ui-testing] [--hint text]"
+argument-hint: "[ticket-id] [--pr] [--no-commit] [--no-ui-testing] [--worktree] [--hint text]"
 ---
 
 # Build Stage
@@ -47,7 +47,7 @@ Build the ticket through one continuous loop with internal checkpoints (implemen
 /feature:build $ARGUMENTS
 ```
 
-`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)), `--no-ui-testing` (skip only the browser/ui-tester portion of the test checkpoint; lint/typecheck still run and still gate the verdict — see the test checkpoint's flag override), `--no-commit` (on verdict `pass`, leave the changes uncommitted this run, skipping the commit prompt and beating any `git.commit` config — see State setup's commit-mode binding; contradicts `--pr` and stops the build if both are passed — see Flag validation). On resumption routes that never reach the commit path, `--no-commit` is a harmless no-op.
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)), `--no-ui-testing` (skip only the browser/ui-tester portion of the test checkpoint; lint/typecheck still run and still gate the verdict — see the test checkpoint's flag override), `--no-commit` (on verdict `pass`, leave the changes uncommitted this run, skipping the commit prompt and beating any `git.commit` config — see State setup's commit-mode binding; contradicts `--pr` and stops the build if both are passed — see Flag validation), `--worktree` (do this run's code work in a dedicated git worktree instead of the current checkout — see State setup's worktree binding and [`references/worktree.md`](references/worktree.md)). On resumption routes that never reach the commit path, `--no-commit` is a harmless no-op.
 
 Resumption is auto-detected from the ticket's existing artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build (server-native: delete the same artifacts via the Delete artifact operation in [`../flow/references/storage.md`](../flow/references/storage.md) — a user-side action; build itself never deletes artifacts).
 
@@ -81,15 +81,17 @@ When `blocked_by` is non-empty, build composes a **blocker context block** and p
 
 `--pr` and `--no-commit` together contradict — `--pr` must commit and push. Like Epic refusal and Blocker validation, this check runs **before State setup**, so the stop precedes any state mutation: stop with one line — `--pr and --no-commit contradict — --pr must commit and push. Drop one and re-run.` No work happens, no artifacts are written, no transition fires. Flow performs the same rejection in its SETUP, so a flow run never reaches build with the pair; this check guards direct invocation.
 
+This is the only contradictory pair. `--worktree` composes with all three of `--pr`, `--no-commit`, and `--no-ui-testing` — it selects *where* the code work happens, an axis independent of what the verdict gate does with the result.
+
 ## State setup
 
 Before the implement checkpoint, perform the start-of-pipeline transition per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Transition 1 (Start-of-pipeline → `in-progress`) — the transition dispatches on the project's storage mode per [`../flow/references/storage.md`](../flow/references/storage.md). Idempotent: if plan already ran in this pipeline invocation, the ticket is in `in-progress/` and only frontmatter is touched. If build is invoked directly on a `backlog/` ticket (re-run after manual artifact restoration, or unusual workflows), build moves the folder. (Build's own sources are `backlog/` and `in-progress/`; `review/` is handled separately — see the interception note below — and `done/` re-opens are a plan-side re-run.)
 
 **`review/` is intercepted before this transition.** If the ticket is in `review/` (status `in-review`), the step-5 resumption check (first row) runs first: build inspects the PR's merge state and finalizes via Transition 6 (`review → done`) if merged, or reports the still-open PR and exits — it does NOT rebuild. The `review/ → in-progress` re-plan path (revise an open PR's code) belongs to `plan`, not build.
 
-`<ticket-folder>` is rebound to the new location for the rest of this run (fs-native — server-native has no state folders; see the Working copy block below for what `<ticket-folder>` denotes there).
+`<ticket-folder>` is rebound to the new location for the rest of this run (fs-native — server-native has no state folders; see the Working copy block below for what `<ticket-folder>` denotes there). When the worktree binding below is on, bind it as an **absolute path into the main checkout** and keep it bound across every later transition that moves the folder — a relative path would resolve against the worktree, where `claudedocs/` is absent or a stale fork-point copy ([`references/worktree.md`](references/worktree.md) §3).
 
-**Bind ticket metadata — before the step-5 resumption routing.** Values read only inside a checkpoint are unbound on resumed runs that re-enter downstream of it, so build binds them here, upstream of the router: read `status`, `complexity` (used by the review checkpoint's triviality short-circuit), `kind`, `blocked_by`, and (server-native) `pr_url` once via the Read ticket metadata operation in [`../flow/references/storage.md`](../flow/references/storage.md) — frontmatter in fs-native mode, the ticket row in server-native mode, never parsed out of artifact bodies.
+**Bind ticket metadata — before the step-5 resumption routing.** Values read only inside a checkpoint are unbound on resumed runs that re-enter downstream of it, so build binds them here, upstream of the router: read `status`, `complexity` (used by the review checkpoint's triviality short-circuit), `kind`, `blocked_by`, `repos` where present (fs-native only — the worktree binding's eligibility input; it has no server-side representation), and (server-native) `pr_url` once via the Read ticket metadata operation in [`../flow/references/storage.md`](../flow/references/storage.md) — frontmatter in fs-native mode, the ticket row in server-native mode, never parsed out of artifact bodies.
 
 **Bind the commit mode — same placement rule.** Bind `commit_mode` from the `git.commit` key of the optional `git:` block in `claudedocs/tickets/config.yaml` — from the config content already model-read for storage-mode detection (per [`../flow/references/storage.md`](../flow/references/storage.md)); no second `Read`, and never `yq`/`jq` (the file stays a local repo file in both storage modes). Values: `prompt`, `always`, or `never`. Missing file, missing block, missing key, or `prompt` → `prompt`. Any other value → `prompt`, plus a one-line notice printed now — `git.commit: <value> is not a recognized mode (prompt | always | never) — treating as prompt.` — a config error never blocks a build. Then apply the per-run flags (the `--pr`+`--no-commit` pair was already rejected by Flag validation):
 - `--no-commit` → the effective `commit_mode` is `never` for this run, beating any config value.
@@ -100,6 +102,24 @@ The bound `commit_mode` is consumed only at the verdict gate (4c/4d); binding it
 **Working copy (server-native only).** Pull `01-spec.md`, `02-plan.md`, and whichever of `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md` exist (per the List artifacts operation) into a session-scratchpad directory — an ephemeral location outside the repository; nothing is ever materialized under `claudedocs/tickets/`, which is not a ticket store in this mode. In this mode `<ticket-folder>` denotes this working-copy directory: every `<ticket-folder>/0N-*.md` read/write site in this skill operates on the copies, with writes pushed per the next block. All in-loop reading (including the per-step `Read` offset/limit re-read of the plan) works off these copies, and subagent spawn prompts reference scratchpad paths — subagents never touch the ticket store; the build skill is its only reader/writer in this loop. The copies are disposable: every run re-pulls from the server; a scratchpad tree left by a prior run is never trusted or reused.
 
 **Per-checkpoint push (server-native only).** Every artifact write named in this skill is upserted to the server via the Write artifact operation the moment the producing step completes — `03-implementation.md` after each update (no `verdict`), `04-review.md`, `05-tests.md`, and `06-summary.md` each with the `verdict` rule stated at its write site. Update the scratchpad copy and push in the same step; a crash then loses at most the in-flight checkpoint's output, and a re-run resumes from exactly what the server holds.
+
+**Bind the worktree — same placement rule, and re-bind even without the flag.** Placed here, after the working-copy pull, because both parts below read and write `03-implementation.md`: in server-native mode `<ticket-folder>` means the working copy, and that copy does not exist until the block above runs. Every artifact touch below therefore goes through the storage operations in [`../flow/references/storage.md`](../flow/references/storage.md) — never a bare filename — and the `## Worktree` write follows the per-checkpoint push rule above. This is still upstream of the step-5 router, which is what the placement rule requires.
+
+The lifecycle itself is [`references/worktree.md`](references/worktree.md); this block binds its §0 inputs and decides whether to provision. Two parts, in this order:
+
+1. **Re-bind an existing worktree — unconditional, flag or no flag.** Only when the artifact listing already gathered above shows `03-implementation.md` exists (never an unguarded read — a `pipeline_get_artifact` for an absent artifact is a failed server-native op, and the loud-failure doctrine would stop every fresh build): if it carries a `## Worktree` block whose `<wt-path>` still exists on disk, bind `<wt-path>`, `<branch>`, `<repo-root>`, and the `excluded:` list from it and print one line — `Resuming in worktree <wt-path> (branch <branch>).` `<repo-root>` matters because the verdict gate's teardown and [`references/worktree.md`](references/worktree.md) §5 run their `git -C` commands against it, and a resumed run is exactly when teardown fires. The `excluded:` list matters because [`commit.md`](references/commit.md) §1 applies it at every commit; **re-derive it** by re-running [`references/worktree.md`](references/worktree.md) §2 step 4's verification over the `.worktreeinclude` matches rather than trusting the record — the recorded list can be stale or absent, and an empty one silently disables the guard that keeps a copied secrets file out of `git add -A`. A record written before `<repo-root>` was included → derive it with `git -C "<wt-path>" rev-parse --path-format=absolute --git-common-dir` and strip the trailing `/.git`.
+
+   A prior run's code lives in that worktree and nowhere else, so a resumed run that ignored it would review an empty diff in the main checkout while `03-implementation.md` claims the steps are done. This is why the check does not depend on `--worktree` being passed again: the flag selects where a *new* run works; the record is what makes a *resumed* one correct. Recorded path gone from disk (removed by hand, or torn down after a prior push) → print one line saying so and continue in the main checkout.
+
+2. **Provision — only when `--worktree` was passed and part 1 found nothing.** In order, cheapest first:
+   - **Skip entirely when this run will not build** — the ticket is in `review/` / status `in-review` (the interception above already read that signal), or `06-summary.md` exists with verdict `pass`. Both are step-5 rows that exit without touching code. This is checked **first**, before anything below: the two signals are already in hand, while the steps below cost two reference loads, a git call and an artifact read per blocker, and a spec-plus-plan read — all of it discarded on a run that builds nothing, and the eligibility notice would announce a decision about a build that never happens.
+   - Evaluate [`references/worktree.md`](references/worktree.md) §1 eligibility against the ticket's `repos:` and `blocked_by`, both bound above. Ineligible → print the §1 notice, leave the worktree unbound, and build in place. Every §1 miss is a notice, never an error.
+   - Eligible → bind the remaining §0 inputs (§1 has already resolved `<repo-root>` and needs `<BASE_BRANCH>`, so those two come from it): `<TICKET-ID>`; `<BASE_BRANCH>` as the **short** branch name via [`references/pr-creation.md`](references/pr-creation.md) §1's helper (`git symbolic-ref --short … | sed 's@^origin/@@'` — never the `origin/`-prefixed form); `<branch>` per pr-creation.md §2, its `<type>`/`<slug>` inferred from `01-spec.md`'s title and `tags` plus `02-plan.md` (the work has not happened yet, so the spec and plan are the input — `ship --parallel` names its branches from exactly the same pre-implementation information); `<ticket-folder>` absolute; setup-failure policy = **notice and continue in the worktree** (the declared dependencies may already be adequate, and an explicit isolation request is not worth failing over a setup command); removal trigger = the verdict-gate endings in 4d.
+   - Run [`references/worktree.md`](references/worktree.md) §2, then record the result in `03-implementation.md` under a `## Worktree` heading naming `<wt-path>`, `<branch>`, `<repo-root>`, and `excluded:` (§2 step 4's exclusion list, empty when every copied path is properly ignored) — the record part 1 reads next invocation.
+
+   Two consequences of writing that record on a fresh run, both intended: `03-implementation.md` now exists before any plan step, so the step-5 router matches its "partial" row rather than "nothing relevant exists" — correct, since the run does have state to resume. And flow's SETUP invalidation deletes `03-implementation.md` when `02-plan.md` is absent, which drops the record while the worktree survives; [`references/worktree.md`](references/worktree.md) §5 is the recovery path for that residue.
+
+Once bound, **every** git and project command in this loop is explicitly path-bound per [`references/worktree.md`](references/worktree.md) §3 — the checkpoints, the subagent spawn prompts, and the verdict gate cite that checklist rather than restating it.
 
 ---
 
@@ -121,6 +141,8 @@ b. **Validation setup.** Read project `CLAUDE.md`, extract lint and typecheck co
 
    **Always run skill-body validation after each meaningful change**, regardless of whether a `PostToolUse` hook is also active. The two layers (hook + skill-body) are intentionally redundant — see `references/validation-hook.md` for rationale.
 
+   With a worktree bound (State setup), run these commands as `cd "<wt-path>" && <command>` so they see the worktree's own dependencies, and target every edit at an absolute path inside `<wt-path>` — per [`references/worktree.md`](references/worktree.md) §3. The `PostToolUse` hook needs nothing: it walks up from the edited file, so worktree edits resolve on their own.
+
 c. **For each step in `02-plan.md`'s Build Sequence, in order:**
    1. **Re-read the current step from `02-plan.md`** — use `Read` with `offset`/`limit` to load just the relevant step's section. On long implementations the plan drifts out of working context by step 4 or 5; re-reading each step against its source is nearly free and prevents plan drift.
    2. **Implement the change** following the plan's "Files" and "Pattern to follow" fields.
@@ -138,7 +160,7 @@ d. **After all plan steps are implemented**, run final validation across all cha
 **Pre-check — Triviality short-circuit.** Before spawning reviewer subagents, check whether the diff is small enough that the four-subagent review is overkill (token cost > expected signal):
 
 1. Take the `complexity` value bound at State setup (ticket metadata — never re-parsed from an artifact body).
-2. Run `git diff --shortstat <base>...HEAD` (and add unstaged) to count lines and files changed.
+2. Run `git diff --shortstat <base>...HEAD` (and add unstaged) to count lines and files changed — prefixed `git -C "<wt-path>"` when a worktree is bound ([`references/worktree.md`](references/worktree.md) §3), which is where the changes actually are.
 3. If **all three** conditions hold — `complexity: S`, lines changed < 50, files changed < 3 — short-circuit:
    - Write `<ticket-folder>/04-review.md`:
      ```
@@ -164,13 +186,15 @@ a. **Collect the diff.**
    git diff
    ```
 
+   With a worktree bound, prefix all three commands `git -C "<wt-path>"` ([`references/worktree.md`](references/worktree.md) §3) — run against the main checkout they would diff a tree that has none of this run's changes and report a clean review of nothing.
+
    If `origin/HEAD` isn't configured, default to `main`. If neither exists, ask the user which base branch to diff against. Concatenate the branch-scope diff and unstaged diff. Empty diff → record "No code changes to review" in `04-review.md` and proceed to the test checkpoint.
 
 b. **Compose the shared base for reviewer prompts** (single composition, used by all four reviewers):
 
    1. **Ticket context**: contents of `01-spec.md`, `02-plan.md`, `03-implementation.md`.
    2. **Diff**: output from step a.
-   3. **Project root path**.
+   3. **Project root path** — `<wt-path>` when a worktree is bound ([`references/worktree.md`](references/worktree.md) §3), else the main checkout. A reviewer given the right diff and a root pointing at a tree without the change reads files that contradict the hunks and reports confident false findings.
    4. **Blocker context** (only when `blocked_by` is non-empty per the Blocker validation section above): a `## Blocker context (from completed siblings)` block. For each blocker: include verbatim `01-spec.md` + `06-summary.md`. **Fallback when `06-summary.md` is missing** (e.g. a `cancelled` blocker): use the blocker's `02-plan.md`; when `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker. Omit the entire block when `blocked_by` is empty. Server-native: blocker artifacts belong to *other* tickets, so they are outside this ticket's working-copy pull — check what each blocker has via List artifacts on the blocker's handle, then Read artifact for each (per [`../flow/references/storage.md`](../flow/references/storage.md)); "missing" means absent from that blocker's artifact listing.
    5. **Confidence scale**: the verbatim contents of `references/confidence-scale.md` under a `## Confidence scale (use this exactly)` header. (The rubric lives in the reference and build injects it here — reviewer agent bodies stay rubric-free.)
 
@@ -221,9 +245,11 @@ a. **Skip-detection scan.** Read `02-plan.md` and search the text (case-insensit
 
    The pre-flight reads the `test:` block by model-reading `claudedocs/tickets/config.yaml`; it never invokes `yq`/`jq` or `hooks/validate.sh`. Absent a `test:` block, URL resolution falls through to the CLAUDE.md → port-probe path and no `test.start` is booted.
 
+   **With a worktree bound**, the pre-flight binds per [`references/test-preflight.md`](references/test-preflight.md) §3, which also states the fixed-port hazard it cannot solve: a server already listening at `test.url` from another checkout answers the `curl`, so nothing boots and `ui-tester` verifies code this run never wrote. Surface it — print one line before spawning — `--worktree: verifying against <url>; confirm that server is serving <wt-path>, not the main checkout.` — and repeat it as a `## Caveat` line in `05-tests.md`. A false green is the failure mode worth making visible; per-run port allocation is not something the `test:` contract models.
+
 b. **Spawn `feature:ui-tester`** (when reachable). Read the project's `CLAUDE.md` for a test framework hint (`## Testing` section, `## Commands` section, or inline references like "Playwright specs in `e2e/`"). Single `Task` call:
 
-   > Test this feature through real browser interaction. Spec with acceptance criteria: `<contents of 01-spec.md>`. Implementation summary: `<from 03-implementation.md>`. Application URL: `<the reachability-pre-flight-resolved URL — already verified reachable; do not re-discover it>`. Project test framework hint: `<from CLAUDE.md, or 'none documented'>`. Auth recipe: `<composed by the pre-flight per references/test-preflight.md §5 — auth.storage_state path and/or auth.attach_tab, or 'none declared'>`.
+   > Test this feature through real browser interaction. Spec with acceptance criteria: `<contents of 01-spec.md>`. Implementation summary: `<from 03-implementation.md>`. Application URL: `<the reachability-pre-flight-resolved URL — already verified reachable; do not re-discover it>`. Project test framework hint: `<from CLAUDE.md, or 'none documented'>`. Working directory: `<<wt-path> when a worktree is bound, else the project root>` — run the test runner there, and write any codified spec file under that directory, not elsewhere. Auth recipe: `<composed by the pre-flight per references/test-preflight.md §5 — auth.storage_state path and/or auth.attach_tab, or 'none declared'>`.
    >
    > **Verification is unconditional.** Every UI ticket gets browser-driven AC verification — regardless of whether a test framework is documented, regardless of `Out of Scope` tags in the spec. Out-of-scope governs what gets *built and checked in*, not what gets *verified live*. Test every acceptance criterion, take screenshots, check console for errors. Report failures with reproduction steps.
    >
@@ -348,6 +374,17 @@ Per [`../flow/references/state-transitions.md`](../flow/references/state-transit
 
 - **`partial`** or **`stuck`** + **`abort`** → Transition 3 (folder reverts to `backlog/`, status `backlog`; for epic children, only the child's frontmatter reverts unless every sibling is also `backlog` or `cancelled` — the inverse all-children-done check).
 
+**Worktree teardown** — runs after the transition above, only when a worktree is bound. [`references/worktree.md`](references/worktree.md) §4 owns the safety predicate and the mechanics; this is the trigger table:
+
+| Ending | Teardown |
+|---|---|
+| `pass`, committed (prompt confirmed, or `git.commit: always`) | **Remove.** The commits are on `<branch>`, which is repository-level state — the worktree holds nothing the repository does not. |
+| `pass` with `--pr` (pushed, or degraded to a local commit) | **Remove.** Same predicate; a pushed branch satisfies it doubly. |
+| `pass`, uncommitted (prompt declined, `git.commit: never`, or `--no-commit`) | **Leave**, print `<wt-path>`. The worktree is the only home of the work. |
+| `partial` or `stuck` — any choice, including `abort` | **Leave**, print `<wt-path>`. Transition 3 reverts the *ticket*; it does not revert code, and the run is expected to resume. |
+
+The §4 predicate is authoritative over this table: an ending listed as "remove" whose predicate fails (uncommitted changes still in the worktree) leaves the worktree in place and prints its path anyway. `--force` is never used to discard commits.
+
 #### 4e. Final user-facing message
 
 After the transition fires, print:
@@ -355,6 +392,8 @@ After the transition fires, print:
 - On `done/` transition without a commit (declined, `git.commit: never`, or `--no-commit`): "Ticket moved to `done/`. Changes left uncommitted — run `git status` to review them."
 - On `backlog/` revert: "Ticket reverted to `backlog/`. Artifacts preserved in the folder."
 - On `continue-with-hint`: no additional message — the loop just continues.
+
+When a worktree was removed, the main checkout shows no trace of the change, so name where the work went: append `Work is on branch <branch> (worktree removed) — 'git checkout <branch>' to see it.` to the `done/` line. When a worktree was left in place, append `Work left in <wt-path> on branch <branch>.` instead.
 
 ### 5. Auto-resumption from existing artifacts
 
@@ -376,6 +415,8 @@ At build start, before the implement checkpoint, inspect the ticket's existing a
 - The first row keys on row status `in-review` (there is no `review/` folder); the pushed branch for the merge predicate is recovered from the `06-summary.md` artifact body or the current checkout, and the row's `pr_url` (when set) identifies the PR directly. For an epic child flipped `in-review` in place this keying deliberately diverges from fs (which reads the folder and exits at the verdict-`pass` row) — the divergence note in flow's Server-native keying block applies here identically.
 - Artifact presence comes from the listing; verdict and `## Failed Criteria` checks read the pulled artifact bodies.
 - The two `04-review.md` recency rows compare `04-review.md`'s `updated_at` against `03-implementation.md`'s — `03-implementation.md` is re-upserted after every implement update and after review fixes, so it carries the "implementation diverged after review" signal. `04-review.md` newer → apply pending fixes; `03-implementation.md` newer → re-enter the review checkpoint.
+
+**Worktree re-binding happens upstream.** State setup re-binds a recorded `<wt-path>` before this router runs, and does so whether or not `--worktree` was passed again — so every row below already operates on the right tree. Without that ordering, the rows that re-enter at the review or test checkpoint would inspect a main checkout holding none of the prior run's code.
 
 **Turn-counter reset on resume**. Resumed sessions start at `Turn 1/25` — the prior budget is forfeited.
 
