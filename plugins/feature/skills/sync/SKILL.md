@@ -1,7 +1,6 @@
 ---
 name: sync
 description: "Reconcile every ticket in backlog, in-progress, and review with its GitHub PR state, promoting tickets with merged PRs to done and flagging PRs closed unmerged."
-disable-model-invocation: true
 allowed-tools:
   - Read
   - Glob
