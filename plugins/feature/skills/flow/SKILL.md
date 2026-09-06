@@ -92,7 +92,7 @@ flow owns:
 4. Stage invocation via `Skill plan` and `Skill build`
 
 It does NOT own:
-- State transitions (folder moves / status flips, in the project's storage mode per `references/storage.md`) — plan and build perform these themselves per `references/state-transitions-fs.md` / `references/state-transitions-server.md`
+- State transitions — plan and build perform these themselves per `references/state-transitions-fs.md` / `references/state-transitions-server.md`
 - The verdict gate — build owns it end-to-end (verdict, option menu, user-choice capture, transition dispatch)
 - Stage internals — plan owns its Phase 1 synthesis and plan design; build owns its loop and checkpoints
 - Agent coordination — plan and build spawn their own subagents
@@ -102,7 +102,7 @@ It does NOT own:
 
 ## Resumption auto-detection (single-ticket mode)
 
-Flow inspects on-disk artifacts at start and routes to the right stage automatically. Users who want to start fresh against a partially-run ticket delete the relevant artifacts manually — git is the version-history layer if a backup is wanted.
+Flow inspects the ticket's existing artifacts at start and routes to the right stage automatically. Users who want to start fresh against a partially-run ticket delete the relevant artifacts manually.
 
 **Routing table** (checked in order, first match wins):
 
@@ -116,10 +116,7 @@ Flow inspects on-disk artifacts at start and routes to the right stage automatic
 
 The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and downstream `03-`/`04-`/`05-`/`06-`, if any). On the next flow invocation, the routing table matches the "neither exists" row and runs from scratch. Internal build checkpoints (implement → review → test inside one build invocation) write directly to the canonical artifacts — no special-casing needed.
 
-**Server-native keying.** In server-native storage mode (detected per [`references/storage.md`](references/storage.md)) the same routing table applies with its signals read from the server instead of the tree:
-- The first row keys on the ticket row's status `in-review` (there is no `review/` folder) — read via `pipeline_get_ticket`. **Deliberate mode divergence** for an epic child flipped `in-review` in place (per Transition 5, the subtree can still sit in `in-progress/` while the child's own status is `in-review`): fs keying reads the folder, so such a child falls through to the `06-summary.md` verdict-`pass` row and exits as already complete; server-native keys on the row status, so the same child routes to build's merge-check pass-through. The row status is the native signal in a mode without folders, and the merge-check is the more useful outcome; fs keying stays folder-based. Build's Server-native keying block shares this divergence.
-- Artifact presence (`06-summary.md`, `02-plan.md`) comes from `pipeline_list_artifacts`; the `06-summary.md` verdict comes from that artifact row's `verdict` field, or from its body via `pipeline_get_artifact` when the field is unset.
-- The start-fresh signal is the same deletion, performed user-side with `pipeline_delete_artifact` (`02-plan.md` and any downstream artifacts) — permanent, no server-side history; copy anything worth keeping first.
+**Signal keying.** How each routing signal above is read — the first row's state signal, artifact presence, the `06-summary.md` verdict, and the user's start-fresh deletion: [`keying-fs.md`](references/keying-fs.md) / [`keying-server.md`](references/keying-server.md) §1 and §3, for the mode detected at SETUP.
 
 **Epic-mode** has its own implicit resumption: the walker skips children whose `status` is already `done`, `partial-completion`, or `cancelled` (per [`epic-walk-fs.md`](references/epic-walk-fs.md) / [`epic-walk-server.md`](references/epic-walk-server.md) (for the detected storage mode) step 4a). Each remaining child inherits the single-ticket routing table above via the recursive flow call.
 
@@ -133,14 +130,14 @@ The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and
 
 1. **Resolve the ticket** using the canonical logic in [`ticket-resolution-fs.md`](references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](references/ticket-resolution-server.md) (for the detected storage mode). The ticket argument is `$1`.
 
-2. **Branch on `kind`** (via the Read ticket metadata operation in [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) (for the detected storage mode) — fs-native: frontmatter of `prd.md` if the folder is an epic, `01-spec.md` otherwise; server-native: the ticket row's `kind` field):
+2. **Branch on `kind`** (where it is read: [`keying-fs.md`](references/keying-fs.md) / [`keying-server.md`](references/keying-server.md) §2, for the detected mode):
    - `kind: epic` → epic mode: read and follow [`epic-walk-fs.md`](references/epic-walk-fs.md) / [`epic-walk-server.md`](references/epic-walk-server.md) (for the detected storage mode) (the epic walker); skip the remaining SETUP steps (the walker handles per-child blocker validation and artifact invalidation by recursing into single-ticket flow per child).
    - Otherwise (no `kind` field, or `kind` has a non-`epic` value) → single-ticket mode; continue with steps 3–4.
 
 3. **Validate blockers** per [`ticket-resolution-fs.md`](references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](references/ticket-resolution-server.md) (for the detected storage mode) Step 6. If the ticket has `blocked_by` entries that aren't done, abort with the Step 6 message listing the unblocked blockers.
 
-4. **Invalidate downstream artifacts** if `02-plan.md` is missing AND any of `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` exist (fs-native: on disk; server-native: in the `pipeline_list_artifacts` listing):
-   - Delete each existing build artifact (the user signalled "start fresh" by removing `02-plan.md`) — fs-native: delete the file; server-native: `pipeline_delete_artifact` per artifact (the one skill-side artifact deletion in the pipeline — see the Delete artifact operation in [`references/storage-server.md`](references/storage-server.md)).
+4. **Invalidate downstream artifacts** if `02-plan.md` is missing AND any of `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` exist:
+   - Delete each existing build artifact (the user signalled "start fresh" by removing `02-plan.md`) — the one skill-side artifact deletion in the pipeline. Presence check and deletion mechanics: [`keying-fs.md`](references/keying-fs.md) / [`keying-server.md`](references/keying-server.md) §3, for the detected mode.
    - Print: "Removed N downstream artifacts before re-running plan."
    - Skip this step on pure forward progress (no build artifacts exist) or on auto-resumption runs that found `02-plan.md`.
 
@@ -160,8 +157,7 @@ After build returns, flow's work is done — the verdict gate and every state tr
 
 ## Artifact Convention
 
-All artifacts live inside the per-ticket folder, numbered by stage order. There are two layouts depending on whether the ticket is solo or a child of a discover-produced epic. (The layouts below are the fs-native storage shape; in server-native mode the same artifact names key artifact rows on the ticket — see `references/storage-server.md`.)
-
+All artifacts live inside the per-ticket folder, numbered by stage order. There are two layouts depending on whether the ticket is solo or a child of a discover-produced epic. What the layouts below are in the detected storage mode — on-disk trees, or artifact names keying rows on a ticket whose metadata is the row: [`keying-fs.md`](references/keying-fs.md) / [`keying-server.md`](references/keying-server.md) §4.
 ### Solo ticket layout
 
 ```
@@ -193,7 +189,7 @@ claudedocs/tickets/<state>/<EPIC-ID>/   # epic folder; <state> follows most-adva
     └── <CHILD-3-ID>/
 ```
 
-The whole epic subtree moves between `<state>/` folders as a unit per [`state-transitions-fs.md`](references/state-transitions-fs.md) (Transitions 1, 2, and 3 each have epic-child variants). Per-child `status` lives in each child's `01-spec.md` frontmatter; epic-level `status` lives in `prd.md` and tracks the folder location.
+How the epic and its children advance together as a unit, and where per-child and epic-level `status` live, is the detected mode's [`keying-fs.md`](references/keying-fs.md) / [`keying-server.md`](references/keying-server.md) §4.
 
 **Naming rules:**
 - Sequential: `NN-name.md` where `NN` is the stage order

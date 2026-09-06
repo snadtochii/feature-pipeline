@@ -83,29 +83,29 @@ gh pr create --base "<base>" --title "$PR_TITLE" --body-file "<06-summary.md pat
 
 **With a worktree bound**, the split runs through the middle of this block — `git push` and `gh pr create` are worktree-bound while the spec and `--body-file` paths stay in the main checkout. [`worktree.md`](worktree.md) §3 enumerates every site in this file, on both sides of that split; follow it there rather than re-deriving the split here.
 
-**Server-native**: there is no `01-spec.md` file to `sed` — the ticket's `id` and `title` are row fields (Read ticket metadata in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md)). The injection discipline is preserved by changing the source, not the mechanism: write each value to a session-scratchpad file with the Write tool, then load it with the same command substitution (`TICKET_ID=$(cat "<scratchpad id file>")`, likewise the title) — never paste row text into a `"…"` literal. The `--body-file` path is the session working copy of `06-summary.md` (pulled and pushed per build's State setup).
+Where `id`, `title`, and the `--body-file` path come from — the `sed` reads above are the on-disk form; the injection discipline is the same whichever source applies: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §9, for the mode detected at the caller's start.
 
 ## §5 Finalize
 
-- **Success** (PR opened, URL captured) → Transition 5 (`in-progress → review`, status `in-review`). Record the PR URL + branch in `06-summary.md` (server-native: re-upsert the artifact, and additionally record the URL on the ticket row via `pipeline_update_ticket` `pr_url` — the non-status field write named in Transition 5's Server-native paragraph). Print:
+- **Success** (PR opened, URL captured) → Transition 5 (`in-progress → review`, status `in-review`). Record the PR URL + branch (PR linkage on the ticket: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §9, for the detected mode). Print:
   `✅ PR opened: <url>  (branch <branch> → <base>). Ticket → review/. Merge the PR, then re-run to finalize to done/.`
 - **Degradation** (any precondition/push/PR failure) → Transition 2 (`done/`). Record the reason + branch in `06-summary.md`. Print the specific degradation line.
 - The verdict stays `pass` in both cases — degradation is not a build failure.
 
 ## Merge predicate (single definition — referenced by build's `review/` resumption row and the `sync` skill)
 
-Determine whether a ticket's PR has merged. The scan set depends on the caller: **build** applies this to an `in-review` ticket it is resuming (a solo ticket or an at-review epic in `review/`); **sync** applies it to every ticket in its scan set (fs-native: folder-keyed — any solo ticket in `backlog/`, `in-progress/`, or `review/`, plus epic children reached via the `*/tasks/*` glob, including a child whose subtree is still in `in-progress/`; server-native: every row at a non-terminal status). **The rule is shared; the lookup key depends on the caller:**
+Determine whether a ticket's PR has merged. The scan set depends on the caller: **build** applies this to an `in-review` ticket it is resuming (a solo ticket or an at-review epic in `review/`); **sync** applies it to every ticket in its scan set (`sync`'s Step 1 owns the scan set and, in Step 2, the lookup-key precedence and back-fill for its own run). **The rule is shared; the lookup key depends on the caller:**
 
 - **Branch-keyed** — build's per-ticket `review/` resumption, which has the current checkout:
   ```bash
   gh pr view "<branch>" --json state,mergeCommit,baseRefName --jq '.state + " " + (.mergeCommit.oid // "") + " " + .baseRefName'
   ```
-  `<branch>` is the ticket's pushed branch (recorded in `06-summary.md` — server-native: read that artifact's body) or the current checkout; in server-native mode the row's `pr_url`, when set, identifies the PR directly (`gh pr view <url>` accepts a URL) and takes precedence over branch recovery. The output is `state`, the merge-commit SHA (`MERGE_SHA`) when merged, and the PR's own base branch (`PR_BASE`), all fed into the reachability gate below.
+  `<branch>` is the ticket's pushed branch (recorded in `06-summary.md`) or the current checkout; how build recovers it, and whether its mode supplies the PR directly instead: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §10. The output is `state`, the merge-commit SHA (`MERGE_SHA`) when merged, and the PR's own base branch (`PR_BASE`), all fed into the reachability gate below.
 - **ID-keyed** — the `sync` skill's batch scan, which has no reliable branch (the slug is judgment-distilled and the branch matrix may reuse a non-convention branch). GitHub's title search is tokenized, so anchor on the `<TICKET-ID>:` title convention:
   ```bash
   gh pr list --search "<TICKET-ID> in:title" --state all --json number,state,url,createdAt,title,mergeCommit,baseRefName --jq '[.[] | select(.title | startswith("<TICKET-ID>:"))] | sort_by(.createdAt) | last | .state + " " + (.mergeCommit.oid // "") + " " + .baseRefName'
   ```
-  Every PR/commit title leads with `<TICKET-ID>:`, so the `startswith` post-filter pins the ticket's own PR; `last` picks the newest. More robust than the branch when the branch isn't recoverable. In server-native mode the row's `pr_url`, when set, takes precedence here too (`gh pr view <url>` — the same live query) and this ID-keyed search is `sync`'s fallback for rows without it (`sync`'s Step 2 owns the fallback + back-fill procedure). As with the branch-keyed lookup, this yields `state`, the merge-commit SHA (`MERGE_SHA`), and the PR's own base branch (`PR_BASE`) for the reachability gate below.
+  Every PR/commit title leads with `<TICKET-ID>:`, so the `startswith` post-filter pins the ticket's own PR; `last` picks the newest. More robust than the branch when the branch isn't recoverable. As with the branch-keyed lookup, this yields `state`, the merge-commit SHA (`MERGE_SHA`), and the PR's own base branch (`PR_BASE`) for the reachability gate below.
 
 **Shared rule** (both lookups): a PR promotes to `done/` only when it is `MERGED` **and** its merge commit is **reachable from the base branch** — checking *that* a PR merged is not enough, because an epic child squash-merged only into `integration/<epic-id>` reports `MERGED` identically to a solo PR merged into the base. Gating on reachability keeps `sync` safe to run mid-epic-run: a child stays `in-review` until its code actually lands on `<base>`.
 

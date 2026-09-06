@@ -66,4 +66,4 @@ Exit the build loop with `verdict: stuck`. Write `06-summary.md` describing:
 - The last 3-5 iterations' actions, briefly
 - A suggested next move for the user (e.g., "fix the import path manually then re-run `/feature:build <id>` (auto-resumes from the ticket's existing artifacts)", or "the plan's step N may need a smaller break-down")
 
-Surface the human gate per `build/SKILL.md`'s Verdict Semantics section. The user picks: accept-as-partial, continue-with-hint (re-enter the loop with a user note, fresh 25-turn budget), or abort.
+Surface the human gate per `build/SKILL.md` §4 (Exit verdict and gate routing). The user picks: accept-as-partial, continue-with-hint (re-enter the loop with a user note, fresh 25-turn budget), or abort.

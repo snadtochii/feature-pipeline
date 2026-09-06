@@ -21,7 +21,7 @@ All git work runs inline via `Bash`. Every command below is **explicitly path-bo
 | `<repo-root>` | **Absolute** path to the git repository the work happens in — the main checkout. In a single-repo workspace, the repo itself; in a multi-repo workspace, the workspace child directory the ticket's work belongs to (build: the ticket's single `repos:` entry, per §1; ship: the lane's repo, per parallel-walk §1). This procedure assumes `<repo-root>` is a main checkout, never itself a worktree. |
 | `<BASE_BRANCH>` | The **short** branch name the worktree forks from (e.g. `main`, or `integration/<epic-id>` on an epic run) — never the `origin/`-prefixed remote-tracking form, which breaks `git checkout` and `gh --base`. Resolved by the caller: build uses [`pr-creation.md`](pr-creation.md) §1's short-name helper; ship passes its lane's bound base under `--parallel` (on ship's serial path there is no channel for a non-default base — which is why that path drops the flag rather than forking from the wrong trunk). |
 | `<branch>` | `<type>/<TICKET-ID>-<slug>` per [`pr-creation.md`](pr-creation.md) §2 — including its mandatory slug sanitization, since the value is interpolated into shell commands. |
-| `<ticket-folder>` | **Absolute** path to the ticket folder in the main checkout (fs-native). Never a relative path and never a path inside the worktree — see §3. Server-native mode has no ticket tree; the caller's own working copy applies instead. |
+| `<ticket-folder>` | **Absolute** path to the ticket's artifact location — what it denotes: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §3, for the detected storage mode. Never a relative path and never a path inside the worktree — see §3. |
 | **setup-failure policy** | What a failed `worktree.setup` means to this caller — §2 step 5 reports the failure and defers the decision. build: notice and continue in the worktree. ship: parallel-walk §1 degradation. |
 | **removal trigger** | When §4 is allowed to run — §4 owns the safety predicate, the caller owns the trigger. build: the verdict gate's endings. ship: parallel-walk §5 (merged + revalidated) or §6 (branch pushed). |
 
@@ -37,7 +37,7 @@ All git work runs inline via `Bash`. Every command below is **explicitly path-bo
 
 Cheapest-first: the `repos:` rules below are pure metadata reads, and only the blocker check touches git. Each miss is a one-line notice and an in-place build — never an error, and never a silent skip.
 
-- **Multi-repo ticket, 2+ `repos:` entries** → **not eligible**. A single worktree cannot span repositories. Notice: `--worktree: <TICKET-ID> spans repos (<repos>); building in place.` (The `repos:` field's semantics are [`../../discover/references/multi-repo.md`](../../discover/references/multi-repo.md); it exists in fs-native mode only.)
+- **Multi-repo ticket, 2+ `repos:` entries** → **not eligible**. A single worktree cannot span repositories. Notice: `--worktree: <TICKET-ID> spans repos (<repos>); building in place.` (The `repos:` field's semantics are [`../../discover/references/multi-repo.md`](../../discover/references/multi-repo.md); whether the ticket carries it: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §2, for the detected storage mode.)
 - **Exactly one `repos:` entry** → **eligible**; `<repo-root>` is that workspace child directory. A value that does not resolve to an existing child directory containing `.git` is treated as the multi-repo miss above, naming the unresolved value.
 - **No `repos:` field** → **eligible**; `<repo-root>` is the repository holding `claudedocs/tickets/`.
 - **A `blocked_by` blocker's code is in neither the fork point nor the current checkout** → **not eligible**. A blocker that finished without `--pr` is `done` with its commits on a local branch that was never merged into `<BASE_BRANCH>`, so a worktree cut fresh from `origin/<BASE_BRANCH>` would not contain that code.
@@ -135,15 +135,15 @@ The `/tmp` path is fixed and ticket-keyed rather than `mktemp` for the same reas
 
 ### Step 6 — Config presence
 
-The PostToolUse validation hook locates `claudedocs/tickets/config.yaml` by walking **up** from the edited file (`hooks/validate.sh`), and storage-mode detection reads the same file. A worktree that no ancestor chain reaches would silently lose per-edit validation, and in server-native mode would misdetect fs-native.
+The PostToolUse validation hook locates `claudedocs/tickets/config.yaml` by walking **up** from the edited file (`hooks/validate.sh`), and storage-mode detection reads the same file. A worktree that no ancestor chain reaches would silently lose per-edit validation and misdetect the storage mode.
 
 Walk up from `<wt-path>` looking for `claudedocs/tickets/config.yaml`:
 
 - **Found anywhere on the chain** → nothing to do. This is the normal case for a multi-repo workspace, where the worktrees sit under the workspace root alongside the repos and the walk-up reaches the workspace-level file; it is also the case for a repo that tracks `claudedocs/`, whose copy came along with the branch.
 - **Not found, and `<repo-root>/claudedocs/tickets/config.yaml` exists** → copy it to `<wt-path>/claudedocs/tickets/config.yaml`. Conditional on purpose: an unconditional copy would overwrite a tracked file and dirty the worktree's tree.
-- **Not found, and there is no source to copy** → nothing to do; continue. A missing `config.yaml` is a valid fs-native project — the file is optional, and its absence means fs-native with no `validate:`/`test:`/`git:`/`worktree:` config (per [`../../flow/references/storage.md`](../../flow/references/storage.md) §Mode detection) — and §1 already keeps such a project eligible. Copying a source that does not exist would fail provisioning and strand a freshly-created worktree over a configuration that is explicitly supported.
+- **Not found, and there is no source to copy** → continue; §1 already keeps such a project eligible.
 
-**Server-native only** — the no-source no-op above is fs-native's affordance and never server-native's: a run in this mode reached this point *because* a `config.yaml` declared `mode: server-native`, so "no source to copy" cannot arise, and an unreachable marker stays a hard stop. After the check above, assert the resolved `config.yaml` declares both `mode: server-native` and `project:` (the detection contract in [`../../flow/references/storage.md`](../../flow/references/storage.md) §Mode detection). Without them, detection resolves fs-native (missing file → fs-native) and the work stalls at bare-ID ticket resolution — a silent misdetection where the storage doctrine prescribes a loud failure. Assertion fails → stop with an error naming the fix: list `claudedocs/tickets/config.yaml` in `.worktreeinclude` so step 4 carries a marked copy.
+Storage-mode requirements on the resolved file — whether the no-source case is a valid no-op or a hard stop, and what the file must declare: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §11, for the mode detected at the caller's start.
 
 ---
 
@@ -184,11 +184,11 @@ The two subagent rows are the ones a `Bash`-only audit misses. A reviewer handed
 | `sed -n 's/^id: *//p' "<01-spec.md path>"` and the title read | [`pr-creation.md`](pr-creation.md) §4 — reads the real spec, not a fork-point copy. |
 | `gh pr create --body-file "<06-summary.md path>"` | The body is the artifact just written to the main checkout. |
 
-`<ticket-folder>` must therefore be **absolute** for the whole run, and stay bound across every state transition that moves the folder. In server-native mode this whole column is moot — artifacts are rows and `<ticket-folder>` is a session scratchpad — but §2 step 5's assertion still applies.
+`<ticket-folder>` must therefore be **absolute** for the whole run, and stay bound across every state transition that moves the folder. What this column denotes in the detected storage mode: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §5; §2 step 6's config-presence rule applies either way.
 
 ### Needs no binding
 
-The PostToolUse validation hook. It derives its working directory by walking up from the **edited file**, not from an ambient cwd, so edits inside the worktree resolve correctly on their own once §2 step 5 holds.
+The PostToolUse validation hook. It derives its working directory by walking up from the **edited file**, not from an ambient cwd, so edits inside the worktree resolve correctly on their own once §2 step 6 holds.
 
 ---
 
