@@ -86,13 +86,13 @@ Each stage reads and writes artifacts in `<ticket-folder>/`. This contract is lo
 ## Responsibilities
 
 flow owns:
-1. Ticket resolution (per `references/ticket-resolution.md`)
+1. Ticket resolution (per `references/ticket-resolution-fs.md` / `references/ticket-resolution-server.md`)
 2. Kind validation (epic refusal) and blocker pre-check
 3. Resumption auto-detection from on-disk artifacts (see below) — decides which stages to invoke
 4. Stage invocation via `Skill plan` and `Skill build`
 
 It does NOT own:
-- State transitions (folder moves / status flips, in the project's storage mode per `references/storage.md`) — plan and build perform these themselves per `references/state-transitions.md`
+- State transitions (folder moves / status flips, in the project's storage mode per `references/storage.md`) — plan and build perform these themselves per `references/state-transitions-fs.md` / `references/state-transitions-server.md`
 - The verdict gate — build owns it end-to-end (verdict, option menu, user-choice capture, transition dispatch)
 - Stage internals — plan owns its Phase 1 synthesis and plan design; build owns its loop and checkpoints
 - Agent coordination — plan and build spawn their own subagents
@@ -121,7 +121,7 @@ The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and
 - Artifact presence (`06-summary.md`, `02-plan.md`) comes from `pipeline_list_artifacts`; the `06-summary.md` verdict comes from that artifact row's `verdict` field, or from its body via `pipeline_get_artifact` when the field is unset.
 - The start-fresh signal is the same deletion, performed user-side with `pipeline_delete_artifact` (`02-plan.md` and any downstream artifacts) — permanent, no server-side history; copy anything worth keeping first.
 
-**Epic-mode** has its own implicit resumption: the walker skips children whose `status` is already `done`, `partial-completion`, or `cancelled` (per [`references/epic-walk.md`](references/epic-walk.md) step 4a). Each remaining child inherits the single-ticket routing table above via the recursive flow call.
+**Epic-mode** has its own implicit resumption: the walker skips children whose `status` is already `done`, `partial-completion`, or `cancelled` (per [`epic-walk-fs.md`](references/epic-walk-fs.md) / [`epic-walk-server.md`](references/epic-walk-server.md) (for the detected storage mode) step 4a). Each remaining child inherits the single-ticket routing table above via the recursive flow call.
 
 ---
 
@@ -129,16 +129,18 @@ The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and
 
 **Step 0 — reject contradictory flags (before anything else).** If both `--pr` and `--no-commit` are present, stop with one line — `--pr and --no-commit contradict — --pr must commit and push. Drop one and re-run.` — before ticket resolution, before any stage is invoked (the pair is decidable from the command line alone; screening it here saves a full plan run, and per child in epic mode). Build performs the same check for direct invocations.
 
-1. **Resolve the ticket** using the canonical logic in [`references/ticket-resolution.md`](references/ticket-resolution.md). The ticket argument is `$1`.
+**Storage mode.** Detect it once per run per [`references/storage.md`](references/storage.md) §Mode detection; every per-mode reference cited below (`-fs` / `-server`) is the file for that mode.
 
-2. **Branch on `kind`** (via the Read ticket metadata operation in [`references/storage.md`](references/storage.md) — fs-native: frontmatter of `prd.md` if the folder is an epic, `01-spec.md` otherwise; server-native: the ticket row's `kind` field):
-   - `kind: epic` → epic mode: read and follow [`references/epic-walk.md`](references/epic-walk.md) (the epic walker); skip the remaining SETUP steps (the walker handles per-child blocker validation and artifact invalidation by recursing into single-ticket flow per child).
+1. **Resolve the ticket** using the canonical logic in [`ticket-resolution-fs.md`](references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](references/ticket-resolution-server.md) (for the detected storage mode). The ticket argument is `$1`.
+
+2. **Branch on `kind`** (via the Read ticket metadata operation in [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) (for the detected storage mode) — fs-native: frontmatter of `prd.md` if the folder is an epic, `01-spec.md` otherwise; server-native: the ticket row's `kind` field):
+   - `kind: epic` → epic mode: read and follow [`epic-walk-fs.md`](references/epic-walk-fs.md) / [`epic-walk-server.md`](references/epic-walk-server.md) (for the detected storage mode) (the epic walker); skip the remaining SETUP steps (the walker handles per-child blocker validation and artifact invalidation by recursing into single-ticket flow per child).
    - Otherwise (no `kind` field, or `kind` has a non-`epic` value) → single-ticket mode; continue with steps 3–4.
 
-3. **Validate blockers** per [`references/ticket-resolution.md`](references/ticket-resolution.md) Step 6. If the ticket has `blocked_by` entries that aren't done, abort with the Step 6 message listing the unblocked blockers.
+3. **Validate blockers** per [`ticket-resolution-fs.md`](references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](references/ticket-resolution-server.md) (for the detected storage mode) Step 6. If the ticket has `blocked_by` entries that aren't done, abort with the Step 6 message listing the unblocked blockers.
 
 4. **Invalidate downstream artifacts** if `02-plan.md` is missing AND any of `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` exist (fs-native: on disk; server-native: in the `pipeline_list_artifacts` listing):
-   - Delete each existing build artifact (the user signalled "start fresh" by removing `02-plan.md`) — fs-native: delete the file; server-native: `pipeline_delete_artifact` per artifact (the one skill-side artifact deletion in the pipeline — see the Delete artifact operation in [`references/storage.md`](references/storage.md)).
+   - Delete each existing build artifact (the user signalled "start fresh" by removing `02-plan.md`) — fs-native: delete the file; server-native: `pipeline_delete_artifact` per artifact (the one skill-side artifact deletion in the pipeline — see the Delete artifact operation in [`references/storage-server.md`](references/storage-server.md)).
    - Print: "Removed N downstream artifacts before re-running plan."
    - Skip this step on pure forward progress (no build artifacts exist) or on auto-resumption runs that found `02-plan.md`.
 
@@ -158,7 +160,7 @@ After build returns, flow's work is done — the verdict gate and every state tr
 
 ## Artifact Convention
 
-All artifacts live inside the per-ticket folder, numbered by stage order. There are two layouts depending on whether the ticket is solo or a child of a discover-produced epic. (The layouts below are the fs-native storage shape; in server-native mode the same artifact names key artifact rows on the ticket — see `references/storage.md`.)
+All artifacts live inside the per-ticket folder, numbered by stage order. There are two layouts depending on whether the ticket is solo or a child of a discover-produced epic. (The layouts below are the fs-native storage shape; in server-native mode the same artifact names key artifact rows on the ticket — see `references/storage-server.md`.)
 
 ### Solo ticket layout
 
@@ -191,7 +193,7 @@ claudedocs/tickets/<state>/<EPIC-ID>/   # epic folder; <state> follows most-adva
     └── <CHILD-3-ID>/
 ```
 
-The whole epic subtree moves between `<state>/` folders as a unit per [`references/state-transitions.md`](references/state-transitions.md) (Transitions 1, 2, and 3 each have epic-child variants). Per-child `status` lives in each child's `01-spec.md` frontmatter; epic-level `status` lives in `prd.md` and tracks the folder location.
+The whole epic subtree moves between `<state>/` folders as a unit per [`state-transitions-fs.md`](references/state-transitions-fs.md) (Transitions 1, 2, and 3 each have epic-child variants). Per-child `status` lives in each child's `01-spec.md` frontmatter; epic-level `status` lives in `prd.md` and tracks the folder location.
 
 **Naming rules:**
 - Sequential: `NN-name.md` where `NN` is the stage order
@@ -219,7 +221,7 @@ When build exits `partial` or `stuck`, the verdict gate presents `accept-as-part
 ## Error Handling
 
 - **Stage skill failure** (plan or build crashes/returns an error mid-run): report it to the user and ask how to proceed (retry or abort).
-- **Ticket not found**: defer to `references/ticket-resolution.md`'s error handling — ask the user for the correct path.
+- **Ticket not found**: defer to the error handling in `references/ticket-resolution-fs.md` / `references/ticket-resolution-server.md` — ask the user for the correct path.
 - **Project path can't be determined**: ask the user.
 - **Blocker validation fails**: abort at SETUP step 3; print the Step 6 message verbatim. The ticket folder stays in `backlog/` and frontmatter `status` is unchanged (flow has not touched state at this point).
 

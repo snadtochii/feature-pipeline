@@ -49,11 +49,13 @@ Build the ticket through one continuous loop with internal checkpoints (implemen
 
 `$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)), `--no-ui-testing` (skip only the browser/ui-tester portion of the test checkpoint; lint/typecheck still run and still gate the verdict — see the test checkpoint's flag override), `--no-commit` (on verdict `pass`, leave the changes uncommitted this run, skipping the commit prompt and beating any `git.commit` config — see State setup's commit-mode binding; contradicts `--pr` and stops the build if both are passed — see Flag validation), `--worktree` (do this run's code work in a dedicated git worktree instead of the current checkout — see State setup's worktree binding and [`references/worktree.md`](references/worktree.md)). On resumption routes that never reach the commit path, `--no-commit` is a harmless no-op.
 
-Resumption is auto-detected from the ticket's existing artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build (server-native: delete the same artifacts via the Delete artifact operation in [`../flow/references/storage.md`](../flow/references/storage.md) — a user-side action; build itself never deletes artifacts).
+Resumption is auto-detected from the ticket's existing artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build (server-native: delete the same artifacts via the Delete artifact operation in [`../flow/references/storage-server.md`](../flow/references/storage-server.md) — a user-side action; build itself never deletes artifacts).
 
 ## Ticket Resolution & Artifacts Setup
 
-Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md). The ticket argument is `$1`.
+**Storage mode.** Detect it once per run per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection; every per-mode reference cited in this skill (`-fs` / `-server`) is the file for that mode.
+
+Use the canonical logic in [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the detected storage mode). The ticket argument is `$1`.
 
 ## Required Input
 
@@ -69,11 +71,11 @@ In server-native mode every input above is an artifact read pulled into the sess
 
 ## Epic refusal
 
-Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 4 before any work. If the ticket has `kind: epic`, abort and instruct the user to run build against a child ticket instead — epics are non-pipelineable.
+Validate `kind` per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the detected storage mode) Step 4 before any work. If the ticket has `kind: epic`, abort and instruct the user to run build against a child ticket instead — epics are non-pipelineable.
 
 ## Blocker validation
 
-Validate blockers per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6. If any entry in `blocked_by` is not yet done (status `done` or `cancelled` per Step 6's completion test, in either storage mode), abort with the message in Step 6 listing the unblocked blockers. If a `blocked_by` entry is wrong, edit this ticket's `blocked_by` frontmatter.
+Validate blockers per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) Step 6. If any entry in `blocked_by` is not yet done (status `done` or `cancelled` per Step 6's completion test, in either storage mode), abort with the message in Step 6 listing the unblocked blockers. If a `blocked_by` entry is wrong, edit this ticket's `blocked_by` frontmatter.
 
 When `blocked_by` is non-empty, build composes a **blocker context block** and prepends it to the review-checkpoint reviewer prompts. The block's artifact sources and missing-artifact fallback chain are defined where the composition happens — Process step 2b.
 
@@ -85,13 +87,13 @@ This is the only contradictory pair. `--worktree` composes with all three of `--
 
 ## State setup
 
-Before the implement checkpoint, perform the start-of-pipeline transition per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Transition 1 (Start-of-pipeline → `in-progress`) — the transition dispatches on the project's storage mode per [`../flow/references/storage.md`](../flow/references/storage.md). Idempotent: if plan already ran in this pipeline invocation, the ticket is in `in-progress/` and only frontmatter is touched. If build is invoked directly on a `backlog/` ticket (re-run after manual artifact restoration, or unusual workflows), build moves the folder. (Build's own sources are `backlog/` and `in-progress/`; `review/` is handled separately — see the interception note below — and `done/` re-opens are a plan-side re-run.)
+Before the implement checkpoint, perform the start-of-pipeline transition per [`state-transitions-fs.md`](../flow/references/state-transitions-fs.md) / [`state-transitions-server.md`](../flow/references/state-transitions-server.md) Transition 1 (Start-of-pipeline → `in-progress`) — the transition dispatches on the project's storage mode per [`../flow/references/storage.md`](../flow/references/storage.md). Idempotent: if plan already ran in this pipeline invocation, the ticket is in `in-progress/` and only frontmatter is touched. If build is invoked directly on a `backlog/` ticket (re-run after manual artifact restoration, or unusual workflows), build moves the folder. (Build's own sources are `backlog/` and `in-progress/`; `review/` is handled separately — see the interception note below — and `done/` re-opens are a plan-side re-run.)
 
 **`review/` is intercepted before this transition.** If the ticket is in `review/` (status `in-review`), the step-5 resumption check (first row) runs first: build inspects the PR's merge state and finalizes via Transition 6 (`review → done`) if merged, or reports the still-open PR and exits — it does NOT rebuild. The `review/ → in-progress` re-plan path (revise an open PR's code) belongs to `plan`, not build.
 
 `<ticket-folder>` is rebound to the new location for the rest of this run (fs-native — server-native has no state folders; see the Working copy block below for what `<ticket-folder>` denotes there). When the worktree binding below is on, bind it as an **absolute path into the main checkout** and keep it bound across every later transition that moves the folder — a relative path would resolve against the worktree, where `claudedocs/` is absent or a stale fork-point copy ([`references/worktree.md`](references/worktree.md) §3).
 
-**Bind ticket metadata — before the step-5 resumption routing.** Values read only inside a checkpoint are unbound on resumed runs that re-enter downstream of it, so build binds them here, upstream of the router: read `status`, `complexity` (used by the review checkpoint's triviality short-circuit), `kind`, `blocked_by`, `repos` where present (fs-native only — the worktree binding's eligibility input; it has no server-side representation), and (server-native) `pr_url` once via the Read ticket metadata operation in [`../flow/references/storage.md`](../flow/references/storage.md) — frontmatter in fs-native mode, the ticket row in server-native mode, never parsed out of artifact bodies.
+**Bind ticket metadata — before the step-5 resumption routing.** Values read only inside a checkpoint are unbound on resumed runs that re-enter downstream of it, so build binds them here, upstream of the router: read `status`, `complexity` (used by the review checkpoint's triviality short-circuit), `kind`, `blocked_by`, `repos` where present (fs-native only — the worktree binding's eligibility input; it has no server-side representation), and (server-native) `pr_url` once via the Read ticket metadata operation in [`storage-fs.md`](../flow/references/storage-fs.md) / [`storage-server.md`](../flow/references/storage-server.md) (for the detected storage mode) — frontmatter in fs-native mode, the ticket row in server-native mode, never parsed out of artifact bodies.
 
 **Bind the commit mode — same placement rule.** Bind `commit_mode` from the `git.commit` key of the optional `git:` block in `claudedocs/tickets/config.yaml` — from the config content already model-read for storage-mode detection (per [`../flow/references/storage.md`](../flow/references/storage.md)); no second `Read`, and never `yq`/`jq` (the file stays a local repo file in both storage modes). Values: `prompt`, `always`, or `never`. Missing file, missing block, missing key, or `prompt` → `prompt`. Any other value → `prompt`, plus a one-line notice printed now — `git.commit: <value> is not a recognized mode (prompt | always | never) — treating as prompt.` — a config error never blocks a build. Then apply the per-run flags (the `--pr`+`--no-commit` pair was already rejected by Flag validation):
 - `--no-commit` → the effective `commit_mode` is `never` for this run, beating any config value.
@@ -103,7 +105,7 @@ The bound `commit_mode` is consumed only at the verdict gate (4c/4d); binding it
 
 **Per-checkpoint push (server-native only).** Every artifact write named in this skill is upserted to the server via the Write artifact operation the moment the producing step completes — `03-implementation.md` after each update (no `verdict`), `04-review.md`, `05-tests.md`, and `06-summary.md` each with the `verdict` rule stated at its write site. Update the scratchpad copy and push in the same step; a crash then loses at most the in-flight checkpoint's output, and a re-run resumes from exactly what the server holds.
 
-**Bind the worktree — same placement rule, and re-bind even without the flag.** Placed here, after the working-copy pull, because both parts below read and write `03-implementation.md`: in server-native mode `<ticket-folder>` means the working copy, and that copy does not exist until the block above runs. Every artifact touch below therefore goes through the storage operations in [`../flow/references/storage.md`](../flow/references/storage.md) — never a bare filename — and the `## Worktree` write follows the per-checkpoint push rule above. This is still upstream of the step-5 router, which is what the placement rule requires.
+**Bind the worktree — same placement rule, and re-bind even without the flag.** Placed here, after the working-copy pull, because both parts below read and write `03-implementation.md`: in server-native mode `<ticket-folder>` means the working copy, and that copy does not exist until the block above runs. Every artifact touch below therefore goes through the storage operations in [`storage-fs.md`](../flow/references/storage-fs.md) / [`storage-server.md`](../flow/references/storage-server.md) (for the detected storage mode) — never a bare filename — and the `## Worktree` write follows the per-checkpoint push rule above. This is still upstream of the step-5 router, which is what the placement rule requires.
 
 The lifecycle itself is [`references/worktree.md`](references/worktree.md); this block binds its §0 inputs and decides whether to provision. Two parts, in this order:
 
@@ -169,7 +171,7 @@ d. **After all plan steps are implemented**, run final validation across all cha
      ## Reason
      Ticket complexity is S; diff is <X> lines across <Y> files (threshold: < 50 lines, < 3 files). Skipping the parallel reviewer subagents — token cost outweighs expected signal on small changes.
      ```
-     Server-native: `skipped` is outside the server's verdict enum — write the artifact **without** `verdict`; the label stays in the body (per [`../flow/references/storage.md`](../flow/references/storage.md) §Write artifact).
+     Server-native: `skipped` is outside the server's verdict enum — write the artifact **without** `verdict`; the label stays in the body (per [`../flow/references/storage-server.md`](../flow/references/storage-server.md) §Write artifact).
    - Proceed directly to the test checkpoint (step 3 of this Process).
 4. Otherwise, proceed to step a below.
 
@@ -195,7 +197,7 @@ b. **Compose the shared base for reviewer prompts** (single composition, used by
    1. **Ticket context**: contents of `01-spec.md`, `02-plan.md`, `03-implementation.md`.
    2. **Diff**: output from step a.
    3. **Project root path** — `<wt-path>` when a worktree is bound ([`references/worktree.md`](references/worktree.md) §3), else the main checkout. A reviewer given the right diff and a root pointing at a tree without the change reads files that contradict the hunks and reports confident false findings.
-   4. **Blocker context** (only when `blocked_by` is non-empty per the Blocker validation section above): a `## Blocker context (from completed siblings)` block. For each blocker: include verbatim `01-spec.md` + `06-summary.md`. **Fallback when `06-summary.md` is missing** (e.g. a `cancelled` blocker): use the blocker's `02-plan.md`; when `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker. Omit the entire block when `blocked_by` is empty. Server-native: blocker artifacts belong to *other* tickets, so they are outside this ticket's working-copy pull — check what each blocker has via List artifacts on the blocker's handle, then Read artifact for each (per [`../flow/references/storage.md`](../flow/references/storage.md)); "missing" means absent from that blocker's artifact listing.
+   4. **Blocker context** (only when `blocked_by` is non-empty per the Blocker validation section above): a `## Blocker context (from completed siblings)` block. For each blocker: include verbatim `01-spec.md` + `06-summary.md`. **Fallback when `06-summary.md` is missing** (e.g. a `cancelled` blocker): use the blocker's `02-plan.md`; when `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker. Omit the entire block when `blocked_by` is empty. Server-native: blocker artifacts belong to *other* tickets, so they are outside this ticket's working-copy pull — check what each blocker has via List artifacts on the blocker's handle, then Read artifact for each (per [`../flow/references/storage-server.md`](../flow/references/storage-server.md)); "missing" means absent from that blocker's artifact listing.
    5. **Confidence scale**: the verbatim contents of `references/confidence-scale.md` under a `## Confidence scale (use this exactly)` header. (The rubric lives in the reference and build injects it here — reviewer agent bodies stay rubric-free.)
 
 c. **Spawn four reviewer subagents in parallel.** All four run **concurrently** — launch them in a single message with four `Task` tool calls. Each prompt = the shared base from step b + a per-reviewer suffix:
@@ -265,7 +267,7 @@ c. **Skip artifact** (when the skip-detection scan matched no UI signals, when `
    - **Forced by `--no-ui-testing`** — the plan may well have UI work; browser verification is deferred, not absent.
    - **App unreachable** — the reachability pre-flight could not reach or boot the app.
 
-   Server-native: skip labels are outside the server's verdict enum — write `05-tests.md` **without** `verdict`; the skip variant stays in the body (per [`../flow/references/storage.md`](../flow/references/storage.md) §Write artifact).
+   Server-native: skip labels are outside the server's verdict enum — write `05-tests.md` **without** `verdict`; the skip variant stays in the body (per [`../flow/references/storage-server.md`](../flow/references/storage-server.md) §Write artifact).
 
 d. **Apply test fixes in-context.** Test failures are observations the loop consumes — fix them inline using the same pattern as the review checkpoint. If fixes succeed, re-run the failing tests. If failures are un-fixable in this run, write the `## Failed Criteria` section to `05-tests.md` and prepare to exit with `verdict: partial`.
 
@@ -275,7 +277,7 @@ f. **After test fixes are applied** (or skip artifact written), update `03-imple
 
 ### 4. Exit verdict and gate routing
 
-Build owns the verdict gate end-to-end: determine the verdict from loop state, write summary/lessons artifacts, present the gate to the user, capture the user's choice, and execute the resulting folder + frontmatter transition per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Decision Table.
+Build owns the verdict gate end-to-end: determine the verdict from loop state, write summary/lessons artifacts, present the gate to the user, capture the user's choice, and execute the resulting folder + frontmatter transition per [`state-transitions-fs.md`](../flow/references/state-transitions-fs.md) / [`state-transitions-server.md`](../flow/references/state-transitions-server.md) (for the detected storage mode) Decision Table.
 
 #### 4a. Determine the verdict
 
@@ -294,9 +296,9 @@ Choose one based on loop state:
 
 The uniform always-write contract means downstream readers (and reopened-ticket regressions) never have to handle a "missing summary = unknown verdict" failure mode.
 
-Server-native `verdict` on the `06-summary.md` upsert: `pass` → `pass`, `partial` → `partial`; `stuck` is outside the server's verdict enum — omit `verdict` and keep the token in the body (per [`../flow/references/storage.md`](../flow/references/storage.md) §Write artifact).
+Server-native `verdict` on the `06-summary.md` upsert: `pass` → `pass`, `partial` → `partial`; `stuck` is outside the server's verdict enum — omit `verdict` and keep the token in the body (per [`../flow/references/storage-server.md`](../flow/references/storage-server.md) §Write artifact).
 
-**Capture a lesson in the cross-ticket lessons log** at the same time, in the project's storage mode (fs-native: `claudedocs/tickets/_lessons.md`; server-native: the lesson tools — that contract's per-section Server-native notes govern), following the shared contract in [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) end-to-end: store creation (§1), entry format (§2), what to capture vs skip (§3), the write-time supersession check (§4), prefer-newest on conflict (§5), promotion on recurrence (§6), and format overflow (§7). Build-specific wiring:
+**Capture a lesson in the cross-ticket lessons log** at the same time, in the project's storage mode (fs-native: `claudedocs/tickets/_lessons.md`; server-native: the lesson tools), following the shared contract in [`lessons-log-fs.md`](../flow/references/lessons-log-fs.md) / [`lessons-log-server.md`](../flow/references/lessons-log-server.md) end-to-end: store creation (§1), entry format (§2), what to capture vs skip (§3), the write-time supersession check (§4), prefer-newest on conflict (§5), promotion on recurrence (§6), and format overflow (§7). Build-specific wiring:
 
 - The header's `<verdict>` token is this run's verdict: `pass` | `partial` | `stuck`.
 - A build run is **unattended** in the §6/§7 sense — no user present to answer, so the CLAUDE.md proposals are skipped — when it runs as an autonomous orchestrator's subagent or under headless `claude -p`.
@@ -356,7 +358,7 @@ Capture the user's choice. Proceed to 4d.
 
 #### 4d. Apply the transition
 
-Per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Decision Table:
+Per [`state-transitions-fs.md`](../flow/references/state-transitions-fs.md) / [`state-transitions-server.md`](../flow/references/state-transitions-server.md) (for the detected storage mode) Decision Table:
 
 - **`pass` without `--pr`** (any commit outcome) → Transition 2 (End-of-pipeline → `done/`).
   - Commit decision **yes** (prompt confirmed, or `git.commit: always`) → commit first per [`references/commit.md`](references/commit.md): gitignore-aware staging (§1), then a §2 message referencing the ticket ID via `git commit -F`. Onto the current branch, no push, no PR — the mechanics are identical whichever mode said yes.
@@ -397,7 +399,7 @@ When a worktree was removed, the main checkout shows no trace of the change, so 
 
 ### 5. Auto-resumption from existing artifacts
 
-At build start, before the implement checkpoint, inspect the ticket's existing artifacts and route accordingly. The user signals "start fresh" by deleting `03-implementation.md` (and downstream — server-native: via the Delete artifact operation in [`../flow/references/storage.md`](../flow/references/storage.md)); the build skill itself never asks. Version history if a backup is wanted: git in fs-native mode; in server-native mode a deleted artifact body is gone, so copy anything worth keeping before deleting.
+At build start, before the implement checkpoint, inspect the ticket's existing artifacts and route accordingly. The user signals "start fresh" by deleting `03-implementation.md` (and downstream — server-native: via the Delete artifact operation in [`../flow/references/storage-server.md`](../flow/references/storage-server.md)); the build skill itself never asks. Version history if a backup is wanted: git in fs-native mode; in server-native mode a deleted artifact body is gone, so copy anything worth keeping before deleting.
 
 **Routing table** (checked in order, first match wins):
 
@@ -445,5 +447,5 @@ The user-facing exit presentation is the verdict-gate blocks in Process step 4c.
 - **Application unreachable at the test checkpoint**: handled by the reachability pre-flight (`references/test-preflight.md`), not an interactive error — the app is reached, a declared `test.start` is booted, or the *app unreachable* skip artifact is written and the loop proceeds to the verdict without prompting. A pre-flight-started server is torn down afterward.
 - **Subagent failure** (reviewer or `ui-tester` crashes/timeouts): report inside the merged artifact and continue with results from the others. All four reviewers failing simultaneously → write degraded `04-review.md` and exit `verdict: stuck`.
 - **Validation commands not documented in project `CLAUDE.md`**: log warning, proceed without skill-body validation. Graceful degradation; the loop continues.
-- **Server-native storage operation fails mid-loop**: stop per [`../flow/references/storage.md`](../flow/references/storage.md) §Loud failure, and include a state report — which artifacts were pushed this run and which checkpoint's output was not, so the user knows exactly what the server holds before re-running. A CAS conflict at the verdict gate follows storage.md §CAS conflict doctrine (re-read, re-evaluate, proceed or stop — never widen `from[]`).
+- **Server-native storage operation fails mid-loop**: stop per [`../flow/references/storage-server.md`](../flow/references/storage-server.md) §Loud failure, and include a state report — which artifacts were pushed this run and which checkpoint's output was not, so the user knows exactly what the server holds before re-running. A CAS conflict at the verdict gate follows storage-server.md §CAS conflict doctrine (re-read, re-evaluate, proceed or stop — never widen `from[]`).
 - **Stuck pattern detected or `Turn 26` reached**: not an error — handled via `verdict: stuck`. Always write `06-summary.md` describing the loop state.

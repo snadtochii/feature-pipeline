@@ -38,7 +38,7 @@ Use when a bug resists static reasoning: race conditions, wrong runtime values, 
 ```
 
 - `$ARGUMENTS` — the bug, in any form: a free-text description, a failing-test command, a pasted stack trace or error, screenshots, plus optional file/area hints.
-- **Optional trailing ticket ID** (e.g. `FP-9`) — when present, non-`fixed` exits persist a report into that ticket folder and a lesson is filed under the ticket's ID. Resolve it via **Step 1 only** of [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) (resolve arg → folder); do **not** apply epic refusal or blocker validation — those are pipeline concerns and this skill is not a pipeline stage.
+- **Optional trailing ticket ID** (e.g. `FP-9`) — when present, non-`fixed` exits persist a report into that ticket folder and a lesson is filed under the ticket's ID. Resolve it via **Step 1 only** of [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the detected storage mode) (resolve arg → folder); do **not** apply epic refusal or blocker validation — those are pipeline concerns and this skill is not a pipeline stage.
 - **Empty input** → ask: "What's the bug, and how do you reproduce it?" Don't instrument before you have a reproduction path.
 
 ## Conventions
@@ -123,12 +123,12 @@ Always report state on exit — one of four:
 Output is keyed to **whether there's a transferable lesson**, not to the exit type.
 
 - **Lessons log** — if the root cause is a *project-specific, would-recur constraint that static reasoning missed* (a non-obvious runtime behavior, a config/env coupling, a framework footgun specific to this codebase), append one entry to the cross-ticket lessons log (fs-native: `claudedocs/tickets/_lessons.md`; server-native: `pipeline_add_lesson`). Write nothing for a self-contained bug (typo, local off-by-one, missing null check) even on `fixed`. Test: "would the next ticket's planning re-derive this the hard way if it weren't written?"
-  - Write the line per the shared contract in [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) — file creation and entry format (§1–§2), in the project's storage mode (that contract's server-native notes govern when the project is server-native) — and backtick any path token. Debug's deltas from that contract:
+  - Write the line per the shared contract in [`lessons-log-fs.md`](../flow/references/lessons-log-fs.md) / [`lessons-log-server.md`](../flow/references/lessons-log-server.md) — file creation and entry format (§1–§2), in the project's storage mode — and backtick any path token. Debug's deltas from that contract:
     - **ID forms** — with a ticket in scope: `## <ticket-id> (debug, <YYYY-MM-DD>): <one atomic lesson>`; standalone: `## debug/<short-slug> (<exit>, <YYYY-MM-DD>): <one atomic lesson>`.
     - **No supersession check** — §4 is build-owned; append only. Build's next capture merges (or prefers-newest on) any same-subject duplicate.
     - **No promotion/overflow proposals** — §6–§7 are build-owned; on a multi-subject finding, split into atomic lines only.
 - **Non-`fixed` exits**:
-  - With a ticket in scope → persist a report to `<ticket-folder>/07-debug.md`: exit type, hypotheses tried and which were eliminated/confirmed (with evidence), root cause if reached, concrete next steps. Plain report, no frontmatter. Written via the Write artifact operation in [`../flow/references/storage.md`](../flow/references/storage.md) (server-native: `pipeline_write_artifact` — the name is admitted by the server's artifact whitelist; no `verdict` — the exit tokens are outside the server's verdict enum and stay in the body).
+  - With a ticket in scope → persist a report to `<ticket-folder>/07-debug.md`: exit type, hypotheses tried and which were eliminated/confirmed (with evidence), root cause if reached, concrete next steps. Plain report, no frontmatter. Written via the Write artifact operation in [`storage-fs.md`](../flow/references/storage-fs.md) / [`storage-server.md`](../flow/references/storage-server.md) (for the detected storage mode) (server-native: `pipeline_write_artifact` — the name is admitted by the server's artifact whitelist; no `verdict` — the exit tokens are outside the server's verdict enum and stay in the body).
   - Standalone → chat-only; no file. The sink under `claudedocs/debug/` stays a local file in both storage modes — it is runtime evidence, not ticket data.
 - **`fixed` exit** → the verified diff + a chat summary; sink deleted. No report artifact.
 

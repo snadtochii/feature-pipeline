@@ -47,26 +47,28 @@ Two phases:
 
 ## Ticket Resolution & Artifacts Setup
 
-Use the canonical logic in [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md). The ticket argument is `$1`.
+**Storage mode.** Detect it once per run per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection; every per-mode reference cited in this skill (`-fs` / `-server`) is the file for that mode.
+
+Use the canonical logic in [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the detected storage mode). The ticket argument is `$1`.
 
 ## Required Input
 
 - `01-spec.md` — the ticket specification
-- `exploration.md` — optional, produced by `discover` if the ticket went through it; if present, used as a seed for incremental exploration. **Path depends on ticket shape**: at `<ticket-folder>/exploration.md` for solo tickets, or at `<epic-folder>/exploration.md` (one level above `tasks/<child>/`) for child tickets — see `../flow/references/ticket-resolution.md` Step 5.
+- `exploration.md` — optional, produced by `discover` if the ticket went through it; if present, used as a seed for incremental exploration. **Path depends on ticket shape**: at `<ticket-folder>/exploration.md` for solo tickets, or at `<epic-folder>/exploration.md` (one level above `tasks/<child>/`) for child tickets — see `ticket-resolution-fs.md` / `ticket-resolution-server.md` Step 5.
 
-In server-native mode both inputs are artifact reads (the Read artifact operation in [`../flow/references/storage.md`](../flow/references/storage.md)): the spec is the ticket's `01-spec.md` artifact, and `exploration.md` is read from the ticket's own handle (solo) or the parent epic's handle (child) per the same Step 5 rule.
+In server-native mode both inputs are artifact reads (the Read artifact operation in [`../flow/references/storage-server.md`](../flow/references/storage-server.md)): the spec is the ticket's `01-spec.md` artifact, and `exploration.md` is read from the ticket's own handle (solo) or the parent epic's handle (child) per the same Step 5 rule.
 
 ## Epic refusal
 
-Validate `kind` per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 4 before any work. If the ticket has `kind: epic`, abort and instruct the user to run plan against a child ticket instead — epics are non-pipelineable.
+Validate `kind` per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the detected storage mode) Step 4 before any work. If the ticket has `kind: epic`, abort and instruct the user to run plan against a child ticket instead — epics are non-pipelineable.
 
 ## Blocker-aware context loading
 
-Per [`../flow/references/ticket-resolution.md`](../flow/references/ticket-resolution.md) Step 6, if the ticket has `blocked_by` entries, locate each blocker and load its available artifacts (`01-spec.md`, `02-plan.md`). Plan does NOT refuse on unfinished blockers — it reads the blocker artifacts alongside this ticket's spec when designing the plan, so the plan reasons against the planned dependency. Print one line per blocker loaded.
+Per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the detected storage mode) Step 6, if the ticket has `blocked_by` entries, locate each blocker and load its available artifacts (`01-spec.md`, `02-plan.md`). Plan does NOT refuse on unfinished blockers — it reads the blocker artifacts alongside this ticket's spec when designing the plan, so the plan reasons against the planned dependency. Print one line per blocker loaded.
 
 ## State setup
 
-Before Phase 1 synthesis, perform the start-of-pipeline transition per [`../flow/references/state-transitions.md`](../flow/references/state-transitions.md) Transition 1 (Start-of-pipeline: `backlog`/`review`/`done` → `in-progress`) — the transition dispatches on the project's storage mode per [`../flow/references/storage.md`](../flow/references/storage.md). Idempotent: if the ticket folder is already in `in-progress/`, no folder move; frontmatter `status` is still set to `in-progress` (overwriting any stale value). Re-planning a `review/` ticket (its PR is open but the code needs revision) is the intended `review/ → in-progress` revise path — plan pulls it back to `in-progress/` so the build loop rebuilds against the revised plan.
+Before Phase 1 synthesis, perform the start-of-pipeline transition per [`state-transitions-fs.md`](../flow/references/state-transitions-fs.md) / [`state-transitions-server.md`](../flow/references/state-transitions-server.md) Transition 1 (Start-of-pipeline: `backlog`/`review`/`done` → `in-progress`) — the transition dispatches on the project's storage mode per [`../flow/references/storage.md`](../flow/references/storage.md). Idempotent: if the ticket folder is already in `in-progress/`, no folder move; frontmatter `status` is still set to `in-progress` (overwriting any stale value). Re-planning a `review/` ticket (its PR is open but the code needs revision) is the intended `review/ → in-progress` revise path — plan pulls it back to `in-progress/` so the build loop rebuilds against the revised plan.
 
 This makes plan self-sufficient when invoked standalone — the ticket folder ends up in the correct state regardless of whether flow or the user invoked it. When invoked via flow, build's later State setup is a no-op for the folder move (frontmatter overwrite is harmless).
 
@@ -80,12 +82,12 @@ Spawned automatically before plan design. Produces a tight synthesis the user ca
 
 ### Step 1.1 — Load context
 
-Read all upfront inputs. In server-native mode every ticket-store read below goes through the [`../flow/references/storage.md`](../flow/references/storage.md) operations — spec/exploration/blocker artifacts via Read artifact, ticket metadata via Read ticket metadata; `complexity`, `blocked_by`, and `kind` always come from ticket metadata (frontmatter in fs-native mode, the row in server-native mode), never parsed out of artifact bodies:
+Read all upfront inputs. In server-native mode every ticket-store read below goes through the [`../flow/references/storage-server.md`](../flow/references/storage-server.md) operations — spec/exploration/blocker artifacts via Read artifact, ticket metadata via Read ticket metadata; `complexity`, `blocked_by`, and `kind` always come from ticket metadata (frontmatter in fs-native mode, the row in server-native mode), never parsed out of artifact bodies:
 - `<ticket-folder>/01-spec.md` — the spec
-- `exploration.md` — discover-time exploration if present (path resolution per ticket-resolution.md Step 5)
+- `exploration.md` — discover-time exploration if present (path resolution per `ticket-resolution-fs.md` / `ticket-resolution-server.md` Step 5)
 - Project `CLAUDE.md` — conventions, lint/test commands, architectural rules (a local repo file in both modes)
 - **Blocker artifacts** — for each `blocked_by` entry, the blocker's `01-spec.md` and (if present) `02-plan.md`. Server-native: check which artifacts the blocker has via List artifacts on the blocker's handle, then Read artifact for each.
-- The cross-ticket lessons log, if the project has one. Consume it per the shared contract in [`../flow/references/lessons-log.md`](../flow/references/lessons-log.md) §8, in the project's storage mode (fs-native: grep `claudedocs/tickets/_lessons.md`; server-native: `pipeline_list_lessons` + the same keyword match in memory) — scoped by subject keywords derived from this ticket, never full-loaded. From the matches, **select at most 5 entries relevant to this ticket** — prefer the most specific. The selected entries — never the whole store — become the lessons block passed to the requirements-analyst subagent in Step 1.3, so prior gotchas (deviating tools, invalidated assumptions, naming gotchas after refactors) inform the open-questions surface at bounded context cost. No store, or no matching entries → omit the lessons block entirely.
+- The cross-ticket lessons log, if the project has one. Consume it per the shared contract in [`lessons-log-fs.md`](../flow/references/lessons-log-fs.md) / [`lessons-log-server.md`](../flow/references/lessons-log-server.md) §8, in the project's storage mode (fs-native: grep `claudedocs/tickets/_lessons.md`; server-native: `pipeline_list_lessons` + the same keyword match in memory) — scoped by subject keywords derived from this ticket, never full-loaded. From the matches, **select at most 5 entries relevant to this ticket** — prefer the most specific. The selected entries — never the whole store — become the lessons block passed to the requirements-analyst subagent in Step 1.3, so prior gotchas (deviating tools, invalidated assumptions, naming gotchas after refactors) inform the open-questions surface at bounded context cost. No store, or no matching entries → omit the lessons block entirely.
 
 ### Step 1.2 — Spawn `code-explorer` subagent (incremental)
 
@@ -251,7 +253,7 @@ If any item fails, refine the plan before writing it.
 
 ## Output
 
-- **Artifact**: `<ticket-folder>/02-plan.md` — written via the Write artifact operation in [`../flow/references/storage.md`](../flow/references/storage.md) (server-native: `pipeline_write_artifact`; a plan carries no `verdict`, and its body is frontmatter-free like every server-native artifact)
+- **Artifact**: `<ticket-folder>/02-plan.md` — written via the Write artifact operation in [`storage-fs.md`](../flow/references/storage-fs.md) / [`storage-server.md`](../flow/references/storage-server.md) (for the detected storage mode) (server-native: `pipeline_write_artifact`; a plan carries no `verdict`, and its body is frontmatter-free like every server-native artifact)
 
 ## Presentation
 

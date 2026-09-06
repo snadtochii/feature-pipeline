@@ -83,7 +83,7 @@ gh pr create --base "<base>" --title "$PR_TITLE" --body-file "<06-summary.md pat
 
 **With a worktree bound**, the split runs through the middle of this block — `git push` and `gh pr create` are worktree-bound while the spec and `--body-file` paths stay in the main checkout. [`worktree.md`](worktree.md) §3 enumerates every site in this file, on both sides of that split; follow it there rather than re-deriving the split here.
 
-**Server-native**: there is no `01-spec.md` file to `sed` — the ticket's `id` and `title` are row fields (Read ticket metadata in [`../../flow/references/storage.md`](../../flow/references/storage.md)). The injection discipline is preserved by changing the source, not the mechanism: write each value to a session-scratchpad file with the Write tool, then load it with the same command substitution (`TICKET_ID=$(cat "<scratchpad id file>")`, likewise the title) — never paste row text into a `"…"` literal. The `--body-file` path is the session working copy of `06-summary.md` (pulled and pushed per build's State setup).
+**Server-native**: there is no `01-spec.md` file to `sed` — the ticket's `id` and `title` are row fields (Read ticket metadata in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md)). The injection discipline is preserved by changing the source, not the mechanism: write each value to a session-scratchpad file with the Write tool, then load it with the same command substitution (`TICKET_ID=$(cat "<scratchpad id file>")`, likewise the title) — never paste row text into a `"…"` literal. The `--body-file` path is the session working copy of `06-summary.md` (pulled and pushed per build's State setup).
 
 ## §5 Finalize
 
@@ -138,7 +138,7 @@ Then, from the lookup's `state` and `MERGE_SHA`:
     : # merged only into an integration branch, or SHA/base unresolvable → NOT promotable
   fi
   ```
-  - **Reachable** → fire Transition 6 (`review → done`), print `PR merged and reachable from <base>; <ticket-id> finalized to done/.` For an epic child, the finalization also runs the **Epic-completion predicate** (`state-transitions.md`) — promoting the epic subtree only when the full declared roster is materialized-and-terminal.
+  - **Reachable** → fire Transition 6 (`review → done`), print `PR merged and reachable from <base>; <ticket-id> finalized to done/.` For an epic child, the finalization also runs the **Epic-completion predicate** (`state-transitions-fs.md` / `state-transitions-server.md`) — promoting the epic subtree only when the full declared roster is materialized-and-terminal.
   - **Not reachable, or `MERGE_SHA`/`base` unresolvable** (offline, or `gh`/`git` can't answer) → reuse the not-merged output path: print `PR still open for <ticket-id>; merge it, then re-run to finalize.` and exit without changes. **Never promote on an unverifiable merge** — an unresolved SHA or base is treated as not-yet-on-`<base>`, not as a pass.
 
 This gate applies to **both** lookups (branch-keyed for build, ID-keyed for `sync`) — the rule lives once here; neither caller forks it.

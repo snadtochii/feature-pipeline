@@ -1,16 +1,16 @@
-# Ticket Resolution — Shared Logic
+# Ticket Resolution — fs-native
 
-Canonical logic for resolving a ticket argument to a **ticket handle**, ensuring the spec is in place, locating the shared exploration, and validating that the ticket is actually pipelineable. Referenced by `flow`, `plan`, and `build`.
+Canonical logic for resolving a ticket argument to a **ticket folder**, ensuring the spec is in place, locating the shared exploration, and validating that the ticket is actually pipelineable — in fs-native storage mode. Read when the storage mode detected per [`storage.md`](storage.md) is fs-native — a run in the other storage mode never needs this file. Referenced by `flow`, `plan`, and `build`.
 
-Every step here dispatches on the project's **storage mode** — detect it once per run per [`storage.md`](storage.md) §Mode detection. In **fs-native** mode the handle is a ticket folder and the procedures below read the tree directly; in **server-native** mode the handle is a ticket row and each step uses the corresponding [`storage.md`](storage.md) operation. Step semantics (search behavior, refusals, blocker rules) are identical in both modes.
+The handle is a ticket folder, and the procedures below read the tree directly using the operations in [`storage-fs.md`](storage-fs.md).
 
 `discover` does **not** use this reference — it handles the intake/creation variant with prefix logic inline.
 
 ---
 
-## Layout context (fs-native)
+## Layout context
 
-In fs-native mode, a ticket folder has one of two shapes depending on whether it came from a single-ticket discovery or from a multi-sibling discovery (an epic with children). In server-native mode none of these folders exist — a solo ticket is a row, an epic is a row with `kind: epic` whose children are rows carrying `parent`, and every file shown below is an artifact row keyed by name on its ticket.
+A ticket folder has one of two shapes depending on whether it came from a single-ticket discovery or from a multi-sibling discovery (an epic with children).
 
 ### Solo ticket (single-mode discover)
 
@@ -51,17 +51,13 @@ The variable `<ticket-folder>` used throughout stage skills resolves to:
 
 The variable `<epic-folder>` (used only when `<ticket-folder>` is a child) resolves to `claudedocs/tickets/<state>/<EPIC-ID>/` — the deepest ancestor containing `prd.md`.
 
-In server-native mode, `<ticket-folder>` and `<epic-folder>` denote the ticket's and the parent epic's **handles** (their IDs), not paths — a stage that would read or write `<ticket-folder>/<artifact>` uses the Read/Write artifact operations in [`storage.md`](storage.md) against that handle instead.
-
 ---
 
 ## Step 1 — Resolve the ticket argument
 
-This step is the **Resolve ticket** operation in [`storage.md`](storage.md).
+This step is the **Resolve ticket** operation in [`storage-fs.md`](storage-fs.md).
 
-**Server-native**: treat the argument as a ticket ID (for a path-shaped argument, the ID is the ticket-folder segment — the last directory segment, after dropping any trailing `01-spec.md`/`prd.md` filename) and call `pipeline_get_ticket`. Found → the row is the handle; `<ticket-id>` = the row's `id`. Not found → ask the user for the correct ID — do not guess. The fs search order below does not apply — there are no state folders to search.
-
-**fs-native** — given the ticket argument (typically `$1`):
+Given the ticket argument (typically `$1`):
 
 1. **If the argument contains `/` or `.md`**, treat it as a path:
    - If it ends in `01-spec.md`, the ticket folder is its parent directory.
@@ -85,22 +81,18 @@ The resolved path becomes `<ticket-folder>` for downstream stages.
 
 ## Step 2 — Ensure the spec exists
 
-**fs-native** — the ticket folder should always contain `01-spec.md` — that file is the ticket. Edge cases:
+The ticket folder should always contain `01-spec.md` — that file is the ticket. Edge cases:
 
 1. **Folder exists with `01-spec.md`** — read it. Done.
 2. **Folder exists with `prd.md` but no `01-spec.md`** — this is an epic folder, not a child ticket. See Step 4.
 3. **Folder exists, neither `01-spec.md` nor `prd.md`** — corrupted state. Ask the user before proceeding.
 4. **Read other existing artifacts** relevant to the current stage — `02-plan.md`, `03-implementation.md`, etc., and `exploration.md` if the stage uses it (see Step 5).
 
-**Server-native** — read the spec body via the Read artifact operation: `01-spec.md` for a solo/child ticket, `prd.md` for an epic (the row's `kind` says which — see Step 4). Artifact bodies are frontmatter-free; every structured field comes from the row (Read ticket metadata in [`storage.md`](storage.md)). A row whose spec artifact is missing is the corrupted-state analog — ask the user before proceeding. Other stage artifacts are read the same way, by name.
-
 ## Step 3 — Determine project root
 
 Needed for codebase operations during the stage.
 
-1. Determine the project name:
-   - **fs-native**: read the `project` field from `01-spec.md`'s frontmatter.
-   - **server-native**: the workspace containing `claudedocs/tickets/config.yaml` (the mode marker) is the project — its `project:` key names the server-side project the tickets belong to.
+1. Determine the project name: read the `project` field from `01-spec.md`'s frontmatter.
 2. Locate the project directory:
    - If the current working directory matches the project, use it
    - Otherwise check common paths — ask the user if ambiguous
@@ -108,37 +100,37 @@ Needed for codebase operations during the stage.
 
 ## Step 4 — Validate kind (per-consumer behavior)
 
-Check the `kind` field — frontmatter in fs-native mode, the row field (Read ticket metadata) in server-native mode. Behavior depends on the consumer:
+Check the `kind` frontmatter field (Read ticket metadata in [`storage-fs.md`](storage-fs.md)). Behavior depends on the consumer:
 
 - **`plan` and `build`** — refuse if `kind: epic`. Epics don't go through plan or build themselves; only their children are pipelineable. Abort with this message:
   ```
   <ID> is an epic (kind: epic), not a pipelineable ticket. Epics group siblings — they hold the PRD, the shared exploration, and the decomposition table, but they don't go through plan/build themselves.
 
   Run the pipeline against one of its children instead:
-  <list the child IDs from the epic's roster — fs-native: the `children:` frontmatter field; server-native: the derived roster per the List tickets / list children operation in [`storage.md`](storage.md)>
+  <list the child IDs from the epic's `children:` frontmatter field>
   ```
 
-- **`flow`** — branches to **epic-mode** when `kind: epic` is present. The epic walker iterates over the epic's children roster in `blocked_by` topological order and recursively invokes `Skill flow <CHILD-ID>` per child. See [`epic-walk.md`](epic-walk.md). Flow does NOT refuse on epics.
+- **`flow`** — branches to **epic-mode** when `kind: epic` is present. The epic walker iterates over the epic's children roster in `blocked_by` topological order and recursively invokes `Skill flow <CHILD-ID>` per child. See [`epic-walk-fs.md`](epic-walk-fs.md). Flow does NOT refuse on epics.
 
 - If `kind` is absent or has any other value, the ticket is pipelineable for all consumers. Proceed normally.
 
-This is the centralized epic-handling rule. Stage skills inherit the refusal behavior via this reference; flow's epic-mode branch point lives in its SKILL.md and the walker in [`epic-walk.md`](epic-walk.md).
+This is the centralized epic-handling rule. Stage skills inherit the refusal behavior via this reference; flow's epic-mode branch point lives in its SKILL.md and the walker in [`epic-walk-fs.md`](epic-walk-fs.md).
 
 ## Step 5 — Locate exploration (when the stage needs it)
 
 `plan`'s Phase 1 synthesis reads `exploration.md` as a seed for incremental codebase exploration. Other stages may also reference it. Where it lives depends on the ticket shape:
 
-- **Solo ticket**: the ticket's own `exploration.md` — at `<ticket-folder>/exploration.md` (fs-native), or the ticket's `exploration.md` artifact (server-native).
-- **Child of an epic**: the **epic's** `exploration.md`, shared across siblings — at `<epic-folder>/exploration.md` (fs-native, where `<epic-folder>` is `<ticket-folder>/../..`, the deepest ancestor containing `prd.md`), or the parent epic's `exploration.md` artifact (server-native, parent resolved from the child row's `parent` field).
+- **Solo ticket**: the ticket's own `exploration.md` — at `<ticket-folder>/exploration.md`.
+- **Child of an epic**: the **epic's** `exploration.md`, shared across siblings — at `<epic-folder>/exploration.md` (where `<epic-folder>` is `<ticket-folder>/../..`, the deepest ancestor containing `prd.md`).
 
 If `exploration.md` is missing entirely (solo ticket created outside `discover`, or an epic that never ran exploration), proceed without a seed — `plan`'s Phase 1 falls back to a full ticket-scoped codebase exploration in that case.
 
 ## Step 6 — Validate blockers
 
-Check the `blocked_by` field — frontmatter in fs-native mode, the row field in server-native mode. If it's missing or empty, skip this step. Otherwise, for each blocker ID:
+Check the `blocked_by` frontmatter field. If it's missing or empty, skip this step. Otherwise, for each blocker ID:
 
-1. **Locate the blocker** using the same Step 1 logic (fs-native: search `backlog/`, `in-progress/`, `review/`, `done/`, including nested children under `tasks/`; server-native: `pipeline_get_ticket` on the blocker ID).
-2. **Determine completion**: a blocker is "done" if its `status` is `done` or `cancelled` — read from frontmatter (fs-native, authoritative; folder under `claudedocs/tickets/done/` is the fallback when frontmatter is missing) or from the row (server-native).
+1. **Locate the blocker** using the same Step 1 logic (search `backlog/`, `in-progress/`, `review/`, `done/`, including nested children under `tasks/`).
+2. **Determine completion**: a blocker is "done" if its `status` is `done` or `cancelled` — read from frontmatter (authoritative; folder under `claudedocs/tickets/done/` is the fallback when frontmatter is missing).
 
    **`review/` / `in-review` is NOT done.** A blocker whose PR is open lives in `review/` with `status: in-review` — the search in step 1 *includes* `review/` so the blocker is findable, but the completion test above deliberately *excludes* it: an open, unmerged PR does not unblock dependents. Do not add `review/` or `in-review` to the done clause — the searched-but-not-done-equivalent asymmetry is intentional.
 
@@ -173,10 +165,9 @@ This rule is centralized here so stage skills inherit it via reference and don't
 
 ## Error handling
 
-- Ticket not found (no folder in fs-native mode; no row in server-native mode) → ask the user
-- Spec missing (fs-native: neither `01-spec.md` nor `prd.md` inside the resolved folder; server-native: the row's spec artifact absent) → corrupted state; ask the user
-- Metadata missing or malformed (frontmatter in fs-native mode; row fields in server-native mode) → warn and ask
-- Server-native storage call fails or the pipeline MCP tools are unavailable → stop per [`storage.md`](storage.md) §Loud failure — never fall back to fs reads or writes
+- Ticket not found (no folder) → ask the user
+- Spec missing (neither `01-spec.md` nor `prd.md` inside the resolved folder) → corrupted state; ask the user
+- Frontmatter missing or malformed → warn and ask
 - Project root can't be determined → ask the user
 - Resolved item is an epic (`kind: epic`) → abort with the message in Step 4; do not silently fan out to children
 - Blocker can't be located → warn and treat as not-done (worst-case assumption); the user can investigate or edit this ticket's `blocked_by` frontmatter
