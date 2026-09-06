@@ -39,18 +39,21 @@ skills_dir = pathlib.Path(sys.argv[1])
 
 fs_forbidden = re.compile(r"server-native|pipeline_|mcp__|\S*-server\.md")
 
-# A state-folder token is a state name followed by "/". Two contexts are
-# exempt because they are not folder references:
+# A state-folder token is a whole-word state name followed by "/" — so
+# `preview/assets` and `undone/file` are not tokens. Three specific contexts
+# are exempt because they are not folder references:
 #   - a skill-directory path segment: `../review/references/x.md`,
-#     `skills/review/…`, `address-review/SKILL.md` (preceded by `../`,
-#     `skills/`, or `-`);
+#     `skills/review/…` (preceded by `../` or `skills/`);
+#   - the two hyphenated compounds that end in a state name and are not
+#     folders: `address-review/` (a skill directory) and `in-review/` (the
+#     status, inside an enum alternation);
 #   - a status-enum alternation: `done/cancelled`, `backlog/in-review/done`
 #     (followed by another status word).
-# Everything else — `backlog/FP-123`, `done/<id>`, a bare `review/`,
-# `claudedocs/tickets/in-progress/` — is a leak.
+# Everything else — `backlog/FP-123`, `done/<id>`, `pre-review/FP-123`, a
+# bare `review/`, `claudedocs/tickets/in-progress/` — is a leak.
 _status = r"(?:backlog|in-progress|in-review|review|done|cancelled|partial-completion)"
 server_forbidden = re.compile(
-    r"(?<!\.\./)(?<!skills/)(?<!-)(?:backlog|in-progress|review|done)/(?!" + _status + r"\b)"
+    r"(?<!\w)(?<!\.\./)(?<!skills/)(?<!address-)(?<!in-)(?:backlog|in-progress|review|done)/(?!" + _status + r"\b)"
     r"|folder[- ]move|state folder|\S*-fs\.md",
     re.IGNORECASE,
 )
@@ -64,10 +67,10 @@ probes = {
     ),
     server_forbidden: (
         ["move `backlog/FP-123`", "under done/ticket", "sits in review/ with", "claudedocs/tickets/in-progress/",
-         "`done/<id>`", "a folder move", "no state folders exist", "see storage-fs.md"],
+         "`done/<id>`", "pre-review/FP-123", "a folder move", "no state folders exist", "see storage-fs.md"],
         ["the rest done/cancelled/partial-completion", "(backlog/in-review/done → in-progress)",
          "[x](../../review/references/pr-comments.md)", "skills/review/references/x.md",
-         "../address-review/SKILL.md", "a review of the diff", "done and dusted"],
+         "../address-review/SKILL.md", "preview/assets", "undone/file", "a review of the diff", "done and dusted"],
     ),
 }
 probe_failures = []
