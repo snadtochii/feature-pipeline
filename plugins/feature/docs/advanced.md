@@ -257,6 +257,8 @@ project: my-project    # required with server-native — the project's id in the
 
 `config.yaml` itself stays local in both modes: it is project execution config plus the mode marker, not ticket data.
 
+The skills read the mode once per run and then load one reference per storage concern for that mode: under `plugins/feature/skills/flow/references/`, `storage.md` is the detection stub and each concern (storage, ticket-resolution, state-transitions, lessons-log, epic-walk) is a `<concern>-fs.md` / `<concern>-server.md` pair — the stub's pointer table is the authoritative list. A file for the other mode is never opened, so an fs-native run carries no server prose and a server-native run no folder choreography; each mode file opens with a "never needs this file" header naming the mode it serves.
+
 Nothing else in this section matters unless you run `server-native`. If a `pipeline_*` tool is unavailable or a call fails in that mode, the skill **stops** naming the server and the failed operation — it never silently writes local files instead.
 
 #### Claude Code setup

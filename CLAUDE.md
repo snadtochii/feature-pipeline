@@ -40,7 +40,9 @@ feature-pipeline/
 │   └── plugins/
 │       └── marketplace.json # Codex marketplace — indexes plugins/* (stays at repo root)
 ├── scripts/
-│   └── install-codex-local.sh  # Local Codex install helper (stages plugins/feature/)
+│   ├── install-codex-local.sh  # Local Codex install helper (stages plugins/feature/)
+│   ├── check-tool-parity.sh    # Validation: pipeline_* dual-listing in skill frontmatter
+│   └── check-mode-split.sh     # Validation: per-mode reference leakage + relative-link resolution
 ├── plugins/
 │   ├── feature/             # The feature-development pipeline plugin
 │   │   ├── .claude-plugin/
@@ -115,19 +117,21 @@ Canonical sources in `skills/flow/SKILL.md`:
 - **Artifact Convention** — numbering rules, layout illustrations (solo + nested epic)
 - **Resumption auto-detection** — routing table for on-disk artifacts; users delete artifacts to start fresh
 
-Centralized cross-stage rules live in `skills/flow/references/` (the folder also holds flow-private references like `epic-walk.md`; only the cross-stage ones are listed here):
+Centralized cross-stage rules live in `skills/flow/references/`, one file per storage concern **per storage mode**: `storage.md` is the mode-detection stub, and every other concern is a `<concern>-fs.md` / `<concern>-server.md` pair of which a run reads exactly one — the file for the mode detected once at skill start. The folder also holds the flow-private `epic-walk-fs.md` / `epic-walk-server.md` pair; only the cross-stage pairs are summarized here.
 
-`storage.md`:
-- The storage adapter seam — the fs-native ↔ server-native switch every storage-touching reference dispatches through. Owns: **mode detection** (`config.yaml` `mode` + `project` keys; missing file/key or `mode: fs-native` → fs-native, with no storage call of any kind; `mode: server-native` + `project` → server-native), the **loud-failure doctrine** (a failed server-native op stops the skill, naming server and operation — never an fs fallback), the **fs↔server status mapping** (server status writable only via the CAS transition tool), the **CAS conflict doctrine** (re-read → re-evaluate → proceed-or-stop, never force), and the **operation vocabulary** (resolve, read metadata, read/write/list artifacts, transition status, update fields, list tickets/children, create, lessons) with an fs and a server-native procedure per operation. `ticket-resolution.md`, `state-transitions.md`, and `lessons-log.md` route through it.
+`storage.md` (the stub — under 300 words):
+- **Mode detection** — `config.yaml` `mode` + `project` keys; missing file/key or `mode: fs-native` → fs-native, with no storage call of any kind; `mode: server-native` + `project` → server-native; a half-declared or unknown value stops. Plus the per-mode pointer table naming the files below. Nothing else lives here.
 
-`ticket-resolution.md`:
-- Every step dispatches on the storage mode per `storage.md` — fs folder procedures, or server-native row + artifact operations
-- **Step 1** — ticket-folder resolution (path or ID, including nested children under `tasks/`)
+`storage-fs.md` / `storage-server.md`:
+- The **operation vocabulary** (resolve, read metadata, read/write/list/delete artifacts, transition status, update fields, list tickets/children, create, lessons) — one procedure per operation in each file. The fs file owns the folder layout and the `prefix` rule. The server file alone owns the **loud-failure doctrine** (a failed server op stops the skill, naming server and operation — never a local fallback), the **status values** (the six-value enum; status writable only via the CAS transition tool), the **CAS conflict doctrine** (re-read → re-evaluate → proceed-or-stop, never force), and the **tool-name derivation** (bare `pipeline_*` vocabulary; the Claude-scoped `mcp__plugin_server-native_ps__*` form derived from the connector manifest; Codex's user-keyed form). The `ticket-resolution-*`, `state-transitions-*`, and `lessons-log-*` pairs route through their same-mode file.
+
+`ticket-resolution-fs.md` / `ticket-resolution-server.md`:
+- **Step 1** — ticket resolution (fs: path or ID search, including nested children under `tasks/`; server: `pipeline_get_ticket`)
 - **Step 4** — `kind: epic` refusal (epics are non-pipelineable)
 - **Step 5** — locating shared `exploration.md` (solo vs child)
 - **Step 6** — blocker validation (`blocked_by`)
 
-`state-transitions.md`:
+`state-transitions-fs.md` / `state-transitions-server.md`:
 - **Transition 1** — Start-of-pipeline (`backlog`/`review`/`done` → `in-progress`); invoked by `plan` and `build` at start (idempotent; the `review/` source is the re-plan path for a ticket whose PR is open)
 - **Transition 2** — End-of-pipeline (`in-progress` → `done`); invoked by `build` at the verdict gate on a `pass` without `--pr`. Includes the Epic-completion predicate (declared-roster reconciliation) for epic children.
 - **Transition 3** — Abort (`in-progress` → `backlog`); invoked by `build` on `partial`/`stuck` + user choice `abort`. Includes the inverse all-children check for epic children.
@@ -136,10 +140,10 @@ Centralized cross-stage rules live in `skills/flow/references/` (the folder also
 - **Transition 6** — Merge (current state folder → `done`); invoked when `build` is re-run on a `review/` ticket, or when `sync` scans a ticket in `backlog/`, `in-progress/`, or `review/` (fs-native: folder-keyed, not by status; server-native: any non-terminal row status) and its PR is detected merged (the merge check is part of the `--pr` auto-PR flow). T2's body re-pointed at the ticket's current state folder as source: for `build` a solo source is always `review/` (or an at-review epic); for `sync` a solo source is whichever of `backlog/`/`in-progress/`/`review/` the scan found it in (a crash, re-plan, or manual merge can park a merged PR outside `review/`); an epic child flips in place while a sibling is still mid-build.
 - **Decision table** — verdict + user choice → which transitions fire. The contract `build` uses at the verdict gate.
 - **Status query** — read-only inspection for future epic-walker tooling.
-- Every transition also carries its **Server-native** CAS form (`from[]`/`to` via the transition tool), dispatched per `storage.md`; the fs mechanics above are the fs-native form.
+- The fs file states each transition as folder moves + frontmatter edits; the server file states the same transition as its CAS form (`from[]`/`to` via the transition tool). The shared core — Epic-completion predicate, decision table, status query, error handling — is written into both files and is a lockstep mirror: edit both.
 
-`lessons-log.md`:
-- The cross-ticket lessons-log contract — atomic entry format, write-time supersession check, prefer-newest on conflict, promotion on recurrence, format overflow, grep-scoped consumption. Producers (`build`, `debug`) and consumers (`plan`, `ship`), plus the standalone `lessons-consolidate` normalizer, all point here; summary in the Cross-ticket lessons log section below. Dual-mode: fs appends to `_lessons.md`; server-native maps the same rules onto the lesson tools (per-section Server-native notes).
+`lessons-log-fs.md` / `lessons-log-server.md`:
+- The cross-ticket lessons-log contract — atomic entry format, write-time supersession check, prefer-newest on conflict, promotion on recurrence, format overflow, grep-scoped consumption. Producers (`build`, `debug`) and consumers (`plan`, `ship`), plus the standalone `lessons-consolidate` normalizer (fs only), all point here; summary in the Cross-ticket lessons log section below. The fs file appends to `_lessons.md`; the server file maps the same §1–§8 onto the lesson tools.
 
 Individual stage skills (`skills/<stage>/SKILL.md`) own their own `Required Input` and `Output` sections, which are the authoritative per-stage contracts. Flow's Stage Contract table is a consolidated summary of those.
 
@@ -159,7 +163,7 @@ This section captures only what's **specific to this plugin** on top of those ge
 
 Typical budget per role, expressed as unordered tool sets. The build *skill* may write to `claudedocs/` to save its merged review artifact and its other in-loop artifacts, but its *reviewer agents* are read-only — they must not mutate the tree they review.
 
-Rows listing **pipeline MCP tools** use them only in server-native storage mode. Those entries are dual-listed in `allowed-tools` under both bindings — the Claude-scoped `mcp__plugin_server-native_ps__*` and the bare `pipeline_*` form, which stands in for Codex's `mcp__<server>__*` from the user's MCP config. The scoped prefix is derived, not authored — `skills/flow/references/storage.md` owns that derivation.
+Rows listing **pipeline MCP tools** use them only in server-native storage mode. Those entries are dual-listed in `allowed-tools` under both bindings — the Claude-scoped `mcp__plugin_server-native_ps__*` and the bare `pipeline_*` form, which stands in for Codex's `mcp__<server>__*` from the user's MCP config. The scoped prefix is derived, not authored — `skills/flow/references/storage-server.md` owns that derivation.
 
 | Skill | Typical budget |
 |---|---|
@@ -207,7 +211,17 @@ One axis, one flag name, shared across skills; defaults may differ per skill; ne
 
 ### Shared references
 
-When a block would otherwise be duplicated across multiple stage skills, extract it. The canonical example is `skills/flow/references/ticket-resolution.md`, referenced from every stage skill that resolves a ticket argument.
+When a block would otherwise be duplicated across multiple stage skills, extract it. The canonical example is the `skills/flow/references/ticket-resolution-fs.md` / `ticket-resolution-server.md` pair, referenced from every stage skill that resolves a ticket argument.
+
+### Per-mode reference convention
+
+Storage-mode-specific prose lives in **one file per concern per storage mode** — never in a shared file. Names carry the mode suffix, `<concern>-fs.md` / `<concern>-server.md`, and `scripts/check-mode-split.sh` enforces the split: a `-fs` file never contains `server-native`, `pipeline_`, or `mcp__`; a `-server` file never names a state folder (`backlog/`, `in-progress/`, `review/`, `done/`) or a folder move; every `-fs` file has its `-server` sibling in the same directory and vice versa; every relative `.md` link under `plugins/feature/skills` resolves. One server-only reference sits outside the suffix rule — `discover/references/server-create.md` — and the checker reaches it once it carries the `-server` suffix.
+
+- **Header.** Every mode file opens with the conditional-load sentence: `Canonical logic for <X> in <mode> storage mode. Read when the storage mode detected per [storage.md](storage.md) is <mode> — <the other case> never needs this file. Referenced by <Y>.` In a `-fs` file the other case is worded "a run in the other storage mode" (the token `server-native` is forbidden there); a `-server` file may say "an fs-native run".
+- **Absence, not negation.** The other mode is excluded by leaving its text out — never by sentences like "there are no folders to move here". Beyond the header, a reader of a mode file never learns the other mode exists.
+- **Shared logic is duplicated, and the pair is a lockstep mirror.** Logic both modes need (the Epic-completion predicate, the decision table, error handling) is written into both files of the pair rather than into a third shared file, so a run still reads one file per concern. Edit both when it changes — the same discipline as `CLAUDE.md`/`AGENTS.md` and the two plugin manifests.
+- **Citing from a file loaded in both modes.** A SKILL.md or a mode-neutral reference cites the pair — `[x-fs.md](…) / [x-server.md](…)` — or the single mode file when the sentence itself is mode-specific. Inside a mode file, cite only same-mode siblings. `storage.md`, the stub, is cited only for mode detection.
+- **`storage.md` stays under 300 words** — the detection contract plus the pointer table. Doctrine goes to the mode files.
 
 ---
 
@@ -273,9 +287,9 @@ The `build` skill folds the implementer mindset directly into the SKILL.md body 
 
 ## Ticket resolution (shared across skills)
 
-Every stage skill resolves a ticket argument identically. Canonical logic lives in **`skills/flow/references/ticket-resolution.md`** and is referenced from `flow`, `plan`, and `build`. `discover` handles the intake/creation variant inline (prefix logic and ID allocation live there).
+Every stage skill resolves a ticket argument identically. Canonical logic lives in the **`skills/flow/references/ticket-resolution-fs.md`** / **`ticket-resolution-server.md`** pair (one file per storage mode) and is referenced from `flow`, `plan`, and `build`. `discover` handles the intake/creation variant inline (prefix logic and ID allocation live there).
 
-**Do not duplicate the resolution logic inline** in a stage skill — link to the reference. If the resolution rules change, update the reference once.
+**Do not duplicate the resolution logic inline** in a stage skill — link to the pair. If the resolution rules change, update both files of the pair.
 
 Quick summary (full version in the reference):
 - Path-like argument → read directly (folder path or `01-spec.md` path inside the folder).
@@ -320,7 +334,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 - **Folder name:** just the ID, no slug — `claudedocs/tickets/<state>/<PREFIX>-<N>/` (or for nested children, `<state>/<EPIC>/tasks/<CHILD>/`).
 - **Status flow:** `backlog → in-progress → done` (folders match), with an optional `review/` hop (`in-progress → review → done`) on `--pr` runs where a PR is opened for review before merge. Cancellation is expressed via frontmatter `status: cancelled` inside `done/`, not a separate folder; the open-PR state is expressed via `status: in-review` inside `review/`.
 - Solo ticket folders move between state folders as the pipeline advances — the entire folder (spec, artifacts) moves as a unit.
-- For epics: the **whole subtree** moves between state folders together under the precedence `in-progress` ⊐ `review` ⊐ `done` (any-child-in-progress → in-progress; else any-child-in-review → review; else every declared child materialized-and-terminal → done). `prd.md`'s `status` field tracks the folder location; per-child `status` lives in each child's `01-spec.md`. See `skills/flow/references/state-transitions.md` for the full transition logic and the Epic-completion predicate.
+- For epics: the **whole subtree** moves between state folders together under the precedence `in-progress` ⊐ `review` ⊐ `done` (any-child-in-progress → in-progress; else any-child-in-review → review; else every declared child materialized-and-terminal → done). `prd.md`'s `status` field tracks the folder location; per-child `status` lives in each child's `01-spec.md`. See `skills/flow/references/state-transitions-fs.md` (folder mechanics) / `state-transitions-server.md` (CAS form) for the full transition logic and the Epic-completion predicate.
 - **`repos` frontmatter** (optional, multi-repo workspaces only): `repos: [<dir-name>, ...]` — the repositories a ticket touches, as exact on-disk directory names. Appended by discover (never present in the templates) when the workspace is multi-repo: the folder holding `claudedocs/tickets/` is not itself a git repo but has immediate child directories with `.git`. Epics carry the union of their children's repos; children carry their own subset. Two downstream consumers parse it — `ship --parallel` partitions its run into per-repo lanes from `repos:` (`skills/ship/references/parallel-walk.md` §1), and build's `--worktree` eligibility reads it to bind the repo (exactly one entry) or degrade to an in-place build (2+, since one worktree cannot span repos); elsewhere informational. Single-repo workspaces omit it entirely.
 - **Multi-sibling linkage frontmatter** (set on children when discover emits an epic):
   - `parent: <EPIC-ID>` — the epic this child belongs to.
@@ -334,7 +348,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 
 ### Cross-ticket lessons log
 
-`claudedocs/tickets/_lessons.md` is a project-local log of gotchas — constraints that bit a prior ticket and would bite the next one, never generic best practices. `build` captures at its verdict gate (atomic one-subject-per-line entries, a write-time supersession check with prefer-newest on conflict, and a promotion-on-recurrence proposal into the project's `CLAUDE.md`); the standalone `debug` skill is a second producer; consumers (`plan`'s Phase 1; `ship`) grep it by subject keywords and never full-load it. The full contract — entry format, date-stamping, supersession, prefer-newest, promotion, format overflow, and grep-scoped consumption — lives in `skills/flow/references/lessons-log.md`; every producer and consumer points there.
+`claudedocs/tickets/_lessons.md` is a project-local log of gotchas — constraints that bit a prior ticket and would bite the next one, never generic best practices. `build` captures at its verdict gate (atomic one-subject-per-line entries, a write-time supersession check with prefer-newest on conflict, and a promotion-on-recurrence proposal into the project's `CLAUDE.md`); the standalone `debug` skill is a second producer; consumers (`plan`'s Phase 1; `ship`) grep it by subject keywords and never full-load it. The full contract — entry format, date-stamping, supersession, prefer-newest, promotion, format overflow, and grep-scoped consumption — lives in the `skills/flow/references/lessons-log-fs.md` / `lessons-log-server.md` pair (one file per storage mode); every producer and consumer points there.
 
 ---
 
@@ -348,9 +362,9 @@ Build owns artifact slots `03-implementation.md` through `06-summary.md`. Slot `
 4. Add auto-resumption rules: when this stage is re-invoked on an existing ticket, which on-disk artifact signals "resume from here" vs "start fresh." Document the routing table in the stage skill body and in flow's Resumption auto-detection section.
 5. Document the stage's input/output contract in the stage's `Required Input`/`Output` sections *and* in flow's Stage Contract table.
 6. Update `skills/flow/SKILL.md`'s Artifact invalidation downstream table for the new stage.
-7. If the stage performs state transitions (folder moves, frontmatter `status` updates), add the relevant transition(s) to `skills/flow/references/state-transitions.md` and invoke them inline from the stage skill body. Do not write state-machine logic inline.
+7. If the stage performs state transitions (folder moves, frontmatter `status` updates), add the relevant transition(s) to both `skills/flow/references/state-transitions-fs.md` and `state-transitions-server.md` and invoke them inline from the stage skill body. Do not write state-machine logic inline.
 8. If the stage spawns subagents, create them in `agents/` and wire them up.
-9. If the stage operates on a ticket (most do), reference `flow/references/ticket-resolution.md` for resolution + epic refusal + blocker validation, and add the stage to the consumer list in that reference.
+9. If the stage operates on a ticket (most do), reference the `flow/references/ticket-resolution-fs.md` / `ticket-resolution-server.md` pair for resolution + epic refusal + blocker validation, and add the stage to the consumer list in both files.
 
 ## Adding a new agent
 
@@ -372,8 +386,10 @@ Before committing changes to skills or agents:
 5. **Sweep for cross-skill drift** — when a filename, skill name, or schema changes, grep across `plugins/feature/skills/` and `plugins/feature/agents/` for stale references and update them. The "Editing discipline" section below applies.
 6. **Build skill tool-budget audit** — grep `plugins/feature/skills/build/SKILL.md` for any tool reference outside its `allowed-tools` (Read, Write, Edit, Glob, Grep, Bash, Task, TodoWrite, plus the `pipeline_*` tools its frontmatter lists, in either the bare or the plugin-scoped form). Should return no matches.
 7. **Reviewer-agent read-only audit** — confirm `plugins/feature/agents/code-reviewer.md`, `plugins/feature/agents/security-engineer.md`, `plugins/feature/agents/performance-engineer.md`, and `plugins/feature/agents/code-architect.md` list no `Bash` or `Edit` in their `tools:`. Reviewers must not mutate the tree they review.
-8. **Tool-parity check** — run `scripts/check-tool-parity.sh`; it must exit 0. This is the executable form of expectation 1 and the only automated check in the repo.
+8. **Tool-parity check** — run `scripts/check-tool-parity.sh`; it must exit 0. This is the executable form of expectation 1 and one of the two automated checks in the repo.
 9. **Failed-criteria placement** — failed test criteria live inside `05-tests.md` under a `## Failed Criteria` section. Verify build-skill output stays consistent with this placement.
+10. **Mode-split check** — run `scripts/check-mode-split.sh`; it must exit 0. It is the executable form of the per-mode reference convention (no other-mode token in a `-fs`/`-server` file, no half pair) and the only guard against a dangling relative `.md` link anywhere under `plugins/feature/skills` — the link check covers every reference, not just the mode pairs.
+11. **Mode-pair lockstep** — when you edit a shared section of a `-fs`/`-server` pair (the Epic-completion predicate, the decision table, the status query, error handling), apply the same edit to the sibling; the two files' `##` heading sets must stay identical.
 
 There's no automated test suite for the plugin itself. Validation is by manual pipeline runs on real tickets.
 
