@@ -61,7 +61,7 @@ Read the ticket's structured fields: the row fields returned by `pipeline_get_ti
 
 ### Read artifact
 
-`pipeline_get_artifact` with the ticket ID and artifact name.
+`pipeline_get_artifact` with the ticket ID and artifact name. For an optional artifact, check the listing first (List artifacts, below) — `pipeline_get_artifact` on an absent artifact is a failed operation under §Loud failure, not a signal.
 
 ### Write artifact
 

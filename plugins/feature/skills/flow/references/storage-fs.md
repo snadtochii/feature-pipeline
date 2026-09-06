@@ -20,7 +20,7 @@ Read the ticket's structured fields from the YAML frontmatter of `01-spec.md` (s
 
 ### Read artifact
 
-`Read` `<ticket-folder>/<name>` (e.g. `01-spec.md`, `02-plan.md`).
+`Read` `<ticket-folder>/<name>` (e.g. `01-spec.md`, `02-plan.md`). For an optional artifact, check file presence first (`Glob`) — a `Read` of an absent file is a tool error, not a signal.
 
 ### Write artifact
 

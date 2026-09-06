@@ -61,7 +61,7 @@ The procedure itself lives in [`../../build/references/worktree.md`](../../build
 
 **Removal discipline** is worktree.md §4: its safety predicate (work committed on `<branch>`, or the branch pushed) gates `git worktree remove` + `git worktree prune`, and `--force` covers setup-generated leftovers like dependency directories, never unpushed commits. This walk supplies only the trigger, above.
 
-**Server-native mode marker**: worktree.md §2 step 5 handles it — the walk-up check, the conditional copy, then the `mode:` + `project:` assertion. A worktree whose copy still lacks the marker aborts that ticket's dispatch with the `.worktreeinclude` remedy, exactly as before; the difference is that a merely-absent `config.yaml` is now copied rather than treated as the failure.
+**Server-native mode marker**: worktree.md §2 step 6 handles the walk-up check and the conditional copy; the `mode:` + `project:` assertion is build's `references/storage-server.md` §11, which step 6 dispatches to. A worktree whose copy still lacks the marker aborts that ticket's dispatch with the `.worktreeinclude` remedy, exactly as before; the difference is that a merely-absent `config.yaml` is now copied rather than treated as the failure.
 
 ## §4 Worker briefs — worktree + explicit base-branch injection
 
@@ -76,7 +76,7 @@ The Step 2 reviewer hop is read-only (`gh` + file reads) and spawns exactly as i
 
 In a multi-lane run the workdir and base-branch injections above are **per-lane**: `<wt-path>`, `<branch>`, and `<BASE_BRANCH>` all belong to the lane's repo. The ticket tree stays **workspace-level** — in a multi-repo workspace `claudedocs/tickets/` lives at the workspace root, above every repo, so the brief's absolute ticket-folder path points into the workspace checkout, not into any repo.
 
-Consumer note: listing `claudedocs/tickets/config.yaml` in `.worktreeinclude` is the cheapest way to carry the project's `validate:` config — and, in server-native mode, the `mode:` + `project:` marker — into each worktree of a single-repo workspace, where `<wt-path>` sits outside the repo that holds the file. Without the entry, §3's provisioning copies it anyway (worktree.md §2 step 5), and the server-native marker assertion still gates dispatch. In a multi-repo workspace neither is needed: `config.yaml` sits above the repo root, out of reach of a repo-relative `.worktreeinclude` pattern, but the worktrees sit **under the workspace root** (`<wt-path>` is a sibling of the lane's repo), so the validation hook's ancestor walk-up finds the workspace `config.yaml` on its own and per-edit validation keeps firing in every lane's worktrees.
+Consumer note: listing `claudedocs/tickets/config.yaml` in `.worktreeinclude` is the cheapest way to carry the project's `validate:` config — and, in server-native mode, the `mode:` + `project:` marker — into each worktree of a single-repo workspace, where `<wt-path>` sits outside the repo that holds the file. Without the entry, §3's provisioning copies it anyway (worktree.md §2 step 6), and the server-native marker assertion still gates dispatch. In a multi-repo workspace neither is needed: `config.yaml` sits above the repo root, out of reach of a repo-relative `.worktreeinclude` pattern, but the worktrees sit **under the workspace root** (`<wt-path>` is a sibling of the lane's repo), so the validation hook's ancestor walk-up finds the workspace `config.yaml` on its own and per-edit validation keeps firing in every lane's worktrees.
 
 ## §5 Serialization points (the orchestrator, one at a time)
 
