@@ -45,6 +45,7 @@ Use when a bug resists static reasoning: race conditions, wrong runtime values, 
 
 These are fixed for the whole session; establish them once at intake.
 
+- **Storage mode.** Detect it once per run per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection; every per-mode reference cited in this skill (`-fs` / `-server`) is the file for that mode.
 - **Sink** — a structured JSON-lines file at `claudedocs/debug/<session>/sink.jsonl`. It is the transport for runtime evidence (the filesystem replaces a debug-server socket). `<session>` = `<UTC-yyyyMMdd-HHmmss>` standalone, or `<ticket-id>-<UTC-HHmmss>` when a ticket arg is in scope. One event per line:
   ```json
   {"ts":"<ISO8601>","marker":"<token>","hyp":<round-int>,"loc":"<file>:<line>","label":"<short-name>","value":<any-json>}
@@ -122,14 +123,14 @@ Always report state on exit — one of four:
 
 Output is keyed to **whether there's a transferable lesson**, not to the exit type.
 
-- **Lessons log** — if the root cause is a *project-specific, would-recur constraint that static reasoning missed* (a non-obvious runtime behavior, a config/env coupling, a framework footgun specific to this codebase), append one entry to the cross-ticket lessons log (fs-native: `claudedocs/tickets/_lessons.md`; server-native: `pipeline_add_lesson`). Write nothing for a self-contained bug (typo, local off-by-one, missing null check) even on `fixed`. Test: "would the next ticket's planning re-derive this the hard way if it weren't written?"
+- **Lessons log** — if the root cause is a *project-specific, would-recur constraint that static reasoning missed* (a non-obvious runtime behavior, a config/env coupling, a framework footgun specific to this codebase), append one entry to the cross-ticket lessons log. Write nothing for a self-contained bug (typo, local off-by-one, missing null check) even on `fixed`. Test: "would the next ticket's planning re-derive this the hard way if it weren't written?"
   - Write the line per the shared contract in [`lessons-log-fs.md`](../flow/references/lessons-log-fs.md) / [`lessons-log-server.md`](../flow/references/lessons-log-server.md) — file creation and entry format (§1–§2), in the project's storage mode — and backtick any path token. Debug's deltas from that contract:
     - **ID forms** — with a ticket in scope: `## <ticket-id> (debug, <YYYY-MM-DD>): <one atomic lesson>`; standalone: `## debug/<short-slug> (<exit>, <YYYY-MM-DD>): <one atomic lesson>`.
     - **No supersession check** — §4 is build-owned; append only. Build's next capture merges (or prefers-newest on) any same-subject duplicate.
     - **No promotion/overflow proposals** — §6–§7 are build-owned; on a multi-subject finding, split into atomic lines only.
 - **Non-`fixed` exits**:
-  - With a ticket in scope → persist a report to `<ticket-folder>/07-debug.md`: exit type, hypotheses tried and which were eliminated/confirmed (with evidence), root cause if reached, concrete next steps. Plain report, no frontmatter. Written via the Write artifact operation in [`storage-fs.md`](../flow/references/storage-fs.md) / [`storage-server.md`](../flow/references/storage-server.md) (for the detected storage mode) (server-native: `pipeline_write_artifact` — the name is admitted by the server's artifact whitelist; no `verdict` — the exit tokens are outside the server's verdict enum and stay in the body).
-  - Standalone → chat-only; no file. The sink under `claudedocs/debug/` stays a local file in both storage modes — it is runtime evidence, not ticket data.
+  - With a ticket in scope → persist a report to `<ticket-folder>/07-debug.md`: exit type, hypotheses tried and which were eliminated/confirmed (with evidence), root cause if reached, concrete next steps. Plain report, no frontmatter. Written via the Write artifact operation in [`storage-fs.md`](../flow/references/storage-fs.md) / [`storage-server.md`](../flow/references/storage-server.md) (for the detected storage mode) — a plain report carries no verdict; the exit tokens stay in the body.
+  - Standalone → chat-only; no file. The sink under `claudedocs/debug/` is a local file whatever the storage mode — runtime evidence, not ticket data.
 - **`fixed` exit** → the verified diff + a chat summary; sink deleted. No report artifact.
 
 ## Important Rules
