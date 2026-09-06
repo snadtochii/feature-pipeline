@@ -56,6 +56,8 @@ codex plugin list                           # verify feature@feature-local is in
 
 Set `CODEX_HOME` to test against an isolated Codex home, or `FEATURE_CODEX_LOCAL_MARKETPLACE` to choose a different staging root. Both locations must be outside the checkout. Re-run the helper after local edits, then start a new Codex task to load the refreshed plugin.
 
+Whichever platform you develop against, run the two validation scripts from the checkout root before opening a pull request: `scripts/check-tool-parity.sh` checks that every `pipeline_*` tool a skill lists is dual-listed in its frontmatter (bare and Claude-scoped), and `scripts/check-mode-split.sh` checks that no storage-mode reference file leaks the other mode, every `-fs`/`-server` pair is complete, and every relative `.md` link under `skills/` resolves. Both must exit 0.
+
 Switch back to the stable GitHub installation:
 
 ```bash

@@ -19,6 +19,7 @@ Deeper material that doesn't belong in the [README](../../../README.md) front do
   - [Worktree setup](#worktree-setup)
   - [MCP servers](#mcp-servers)
   - [Storage mode and the personal server](#storage-mode-and-the-personal-server)
+    - [Words loaded per stage and mode](#words-loaded-per-stage-and-mode)
 
 ## Auto-PR (`--pr`) and the review → merge flow
 
@@ -257,10 +258,25 @@ project: my-project    # required with server-native — the project's id in the
 
 `config.yaml` itself stays local in both modes: it is project execution config plus the mode marker, not ticket data.
 
-The skills read the mode once per run and then load one reference per storage concern for that mode: under `plugins/feature/skills/flow/references/`, `storage.md` is the detection stub and each concern (storage, ticket-resolution, state-transitions, lessons-log, epic-walk) is a `<concern>-fs.md` / `<concern>-server.md` pair — the stub's pointer table is the authoritative list. A file for the other mode is never opened, so an fs-native run carries no server prose and a server-native run no folder choreography; each mode file opens with a "never needs this file" header naming the mode it serves.
+The skills read the mode once per run and then load one reference per storage concern for that mode. Under `plugins/feature/skills/flow/references/`, `storage.md` is the detection stub and each cross-stage concern (storage, ticket-resolution, state-transitions, lessons-log) plus the two flow-private ones (epic-walk, keying) is a `<concern>-fs.md` / `<concern>-server.md` pair — the stub's pointer table is the authoritative list. A skill with storage mechanics of its own keeps a skill-local pair at `skills/<skill>/references/storage-fs.md` / `storage-server.md` — `build`, `sync`, `ship`, and `discover` today — loaded once at the skill's start and cited by section number from then on. A file for the other mode is never opened, so an fs-native run carries no server prose and a server-native run no folder choreography; each mode file opens with a "never needs this file" header naming the mode it serves. `scripts/check-mode-split.sh` enforces the split.
 
 Nothing else in this section matters unless you run `server-native`. If a `pipeline_*` tool is unavailable or a call fails in that mode, the skill **stops** naming the server and the failed operation — it never silently writes local files instead.
 
+#### Words loaded per stage and mode
+
+What each skill reads on an ordinary run — its `SKILL.md` plus every reference it loads unconditionally in that mode — before and after the per-mode split (`wc -w`; "before" is the commit preceding the split, `b8a336a`). Before the split no per-mode file existed, so both "before" columns count the same files and are identical except for `discover`, whose server column already had a server-only reference.
+
+| Stage | fs before | fs after | Δ fs | server before | server after | Δ server |
+|---|---:|---:|---:|---:|---:|---:|
+| discover | 4787 | 4647 | −140 | 5883 | 5137 | −746 |
+| plan | 12252 | 9059 | −3193 | 12252 | 8399 | −3853 |
+| build | 18161 | 14981 | −3180 | 18161 | 15042 | −3119 |
+| flow | 6215 | 4975 | −1240 | 6215 | 5658 | −557 |
+| sync | 12128 | 9397 | −2731 | 12128 | 9811 | −2317 |
+| ship | 9263 | 8423 | −840 | 9263 | 9275 | +12 |
+| debug | 6905 | 5163 | −1742 | 6905 | 5846 | −1059 |
+
+Counted per row: the skill's `SKILL.md`; the `storage.md` detection stub; the flow `storage-<mode>.md` operation vocabulary (every skill reaches it — directly, or through the "operations named below are defined in …" header of its skill-local pair); the skill-local `storage-<mode>.md` where one exists (build, sync, ship, discover); the shared flow pairs the skill dispatches to (plan/build: ticket-resolution, state-transitions, lessons-log; flow: ticket-resolution, keying; sync: state-transitions; ship: lessons-log; debug: ticket-resolution, lessons-log); and the mode-neutral references read on every run (build: `confidence-scale.md`, `stuck-detection.md`; sync: `gh-preconditions.md`, `pr-creation.md`; ship: `reviewer-prompt.md`). Gating assumed: `debug` with a ticket in scope, `sync`'s no-argument scan; discover's `templates/` are inputs, not references, and are excluded. Flag- or shape-gated references are not in the figure: `worktree.md` (3501 → 3373), `pr-creation.md` for build (2367 → 2239), `parallel-walk.md` (3902 → 3593), `ui-verification.md` (1227 → 1075), `epic-walk.md` (1282 → 1046 fs / 1114 server), `multi-sibling.md` (1107 → 478 — its fs generation steps moved into discover's fs file), and the unchanged `commit.md`, `skip-artifacts.md`, `test-preflight.md`, `validation-hook.md`, `multi-repo.md`, `exploration-mode.md`. Ship's pair is loaded once at SETUP and carries sections a serial, non-`--ui-test` run never uses — the parallel-walk state forms and the UI evidence home (≈220 fs / ≈205 server words) plus the `--parallel` half of the ticket-argument block — which is why its server figure does not drop; one pair with one load was kept over a second pair, whose header and section scaffolding would cost more than those sections.
 #### Claude Code setup
 
 The server is **not** declared by the `feature` plugin. It lives in a second, separate plugin — **`server-native`** — that carries nothing but the server declaration: no skills, no agents, no hooks.
