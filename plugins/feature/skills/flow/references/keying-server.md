@@ -23,3 +23,10 @@ The resumption routing table's signals are read from the server:
 ## §4 Artifact layout
 
 The artifact names in the Artifact Convention key artifact rows on the ticket (Write artifact / List artifacts); artifact bodies are frontmatter-free, and every piece of ticket metadata — `status`, `kind`, `parent_id`, `blocked_by` — is a row field. An epic's children are rows with `parent_id` set; the epic "advancing" with its children is the epic row's own `status`, flipped by the CAS transitions in [`state-transitions-server.md`](state-transitions-server.md) (Transitions 1, 2, and 3 each have epic-child variants), never a relocation of anything.
+
+## §5 Stage-brief values
+
+The two mode-valued placeholders in [`stage-briefs.md`](stage-briefs.md) §3 resolve here; flow fills them before each spawn.
+
+- **`<TICKET_ARG>`** is the **bare ticket ID** — the row's `id` from Step 1's `pipeline_get_ticket`. Rows never relocate, so the value resolved at SETUP stays valid for both spawns; a path-shaped argument flow received (a `--parallel` worker's brief) is reduced to its ID the way Step 1 does. Resolution is cwd-independent here — a stage running under a ship `--parallel` worker, whose cwd is a worktree, resolves the same row.
+- **`<STORAGE_MODE>`** is the line `Storage mode: server-native (project <id>)`, with the `project` value from `claudedocs/tickets/config.yaml` — so the stage's own detection, which reads the same file, agrees with flow's.

@@ -33,7 +33,7 @@ Two phases:
 1. **Pre-plan synthesis** — automatic codebase exploration + open-questions surfacing, presented to the user before plan design.
 2. **Plan design** — interactive plan mode by default, non-interactive under `--auto`; the two modes are defined in Phase 2.
 
-**This stage runs in the main conversation — NOT as a subagent.** (The subagents in Phase 1 run from within this stage.)
+**Invoked standalone, this stage runs in the main conversation; under `flow` it runs as a stage subagent with a self-contained brief.** Either way, the Phase 1 subagents run from within this stage.
 
 ## Arguments
 

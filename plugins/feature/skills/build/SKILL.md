@@ -39,7 +39,7 @@ argument-hint: "[ticket-id] [--pr] [--no-commit] [--no-ui-testing] [--worktree] 
 
 Build the ticket through one continuous loop with internal checkpoints (implement → review → test). All fixes happen in-context — no rewinds to earlier stages. Exit with verdict `pass`, `partial`, or `stuck`.
 
-**This stage runs in the main conversation — NOT as a subagent.** (The four reviewer subagents in the review checkpoint and the `ui-tester` subagent in the test checkpoint run from within this stage.)
+**Invoked standalone, this stage runs in the main conversation; under `flow` it runs as a stage subagent with a self-contained brief.** Either way, the four reviewer subagents in the review checkpoint and the `ui-tester` subagent in the test checkpoint run from within this stage.
 
 ## Arguments
 
@@ -47,7 +47,7 @@ Build the ticket through one continuous loop with internal checkpoints (implemen
 /feature:build $ARGUMENTS
 ```
 
-`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into the resumed loop — used by flow's verdict-gate `continue-with-hint` option), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)), `--no-ui-testing` (skip only the browser/ui-tester portion of the test checkpoint; lint/typecheck still run and still gate the verdict — see the test checkpoint's flag override), `--no-commit` (on verdict `pass`, leave the changes uncommitted this run, skipping the commit prompt and beating any `git.commit` config — see State setup's commit-mode binding; contradicts `--pr` and stops the build if both are passed — see Flag validation), `--worktree` (do this run's code work in a dedicated git worktree instead of the current checkout — see State setup's worktree binding and [`references/worktree.md`](references/worktree.md)). On resumption routes that never reach the commit path, `--no-commit` is a harmless no-op.
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into this run's loop — a fresh run or an auto-resumed one, passed directly or through `flow --hint`; the verdict gate's `continue-with-hint` option threads its hint into the still-running loop instead), `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/` instead of `done/` — see [`references/pr-creation.md`](references/pr-creation.md)), `--no-ui-testing` (skip only the browser/ui-tester portion of the test checkpoint; lint/typecheck still run and still gate the verdict — see the test checkpoint's flag override), `--no-commit` (on verdict `pass`, leave the changes uncommitted this run, skipping the commit prompt and beating any `git.commit` config — see State setup's commit-mode binding; contradicts `--pr` and stops the build if both are passed — see Flag validation), `--worktree` (do this run's code work in a dedicated git worktree instead of the current checkout — see State setup's worktree binding and [`references/worktree.md`](references/worktree.md)). On resumption routes that never reach the commit path, `--no-commit` is a harmless no-op.
 
 Resumption is auto-detected from the ticket's existing artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build — a user-side action; build itself never deletes artifacts. Start-fresh mechanics: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §10, for the mode detected at Ticket Resolution.
 
@@ -299,7 +299,7 @@ Artifact verdict for this write: [`storage-fs.md`](references/storage-fs.md) / [
 **Capture a lesson in the cross-ticket lessons log** at the same time (which store: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §8, for the detected mode), following the shared contract in [`lessons-log-fs.md`](../flow/references/lessons-log-fs.md) / [`lessons-log-server.md`](../flow/references/lessons-log-server.md) end-to-end: store creation (§1), entry format (§2), what to capture vs skip (§3), the write-time supersession check (§4), prefer-newest on conflict (§5), promotion on recurrence (§6), and format overflow (§7). Build-specific wiring:
 
 - The header's `<verdict>` token is this run's verdict: `pass` | `partial` | `stuck`.
-- A build run is **unattended** in the §6/§7 sense — no user present to answer, so the CLAUDE.md proposals are skipped — when it runs as an autonomous orchestrator's subagent or under headless `claude -p`.
+- A build run is **unattended** in the §6/§7 sense — no human is reachable to answer, so the CLAUDE.md proposals are skipped — under headless `claude -p`, or as a subagent whose brief says no human is reachable (flow's stage brief carries that line, set from how flow itself was invoked). A stage subagent whose brief says a human is reachable is attended: it pauses with the proposal and continues with the relayed answer.
 
 #### 4c. Present the verdict gate
 
@@ -417,7 +417,7 @@ At build start, before the implement checkpoint, inspect the ticket's existing a
 
 **Turn-counter reset on resume**. Resumed sessions start at `Turn 1/25` — the prior budget is forfeited.
 
-**`--hint` flag**. When present (e.g., `/feature:build BL-1 --hint "the failing test wants the ARIA label inside the button, not on it"`), the hint text becomes part of the resumed (or fresh) loop's context. Used by flow's verdict-gate `continue-with-hint` option to thread user guidance into a follow-up build invocation.
+**`--hint` flag**. When present (e.g., `/feature:build BL-1 --hint "the failing test wants the ARIA label inside the button, not on it"`), the hint text becomes part of the resumed (or fresh) loop's context — a user re-invoking build, or `flow --hint`, on a partially built ticket. The verdict gate's `continue-with-hint` option is the in-run counterpart: its hint enters the loop that is already running (4d) — under flow, the running stage subagent is resumed with it, or, when the runtime cannot resume that subagent, re-spawned with the hint and the gate answer supplied up front.
 
 ---
 
