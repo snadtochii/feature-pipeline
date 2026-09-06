@@ -6,9 +6,9 @@ This file is mode-neutral. The two values that differ by storage mode — `<TICK
 
 ## §1 Spawn contract
 
-- One subagent per stage, spawned with the `Task` tool as `subagent_type: general-purpose` (on Codex, the generic full-tool child) — a stage invokes its skill through the `Skill` tool and spawns its own subagents (plan's explorer and analyst; build's four reviewers and `ui-tester`), so it needs the full tool set, not a `feature:*` agent type.
+- One fresh generic worker per stage, using the Spawn operation of the runtime selected by [runtime.md](runtime.md). The stage executes its skill through that runtime's Invoke skill operation and spawns its own children (plan's explorer and analyst; build's reviewers and `ui-tester`).
 - Flow spawns plan, waits for its result, then spawns build — never both at once; the handoff between them is `02-plan.md` on disk.
-- Nesting: flow at depth *n* puts the stage at *n+1* and the stage's own subagents at *n+2*. Under `ship --parallel` that is orchestrator (1) → implementer (2) → stage subagent (3) → reviewers / `ui-tester` / explorer (4), inside the harness limit of 5.
+- Nesting: flow at depth *n* puts the stage at *n+1* and its roles at *n+2*. Under ship that is orchestrator → implementer → stage → role. Apply the selected runtime's Capacity operation; this shape is a requirement, not evidence that a particular session permits it.
 - Flow's own context receives only what the stage returns (the §4 / §6 report formats, or a §5 pause) — the stage's reasoning, edits, reviewer reports, and test output stay in the stage's context.
 - **Every stage return starts with one literal first line**, so flow keys on it and never on prose: `PAUSED: <stop name>` (§5), `plan: saved` (§4), `verdict: pass | partial | stuck` (§6), or `exit: <the skill's own exit line>` (§6 — a build that ended before its loop). A return with none of these first lines is a stage failure (§8).
 
@@ -16,9 +16,8 @@ This file is mode-neutral. The two values that differ by storage mode — `<TICK
 
 `<MODEL>` comes from `--plan-model` for the plan spawn and `--build-model` for the build spawn.
 
-- `inherit` (the default) → omit the spawn's `model` argument; the stage runs on the model flow is running on.
-- Any other value → pass it **verbatim** as the spawn's `model` argument. Claude Code accepts the family aliases (`sonnet`, `opus`, `haiku`, `fable`) or a full model ID; aliases are preferred so the plugin tracks the account's current family. Codex: pass it as the spawn's model override when the active spawn surface exposes one; when the surface hides it, spawn without it and print one line — `--<stage>-model <value>: model override not exposed by this surface; <stage> inherits.`
-- The runtime rejects the value (unknown alias, model unavailable to the account) → spawn once more **without** `model`, print one line — `--<stage>-model <value>: rejected by the runtime; <stage> inherits.` — and continue. A model override never changes a verdict and never stops a run: it is an optimization, and its fallback is inheritance, not a smaller hard-coded model.
+- Apply the selected runtime's Model operation: `inherit` (default) omits an explicit model; another value is passed verbatim when the schema exposes it. If the override is unavailable, print `--<stage>-model <value>: model override not exposed by this surface; <stage> inherits.` and spawn with runtime inheritance.
+- A **model-specific** rejection (unknown model, unavailable to the account) → spawn once more without the override, retaining fresh context, and print `--<stage>-model <value>: rejected by the runtime; <stage> inherits.` Capacity, permission, or missing-tool errors follow the runtime's own failure handling. A rejected model choice never changes the verdict or selects a smaller hard-coded model.
 - Model names live in the command line only — never in `claudedocs/tickets/config.yaml`.
 - The route skipped the stage (resumption) → the flag did nothing; print `<stage> skipped by resumption — --<stage>-model unused.` so the no-op is visible.
 
@@ -28,6 +27,8 @@ Every brief carries these, resolved by flow before the spawn:
 
 | Placeholder | Value |
 |---|---|
+| `<RUNTIME_BLOCK>` | Runtime reference, plugin root and project/worktree root, resolved per [runtime.md](runtime.md). Include the caller's capacity reservation when one exists. Prefix every stage brief with it. |
+| `<STAGE_INVOCATION>` | The selected runtime's rendered Invoke skill instruction: plan with `<TICKET_ARG> --auto`, build with `<TICKET_ARG> <BUILD_FLAGS>`. Use the absolute skill path when required by that runtime. |
 | `<PROJECT_ROOT>` | The absolute path of flow's own current working directory — nothing more. The stage runs its `Skill` invocation from there. The ticket argument is independent of it (`keying-<mode>.md` §5), and a workdir directive in `<OVERRIDES_BLOCK>` takes precedence over it (§7). |
 | `<TICKET_ARG>` | The ticket argument the stage passes to its skill — resolved per `keying-<mode>.md` §5, **immediately before each spawn** (plan may move the ticket; that section says how the build spawn re-resolves). |
 | `<STORAGE_MODE>` | The storage mode flow detected at SETUP, as a value line: `Storage mode: fs-native` or `Storage mode: server-native (project <id>)`. The stage's own detection runs against the same `config.yaml` and must agree; the line exists so a stage never re-detects against a different cwd. |
@@ -39,6 +40,8 @@ Every brief carries these, resolved by flow before the spawn:
 ## §4 Plan brief
 
 ```
+<RUNTIME_BLOCK>
+
 You are the PLAN stage of the feature pipeline, running as a stage subagent spawned by flow.
 Your caller is flow; you have no user of your own.
 
@@ -47,7 +50,7 @@ Ticket: <TICKET_ARG>
 <STORAGE_MODE>
 <ATTENDED>
 
-Do exactly this: invoke the `Skill` tool with skill `feature:plan` and args `<TICKET_ARG> --auto`.
+<STAGE_INVOCATION>
 Follow that skill end to end. It writes `02-plan.md` into the ticket's folder and its
 Phase 1 subagents (code-explorer, requirements-analyst) run from within you.
 
@@ -55,8 +58,9 @@ Phase 1 subagents (code-explorer, requirements-analyst) run from within you.
 
 Pausing for a decision. Plan's auto mode has two stops that need a human: the batched
 no-default open questions, and the complexity-overflow pause. You cannot ask anyone —
-`AskUserQuestion` has no user here. When either stop fires: end your turn with a report whose
-FIRST LINE is `PAUSED: <stop name>` followed by the stop's block VERBATIM (every question with
+the caller relays questions. When either stop fires: end your turn with a report whose
+FIRST LINE is `PAUSED: <stop name>`, then the skill section and pending operation to resume,
+followed by the stop's block VERBATIM (every question with
 its area and default, or the overflow block with its options), write no plan, and wait. Flow
 relays it and resumes you with the answers as the next message; continue from exactly where
 the skill paused. If the answers cancel the run, abort cleanly as the skill states — no
@@ -75,11 +79,11 @@ Nothing else — no plan prose, no exploration.
 
 A stage has no user. Every user-facing stop inside a stage — plan's two auto-mode stops; build's verdict-gate blocks (the commit question, the `accept-as-partial | continue-with-hint | abort` menu, the hint text), a `pr-creation.md` branch-safety prompt, and (attended only) build's lessons-log promotion proposal — follows one protocol:
 
-1. **The stage pauses**: it ends its turn with a report whose first line is `PAUSED: <stop name>` followed by the stop's block verbatim, applies no transition that depends on the answer (transitions the skill already applied before printing the block stand — build's Transition 4 precedes the hint-text stop), and waits. The brief's pause clause is what turns the skill's "capture the user's choice" into a turn boundary — the skill text itself is unchanged.
+1. **The stage pauses**: it ends its turn with `PAUSED: <stop name>`, the exact skill section and pending operation, which preceding side effects have completed, and the stop's block verbatim. It applies no transition that depends on the answer (already-applied transitions stand — build's Transition 4 precedes the hint-text stop). Flow retains that continuation record for fallback; it relays the question block verbatim.
 2. **Flow relays** — the branch was fixed at SETUP by `<ATTENDED>` and is never re-decided at a stop:
    - **Attended** (flow invoked by the user's own prompt): flow prints the block, **ends its own turn, and waits**. Flow never selects a choice itself. The next user message is the choice, relayed as it was written.
    - **Unattended** (flow invoked from a caller's brief): the invoking brief's autonomy rule decides — ship's implementer decides per its brief. Flow states which rule it applied when it relays the choice.
-3. **Flow resumes the same agent** with the choice as the next message (`SendMessage` to the spawned agent on Claude Code; the spawn surface's send-input on Codex). The stage continues from the stop with its context intact — so build's `continue-with-hint` keeps looping inside the build subagent, exactly as the skill states, and plan continues its Phase 2 with the answers.
+3. **Flow resumes the same agent** through the selected runtime's Resume operation with the choice as the next message. The stage continues from the stop with its context intact — build's `continue-with-hint` keeps looping there and plan continues with the answers. Preserve this ID until the stage finishes.
 4. A stage may pause more than once (plan: overflow, then no-default questions; build: a safety prompt, then the gate). Repeat per stop.
 
 **Fallback — the runtime cannot resume a finished agent.** Print one line — `stage resume unavailable on this surface — re-spawning <stage> from its artifacts with your answer.` — then spawn the stage again from the same template (placeholders re-resolved) with one extra section under the preamble:
@@ -90,11 +94,13 @@ A stage has no user. Every user-facing stop inside a stage — plan's two auto-m
 - <stop name 2>: "<answer 2>"
 ```
 
-listing **every** stop answered so far for this stage, oldest first, plus one line after it — build: `Bypass your auto-resumption router: read the verdict from 06-summary.md, re-enter at 4c with these answers already given, and apply 4d.`; plan: `Re-run Phase 1, then apply these answers where auto mode captures them.` Cost, stated so the trade-off is visible: plan re-runs its explorer and analyst; build re-loads its skill but skips its checkpoints. At most **one** fallback re-spawn per stop — a re-spawned stage that pauses again on a stop already listed is a stage failure (§8): surface it to the caller instead of spawning again.
+listing **every** stop answered so far for this stage, oldest first, followed by the retained continuation record. Plan re-runs Phase 1 and applies the recorded answers. Build reloads its skill and available artifacts, bypasses the normal auto-resumption router, and resumes the **recorded pending operation**, preserving completed side effects. Only a stop at the verdict-choice/commit gate with an existing `06-summary.md` re-enters 4c/4d from that verdict; an earlier stop (for example branch safety or lesson promotion) resumes its own recorded section without assuming a summary exists or replaying commits/transitions. If the continuation cannot be reconstructed, report a stage failure instead of guessing. State the cost: skill/artifact reloads, and plan's repeated exploration. At most **one** fallback re-spawn per stop — another pause on an already-answered stop is a stage failure (§8).
 
 ## §6 Build brief
 
 ```
+<RUNTIME_BLOCK>
+
 You are the BUILD stage of the feature pipeline, running as a stage subagent spawned by flow.
 Your caller is flow; you have no user of your own.
 
@@ -103,7 +109,7 @@ Ticket: <TICKET_ARG>
 <STORAGE_MODE>
 <ATTENDED>
 
-Do exactly this: invoke the `Skill` tool with skill `feature:build` and args `<TICKET_ARG> <BUILD_FLAGS>`.
+<STAGE_INVOCATION>
 Follow that skill end to end — its implement, review, and test checkpoints, its verdict gate,
 and its state transitions all run inside you. Its reviewer subagents and `ui-tester` are yours
 to spawn. `02-plan.md` is already on disk; build resumes from whatever artifacts exist.
@@ -116,7 +122,8 @@ Pausing for a decision. Build's verdict gate and its PR path print blocks that n
 the commit question, the `accept-as-partial | continue-with-hint | abort` menu, the hint text,
 pr-creation's branch-safety prompts, and — when attended — the lessons-log promotion proposal.
 You cannot ask anyone. When such a block is reached: end your turn with a report whose FIRST
-LINE is `PAUSED: <stop name>` followed by the block VERBATIM, apply no transition that depends
+LINE is `PAUSED: <stop name>`, then the skill section, pending operation and completed side
+effects needed to resume, followed by the block VERBATIM. Apply no transition that depends
 on the answer, and wait. Flow relays it and resumes you with the choice as the next message;
 continue from exactly where the skill captures that choice — `continue-with-hint` keeps
 looping here, in this same context.

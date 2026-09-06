@@ -9,6 +9,7 @@ allowed-tools:
   - Grep
   - Bash
   - Task
+  - Agent
   - TodoWrite
   - AskUserQuestion
   - pipeline_get_ticket
@@ -46,6 +47,8 @@ Two phases:
 **Optional flag** `--auto` — an internal flow→plan signal (not advertised in `argument-hint`, but honored if present from any source) that selects Phase 2's auto mode.
 
 ## Ticket Resolution & Artifacts Setup
+
+**Runtime.** Bind the runtime and plugin root per [../flow/references/runtime.md](../flow/references/runtime.md) before work. Its skill, role-spawn and user-interaction procedures apply to every step below, including standalone plan mode. Preserve a verified caller binding and carry its runtime block into the explorer and analyst briefs.
 
 **Storage mode.** Detect it once per run per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection; every per-mode reference cited in this skill (`-fs` / `-server`) is the file for that mode.
 

@@ -1,6 +1,6 @@
 # Ship — reviewer prompt template (bias isolation is the crux)
 
-Read this file at exactly one point: PER TICKET Step 2, when the orchestrator spawns the independent reviewer subagent. Inline the template below **verbatim** into the reviewer's spawn prompt, filling `<N>` (the real PR number), `<REPO_PATH>`, and the `<GROUND_TRUTH_BLOCK>` — the subagent does not share the orchestrator's context and cannot follow relative links, so the template text itself must land in the brief (the same spawn-time injection pattern as build's `references/confidence-scale.md`).
+Read this file at exactly one point: PER TICKET Step 2, when the orchestrator spawns the independent reviewer subagent. Prefix the template with the selected runtime block and inline it **verbatim**, filling `<N>` (the real PR number), `<REPO_PATH>`, `<GROUND_TRUTH_BLOCK>`, and `<PR_COMMENTS_PATH>` (the absolute `<PLUGIN_ROOT>/skills/review/references/pr-comments.md` from the verified runtime binding). The subagent does not share the orchestrator's context, so the template text and resolved paths must land in its brief.
 
 **`<GROUND_TRUTH_BLOCK>` is resolved by the orchestrator before spawning** — the reviewer subagent has no ticket-store access of its own. Its text is ship's storage file §3 ([`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md), the one loaded at SETUP for the detected mode); the spec and lessons it carries are neutral ticket inputs, not the implementer's narrative, so inlining them preserves bias isolation.
 
@@ -22,16 +22,13 @@ For UI tickets, assess user-visible behavior against the spec and diff — ship 
 
 Be specific. Per finding: severity (blocking|major|minor|nit), file:line, what's wrong, why.
 
-POST the review by following the shared contract at "${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}/skills/review/references/pr-comments.md"
-— read that file (it lives under the plugin root, not this repo's cwd — the plugin root is
-`$CLAUDE_PLUGIN_ROOT` on Claude Code and `$PLUGIN_ROOT` on Codex, so resolve it as
-`${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}`) and apply it as written; the notes below are only your brief,
-not a restatement of it:
+POST the review by following the shared contract at <PR_COMMENTS_PATH> — the absolute path
+resolved under the plugin root in your Pipeline runtime block. Read that file and apply it
+as written; the notes below are only your brief, not a restatement of it:
 - Post ONE logical review via the Reviews API (§4): line-anchored findings as `comments[]`, other
   findings in the summary body each tagged `[F<k>]`, ending with the §1 footer `_— 🔎 review (automated)_`
   and the §2 hidden marker `<!-- fp-review agent=<codex|claude> head=<SHA> -->` (its `head=<SHA>` is the
-  PR's current head; `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not, else
-  `agent=claude`). Reproduce both literals EXACTLY as written here even if the file read fails — ship's
+  PR's current head; `agent` is the verified runtime identity from your Pipeline runtime block (`codex` or `claude`)). Reproduce both literals EXACTLY as written here even if the file read fails — ship's
   recovery scan greps for that exact marker.
 - You have Bash but no Write tool: materialize every body/payload in FILES via §4/§5's
   quoted-heredoc-to-`mktemp -d` mechanism with a verified-unique nonce delimiter — never a

@@ -9,6 +9,7 @@ allowed-tools:
   - Grep
   - Bash
   - Task
+  - Agent
   - TodoWrite
   - pipeline_get_ticket
   - pipeline_list_tickets
@@ -52,6 +53,8 @@ Build the ticket through one continuous loop with internal checkpoints (implemen
 Resumption is auto-detected from the ticket's existing artifacts — see step 5 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build — a user-side action; build itself never deletes artifacts. Start-fresh mechanics: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §10, for the mode detected at Ticket Resolution.
 
 ## Ticket Resolution & Artifacts Setup
+
+**Runtime.** Bind the runtime and plugin root per [../flow/references/runtime.md](../flow/references/runtime.md) before work. Use its operations for every skill call and role spawn, including the arbiter, all four reviewers and UI tester. Prefix their complete prompts with the runtime block and honor its capacity policy and role boundaries.
 
 **Storage mode.** Detect it once per run per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection; every per-mode reference cited in this skill (`-fs` / `-server`) is the file for that mode.
 
@@ -199,7 +202,7 @@ b. **Compose the shared base for reviewer prompts** (single composition, used by
    4. **Blocker context** (only when `blocked_by` is non-empty per the Blocker validation section above): a `## Blocker context (from completed siblings)` block. For each blocker: include verbatim `01-spec.md` + `06-summary.md`. **Fallback when `06-summary.md` is missing** (e.g. a `cancelled` blocker): use the blocker's `02-plan.md`; when `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker. Omit the entire block when `blocked_by` is empty. Blocker artifact retrieval and what "missing" means: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §7 — the block inlines the artifact text, never a reference.
    5. **Confidence scale**: the verbatim contents of `references/confidence-scale.md` under a `## Confidence scale (use this exactly)` header. (The rubric lives in the reference and build injects it here — reviewer agent bodies stay rubric-free.)
 
-c. **Spawn four reviewer subagents in parallel.** All four run **concurrently** — launch them in a single message with four `Task` tool calls. Each prompt = the shared base from step b + a per-reviewer suffix:
+c. **Spawn all four independent reviewer roles.** Use the selected runtime’s Spawn and Capacity operations: run concurrently when slots permit, otherwise in bounded batches. Every role receives the same shared base from step b plus its own suffix; another reviewer’s findings never enter that prompt. Collect all four results before step d; capacity-queued roles remain pending, not skipped or failed. Each prompt includes its runtime block and the role instructions required by that runtime:
 
    **a. `feature:code-reviewer`** (correctness + quality):
    > Review these code changes for correctness, bugs, logic errors, and adherence to project conventions. Use the confidence scale above — only report issues with confidence ≥ 80.
@@ -240,7 +243,7 @@ f. **After fixes are applied**, run validation again (lint/typecheck) and update
 
 a. **Skip-detection scan.** Read `02-plan.md` and search the text (case-insensitive substring match) for any of: `component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial`. Match → run the reachability pre-flight (below) before any spawn. No match → skip (step c).
 
-**Reachability pre-flight (per [`references/test-preflight.md`](references/test-preflight.md)).** When step a matched UI signals (and `--no-ui-testing` was not set), run the pre-flight gate *before* spawning the Opus `ui-tester` — the cheap `curl` is always paid first. It resolves a URL (`test.url` → project `CLAUDE.md` → common-port probe), `curl`s it (reachable iff HTTP `200/301/302/401/403`), and on an unreachable app optionally boots a declared `test.start` (backgrounded, bounded ~60s poll) that it then owns for teardown:
+**Reachability pre-flight (per [`references/test-preflight.md`](references/test-preflight.md)).** When step a matched UI signals (and `--no-ui-testing` was not set), run the pre-flight gate *before* spawning the `ui-tester` — the cheap `curl` is always paid first. It resolves a URL (`test.url` → project `CLAUDE.md` → common-port probe), `curl`s it (reachable iff HTTP `200/301/302/401/403`), and on an unreachable app optionally boots a declared `test.start` (backgrounded, bounded ~60s poll) that it then owns for teardown:
    - **Reachable** (directly, or after the `test.start` boot responds) → compose the auth recipe + resolved URL (test-preflight.md §5) and continue to step b.
    - **Unreachable with no `test.start`, or `test.start` timed out** → write the *app unreachable* skip artifact (step c), tear down any server the pre-flight started (step e), do **not** spawn `ui-tester`, do **not** prompt mid-loop or hard-pause, and proceed to the verdict (step 4). The skip is recorded in `06-summary.md`.
 
@@ -248,7 +251,7 @@ a. **Skip-detection scan.** Read `02-plan.md` and search the text (case-insensit
 
    **With a worktree bound**, the pre-flight binds per [`references/test-preflight.md`](references/test-preflight.md) §3, which also states the fixed-port hazard it cannot solve: a server already listening at `test.url` from another checkout answers the `curl`, so nothing boots and `ui-tester` verifies code this run never wrote. Surface it — print one line before spawning — `--worktree: verifying against <url>; confirm that server is serving <wt-path>, not the main checkout.` — and repeat it as a `## Caveat` line in `05-tests.md`. A false green is the failure mode worth making visible; per-run port allocation is not something the `test:` contract models.
 
-b. **Spawn `feature:ui-tester`** (when reachable). Read the project's `CLAUDE.md` for a test framework hint (`## Testing` section, `## Commands` section, or inline references like "Playwright specs in `e2e/`"). Single `Task` call:
+b. **Spawn `feature:ui-tester`** (when reachable). Read the project's `CLAUDE.md` for a test framework hint (`## Testing` section, `## Commands` section, or inline references like "Playwright specs in `e2e/`"). One role child through the selected runtime:
 
    > Test this feature through real browser interaction. Spec with acceptance criteria: `<contents of 01-spec.md>`. Implementation summary: `<from 03-implementation.md>`. Application URL: `<the reachability-pre-flight-resolved URL — already verified reachable; do not re-discover it>`. Project test framework hint: `<from CLAUDE.md, or 'none documented'>`. Working directory: `<<wt-path> when a worktree is bound, else the project root>` — run the test runner there, and write any codified spec file under that directory, not elsewhere. Auth recipe: `<composed by the pre-flight per references/test-preflight.md §5 — auth.storage_state path and/or auth.attach_tab, or 'none declared'>`.
    >
