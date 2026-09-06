@@ -4,7 +4,7 @@ Build runs as a single continuous loop with no cross-stage rewinds. To prevent i
 
 ## What counts as a "turn"
 
-One full assistant response (one model turn). Not one tool call (a single review checkpoint dispatches four parallel `Task` calls in one turn). Not one full implement → review → test cycle (a cycle takes many turns).
+One full assistant response (one model turn). Not one tool call (a review checkpoint can dispatch several independent roles in one turn). Not one full implement → review → test cycle (a cycle takes many turns).
 
 ## Turn-counter mechanic
 
@@ -36,7 +36,7 @@ Multiple turns in a row report a context-related error (file not found, function
 ### 6. Logical oscillation (outer-loop arbiter)
 Patterns 1–5 are syntactic — they detect repetition by matching tool/action/error strings. Logical oscillation is the case where each iteration is technically different (no string match) but the work isn't converging on the acceptance criteria. Two reviewers contradict each other; the model alternates between two valid-looking approaches; fixes for finding A break finding B and vice versa. Fingerprint-matching can't see this; a small LLM check can.
 
-**When the arbiter fires.** After any single checkpoint (implement / review / test) accumulates 4+ turns without exiting, build invokes a one-shot arbiter `Task` call with this prompt:
+**When the arbiter fires.** After any single checkpoint (implement / review / test) accumulates 4+ turns without exiting, build invokes one generic read-only arbiter child through the selected runtime, with this prompt (it is not a registered `feature:` role):
 
 ```
 You are reviewing the recent iteration history of a build loop on ticket <ticket-id>.
@@ -57,7 +57,7 @@ The arbiter runs at most once per checkpoint per build invocation; cache the ver
 
 **On `status: progress`.** Continue normally. The arbiter will re-fire if the next checkpoint also accumulates 4+ turns.
 
-Cost: roughly one Haiku turn per fired arbiter call. The 4-turn gate keeps it from firing on the happy path (where most checkpoints exit in 1–3 turns).
+Cost: one short model response per fired arbiter call. The 4-turn gate keeps it from firing on the happy path (where most checkpoints exit in 1–3 turns).
 
 ## On detection
 

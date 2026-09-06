@@ -23,3 +23,10 @@ The resumption routing table's signals are read from the ticket folder:
 ## §4 Artifact layout
 
 The folder trees in the Artifact Convention are the layout as it exists on disk: every artifact is a file inside the ticket folder, ticket metadata is the frontmatter of `01-spec.md` (per-child) or `prd.md` (epic), and the ticket folder — or the whole epic subtree, as a unit — moves between the state folders per [`state-transitions-fs.md`](state-transitions-fs.md) (Transitions 1, 2, and 3 each have epic-child variants).
+
+## §5 Stage-brief values
+
+The two mode-valued placeholders in [`stage-briefs.md`](stage-briefs.md) §3 resolve here; flow fills them before each spawn.
+
+- **`<TICKET_ARG>`** is the **absolute ticket-folder path** — the path form of ticket-resolution Step 1 — never the bare ID: ID-form resolution globs `claudedocs/tickets/**/<id>/` relative to the stage subagent's cwd, and a stage running under a ship `--parallel` worker has a worktree as its cwd, where the ticket tree is absent or a stale fork-point copy. Resolve it **immediately before each spawn**: plan's start-of-run Transition 1 moves `backlog/<id>/` to `in-progress/<id>/`, so the path flow resolved at SETUP is stale by the time build spawns — re-run Step 1's ID search (`Glob` across `claudedocs/tickets/**/<id>/`) for the build spawn rather than reusing plan's path. The one case that forwards a received path unchanged is keyed on the overrides, not on the argument's shape: when the `## Stage overrides` block flow forwards skips Transition 1 (a ship `--parallel` worker), the folder never moves, so the absolute path flow received stays valid for both spawns. A path a user passed on the command line gets no such exemption — plan moves that folder, so the build spawn re-resolves by ID regardless of the argument's form. For an epic child the path is the `tasks/<CHILD>/` folder; in a multi-repo workspace it points into the workspace checkout, above every repo.
+- **`<STORAGE_MODE>`** is the line `Storage mode: fs-native`.

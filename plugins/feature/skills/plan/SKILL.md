@@ -9,6 +9,7 @@ allowed-tools:
   - Grep
   - Bash
   - Task
+  - Agent
   - TodoWrite
   - AskUserQuestion
   - pipeline_get_ticket
@@ -33,7 +34,7 @@ Two phases:
 1. **Pre-plan synthesis** — automatic codebase exploration + open-questions surfacing, presented to the user before plan design.
 2. **Plan design** — interactive plan mode by default, non-interactive under `--auto`; the two modes are defined in Phase 2.
 
-**This stage runs in the main conversation — NOT as a subagent.** (The subagents in Phase 1 run from within this stage.)
+**Invoked standalone, this stage runs in the main conversation; under `flow` it runs as a stage subagent with a self-contained brief.** Either way, the Phase 1 subagents run from within this stage.
 
 ## Arguments
 
@@ -46,6 +47,8 @@ Two phases:
 **Optional flag** `--auto` — an internal flow→plan signal (not advertised in `argument-hint`, but honored if present from any source) that selects Phase 2's auto mode.
 
 ## Ticket Resolution & Artifacts Setup
+
+**Runtime.** Bind the runtime and plugin root per [../flow/references/runtime.md](../flow/references/runtime.md) before work. Its skill, role-spawn and user-interaction procedures apply to every step below, including standalone plan mode. Preserve a verified caller binding and carry its runtime block into the explorer and analyst briefs.
 
 **Storage mode.** Detect it once per run per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection; every per-mode reference cited in this skill (`-fs` / `-server`) is the file for that mode.
 

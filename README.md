@@ -56,7 +56,7 @@ codex plugin list                           # verify feature@feature-local is in
 
 Set `CODEX_HOME` to test against an isolated Codex home, or `FEATURE_CODEX_LOCAL_MARKETPLACE` to choose a different staging root. Both locations must be outside the checkout. Re-run the helper after local edits, then start a new Codex task to load the refreshed plugin.
 
-Whichever platform you develop against, run the two validation scripts from the checkout root before opening a pull request: `scripts/check-tool-parity.sh` checks that every `pipeline_*` tool a skill lists is dual-listed in its frontmatter (bare and Claude-scoped), and `scripts/check-mode-split.sh` checks that no storage-mode reference file leaks the other mode, every `-fs`/`-server` pair is complete, and every relative `.md` link under `skills/` resolves. Both must exit 0.
+Whichever platform you develop against, run the validation scripts from the checkout root before opening a pull request: `scripts/check-tool-parity.sh` checks that every `pipeline_*` tool a skill lists is dual-listed in its frontmatter (bare and Claude-scoped), and `scripts/check-mode-split.sh` checks that no storage-mode reference file leaks the other mode, every `-fs`/`-server` pair is complete, and every relative `.md` link under `skills/` resolves. `bash scripts/check-runtime-contract.sh` checks runtime dispatch, shared stage templates, and the independent reviewer roster. All three must exit 0.
 
 Switch back to the stable GitHub installation:
 
@@ -82,9 +82,11 @@ The validation hook uses Codex's hook system — enable `codex_hooks` and `plugi
 | Command | What it does |
 |---|---|
 | `/feature:discover <idea>` | Socratic intake → one ticket, or an epic with child tickets when the scope splits. Add `--explore` to challenge an idea before committing. |
-| `/feature:flow <id>` | Runs `plan → build` with a single verdict gate. Walks an epic's children in dependency order. Flags: `--pr`, `--no-commit`, `--no-ui-testing`, `--worktree`. |
+| `/feature:flow <id>` | Runs `plan → build` with a single verdict gate; each stage runs in its own subagent, so build starts from a fresh context with the spec and saved plan as inputs. Walks an epic's children in dependency order. Flags: `--pr`, `--no-commit`, `--no-ui-testing`, `--worktree`, `--hint`, `--plan-model`, `--build-model`. |
 | `/feature:plan <id>` | Plan stage alone — pre-plan synthesis (codebase patterns + open questions), then interactive plan mode. |
-| `/feature:build <id>` | Build loop alone — implement → review (4 parallel reviewers) → test (real-browser UI). Auto-resumes from the ticket's existing artifacts. |
+| `/feature:build <id>` | Build loop alone — implement → review (4 reviewer roles, batched to available capacity) → test (real-browser UI). Auto-resumes from the ticket's existing artifacts. |
+
+`flow`, `plan`, `build`, and `ship` select the active Claude or Codex runtime from the available tools. Claude keeps native skill and agent invocation; Codex loads the same skill and role instructions into fresh children and resumes paused stages with your answers. Nested agent support is required, and reviewer batches and ship worker counts respect the active runtime's limits. See [runtime behavior and stage models](plugins/feature/docs/advanced.md#stage-subagents-and-per-stage-models---plan-model---build-model).
 
 Resumption is auto-detected from the artifacts on disk; delete them to start a stage fresh. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md) for the `--pr` auto-PR flow, `--no-ui-testing`, `--no-commit` and the `git.commit` config default, `--worktree` isolation, epics, and blocker dependencies.
 

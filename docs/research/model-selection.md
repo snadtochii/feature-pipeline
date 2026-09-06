@@ -121,15 +121,17 @@ This is deliberately conservative: it reduces routine Opus use without downgradi
 - If those fields are hidden, or the exact model is unavailable, spawn without them and inherit/allow Codex orchestration to choose. Never fail a pipeline solely because an optimization model is unavailable.
 - Do not treat `agents/*.md` as Codex model configuration. Use built-in `explorer`/generic children plus self-contained role instructions until bundled Codex custom agents have a documented packaging mechanism. If the installed Codex compatibility loader is intentionally retained, test it as an optimization, not as the only path.
 
-### 3. Do not add flags or ticket config in the first iteration
+### 3. Flags are per-stage spawn overrides, not policy
 
-Avoid `--fast`, `--cheap`, `--quality`, or a `models:` block in `claudedocs/tickets/config.yaml` initially:
+Role defaults stay runtime-native (§2). The one user control is explicit and per invocation: `flow --plan-model <alias|inherit>` and `flow --build-model <alias|inherit>`, default `inherit`, each binding the `model` argument of the corresponding stage subagent's spawn. They exist because a stage's skill frontmatter cannot do this — a skill's `model:` applies only when the skill is the user's prompt and is ignored when another skill invokes it through the Skill tool — and because the plan/build split into separate subagents made the spawn the natural place for the choice.
 
-- The identifiers and valid reasoning levels differ by runtime and account.
-- Claude's environment override, Claude per-invocation model, Codex per-spawn override, and Codex agent TOML all have different precedence.
-- A new flow flag would need propagation through `flow → plan → build`, Stage Contract updates, standalone-skill behavior, resumption semantics, and fallback rules for an optimization that can already be expressed through native runtime controls.
+What stays out:
 
-First collect quality/cost evidence from the role defaults. If users later need a portable user control, add one semantic policy such as `model_policy: economy | balanced | quality`, map it per runtime, and never store provider model IDs in tickets.
+- No `--fast`, `--cheap`, `--quality` semantic policies — identifiers and valid reasoning levels differ by runtime and account, and a policy would need a per-runtime mapping table that the two explicit flags avoid.
+- No `models:` block in `claudedocs/tickets/config.yaml` and no provider model IDs in tickets — model names live on the command line only.
+- No propagation into `plan`'s or `build`'s own arguments, no Stage Contract change, no resumption semantics beyond the unused-flag notice: the flags bind the spawn, and a stage the route skipped prints that its model flag was unused.
+
+The wiring — Claude's per-invocation `model` argument, Codex's spawn override when exposed, and the §4 fallback — lives in `skills/flow/references/stage-briefs.md` §2.
 
 ### 4. Fallback contract
 
@@ -158,13 +160,12 @@ Minimum policy change:
 
 Operational/runtime wiring:
 
-- Add `skills/flow/references/model-selection.md` as the shared cross-stage contract.
-- Link/invoke it from `skills/discover/SKILL.md`, `skills/plan/SKILL.md`, `skills/build/SKILL.md`, and `skills/ship/SKILL.md` at each spawn point.
+- `skills/flow/references/stage-briefs.md` §2 carries the per-stage override mapping and the §4 fallback for the plan and build spawns; the other spawn points (discover, plan's Phase 1, build's reviewers and `ui-tester`, ship) keep the role defaults from `agents/*.md`.
 - Update `skills/build/SKILL.md` and `skills/build/references/test-preflight.md` to remove model-brand wording such as “Opus ui-tester.”
 - Update `docs/advanced.md` with native override and fallback behavior.
 - Audit `.codex-plugin/plugin.json`'s undocumented `agents` field. Remove it only after the Codex runtime-neutral spawn path is verified; retaining it temporarily is safer than breaking an existing compatibility loader, but it must not be described as a documented guarantee.
 
-No ticket artifact schema, state transition, flow flag, or `config.yaml` field needs to change in the first iteration.
+Beyond the two per-stage spawn overrides in §3, no ticket artifact schema, state transition, or `config.yaml` field changes.
 
 ## Validation and test plan
 
@@ -205,3 +206,23 @@ Use a separate consuming project, per this repo's dev-loop rule.
 ## Bottom line
 
 The plugin should stop equating “subagent” with “Opus.” Use Sonnet/Terra for bounded evidence collection and retain the strongest models for correctness, security, and architecture. Claude Code can implement this immediately through agent frontmatter. Codex can do it through exposed per-spawn overrides or custom-agent TOML, but the plugin must first remove its dependency on the undocumented assumption that Claude-style Markdown agents—and especially `model: opus`—are portable Codex agent configuration.
+
+## Follow-up: stage-subagent measurement (2026-09-06)
+
+One ticket (`MP-1`, complexity M, four acceptance criteria, a single-file Python CLI in a throwaway project), run twice headlessly with `flow <id> --no-ui-testing --no-commit`, plan artifacts deleted between runs: once with the stages inline (plugin 3.5.4), once with plan and build as stage subagents (3.6.0). Both runs reached `verdict: pass` with zero reviewer findings. Context per assistant message = `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` from the transcript JSONL; the build stage's peak is the maximum over the messages from the `Skill feature:build` invocation onward (inline) or over the build subagent's own transcript (subagent).
+
+| | Inline (3.5.4) | Stage subagents (3.6.0) |
+|---|---:|---:|
+| Context when build starts | 82,664 | 32,592 (brief + harness baseline), 55,152 after the skill loads |
+| Build's peak context | 122,726 | 118,978 |
+| Assistant messages in the build stage | 27 | 60 |
+| Conversation that invoked flow — peak / messages | 122,726 / 51 | 71,704 / 18 |
+| Total input tokens, whole run (all transcripts) | 5,563,332 | 8,717,816 |
+| Total output tokens | 82,874 | 72,377 |
+| Reported cost | $4.53 | $8.00 |
+
+Build's peak fell 3%, not the targeted 50%: the inline build's 82.7k starting context was mostly the harness baseline plus the skill and reference loads that a fresh subagent pays again (32.6k → 55.2k before its first edit), and the subagent's own reads and checkpoints then grew it to within 4k of the inline peak — the plan prose it no longer carries was a small share of the total. What the split does deliver is the invoking conversation: 71.7k peak over 18 messages instead of 122.7k over 51, i.e. the caller's context survives the run. Total input tokens rose 57% (the shared references load three times; every stage re-reads spec, plan, and sources). One sample per arm; the subagent build took more than twice the messages, which is run variance as much as design. The next lever for build's peak is inside build itself — its skill and reference loads, and re-reads across checkpoints — not the plan/build boundary.
+
+## Follow-up: runtime compatibility
+
+FP-82’s shared stage briefs dispatch through runtime-specific references selected from active tools. Codex stages and independent reviewers explicitly request fresh children; named role bodies are loaded from the bound plugin installation, with runtime model inheritance rather than Claude alias translation. Claude keeps native skill calls, registered roles and same-agent resumption. See the [runtime implementation plan](../plans/FP-82-runtime-compatibility.md) and [verification record](../plans/FP-82-runtime-verification.md). The A/B numbers above precede this runtime follow-up and are not a measurement of its additional reference loads.

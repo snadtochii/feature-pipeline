@@ -9,6 +9,7 @@ allowed-tools:
   - Bash
   - TodoWrite
   - Task
+  - Agent
   - pipeline_get_ticket
   - pipeline_list_tickets
   - pipeline_update_ticket
@@ -45,7 +46,7 @@ argument-hint: "[ticket-id ...] [--base branch] [--merge] [--ui-test] [--paralle
 
 The orchestrator (this skill, in the main conversation) drives the **outer loop**: it resolves the run shape (classified in SETUP step 1; branch strategy in step 3), spawns subagents, and independently verifies each hop. It never edits ticket code itself.
 
-**Environment requirement (applies to all of `ship`).** The orchestrator delegates building to an **implementer subagent**, and that implementer runs `feature:flow → build`, which itself spawns build's four reviewer subagents from within — a nested subagent tree. The harness supports this: subagents can spawn subagents, to a nesting depth of 5, since Claude Code v2.1.172. `ship` additionally needs to observe async agents so the orchestrator can verify each hop as workers return.
+**Environment requirement (applies to all of `ship`).** The orchestrator needs async child observation and three nested child layers: implementer → stage → reviewer/explorer/UI role. Check the selected runtime’s actual depth and concurrency limits before dispatch; the runtime’s Capacity operation reserves descendant slots and reports missing capabilities. Flow loads inline inside the implementer and adds no extra child layer.
 
 The orchestrator spawns each role directly — implementer, then the independent reviewer as its sibling, then an implementer to address the review. The tree stays shallow and the orchestrator can observe and recover each hop. Per ticket, in `blocked_by` order (epic run) or list order (multi-solo run):
 
@@ -96,6 +97,8 @@ Roles stay separated: the implementer owns build + fix authority (and per-ticket
 ## Procedure
 
 ### SETUP
+**Runtime.** Bind the runtime and plugin root per [../flow/references/runtime.md](../flow/references/runtime.md). Its operations apply to every implementer, independent-reviewer, address and UI-test child, and every nested skill invocation. Prefix each child brief with its resolved runtime block; preserve it through recovery and flow’s stage spawns. Apply the runtime’s capacity reservation before dispatching workers, including on the parallel walk.
+
 **Storage mode.** Detect it once per run per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection, then read ship's storage file for that mode — [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) — **once here, in full**; every later `§N` cite in this skill refers to that already-loaded file, and ship's references cite it by name as "ship's storage file §N". Subagent briefs inline what §3 resolves; a subagent never follows a storage reference itself.
 
 1. **Resolve the ticket list and classify the run shape** — by the resolved tickets' identity, not by how many IDs or which flags were passed. Read each resolved ID's metadata per §1 (`kind`, parent linkage, `blocked_by`, and — under `--parallel` — the lane-partition input step 4 consumes):
@@ -149,7 +152,7 @@ Skip this section entirely unless `--ui-test` was passed (default is no browser 
 A merge — per-ticket into the integration branch, or a resulting PR via `--merge` — lands **code, not ticket state**: every ticket `flow --pr` built is sitting at status `in-review` (Transition 5 — location per §5), and `ship` does **not** perform the finalize-to-`done` move (Transition 6) — `sync` owns that single transition, so `ship` does not reimplement it. Close the loop by running **`/feature:sync`**, which scans every non-done ticket, detects each merged PR, finalizes the ticket to `done`, and fires the Epic-completion predicate for epic children — Transition 6 promotes a child only once its merge commit is reachable from `<base>`, so `sync` is safe to run at any point in the run. Surface "tickets remain in review — merge the resulting PR(s), then run `/feature:sync` to finalize" as the final line of the run report so the next step is explicit.
 
 ### REVIEWER PROMPT TEMPLATE (bias isolation is the crux)
-The template lives in [`references/reviewer-prompt.md`](references/reviewer-prompt.md). Read it at the PER TICKET Step 2 reviewer spawn — the one point it's consulted — and inline its template **verbatim** into the reviewer subagent's brief with `<N>`, `<REPO_PATH>`, and `<GROUND_TRUTH_BLOCK>` filled from §3 (the reviewer has no ticket-store access): the subagent cannot follow relative links, so the template text itself must land in the spawn prompt (the same spawn-time injection pattern as build's `references/confidence-scale.md`).
+The template lives in [`references/reviewer-prompt.md`](references/reviewer-prompt.md). Read it at the PER TICKET Step 2 reviewer spawn — the one point it's consulted — and inline its template **verbatim** into the reviewer subagent's brief with `<N>` and `<REPO_PATH>` resolved, `<GROUND_TRUTH_BLOCK>` filled from §3, and `<PR_COMMENTS_PATH>` resolved under the verified plugin root (the reviewer has no ticket-store access): the subagent cannot follow relative links, so the template text itself must land in the spawn prompt (the same spawn-time injection pattern as build's `references/confidence-scale.md`).
 
 ## Recovery & GitHub identity
 
