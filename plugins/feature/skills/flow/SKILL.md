@@ -157,7 +157,7 @@ After build returns, flow's work is done — the verdict gate and every state tr
 
 ## Artifact Convention
 
-All artifacts live inside the per-ticket folder, numbered by stage order. There are two layouts depending on whether the ticket is solo or a child of a discover-produced epic.
+All artifacts live inside the per-ticket folder, numbered by stage order. There are two layouts depending on whether the ticket is solo or a child of a discover-produced epic. What the layouts below are in the detected storage mode — on-disk trees, or artifact names keying rows on a ticket whose metadata is the row: [`keying-fs.md`](references/keying-fs.md) / [`keying-server.md`](references/keying-server.md) §4.
 ### Solo ticket layout
 
 ```
@@ -189,7 +189,7 @@ claudedocs/tickets/<state>/<EPIC-ID>/   # epic folder; <state> follows most-adva
     └── <CHILD-3-ID>/
 ```
 
-The whole epic subtree moves between `<state>/` folders as a unit per [`state-transitions-fs.md`](references/state-transitions-fs.md) / [`state-transitions-server.md`](references/state-transitions-server.md) (Transitions 1, 2, and 3 each have epic-child variants). Per-child `status` lives in each child's `01-spec.md` frontmatter; epic-level `status` lives in `prd.md` and tracks the folder location.
+How the epic and its children advance together as a unit, and where per-child and epic-level `status` live, is the detected mode's [`keying-fs.md`](references/keying-fs.md) / [`keying-server.md`](references/keying-server.md) §4.
 
 **Naming rules:**
 - Sequential: `NN-name.md` where `NN` is the stage order

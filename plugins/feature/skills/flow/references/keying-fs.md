@@ -19,3 +19,7 @@ The resumption routing table's signals are read from the ticket folder:
 
 - **The user's start-fresh signal** is deleting `02-plan.md` (and any downstream `03-`/`04-`/`05-`/`06-` files) from the ticket folder; git is the version-history layer if a backup is wanted.
 - **SETUP's downstream invalidation** checks the folder for `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` when `02-plan.md` is absent, and deletes each present file — the one skill-side artifact deletion in the pipeline (the Delete artifact operation in [`storage-fs.md`](storage-fs.md)).
+
+## §4 Artifact layout
+
+The folder trees in the Artifact Convention are the layout as it exists on disk: every artifact is a file inside the ticket folder, ticket metadata is the frontmatter of `01-spec.md` (per-child) or `prd.md` (epic), and the ticket folder — or the whole epic subtree, as a unit — moves between the state folders per [`state-transitions-fs.md`](state-transitions-fs.md) (Transitions 1, 2, and 3 each have epic-child variants).

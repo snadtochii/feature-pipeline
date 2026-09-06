@@ -19,3 +19,7 @@ The resumption routing table's signals are read from the server:
 
 - **The user's start-fresh signal** is deleting `02-plan.md` (and any downstream artifacts) with `pipeline_delete_artifact` — permanent, no server-side history; copy anything worth keeping first.
 - **SETUP's downstream invalidation** checks the `pipeline_list_artifacts` listing for `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` when `02-plan.md` is absent, and deletes each present one with `pipeline_delete_artifact` — the one skill-side artifact deletion in the pipeline (the Delete artifact operation in [`storage-server.md`](storage-server.md)).
+
+## §4 Artifact layout
+
+The artifact names in the Artifact Convention key artifact rows on the ticket (Write artifact / List artifacts); artifact bodies are frontmatter-free, and every piece of ticket metadata — `status`, `kind`, `parent_id`, `blocked_by` — is a row field. An epic's children are rows with `parent_id` set; the epic "advancing" with its children is the epic row's own `status`, flipped by the CAS transitions in [`state-transitions-server.md`](state-transitions-server.md) (Transitions 1, 2, and 3 each have epic-child variants), never a relocation of anything.
