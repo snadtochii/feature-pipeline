@@ -1,0 +1,9 @@
+{
+  "name": "tidy-loop",
+  "description": "Scheduled structure-only refactoring loop: one hotspot finding per run, verified against behavior-preservation gates, delivered as a draft PR.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Serhii Nadtochii"
+  },
+  "license": "MIT"
+}
