@@ -72,17 +72,26 @@ worktree, and the next run's recovery (§2 step 2) needs to know how far this on
 ## §1 Load and validate the profile
 
 **Resolve the repo first.** `$1`, when given, is an absolute path to the repository to run
-against; otherwise the current working directory. A scheduled runner always passes it
-explicitly, because a run started by a scheduler has no meaningful working directory and a
-profile resolved from the wrong one either fails or, worse, onboards the wrong repo. Resolve it
-to a directory containing `.git`, or **stop**.
+against; otherwise the current working directory. Resolve it to a directory containing `.git`,
+or **stop**.
 
-Read `.tidyloop.yaml` from that repo root. Absent, or `version` not `1` → **stop**: this repo is
-not onboarded, and the remedy is `tidy-setup`.
+**A scheduler passes the loop clone, never the user's checkout.** The loop clone is always on
+`base`, so its committed profile is always the one that governs runs. The user's own checkout
+is on whatever branch they happen to be working on, which may predate the profile or carry an
+edited one. A first real run was handed the user's checkout while it sat on a branch older than
+the merge; the profile was simply absent there, and the run only succeeded by improvising from
+a path its prompt happened to mention. A weekly job must not depend on which branch someone has
+checked out — decoupling from that was the entire reason the loop clone exists.
 
-Note that `loop_clone` is itself a clone of this repo and therefore carries its own copy of the
-profile. Either path resolves the same configuration; the argument exists so the runner does not
-have to care which one the scheduler happened to start in.
+Read `.tidyloop.yaml` from **exactly** that repo root. Absent, or `version` not `1` → **stop**
+and report the path you read. Do **not** go looking for a profile somewhere else — not in the
+loop clone, not in a sibling directory, not at a path named in a prompt. A profile found by
+searching is a profile nobody chose for this run. The remedy is to point the runner at the loop
+clone, or to run `tidy-setup` if the repo was never onboarded.
+
+A human running by hand inside their own checkout is fine, provided that checkout's current
+branch has the profile. If it does not, the stop message should say so and name the loop clone
+as the path to pass instead.
 
 Check every validation rule in
 [`../tidy-setup/references/profile.md`](../tidy-setup/references/profile.md) §3. A failed rule
@@ -151,6 +160,14 @@ silently is exactly the kind of destructive convenience this loop must not have.
 
 Record `<BASE_SHA>` as the resolved `origin/<base>` commit. It is cited in the brief and used by
 every gate.
+
+**If the fast-forward moved `HEAD`, re-read and re-validate the profile** from the updated tree,
+and re-bind every setting from that copy before continuing. §1 necessarily read the profile
+before this step could fetch, so without the re-read a run executes under the profile as it was
+at the *previous* run — a tier promotion, a new forbidden path, or a tightened cap merged to
+`base` during the week would take effect one run late. That is harmless for a cosmetic edit and
+exactly wrong for a safety one. A re-read profile that now fails validation stops the run, same
+as §1.
 
 ### Step 4 — Churn budget
 
@@ -326,19 +343,49 @@ unattended decision is unauditable.
 Report the aggregated score in the brief's table, and name the aggregation rule there, so a
 reader can reproduce the ordering from the same inputs.
 
-Take the top survivor. **No survivors → the run ends clean**, with the full ranked list and
-every drop reason in the report. A quiet week is a success, not a failure to work around.
+### Pre-screen — the architect judges proposals before anything is built
+
+Ordering picks what is *eligible*; it cannot tell whether a proposal is worth making. The
+architect can, and asking before building is nearly free while asking after is the most
+expensive failure the loop has. A first real run selected a finding purely on its category's
+position, then the architect failed it on placement. At tier 1 that run would have provisioned
+a worktree, implemented the change, run every behavior gate, and only then aborted at G8.
+
+So, **at every tier**, walk the ordered survivors and spawn `tidy-architect` on each written
+proposal in turn, stopping at the first **pass**:
+
+- **Pass** → that finding is selected. Stop screening.
+- **Fail** → drop it with the architect's `one_line` as the reason; ledger status `escalated`, so
+  it is skipped for the next four runs and a human sees it. Move to the next survivor.
+- **Fail with `escalate: true`** — a contradicted decision or removed documented intent — same,
+  and the report calls it out rather than listing it as an ordinary drop.
+
+Screen **at most three** proposals. Past that, end the run clean and report every verdict:
+three consecutive fails is a signal about the scanner or the profile, not a reason to keep
+spending on verdicts.
+
+The pre-screen never replaces G8. The implementation can differ from the proposal, so gate G8
+still judges the diff at tier 1 and above.
+
+Applying the same pre-screen at tier 0 is deliberate. Tier 0 exists to calibrate the selection
+step against the user's judgment, so it must select exactly as tier 1 would — a tier-0 report
+that picks differently from tier 1 calibrates a decision the loop will never actually make.
+
+**No survivors, or no pass within three → the run ends clean**, with the full ranked list, every
+drop reason, and every architect verdict in the report. A quiet week is a success, not a failure
+to work around.
 
 ---
 
 ## §7 Tier 0 — stop here
 
 At `tier: 0` the run produces a report and nothing else. No branch, no worktree, no commit, no
-pull request, no ledger row.
+pull request, no ledger row — including the `escalated` rows the pre-screen would otherwise
+record, which at tier 0 appear in the report only.
 
-Spawn `tidy-architect` on the **written proposal** rather than a diff, and include its verdict —
-at tier 0 a judgement on the idea is exactly what a human calibrating against the loop wants to
-read.
+The architect has already judged the proposals in §6's pre-screen. Include **every** verdict it
+returned, passes and fails — at tier 0 a judgement on each idea is exactly what a human
+calibrating against the loop wants to read, and the fails are often the more informative half.
 
 Write the report per [`references/brief.md`](references/brief.md) §5 to
 `<state_dir>/reports/<ISO-date>.md` when `tier0_report` is `file`, or open it as a
@@ -454,12 +501,12 @@ cosmetic:
    reconciliation enumerates pull requests, so a pushed branch without one is invisible to it.
    The committed `proposed` row would describe a pull request that never opened.
 
-**What actually makes this safe is idempotence, not per-step recovery.** Step 5 succeeding and
-step 6 crashing leaves a real pull request *and* a full pending set — the branch is not an orphan,
+**What actually makes this safe is idempotence, not per-step recovery.** Step 4 succeeding and
+step 5 crashing leaves a real pull request *and* a full pending set — the branch is not an orphan,
 so nothing flags it, and a naive next run would append those rows a second time. Because the
 metrics are pure row counts and graduation is computed from them, a duplicate would widen the
 loop's autonomy on work it did once. Step 2's drop rule is what prevents that: retrying the
-sequence carries every row exactly once, so step 6 is not correctness-critical.
+sequence carries every row exactly once, so step 5 is not correctness-critical.
 
 A push that succeeded with a pull request that did not leaves an orphan `tidy/*` branch, which
 §3 detects and completes by opening the pull request from the retained brief — never by redoing

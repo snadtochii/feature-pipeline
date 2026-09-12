@@ -2,7 +2,7 @@
   "name": "tidy-loop",
   "displayName": "Tidy Loop",
   "description": "Scheduled structure-only refactoring loop: one hotspot finding per run, verified against behavior-preservation gates, delivered as a draft PR.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Serhii Nadtochii",
     "url": "https://github.com/snadtochii"
