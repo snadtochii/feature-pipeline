@@ -193,10 +193,21 @@ cache of a truth stored in the pull requests themselves: a missed write or a han
 the loop's memory without corrupting it.
 
 Also enumerate remote `tidy/*` branches. One with **no pull request**, open or closed, is an
-orphan left by a run whose push succeeded and whose pull request did not. Complete it by opening
-the pull request for that branch — the change, the ledger row, and the brief's evidence are
-already on it — and never by redoing the work. An orphan is not a terminal outcome, and left
-undetected its rows never reach reconciliation at all.
+orphan left by a run whose push succeeded and whose pull request did not. An orphan is not a
+terminal outcome, and left undetected its ledger rows never reach reconciliation at all.
+
+Complete it, never redo it. The branch holds the change and the committed ledger row; the brief
+is at `<state_dir>/briefs/<run-id>.md`, and the run id is the branch name's first component
+(`tidy/<run-id>-…`), so the file is addressable from the branch alone. Open the pull request
+from that exact artifact.
+
+**Brief missing** — a wiped `state_dir`, or an orphan from another machine — → **report the
+branch and stop.** Do not open a pull request. The gate evidence and the ranked candidate table
+cannot be reproduced: the gates already ran and the dropped candidates are gone. Filling that
+table from what the branch implies would print results nobody observed, which
+[`references/brief.md`](references/brief.md) forbids everywhere else for the same reason. An
+unopened branch with an honest report is recoverable by hand; a pull request carrying invented
+evidence is worse than none.
 
 Two outputs, and **no writes to the loop clone**:
 
@@ -423,21 +434,25 @@ All gates green. Compose the brief per [`references/brief.md`](references/brief.
 set.** The order is [`references/ledger.md`](references/ledger.md) §7 and none of it is
 cosmetic:
 
-1. Append this run's row plus every pending row; commit on the tidy branch, applying §8's
+1. Write the brief to `<state_dir>/briefs/<run-id>.md`. Durable and run-addressable, not a
+   scratch path: it is the only copy of the gate evidence and the ranked candidate table, and
+   neither survives the run anywhere else. The branch will carry the change and the ledger row
+   but never this document.
+2. Append this run's row plus every pending row; commit on the tidy branch, applying §8's
    exclusion list. Committing after the push would leave the row unpushed and absent from the
    pull request, with no second push to rescue it.
-2. Push.
-3. Open the pull request per brief.md §3: `--draft`, the profile's label, `--body-file`.
-4. Clear the pending set — **only now**. Clearing after the push instead destroys the only local
-   copy of those rows if the pull request then fails to open, and reconciliation enumerates pull
-   requests, so a pushed branch without one is invisible to it. The committed `proposed` row
-   would describe a pull request that never opened.
+3. Push.
+4. Open the pull request per brief.md §3: `--draft`, the profile's label, and `--body-file`
+   pointing at step 1's file.
+5. Clear the pending set **and** the brief file — **only now**. Clearing after the push instead
+   destroys the only local copy of both if the pull request then fails to open, and
+   reconciliation enumerates pull requests, so a pushed branch without one is invisible to it.
+   The committed `proposed` row would describe a pull request that never opened.
 
-A failure at any step leaves the pending set intact and the next run carries it. A push that
-succeeded with a pull request that did not leaves an orphan `tidy/*` branch, which §3's
-reconciliation detects and completes by opening the pull request for that existing branch —
-never by redoing the work, since the branch already holds the change, the ledger row, and the
-evidence.
+A failure at any step leaves the pending set and the brief intact, and the next run recovers
+from them. A push that succeeded with a pull request that did not leaves an orphan `tidy/*`
+branch, which §3 detects and completes by opening the pull request from the retained brief —
+never by redoing the work.
 
 Three rules from that reference that decide whether the brief is worth anything:
 

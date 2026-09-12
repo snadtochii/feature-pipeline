@@ -169,12 +169,13 @@ loop clone would abort the next run at preflight.
 
 **The single write, in this exact order.** A run that reaches a deliverable branch:
 
-1. Compose the brief.
+1. Compose the brief and write it to `<state_dir>/briefs/<run-id>.md`.
 2. Append this run's own row plus **every pending row** to the ledger on the tidy branch.
 3. Commit the ledger, applying the run's exclusion list.
 4. Push.
-5. Open the pull request.
-6. Clear the pending set **only once the pull request exists** — never after step 4.
+5. Open the pull request, with `--body-file` pointing at the brief from step 1.
+6. Clear the pending set **and** the brief file, only once the pull request exists — never
+   after step 4.
 
 The push comes after the ledger commit, not before. Committing a row on a branch already pushed
 leaves it unpushed and invisible in the pull request, and there is no second push to rescue it.
@@ -189,9 +190,21 @@ window recoverable: a failure anywhere leaves the rows pending and the next run 
 **The orphan branch that window can still produce.** A push that succeeded and a pull request
 that did not leaves a `tidy/*` branch on the remote with no pull request. Reconciliation must
 therefore also enumerate remote `tidy/*` branches and treat one with no pull request — open or
-closed — as **needs a pull request**, not as a terminal outcome. The recovery is to open the
-pull request for that existing branch rather than to redo the work: the branch already carries
-the change, the ledger row, and the brief's evidence.
+closed — as **needs a pull request**, not as a terminal outcome.
+
+Recovery does not redo the work. The branch already carries the change and the committed ledger
+row; the brief is at `<state_dir>/briefs/<run-id>.md`, and the run id is the first component of
+the branch name, so the file is addressable from the branch alone. Open the pull request from
+that exact artifact.
+
+**When the brief is gone**, the recovery stops there. A wiped `state_dir`, or an orphan created
+on another machine, leaves no way to reproduce the gate evidence or the ranked candidate table —
+the gates have already run and the dropped candidates are gone. In that case **report the orphan
+branch and its ledger row to the human, and do not open a pull request.** Reconstructing an
+evidence table from what the branch merely implies would mean printing gate results nobody
+observed, which is the one thing the brief is forbidden from doing anywhere else. An unopened
+branch with an honest report is recoverable by hand; a pull request carrying invented evidence is
+worse than no pull request at all.
 
 **A run with no branch** — a preflight abort, a quiet week, a gate abort — writes its row, if it
 has one, to the pending set and nothing else. It must not commit to the loop clone: that dirties

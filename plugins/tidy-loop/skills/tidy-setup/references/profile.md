@@ -125,8 +125,14 @@ Under `state_dir` the run owns three things:
 <state_dir>/reports/<ISO-date>.md      # tier-0 reports
 <state_dir>/blocked/<run-id>.patch     # the diff of a gate-aborted run
 <state_dir>/blocked/<run-id>.md        # the deciding gate output
+<state_dir>/briefs/<run-id>.md         # the pull request body — see ledger.md §7
 <state_dir>/pending-ledger.md          # rows not yet carried onto a branch — see ledger.md §7
 ```
+
+The brief lives here rather than on the branch for a specific reason: it is the *only* copy of
+the gate evidence and the ranked candidate table, and neither is reconstructable after the run
+ends. A pushed branch carries the change and the ledger row but not the brief, so without a
+durable copy an orphan branch cannot have its pull request opened at all.
 
 ### `scan.include` / `scan.exclude`
 

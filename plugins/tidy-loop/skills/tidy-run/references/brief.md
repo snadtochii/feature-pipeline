@@ -122,15 +122,33 @@ decision rather than in a report nobody opens.
 
 ## §3 Delivery
 
+Write the brief to **`<state_dir>/briefs/<run-id>.md`**, before the push, and keep it until the
+pull request exists. Not a scratch path and not a temporary file:
+
 ```bash
+# 1. brief written to <state_dir>/briefs/<run-id>.md  (durable, outside every working tree)
 cd "<WT>" && git push -u origin "<branch>"
 cd "<WT>" && gh pr create --draft --base "<BASE>" --label "<pr_label>" \
-  --title "<title>" --body-file "<brief path>"
+  --title "<title>" --body-file "<state_dir>/briefs/<run-id>.md"
 ```
 
-Run from inside the worktree so `gh` infers the repository from the working directory. Write the
-body to a file and pass `--body-file`; never interpolate the brief into a shell argument, since
-it carries model-written prose, file paths, and a reviewer's recovered rejection notes.
+**Why the path has to be durable and run-addressable.** The brief is the only copy of the gate
+evidence and the ranked candidate table. A pushed branch carries the change and the committed
+ledger row, but not this document, and nothing in it is reconstructable once the run ends: the
+gates have already executed and the scanner's dropped candidates are gone. If the push succeeds
+and `gh pr create` fails, the next run finds an orphan branch it cannot open a pull request for
+unless this file survived. The run id is the first component of the branch name
+(`tidy/<run-id>-<category>-<slug>`), which is what lets recovery find the file from the branch
+alone.
+
+Retain it until the pull request is created, then clear it with the pending set
+([`ledger.md`](ledger.md) §7). It is deliberately *not* committed to the branch: a document
+describing a pull request does not belong inside that pull request's own diff, where it would
+also count against the caps.
+
+Run `gh` from inside the worktree so it infers the repository from the working directory. Always
+pass `--body-file`; never interpolate the brief into a shell argument, since it carries
+model-written prose, file paths, and a reviewer's recovered rejection notes.
 
 **Draft, always.** Never `--fill`, never `gh pr merge`, never auto-merge, at any tier. The loop
 opens; a human merges or closes.
