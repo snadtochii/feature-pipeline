@@ -201,6 +201,18 @@ codebase worse than either end state.
 single most important number in the file: it is what keeps the loop from becoming a review queue
 nobody reads.
 
+**It must be `1`**, and validation rule 15 enforces that. Beyond the review-queue argument,
+raising it breaks pending-row delivery. A pending row is keyed by the run that *created* it,
+while a *different* run may be the one that carries it onto a branch — which is the whole point
+of the pending set. With one pull request in flight at a time, a run that would append an
+already-carried row aborts at the churn budget first, so the row cannot be delivered twice. With
+two in flight, it can: the carrier's pull request is open, the originating run has no branch of
+its own, the row is not yet on base, and nothing stops a third run appending it again. Both then
+merge and the row is counted twice, distorting the metrics that drive graduation.
+
+Lifting this needs a durable per-row delivery record — a stable row id in the committed ledger,
+plus the branch that actually carried it — not a bigger number here.
+
 **Test files never count toward any cap.** They are evidence, not churn. Charging them would
 create the worst possible incentive — the cheapest way under a cap would be to skip the
 characterization tests that make the change safe. A file matching `commands.test_globs` is
@@ -330,6 +342,10 @@ Path, repo-relative, to the committed append-only ledger. One line per run. Crea
 14. `test_support_paths` is present. An empty list is permitted only for a project with no test
     harness beyond its spec files, and `tidy-setup` states that conclusion explicitly rather
     than defaulting to it.
+15. `caps.max_open_prs` is exactly `1`. A larger value makes pending-row delivery
+    non-idempotent, because a row created by one run and carried by another can be appended a
+    second time while the carrier's pull request is still open. Refuse the profile rather than
+    silently double-counting; the semantics above name what lifting it would require.
 
 A failed rule is reported with the field name and the remedy, and nothing runs.
 

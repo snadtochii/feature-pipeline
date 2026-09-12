@@ -203,6 +203,16 @@ unmerged branch counts as delivered too: its rows never reached base, but re-del
 `proposed` row would be wrong, and reconciliation records that finding's real terminal status
 separately.
 
+**The bound this rule depends on, stated because it is load-bearing rather than incidental.**
+The key is the run that *created* a row, while a different run may be the one that carries it —
+that asymmetry is the pending set's whole purpose. It holds only because exactly one pull request
+is in flight at a time: a run that would re-append an already-carried row hits the churn budget
+and aborts before it gets there. With two in flight the rule is insufficient, since the carrier's
+pull request is open, the originating run has no branch of its own, and the row is not yet on
+base, so nothing stops a third run appending it again. `caps.max_open_prs` is therefore fixed at
+`1` by profile validation rule 15, and lifting it requires a durable per-row delivery record — a
+stable row id in the committed ledger plus the branch that carried it — not a bigger cap.
+
 The consequence is that step 6 stops being a correctness-critical step. A crash before it leaves
 rows that the next run recognizes as delivered and discards. **Retrying the sequence carries
 every row exactly once**, which is the property that actually matters — not that each step is
