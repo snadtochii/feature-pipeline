@@ -13,18 +13,19 @@ A Claude Code & Codex plugin that runs an agentic feature-development pipeline f
 ### Claude Code
 
 ```bash
-/plugin marketplace add <github-user>/feature-pipeline   # add the repo as a marketplace (ships three plugins)
+/plugin marketplace add <github-user>/feature-pipeline   # add the repo as a marketplace (ships four plugins)
 /plugin install feature@<github-user>-feature            # install the pipeline plugin
 /plugin install stack-first@<github-user>-feature        # optional: the dependency-guard plugin
+/plugin install tidy-loop@<github-user>-feature           # optional: the structure-only refactoring loop
 /plugin install server-native@<github-user>-feature      # optional: only for mode: server-native
 /reload-plugins                                          # activate
 ```
 
-The marketplace ships three independent plugins: `feature` (the pipeline), `stack-first` (a stack-agnostic dependency guard), and `server-native` (the MCP connector that turns on server-native ticket storage). Install whichever you need. `stack-first` has its own [README](plugins/stack-first/README.md).
+The marketplace ships four independent plugins: `feature` (the pipeline), `stack-first` (a stack-agnostic dependency guard), `tidy-loop` (a scheduled structure-only refactoring loop), and `server-native` (the MCP connector that turns on server-native ticket storage). Install whichever you need. `stack-first` and `tidy-loop` have their own READMEs ([stack-first](plugins/stack-first/README.md), [tidy-loop](plugins/tidy-loop/README.md)).
 
 ### Codex
 
-The two runtime plugins carry their own Codex manifests (`plugins/feature/.codex-plugin/plugin.json`, `plugins/stack-first/.codex-plugin/plugin.json`); the repo-root marketplace file (`.agents/plugins/marketplace.json`) indexes both with subdirectory-aware sources. `server-native` is Claude-only — on Codex you bind the same server through `config.toml` (see the requirements bullet below).
+The three runtime plugins carry their own Codex manifests (`plugins/feature/.codex-plugin/plugin.json`, `plugins/stack-first/.codex-plugin/plugin.json`, `plugins/tidy-loop/.codex-plugin/plugin.json`); the repo-root marketplace file (`.agents/plugins/marketplace.json`) indexes them with subdirectory-aware sources. `server-native` is Claude-only — on Codex you bind the same server through `config.toml` (see the requirements bullet below).
 
 Install the stable plugin from GitHub:
 
@@ -33,6 +34,7 @@ codex plugin marketplace add snadtochii/feature-pipeline --ref main
 codex plugin list                           # verify feature@feature is available
 codex plugin add feature@feature
 codex plugin add stack-first@feature        # optional: the dependency-guard plugin
+codex plugin add tidy-loop@feature          # optional: the structure-only refactoring loop
 codex plugin list                           # verify installed version and status
 ```
 

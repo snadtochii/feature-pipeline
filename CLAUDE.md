@@ -70,16 +70,25 @@ feature-pipeline/
 │   ├── server-native/       # MCP connector plugin — manifest only, no runtime components;
 │   │   └── .claude-plugin/  # declares the personal server via install-time userConfig prompts.
 │   │                        # Claude-only: Codex has no install-time prompting (config.toml instead).
-│   └── stack-first/         # Stack-agnostic dependency-guard plugin (independent versions)
+│   ├── stack-first/         # Stack-agnostic dependency-guard plugin (independent versions)
+│   │   ├── .claude-plugin/
+│   │   │   └── plugin.json
+│   │   ├── .codex-plugin/
+│   │   │   └── plugin.json
+│   │   ├── hooks/           # Non-blocking PreToolUse install-command guard
+│   │   │   ├── hooks.json
+│   │   │   └── stack-first-guard.sh
+│   │   └── skills/
+│   │       └── stack-first/ # Five-step tech-selection procedure + docs/STACK.md contract
+│   └── tidy-loop/           # Scheduled structure-only refactoring loop (independent versions)
 │       ├── .claude-plugin/
 │       │   └── plugin.json
 │       ├── .codex-plugin/
 │       │   └── plugin.json
-│       ├── hooks/           # Non-blocking PreToolUse install-command guard
-│       │   ├── hooks.json
-│       │   └── stack-first-guard.sh
+│       ├── agents/          # tidy-scanner (proposes findings), tidy-architect (the G8 verdict)
 │       └── skills/
-│           └── stack-first/ # Five-step tech-selection procedure + docs/STACK.md contract
+│           ├── tidy-setup/  # One-time repo onboarding + the .tidyloop.yaml contract
+│           └── tidy-run/    # One unattended run: scan → select one → worktree → gates → draft PR
 ├── README.md                # End-user docs
 ├── AGENTS.md                # Codex twin of this file
 └── CLAUDE.md                # This file
@@ -409,7 +418,7 @@ There's no automated test suite for the plugin itself. Validation is by manual p
 - No marketing language in commit messages ("magnificent", "blazingly fast", etc.).
 - Reference the issue/feature the commit addresses.
 - Keep commits small — one concern per commit.
-- **Bump the plugin version every PR.** For the `feature` plugin, update `version` in BOTH `plugins/feature/.claude-plugin/plugin.json` and `plugins/feature/.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two `feature` manifests must stay in lockstep. `stack-first` versions independently: when a change touches it, bump its own lockstep pair (`plugins/stack-first/.claude-plugin/plugin.json` + `plugins/stack-first/.codex-plugin/plugin.json`); the two plugins' versions are not coupled. The discover → plan → build pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/build step.
+- **Bump the plugin version every PR.** For the `feature` plugin, update `version` in BOTH `plugins/feature/.claude-plugin/plugin.json` and `plugins/feature/.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two `feature` manifests must stay in lockstep. `stack-first` and `tidy-loop` version independently: when a change touches one, bump its own lockstep pair (`plugins/<name>/.claude-plugin/plugin.json` + `plugins/<name>/.codex-plugin/plugin.json`); the plugins' versions are not coupled. The discover → plan → build pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/build step.
 
 ## Editing discipline
 

@@ -1,0 +1,35 @@
+{
+  "name": "tidy-loop",
+  "displayName": "Tidy Loop",
+  "description": "Scheduled structure-only refactoring loop: one hotspot finding per run, verified against behavior-preservation gates, delivered as a draft PR.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Serhii Nadtochii",
+    "url": "https://github.com/snadtochii"
+  },
+  "homepage": "https://github.com/snadtochii/feature-pipeline",
+  "repository": "https://github.com/snadtochii/feature-pipeline",
+  "license": "MIT",
+  "keywords": [
+    "refactoring",
+    "technical-debt",
+    "architecture",
+    "scheduled",
+    "worktree"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Tidy Loop",
+    "shortDescription": "Weekly structure-only refactoring runs, gated on behavior preservation, delivered as draft PRs.",
+    "longDescription": "A scheduled loop that keeps a codebase's structure healthy without changing its behavior. It ranks hotspots by churn and size, proposes one structural finding per run, works in an isolated git worktree, and opens a draft pull request only when every gate passes — including a base-test gate that runs the test files from the base commit against the refactored source. Ships zero project facts: everything project-specific lives in the consuming repo's committed .tidyloop.yaml.",
+    "developerName": "Serhii Nadtochii",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Interactive"
+    ],
+    "websiteURL": "https://github.com/snadtochii/feature-pipeline",
+    "brandColor": "#3F5F8A"
+  }
+}

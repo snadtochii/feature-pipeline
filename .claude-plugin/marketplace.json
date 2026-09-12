@@ -22,6 +22,12 @@
       "description": "Stack-agnostic dependency guard: consult the preferred ecosystem before adding a library and record every ruling.",
       "source": "./plugins/stack-first",
       "category": "development"
+    },
+    {
+      "name": "tidy-loop",
+      "description": "Scheduled structure-only refactoring loop: one hotspot finding per run, verified against behavior-preservation gates, delivered as a draft PR.",
+      "source": "./plugins/tidy-loop",
+      "category": "development"
     }
   ]
 }
