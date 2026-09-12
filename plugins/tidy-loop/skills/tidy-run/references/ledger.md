@@ -172,13 +172,26 @@ loop clone would abort the next run at preflight.
 1. Compose the brief.
 2. Append this run's own row plus **every pending row** to the ledger on the tidy branch.
 3. Commit the ledger, applying the run's exclusion list.
-4. **Then** push, and open the pull request.
-5. Clear the pending set only after the push succeeds.
+4. Push.
+5. Open the pull request.
+6. Clear the pending set **only once the pull request exists** — never after step 4.
 
 The push comes after the ledger commit, not before. Committing a row on a branch already pushed
 leaves it unpushed and invisible in the pull request, and there is no second push to rescue it.
-This ordering is the whole reason the pending set can be cleared safely: a failed push leaves
-the rows pending and the next run carries them again.
+
+**The clear comes after the pull request, not after the push**, and the gap between those two
+steps is the whole reason. Reconciliation (§5) enumerates *pull requests*, so a pushed branch
+with no pull request is invisible to it. Clearing at step 4 and then failing at step 5 destroys
+the only local copy of the pending rows while leaving a branch whose committed `proposed` row
+describes a pull request that never opened. Holding the set until step 5 succeeds makes the
+window recoverable: a failure anywhere leaves the rows pending and the next run carries them.
+
+**The orphan branch that window can still produce.** A push that succeeded and a pull request
+that did not leaves a `tidy/*` branch on the remote with no pull request. Reconciliation must
+therefore also enumerate remote `tidy/*` branches and treat one with no pull request — open or
+closed — as **needs a pull request**, not as a terminal outcome. The recovery is to open the
+pull request for that existing branch rather than to redo the work: the branch already carries
+the change, the ledger row, and the brief's evidence.
 
 **A run with no branch** — a preflight abort, a quiet week, a gate abort — writes its row, if it
 has one, to the pending set and nothing else. It must not commit to the loop clone: that dirties

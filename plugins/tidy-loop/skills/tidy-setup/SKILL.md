@@ -146,9 +146,30 @@ oracle restores spec files from the base commit and assumes the harness they run
 fixed. Two signals, both mechanical:
 
 1. The runner's configured setup and global-fixture files, read from its config.
-2. **Any module whose importers are all test files.** This is the decisive one — a module
-   imported only by specs is test support whatever it is named, which catches fakes, stubs,
-   builders, and temp-database helpers that no naming convention would reveal.
+2. **Every module whose importers are all test files.** This finds the ones no naming convention
+   reveals — fakes, stubs, builders, fixtures, temp-database helpers.
+
+**Signal 2 generates candidates; it does not decide.** It over-fires badly, and confirming each
+hit is not optional. Plenty of *production* code is imported only by specs: a CLI wired through
+a package script, a framework entry point, a server handler reached by routing rather than by an
+import, anything the build discovers by convention. Measured on one real repo, the signal
+returned fifteen modules and only five were test support — the rest included the app's entry
+point and a production invite CLI. Forbidding that set would have put real code permanently
+beyond the loop's reach while looking rigorous.
+
+Confirm each candidate by **role**, and keep it only when the answer is yes:
+
+- Does it exist to serve tests? A fixture, fake, stub, builder, or harness helper does; a
+  feature module does not, however few things import it.
+- Is it named as such — `*.fake.*`, `*-fixture.*`, `*-stub.*`, `*-mock.*`, a `test` directory,
+  a test-database helper?
+- Is it referenced by the test runner's configuration?
+- And the disqualifier: is it wired into production by any non-import path — a package script, a
+  framework entry, a route convention, a deployment command? If so it is production code that
+  merely happens to lack importers, and it stays in scope.
+
+Report the candidates you rejected and why, alongside the ones you kept. An over-broad
+`test_support_paths` is quieter than a hole but costs the loop exactly the work it exists to do.
 
 These become `test_support_paths`, which the loop treats as forbidden. Say why in the §7 report,
 because the reasoning is not obvious: a run that refactored a fake would execute the base specs

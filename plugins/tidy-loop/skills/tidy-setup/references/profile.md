@@ -174,8 +174,16 @@ Forbidding is the coherent choice — the payoff from tidying test infrastructur
 nothing tests the double itself, so its behavior preservation has no oracle at all.
 
 `tidy-setup` finds these by reading the runner's configured setup files and by looking for
-modules whose importers are *all* test files. That second signal is decisive: a module imported
-only by specs is test support whatever it is named.
+modules whose importers are *all* test files.
+
+That second signal **generates candidates and does not decide them**. It over-fires: a CLI wired
+through a package script, a framework entry point, or a handler reached by routing rather than
+by an import is also imported only by specs, and forbidding those would put production code
+permanently beyond the loop's reach. Each candidate is confirmed by role — does it exist to
+serve tests — and disqualified by any non-import production wiring.
+
+Get the balance wrong in either direction and something breaks quietly. Too narrow leaves the
+behavior gate with a hole. Too broad silently shrinks what the loop is allowed to improve.
 
 ### `caps`
 
