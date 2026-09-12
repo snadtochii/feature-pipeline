@@ -167,10 +167,16 @@ branch: reconciliation's corrections (§5), and the `blocked` or `escalated` row
 never produced a branch. It lives outside every working tree, because a pending file inside the
 loop clone would abort the next run at preflight.
 
+Each pending row additionally records **the run id that produced it**, as a leading column the
+append step strips. That id is what makes delivery idempotent (below); the committed ledger's own
+column set is unchanged, because the pending file is internal state and the ledger is the
+artifact.
+
 **The single write, in this exact order.** A run that reaches a deliverable branch:
 
 1. Compose the brief and write it to `<state_dir>/briefs/<run-id>.md`.
-2. Append this run's own row plus **every pending row** to the ledger on the tidy branch.
+2. **Drop already-delivered pending rows** (the idempotence rule below), then append this run's
+   own row plus every surviving pending row to the ledger on the tidy branch.
 3. Commit the ledger, applying the run's exclusion list.
 4. Push.
 5. Open the pull request, with `--body-file` pointing at the brief from step 1.
@@ -179,6 +185,28 @@ loop clone would abort the next run at preflight.
 
 The push comes after the ledger commit, not before. Committing a row on a branch already pushed
 leaves it unpushed and invisible in the pull request, and there is no second push to rescue it.
+
+**Idempotence, because step 6 is not itself recoverable.** A crash between step 5 and step 6
+leaves a real pull request *and* a full pending set. The branch is no longer an orphan, so
+nothing flags it, and a naive next run would append those same rows to its own branch —
+duplicating history and inflating metrics that are pure row counts. Since graduation is computed
+from those counts, a duplicate can widen the loop's autonomy on work it only did once.
+
+Delivery is therefore made idempotent rather than atomic, which it cannot be:
+
+> **A pending row whose originating run already delivered a branch is dropped, not appended.**
+> A run delivered its branch when a pull request exists for `tidy/<its-run-id>-*` — open or
+> closed, merged or not — or when its row already appears in the ledger on base.
+
+Both facts are already gathered by §5's reconciliation, so this costs nothing extra. A closed
+unmerged branch counts as delivered too: its rows never reached base, but re-delivering a stale
+`proposed` row would be wrong, and reconciliation records that finding's real terminal status
+separately.
+
+The consequence is that step 6 stops being a correctness-critical step. A crash before it leaves
+rows that the next run recognizes as delivered and discards. **Retrying the sequence carries
+every row exactly once**, which is the property that actually matters — not that each step is
+individually recoverable.
 
 **The clear comes after the pull request, not after the push**, and the gap between those two
 steps is the whole reason. Reconciliation (§5) enumerates *pull requests*, so a pushed branch

@@ -213,8 +213,10 @@ Two outputs, and **no writes to the loop clone**:
 
 - the **reconciled view** — committed rows overlaid with what the pull requests say — which §6
   consults for terminal status
-- **pending rows** recording the corrections, merged with whatever
-  `<state_dir>/pending-ledger.md` already holds, for §12 to carry onto this run's branch
+- **pending rows** recording the corrections, each tagged with this run's id, merged with
+  whatever `<state_dir>/pending-ledger.md` already holds, for §11 to carry onto this run's
+  branch. The run-id tag is what lets §11 tell a row that was already delivered from one that
+  still needs carrying
 
 Writing corrections into the clone's working tree here would leave it dirty, and §2 step 3
 aborts the *next* run on a dirty clone. State goes to `state_dir`, which is outside every
@@ -438,9 +440,12 @@ cosmetic:
    scratch path: it is the only copy of the gate evidence and the ranked candidate table, and
    neither survives the run anywhere else. The branch will carry the change and the ledger row
    but never this document.
-2. Append this run's row plus every pending row; commit on the tidy branch, applying §8's
-   exclusion list. Committing after the push would leave the row unpushed and absent from the
-   pull request, with no second push to rescue it.
+2. Drop every pending row whose originating run already delivered a branch — a pull request
+   exists for `tidy/<that-run-id>-*`, open or closed, or its row is already in the base ledger
+   ([`references/ledger.md`](references/ledger.md) §7). Then append this run's row plus the
+   survivors; commit on the tidy branch, applying §8's exclusion list. Committing after the push
+   would leave the row unpushed and absent from the pull request, with no second push to rescue
+   it.
 3. Push.
 4. Open the pull request per brief.md §3: `--draft`, the profile's label, and `--body-file`
    pointing at step 1's file.
@@ -449,10 +454,16 @@ cosmetic:
    reconciliation enumerates pull requests, so a pushed branch without one is invisible to it.
    The committed `proposed` row would describe a pull request that never opened.
 
-A failure at any step leaves the pending set and the brief intact, and the next run recovers
-from them. A push that succeeded with a pull request that did not leaves an orphan `tidy/*`
-branch, which §3 detects and completes by opening the pull request from the retained brief —
-never by redoing the work.
+**What actually makes this safe is idempotence, not per-step recovery.** Step 5 succeeding and
+step 6 crashing leaves a real pull request *and* a full pending set — the branch is not an orphan,
+so nothing flags it, and a naive next run would append those rows a second time. Because the
+metrics are pure row counts and graduation is computed from them, a duplicate would widen the
+loop's autonomy on work it did once. Step 2's drop rule is what prevents that: retrying the
+sequence carries every row exactly once, so step 6 is not correctness-critical.
+
+A push that succeeded with a pull request that did not leaves an orphan `tidy/*` branch, which
+§3 detects and completes by opening the pull request from the retained brief — never by redoing
+the work.
 
 Three rules from that reference that decide whether the brief is worth anything:
 
@@ -475,8 +486,9 @@ the runs that did not.
 
 A gate abort, an `escalated` drop, or any other outcome with no deliverable branch writes its
 row per [`references/ledger.md`](references/ledger.md) §1 to
-`<state_dir>/pending-ledger.md`, and nowhere else. The next run that produces a branch carries
-it, per §7 of that reference.
+`<state_dir>/pending-ledger.md`, tagged with `<run-id>`, and nowhere else. The next run that
+produces a branch carries it, per §7 of that reference; the tag is what keeps it from being
+carried twice.
 
 It must **not** commit to the loop clone. That would leave the clone dirty and abort the next
 run at preflight — the loop would disable itself after one blocked week. Never leave a blocked
