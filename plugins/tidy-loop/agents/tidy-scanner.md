@@ -81,6 +81,25 @@ Do not drift into "component", "service", or "boundary" as substitutes.
      wording could shift.
    - `real` — the change touches control flow, a data boundary, or a recorded decision. These
      are for a human; say so.
+
+   **Documented intent overrides appearance.** Before rating any duplication, redundancy, or
+   seemingly dead code as `none` or `low`, read the comments around it. If they say the shape
+   is deliberate — a re-read for atomic revalidation, a check repeated inside a transaction, a
+   defence-in-depth guard, an ordering that avoids a race or a lock, a copy kept so two
+   callers cannot drift into sharing state — the finding is `real`, whatever it looks like.
+
+   This rule exists because of a real miss. A scanner rated "stop reading the same rows twice"
+   as `low` on a function whose comments said the second read sat inside the transaction to
+   revalidate client-supplied ids. The dedupe would have passed every test: the ownership test
+   still rejects a foreign id when there is no concurrency, and nothing tests the window
+   between the two reads. What the tests cannot see is exactly what the comment protects, so a
+   comment asserting intent is the strongest signal you have, and treating it as noise is how a
+   refactor removes a safety property while every gate stays green.
+
+   The same applies to **deleting code that looks unreferenced.** Having no importers does not
+   make something dead: a package script, a framework entry point, a route convention, a
+   config file, or a deployment command can all reach it. Search for non-import references
+   before rating a deletion `none`, and name what you searched.
 6. Apply the deletion test and state its verdict wherever the finding claims a module is
    shallow.
 

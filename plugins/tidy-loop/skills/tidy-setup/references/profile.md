@@ -44,7 +44,7 @@ caps:
     delete-dead-code: { max_diff_lines: 400 }
     split-file-by-concern: { max_diff_lines: 600, max_files: 10 }
 
-allowlist: []                # categories permitted at the current tier (required, non-empty)
+allowlist: []                # required, non-empty, ORDERED safest first — position is a ranking input, see §2
 
 commands:
   prelude: null              # nullable — prefixed to every command below; how a scheduled run gets the toolchain
@@ -94,6 +94,11 @@ multi-repo workspace.
 
 Worktrees are created at `<loop_clone>/../<clone-dirname>-worktrees/<run-id>`, matching the
 feature plugin's convention so the two systems produce the same directory shape.
+
+**A scheduler passes this path to `tidy-run`, never `main_checkout`.** The loop clone is always
+on `base`, so its committed profile always governs. The user's checkout sits on whatever branch
+they are working on, which may predate the profile entirely — a first real run was handed exactly
+that and found no profile to read.
 
 ### `main_checkout`
 
@@ -248,17 +253,32 @@ point buys no safety and forfeits the value.
 
 ### `allowlist`
 
-Categories the loop may act on. Mechanical categories only at tier 1:
+Categories the loop may act on. Mechanical categories only at tier 1.
+
+**The order is not decoration: it is a ranking input.** Selection sorts eligible findings by
+behavior risk first and allowlist position second, *ahead of* hotspot score. So the list's
+order decides which of two equally risk-free findings the loop builds — and it outranks how
+hot the file is. A first real run showed what an unconsidered order does: an `extract-function`
+finding won purely because that category was written first, over a dead-code deletion scoring
+2.5× higher and a magic-number rename that was trivially safe, and the architect then failed the
+winner on placement.
+
+Order it **safest first**, where safest means the strongest mechanical oracle and the least code
+moved:
 
 ```
-extract-function
-extract-type-to-file
-literal-to-named-constant
-dedupe-identical-block
-split-file-by-concern
-rename-for-clarity
-delete-dead-code
+literal-to-named-constant   # a value gets a name; typecheck and tests see every use
+extract-type-to-file        # types are erased at runtime; zero runtime behavior can change
+rename-for-clarity          # typecheck sees symbol uses, but not strings, logs, or serialized keys
+delete-dead-code            # safe only once non-import wiring is ruled out — scripts, framework
+                            # entries, config — which no typecheck can see
+extract-function            # moves logic; relies on the tests exercising it
+dedupe-identical-block      # merges logic, and can erase duplication that was deliberate
+split-file-by-concern       # the largest change and the most to review
 ```
+
+Reorder deliberately if the project wants something else — putting a category first says "do
+this whenever it is available". Never leave the order as an accident of how the list was typed.
 
 A finding whose category is absent is dropped, not deferred. Widening the list is a
 graduation decision, not a setup decision.
