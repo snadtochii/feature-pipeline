@@ -94,6 +94,14 @@ acceptable; invisible is not.
 Never trim the table to the flattering rows. A run that dropped four findings for good reasons
 demonstrates working judgement; a run that shows only its selection demonstrates nothing.
 
+The `score` column is the finding's aggregated hotspot score: the **maximum** `churn × lines`
+over its files, not the sum. Name that rule under the table. The ordering itself is the fixed
+lexicographic key in [`../SKILL.md`](../SKILL.md) §6 — risk, then category precedence from the
+allowlist, then this score, then estimated lines, then the finding id — so a reader given the
+same findings can reproduce the selection exactly. Row order follows that key, which is why a
+lower-scoring row can outrank a higher one, and the table should not be re-sorted by score to
+look tidier.
+
 **Evidence.** Copied from the gate suite's own table
 ([`gates.md`](gates.md) §10). Three states only: pass, skipped with the reason, or the run never
 got here. **A skipped gate is never rendered as a pass.** "We did not check" and "we checked and
@@ -145,7 +153,7 @@ nothing about why.
 ## §5 The tier-0 report
 
 At tier 0 there is no pull request. The same content, minus the gate evidence and the revert
-section, is written to `<loop_clone>/.tidy-loop/reports/<ISO-date>.md` and its path printed.
+section, is written to `<state_dir>/reports/<ISO-date>.md` and its path printed.
 
 Keep **Why this one** in full — at tier 0 that table *is* the product. The whole purpose of the
 observe tier is calibrating the selection step against the user's own judgement, and the ranked

@@ -90,7 +90,13 @@ One findings list, as data, in the shape your brief specifies. Per finding:
 
 - `category` — from the supplied allowlist
 - `files` — sorted, repo-relative
-- `summary` — one line
+- `structural_key` — the canonical, **non-prose** identity of the finding: the sorted names of
+  the symbols it concerns, or the module path where the finding is about a whole file. The
+  caller hashes category, files, and this into the finding's id, so the same structural problem
+  must produce the same key on a later run or a human's past rejection of it silently stops
+  applying. Never put a sentence, a paraphrase, or anything you would word differently next time
+  into this field.
+- `summary` — one line, display only, and deliberately not part of the identity
 - `problem` — the structural friction, in the shared vocabulary
 - `proposed_change` — what would change, plainly, with no code
 - `est_diff_lines` — insertions plus deletions, non-test files only
@@ -114,5 +120,11 @@ Zero findings is a complete, correct answer. Report it as such rather than lower
   forbidden.** A tidy of a generated file is undone by the next codegen run.
 - **Never propose moving or renaming a test file** unless your brief says the tier permits it;
   the behavior oracle restores test files from the base commit and cannot follow a move.
+- **Never propose changes to the test harness** — runner setup files, temp or in-memory database
+  helpers, fakes, other test doubles, shared fixtures, or anything your brief lists under test
+  support. The behavior oracle restores spec files from the base commit but not the harness they
+  run against, so a refactored fake would let the base specs run against a modified stub and
+  mask the very regression the gate exists to catch. A module whose importers are all test files
+  is test support whatever it is named.
 - **No scores, no rankings, no recommendation of which finding to take.** Selection is the
-  caller's job and depends on state you cannot see.
+  caller's job, is a fixed deterministic ordering, and depends on state you cannot see.

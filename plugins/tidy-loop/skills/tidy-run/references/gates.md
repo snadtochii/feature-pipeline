@@ -49,9 +49,13 @@ exception, stated in §3 below, and it is narrow on purpose.
 never runs after a cheap one has already decided the outcome.
 
 **Every abort records evidence.** Before teardown, write the branch diff to
-`<CLONE>/.tidy-loop/blocked/<run-id>.patch` and the deciding output to
-`<CLONE>/.tidy-loop/blocked/<run-id>.md`. The worktree is then removed — a failed structural
-change has no value to keep, but the reason it failed does.
+`<state_dir>/blocked/<run-id>.patch` and the deciding output to
+`<state_dir>/blocked/<run-id>.md`. The worktree is then removed — a failed structural change
+has no value to keep, but the reason it failed does.
+
+`state_dir` sits outside every repository working tree, and that placement is load-bearing
+rather than tidy: a run aborts at preflight on a dirty loop clone, so evidence written inside
+the clone would abort every subsequent run on residue this one created.
 
 ---
 
@@ -155,8 +159,8 @@ fit.
 
 ### Step 5 — Scope, as a hard stop
 
-Fail outright if any changed path matches `forbidden_paths`, or falls outside `scan.include`
-without being a test file or an import-update-only file. An import update in a file outside the
+Fail outright if any changed path matches `forbidden_paths` or `test_support_paths`, or falls
+outside `scan.include` without being a test file or an import-update-only file. An import update in a file outside the
 scan set is expected and fine — the loop does not control who imports what. A *substantive*
 change out there means the implementation wandered, and the run is not trustworthy.
 
@@ -184,7 +188,20 @@ accommodate the change. A diff-pattern check on assertion lines would be a weake
 version of the same idea, and would be defeated by a rewritten assertion that happens to look
 like a move.
 
-**Two mechanical details that are easy to get wrong.**
+**The assumption this gate rests on, and what enforces it.** Restoring the specs is only an
+oracle if the *harness those specs run against* is also fixed. A runner setup file, a temp or
+in-memory database helper, a fake or any other test double is **not** a spec file, so it is not
+in `test_globs` and not restored. A run that refactored a fake would therefore execute base
+specs against its own modified fake, and an altered stub can mask exactly the regression this
+gate exists to catch.
+
+`test_support_paths` closes that: those files are forbidden, so the diff cannot contain them and
+the harness is fixed by construction. Verify it here rather than trusting the selector — if any
+changed path matches `test_support_paths`, **fail the gate**. Adding them to `test_globs`
+instead would be worse than leaving the hole: restoring a file the diff modified means the gate
+never exercises the modified version, so the change would ship unverified.
+
+**Two more mechanical details that are easy to get wrong.**
 
 - A pathspec checkout resolves the globs against the **base commit's tree**, so a
   characterization test this run added (absent on base) is *not* removed by the restore. G1

@@ -141,6 +141,21 @@ number decides whether the loop can touch its own highest-ranked targets. Moving
 a module means repointing every importer, so a cap below the hotspots' fan-out blocks exactly
 the work the ranking says matters most.
 
+**Test-support paths.** Find the test harness that is *not* a spec file, because the behavior
+oracle restores spec files from the base commit and assumes the harness they run against is
+fixed. Two signals, both mechanical:
+
+1. The runner's configured setup and global-fixture files, read from its config.
+2. **Any module whose importers are all test files.** This is the decisive one — a module
+   imported only by specs is test support whatever it is named, which catches fakes, stubs,
+   builders, and temp-database helpers that no naming convention would reveal.
+
+These become `test_support_paths`, which the loop treats as forbidden. Say why in the §7 report,
+because the reasoning is not obvious: a run that refactored a fake would execute the base specs
+against its own modified fake, and an altered stub can mask exactly the regression the gate
+exists to catch. Adding them to `test_globs` instead would be worse — restoring a file the diff
+modified means the gate never exercises the modified version, so the change ships unverified.
+
 **Forbidden-path candidates.** Search for the places where a structural change is never
 merely structural: migration directories, table or schema declarations, published contract
 definitions, generated clients. Collect candidates; the user confirms in §4.
@@ -353,6 +368,13 @@ Fixed values this skill always writes, regardless of what was probed:
 - `tier0_report: file`
 - `main_checkout` — the repo root this run onboarded, so a run can see the user's in-flight work
   and drop findings that touch it
+- `state_dir` — `~/.tidy-loop/<repo-name>` by default, and it must resolve **outside** every
+  repository working tree. A state directory inside the loop clone would leave the clone dirty,
+  and a dirty clone aborts the next run at preflight, so the loop would disable itself after one
+  execution. Create the directory here
+- `test_support_paths` — from §2's two signals. An empty list is permitted only when the project
+  genuinely has no harness beyond its spec files, and that conclusion is stated explicitly in
+  the §7 report rather than arrived at by default
 
 On a re-verify run, present a field-by-field diff against the existing profile and get
 approval before writing.

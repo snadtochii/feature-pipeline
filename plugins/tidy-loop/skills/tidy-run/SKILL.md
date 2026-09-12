@@ -89,9 +89,14 @@ Check every validation rule in
 stops the run, named by field, with the remedy. Do not repair the profile — configuration is the
 user's.
 
-Bind for the whole run: `base`, `loop_clone` (expand `~`), `main_checkout`, `tier`, `scan`,
-`forbidden_paths`, `caps`, `allowlist`, `commands` (including `prelude`), `surface_oracle`,
-`ticket_adapter`, `ledger`, `pr_label`, `tier0_report`.
+Bind for the whole run: `base`, `loop_clone` (expand `~`), `main_checkout`, `state_dir` (expand
+`~`), `tier`, `scan`, `forbidden_paths`, `test_support_paths`, `caps`, `allowlist`, `commands`
+(including `prelude`), `surface_oracle`, `ticket_adapter`, `ledger`, `pr_label`, `tier0_report`.
+
+Create `state_dir` if absent. Everything this run writes that is not a repository artifact goes
+there — the tier-0 report, a blocked run's evidence, the pending-ledger set — because it sits
+outside every working tree. State written inside the loop clone would leave it dirty, and §2
+step 3 aborts on a dirty clone, so the loop would disable itself after one run.
 
 Bind `<run-id>` as `<YYYY-MM-DD>-<6 random hex>` and `<CLONE>` as the expanded `loop_clone`.
 Every command from here on is prefixed with `commands.prelude` when that key is set — a
@@ -128,7 +133,7 @@ mkdir "$(git -C "<CLONE>" rev-parse --git-common-dir)/tidy-loop.lock"
 
 Then inventory residue: `git -C "<CLONE>" worktree list`. Any worktree under the loop clone's
 worktree directory belongs to a dead run. Stash its diff to
-`<CLONE>/.tidy-loop/blocked/<its-run-id>.patch`, then remove it with `--force` and prune. A
+`<state_dir>/blocked/<its-run-id>.patch`, then remove it with `--force` and prune. A
 failed structural change has no value to keep; the reason it failed does.
 
 ### Step 3 — Clone position
@@ -187,6 +192,17 @@ pull requests, per [`references/ledger.md`](references/ledger.md) §5. This make
 cache of a truth stored in the pull requests themselves: a missed write or a hand-edit degrades
 the loop's memory without corrupting it.
 
+Two outputs, and **no writes to the loop clone**:
+
+- the **reconciled view** — committed rows overlaid with what the pull requests say — which §6
+  consults for terminal status
+- **pending rows** recording the corrections, merged with whatever
+  `<state_dir>/pending-ledger.md` already holds, for §12 to carry onto this run's branch
+
+Writing corrections into the clone's working tree here would leave it dirty, and §2 step 3
+aborts the *next* run on a dirty clone. State goes to `state_dir`, which is outside every
+working tree for exactly this reason.
+
 Skip at tier 0 — it has written no rows and opened no pull requests.
 
 ---
@@ -222,7 +238,7 @@ Spawn `tidy-scanner`. One spawn, one run. Its brief carries:
 2. **The candidate files**, in score order, with each file's churn and size.
 3. **The category allowlist** verbatim — a structural observation with no matching category is
    dropped, not renamed to fit.
-4. **`forbidden_paths`** and `scan.exclude`, as hard exclusions.
+4. **`forbidden_paths`, `test_support_paths`** and `scan.exclude`, as hard exclusions.
 5. **The glossary and decision-record paths**, so it reads them itself.
 6. **The tier**, so it knows whether moving a test file is permitted (it is not, below tier 2).
 7. **The caps, resolved per category**, so its diff estimates are calibrated against the exact
@@ -237,15 +253,22 @@ Zero findings is a complete answer. Report it and end the run clean.
 
 ## §6 Select exactly one
 
-Rank by `score × mechanical-ness ÷ risk`, then filter in this order. Record the reason for every
-drop — the brief's **Why this one** table needs all of them, and that table is the mitigation
-for selection being unattended.
+Filter first, then order. Record the reason for every drop — the brief's **Why this one** table
+needs all of them, and that table is the mitigation for selection being unattended.
+
+### Filter
 
 1. **Category not in `allowlist`** → drop.
 2. **`behavior_risk: real`** → drop, ledger `escalated`. These are proposals for a human.
-3. **Touches `forbidden_paths`, a busy file, or anything outside `scan.include`** → drop.
-4. **Finding id is terminal in the ledger** (`rejected`, `reverted`, `merged`) → drop, naming
-   the prior outcome and its recorded reason.
+3. **Touches `forbidden_paths`, `test_support_paths`, a busy file, or anything outside
+   `scan.include`** → drop. `test_support_paths` matters for a reason the file list does not
+   make obvious: the behavior oracle restores spec files from base but not the harness they run
+   against, so a refactored fake would let base specs run against a modified stub and mask the
+   regression the gate exists to catch. Gate G1 re-checks this rather than trusting the filter.
+4. **Finding id is terminal in the reconciled view** (`rejected`, `reverted`, `merged`) → drop,
+   naming the prior outcome and its recorded reason. The **reconciled** view, not the committed
+   ledger file: §3 has already overlaid what the pull requests actually say, and a finding whose
+   PR was just closed unmerged is terminal now, before its row has landed anywhere.
 5. **Finding id is `escalated` within the last four runs** → drop (skip-once, per
    [`references/ledger.md`](references/ledger.md) §3).
 6. **Over the caps resolved for the finding's own category** → drop, ledger `escalated`.
@@ -263,6 +286,27 @@ for selection being unattended.
 7. **Moves or renames a test file, below tier 2** → drop. The behavior oracle restores test
    files from base and cannot follow a move.
 
+### Order — deterministic, over fields that exist
+
+Sort the survivors by this **lexicographic** key. No weights, no arithmetic across
+incommensurable units, and no field the scanner does not emit — the same finding set must always
+produce the same selection, or the brief's ranked table is not reproducible and the loop's one
+unattended decision is unauditable.
+
+1. **`behavior_risk`** ascending: `none` before `low`. (`real` was dropped above.) Prefer the
+   change that cannot alter behavior over the one that merely should not.
+2. **Category precedence** — the position of the finding's category in `allowlist`, earliest
+   first. The allowlist is already an ordered list and its order is the user's own statement of
+   what they want done; reusing it avoids inventing a second, hidden ranking.
+3. **Hotspot score** descending, aggregated as the **maximum** score over the finding's files.
+   Maximum, not sum: the payoff comes from improving the hottest file involved, and summing would
+   let a finding touching several cold files outrank one targeting the worst file in the repo.
+4. **`est_diff_lines`** ascending. Between two otherwise equal findings, take the smaller change.
+5. **`finding_id`** ascending, as the final tie-break so the order is total and stable.
+
+Report the aggregated score in the brief's table, and name the aggregation rule there, so a
+reader can reproduce the ordering from the same inputs.
+
 Take the top survivor. **No survivors → the run ends clean**, with the full ranked list and
 every drop reason in the report. A quiet week is a success, not a failure to work around.
 
@@ -278,7 +322,7 @@ at tier 0 a judgement on the idea is exactly what a human calibrating against th
 read.
 
 Write the report per [`references/brief.md`](references/brief.md) §5 to
-`<CLONE>/.tidy-loop/reports/<ISO-date>.md` when `tier0_report` is `file`, or open it as a
+`<state_dir>/reports/<ISO-date>.md` when `tier0_report` is `file`, or open it as a
 labelled issue when it is `issue`. Print the path or the issue URL, release the lock, and end.
 
 **The exit criterion belongs in the report:** two to four runs whose top pick the user agrees
@@ -365,10 +409,19 @@ down (§12), and report.
 
 ---
 
-## §11 Brief and pull request
+## §11 Brief, ledger, pull request — in that order
 
-All gates green. Compose the brief per [`references/brief.md`](references/brief.md) §1 and open
-the pull request per its §3: pushed branch, `--draft`, the profile's label, `--body-file`.
+All gates green. Compose the brief per [`references/brief.md`](references/brief.md) §1.
+
+**Then commit the ledger, and only then push.** The order is
+[`references/ledger.md`](references/ledger.md) §7 and it is not cosmetic: append this run's row
+plus every pending row, commit it on the tidy branch applying §8's exclusion list, and push
+once with everything aboard. Committing a ledger row on a branch that was already pushed leaves
+it unpushed and absent from the pull request, and there is no second push to rescue it. Clear
+the pending set only after the push succeeds, so a failed push leaves the rows pending for the
+next run to carry.
+
+Open the pull request per brief.md §3: `--draft`, the profile's label, `--body-file`.
 
 Three rules from that reference that decide whether the brief is worth anything:
 
@@ -384,17 +437,20 @@ branch, the pull request, and the ledger row are the whole record.
 
 ---
 
-## §12 Ledger, then teardown
+## §12 Ledger for a run with no branch, then teardown
 
-**Ledger.** Append one row per [`references/ledger.md`](references/ledger.md) §1, with the status
-this run earned: `proposed` on an open pull request, `blocked` on a gate abort, `escalated` where
-§6 or a gate said so. Commit it on the tidy branch so the row and the change it describes land or
-are rejected together. Apply the §8 exclusion list before committing.
+**Ledger.** A run that reached §11 has already written and pushed its row. This section covers
+the runs that did not.
 
-A gate abort has no branch worth pushing, so its row commits nowhere — hold it and append it to
-the ledger in the loop clone on the next successful run, or write it to
-`<CLONE>/.tidy-loop/pending-ledger.md` for that next run to pick up. Never leave a blocked run
-unrecorded: an unrecorded block is a finding the loop will re-attempt identically next week.
+A gate abort, an `escalated` drop, or any other outcome with no deliverable branch writes its
+row per [`references/ledger.md`](references/ledger.md) §1 to
+`<state_dir>/pending-ledger.md`, and nowhere else. The next run that produces a branch carries
+it, per §7 of that reference.
+
+It must **not** commit to the loop clone. That would leave the clone dirty and abort the next
+run at preflight — the loop would disable itself after one blocked week. Never leave a blocked
+run unrecorded either: an unrecorded block is a finding the loop re-attempts identically next
+week.
 
 **Teardown.** Remove the worktree only when both hold:
 

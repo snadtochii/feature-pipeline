@@ -18,6 +18,7 @@ tier: 0                      # required — 0 observe | 1 single-pr | 2 graduate
 base: main                   # required — the branch every run forks from
 loop_clone: "~/Projects/myrepo-tidy"   # required — the dedicated checkout the loop owns
 main_checkout: "~/Projects/myrepo"     # optional — the user's own checkout, read-only, for busy-file detection
+state_dir: "~/.tidy-loop/myrepo"       # required — run state, OUTSIDE every repo working tree
 
 scan:
   window: 120d               # churn window for the hotspot score
@@ -26,6 +27,7 @@ scan:
   top_n: 10                  # how many hotspot files the scanner actually reads
 
 forbidden_paths: []          # a finding touching any of these is dropped at any tier
+test_support_paths: []       # required — test harness that is not a spec file; forbidden, and why: §2
 
 caps:
   max_open_prs: 1
@@ -106,6 +108,26 @@ is actively editing, which is how a tool meant to reduce friction becomes a sour
 
 The run never writes here, never fetches here, and never changes its branch.
 
+### `state_dir`
+
+Where a run keeps everything that is not a repository artifact: tier-0 reports, the patch and
+output of a blocked run, and the pending-ledger set. It **must sit outside every repository
+working tree**.
+
+This is not a stylistic preference. A run aborts at preflight when the loop clone is dirty, so
+state written *inside* the clone would appear as untracked files and every subsequent run would
+abort on residue the previous run created. State under the repo is a loop that disables itself
+after one execution.
+
+Under `state_dir` the run owns three things:
+
+```
+<state_dir>/reports/<ISO-date>.md      # tier-0 reports
+<state_dir>/blocked/<run-id>.patch     # the diff of a gate-aborted run
+<state_dir>/blocked/<run-id>.md        # the deciding gate output
+<state_dir>/pending-ledger.md          # rows not yet carried onto a branch — see ledger.md §7
+```
+
 ### `scan.include` / `scan.exclude`
 
 Gitignore-style globs. `include` bounds what the loop may *propose changes in*; a finding
@@ -132,6 +154,28 @@ places where a structural change is never merely structural. Typical members:
 
 `tidy-setup` proposes candidates from what it finds and asks for confirmation. It does not
 invent the list silently: the consequences are project knowledge.
+
+### `test_support_paths`
+
+The test harness that is **not** a spec file: the runner's setup files, in-memory or temp
+database helpers, fakes and other test doubles, and shared fixtures. Treated as forbidden — a
+finding touching any of them is dropped.
+
+**Why they need naming separately from `forbidden_paths`, and why forbidding is the right
+answer.** The behavior oracle restores the files matching `test_globs` from the base commit and
+runs them. It therefore assumes the *harness* those specs run against is fixed. A test double
+is not a spec file, so it is not restored — meaning a run that refactored a fake would execute
+the base specs against its own modified fake. An altered stub can then mask exactly the
+regression the gate exists to catch.
+
+Adding them to `test_globs` instead looks tempting and is worse: restoring a file the diff
+modified means the gate never exercises the modified version, so the change ships unverified.
+Forbidding is the coherent choice — the payoff from tidying test infrastructure is low, and
+nothing tests the double itself, so its behavior preservation has no oracle at all.
+
+`tidy-setup` finds these by reading the runner's configured setup files and by looking for
+modules whose importers are *all* test files. That second signal is decisive: a module imported
+only by specs is test support whatever it is named.
 
 ### `caps`
 
@@ -242,7 +286,7 @@ Path, repo-relative, to the committed append-only ledger. One line per run. Crea
 
 ### `tier0_report`
 
-- `file` — the tier-0 report is written to `<loop_clone>/.tidy-loop/reports/<ISO-date>.md`
+- `file` — the tier-0 report is written to `<state_dir>/reports/<ISO-date>.md`
   and its path is printed. No commits, no network. The default.
 - `issue` — the report is opened as a GitHub issue labelled `pr_label`. Requires `gh`.
 
@@ -266,6 +310,12 @@ Path, repo-relative, to the committed append-only ledger. One line per run. Crea
     `loop_clone`.
 12. `commands.prelude`, when present, is a single line with no newline — it is prefixed to other
     commands, so a multi-line value would break every one of them.
+13. `state_dir` is present and resolves **outside** every configured repository working tree —
+    not inside `loop_clone` and not inside `main_checkout`. A state directory inside the clone
+    makes every run after the first abort on its predecessor's residue.
+14. `test_support_paths` is present. An empty list is permitted only for a project with no test
+    harness beyond its spec files, and `tidy-setup` states that conclusion explicitly rather
+    than defaulting to it.
 
 A failed rule is reported with the field name and the remedy, and nothing runs.
 
