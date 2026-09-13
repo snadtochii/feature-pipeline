@@ -161,13 +161,33 @@ silently is exactly the kind of destructive convenience this loop must not have.
 Record `<BASE_SHA>` as the resolved `origin/<base>` commit. It is cited in the brief and used by
 every gate.
 
-**If the fast-forward moved `HEAD`, re-read and re-validate the profile** from the updated tree,
-and re-bind every setting from that copy before continuing. §1 necessarily read the profile
-before this step could fetch, so without the re-read a run executes under the profile as it was
-at the *previous* run — a tier promotion, a new forbidden path, or a tightened cap merged to
-`base` during the week would take effect one run late. That is harmless for a cosmetic edit and
-exactly wrong for a safety one. A re-read profile that now fails validation stops the run, same
-as §1.
+**If the fast-forward moved `HEAD`, re-read and re-validate the profile** from `<CLONE>`'s
+updated tree. §1 necessarily read the profile before this step could fetch, so without the
+re-read a run executes under the profile as it was at the *previous* run — a tier promotion, a new
+forbidden path, or a tightened cap merged to `base` during the week would take effect one run
+late. That is harmless for a cosmetic edit and exactly wrong for a safety one. A re-read profile
+that now fails validation stops the run, same as §1.
+
+**The re-read refreshes policy, never run identity.** Three settings have already been *acted
+on* by the time this step runs, so rebinding them silently would leave the run holding
+resources it never set up:
+
+| Setting | Already acted on | Rebinding it would |
+| --- | --- | --- |
+| `loop_clone` | locked (step 2), residue recovered (step 2), checked clean and fast-forwarded (step 3) | continue on a checkout this run never locked, cleaned, or fast-forwarded — possibly overlapping a live run there |
+| `base` | fetched and fast-forwarded, `<BASE_SHA>` recorded (step 3) | pair a new base with a commit resolved from the old one |
+| `state_dir` | created (§1); residue patches written into it (step 2) | split one run's state across two directories |
+
+So compare those three against the values §1 bound. **If any differs, release the lock on the
+original `<CLONE>`, stop, and report which key changed from what to what.** Do not re-run
+preflight against the new values in the same run: the next run starts clean from them, which
+costs one week and removes a whole class of half-migrated state. Retaining the old values instead
+is not an option either — the run would then act under settings its own profile no longer
+declares.
+
+Every other setting rebinds from the re-read copy. One of them was also already used: if
+`commands.prelude` changed, re-run step 1 under the new prelude before continuing, since the
+toolchain check it gates ran under the old one.
 
 ### Step 4 — Churn budget
 
