@@ -40,6 +40,7 @@ extracted, named, or deleted. No code.>
 | 3 | <summary> | <category> | <score> | over diff cap (est. <n> lines) |
 | 4 | <summary> | <category> | <score> | category not in allowlist |
 | 5 | <summary> | <category> | <score> | previously rejected (`<finding-id>`) |
+| 6 | <summary> | <category> | <score> | architect pre-screen: fail — <one_line> |
 
 ### Evidence
 

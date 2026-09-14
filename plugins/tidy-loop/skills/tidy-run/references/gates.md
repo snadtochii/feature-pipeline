@@ -365,6 +365,12 @@ rejected at setup rather than tolerated here.
 **The quality oracle, and the only gate that can say the change was not worth making.** Runs
 last, only once everything above is green.
 
+The same agent has already judged the *proposal* in the selection pre-screen
+([`../SKILL.md`](../SKILL.md) §6), which is why a G8 fail should now be rare: most ideas that are
+not worth making are dropped before a worktree exists. G8 still runs regardless, because the
+implementation can differ from the proposal it was approved as — a pass on the idea is never a
+pass on the diff.
+
 Spawn the `tidy-architect` agent. Its brief carries:
 
 1. **The finding** — what the change claimed it would improve.
@@ -375,7 +381,7 @@ Spawn the `tidy-architect` agent. Its brief carries:
 4. **The glossary and the decision records** — paths, so it reads them itself.
 5. **The category allowlist**, so it knows what the change was permitted to be.
 
-It answers five questions — depth, seam reality, naming, recorded decisions, conventions — and
+It answers six questions — depth, seam reality, naming, recorded decisions, documented intent, conventions — and
 returns a single verdict plus a one-line summary for the brief.
 
 **Pass:** `verdict: pass`. Carry `one_line` into the evidence table verbatim.

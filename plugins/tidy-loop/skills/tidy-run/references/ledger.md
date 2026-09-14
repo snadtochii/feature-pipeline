@@ -46,6 +46,36 @@ a `rejected` or `reverted` row. Prose is display-only, everywhere.
 
 Also excluded, for the same reason: the run date, the score, and every diff estimate.
 
+**The exact encoding.** Fixing the inputs is not enough; every run must serialize them
+byte-for-byte identically, or two runs mint different ids for the same finding and a rejection
+silently stops applying. A first real run found this section named the inputs but not the
+encoding, and had to choose one. This is that choice, verified by reproducing the id it minted:
+
+```
+structural_key = the symbol names, sorted in byte order, joined with "," and no spaces
+                 — or the repo-relative module path, for a finding about a whole file
+files          = the repo-relative paths, sorted in byte order, joined with "," and no spaces
+payload        = category + "\n" + files + "\n" + structural_key      (UTF-8)
+finding_id     = the first 6 lowercase hex characters of sha256(payload)
+```
+
+Worked example, which any implementation must reproduce before its ids are trusted:
+
+```
+category       extract-function
+files          src/features/entry/form.ts,src/features/entry/review-screen.tsx,src/features/entry/step-card.tsx
+structural_key ReviewScreen,StepCard,buildSaveInput,stepDefault
+finding_id     b876d3
+```
+
+**Byte order, not alphabetical order.** Uppercase sorts before lowercase, which is why
+`ReviewScreen` and `StepCard` precede `buildSaveInput` above. A case-insensitive or
+locale-aware sort produces a different key and a different id — the most likely way two
+implementations will quietly disagree.
+
+Changing any part of this encoding invalidates every existing id in the ledger, so it is a
+migration, not an edit.
+
 Six hex characters is enough for a personal repo. Collisions are resolved by comparing the
 recorded `files` column, never by lengthening the hash.
 
@@ -64,7 +94,7 @@ than a gap.
 | `merged` | the human merged it | reconciliation, §5 |
 | `rejected` | the human closed it unmerged | reconciliation, §5 |
 | `reverted` | merged, then reverted | reconciliation, §5 |
-| `escalated` | the loop declined to act and a human should look | over cap, `behavior_risk: real`, or a contradicted decision |
+| `escalated` | the loop declined to act and a human should look | over cap, `behavior_risk: real`, a contradicted decision, or an architect pre-screen fail |
 | `blocked` | work was attempted and a gate went red | any gate abort |
 
 **Terminal for selection purposes:** `rejected`, `reverted`, and `merged`. A finding with any

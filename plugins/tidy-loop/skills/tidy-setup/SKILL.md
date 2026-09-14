@@ -378,6 +378,9 @@ Fixed values this skill always writes, regardless of what was probed:
 - `tier: 0` — a new project observes first; graduation is a human decision informed by the
   ledger, never a setup default
 - `caps.max_open_prs: 1` — the churn budget
+- `allowlist` in the **safest-first order** from profile.md §2, not in whatever order the
+  categories come to mind. Its position is a selection input that outranks hotspot score, so an
+  accidental order silently decides what the loop builds
 - the `caps.per_category` block from profile.md §1, unless the probe found a reason to differ.
   Do not collapse it to one flat number: the categories have very different natural sizes, lines
   are charged as insertions plus deletions so every moved line counts twice, and files touched
@@ -432,6 +435,10 @@ Close with a summary the user can act on without re-reading the transcript:
    local scheduled task, or a cron entry invoking the run — rather than describing the
    options abstractly. Do not create the schedule from this skill: a recurring unattended job
    is the user's to switch on.
+
+   The command the schedule runs must pass the **loop clone** as the repo path:
+   `/tidy-run <loop_clone>`. Never the user's own checkout — it is on whatever branch they are
+   working on, may not contain the profile at all, and would make every weekly run depend on it.
 6. **The tier-0 exit criterion** — two to four weekly reports whose top pick the user agrees
    with. Then `tier: 1` is a one-field edit.
 
