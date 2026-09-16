@@ -4,7 +4,9 @@
 // What: a sha256 digest of the declarations the repository's own TypeScript
 // emits for every source module, keyed through a rename map so a moved module
 // compares under its new name; plus, for every symbol the map tracks, the list
-// of files declaring it.
+// of files whose exported surface declares it — resolved through the type
+// checker's module exports, so a private same-named helper does not count and
+// a re-export is attributed to the declaring file.
 //
 // Why: "the public surface did not change" and "the symbol moved rather than
 // being copied" are the two questions a structural refactor has to answer
@@ -221,18 +223,18 @@ function collectProject(context, configPath) {
     }
   }
 
+  const checker = program.getTypeChecker();
   for (const source of program.getSourceFiles()) {
     if (source.isDeclarationFile || !isRepoSource(repo, source.fileName)) {
       continue;
     }
-    const relative = toRepoRelative(repo, source.fileName);
-    for (const name of topLevelDeclaredNames(ts, source)) {
+    for (const { name, file } of exportedDeclarations(ts, checker, repo, source)) {
       for (const [from, to] of Object.entries(renameMap.symbols)) {
         if (name === from || name === to) {
           if (!declared.has(to)) {
             declared.set(to, new Set());
           }
-          declared.get(to).add(relative);
+          declared.get(to).add(file);
         }
       }
     }
@@ -294,39 +296,50 @@ function moduleKey(repo, fileName, renameMap) {
 }
 
 /**
- * Names declared at the top level of a source file — the granularity
- * `declaredOnce` counts at.
+ * The declarations behind a module's exports — the granularity `declaredOnce`
+ * counts at. Each entry pairs a name with the repo-relative file holding the
+ * declaration it resolves to.
+ *
+ * Only the exported surface is walked: a same-named helper that a module keeps
+ * private is not a copy of the tracked symbol and must not block a move. An
+ * alias (`export { x }`, `export { x as y }`, a re-export, `export *`) resolves
+ * to the declaration it points at, so a barrel is attributed to the file that
+ * declares the symbol rather than counted as a second declaration. Every name
+ * the export is reachable by — the export name, the resolved symbol's name,
+ * and the declaration's own identifier (`export default function clamp`) — is
+ * reported, so the rename map can name the symbol as the code does.
  *
  * @param {any} ts
+ * @param {any} checker
+ * @param {string} repo
  * @param {any} source
- * @returns {string[]}
+ * @returns {{name: string, file: string}[]}
  */
-function topLevelDeclaredNames(ts, source) {
-  const names = [];
-  for (const statement of source.statements) {
-    if (ts.isVariableStatement(statement)) {
-      for (const declaration of statement.declarationList.declarations) {
-        if (ts.isIdentifier(declaration.name)) {
-          names.push(declaration.name.text);
-        }
+function exportedDeclarations(ts, checker, repo, source) {
+  const moduleSymbol = checker.getSymbolAtLocation(source);
+  if (!moduleSymbol) {
+    return [];
+  }
+  const found = [];
+  for (const exported of checker.getExportsOfModule(moduleSymbol)) {
+    const resolved =
+      exported.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;
+    for (const declaration of resolved.declarations ?? []) {
+      const declaringFile = declaration.getSourceFile();
+      if (declaringFile.isDeclarationFile || !isRepoSource(repo, declaringFile.fileName)) {
+        continue;
       }
-      continue;
-    }
-    if (
-      ts.isFunctionDeclaration(statement) ||
-      ts.isClassDeclaration(statement) ||
-      ts.isInterfaceDeclaration(statement) ||
-      ts.isTypeAliasDeclaration(statement) ||
-      ts.isEnumDeclaration(statement) ||
-      ts.isModuleDeclaration(statement)
-    ) {
-      const name = statement.name;
-      if (name && ts.isIdentifier(name)) {
-        names.push(name.text);
+      const file = toRepoRelative(repo, declaringFile.fileName);
+      const names = new Set([exported.name, resolved.name]);
+      if (declaration.name && ts.isIdentifier(declaration.name)) {
+        names.add(declaration.name.text);
+      }
+      for (const name of names) {
+        found.push({ name, file });
       }
     }
   }
-  return names;
+  return found;
 }
 
 /**

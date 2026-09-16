@@ -11,6 +11,7 @@
   },
   "surface": {
     "src/math.ts": "6859235dab058bb2dbf308bb451c326343eea1b16d6dd2b898368de17dc91e33",
+    "src/percent.ts": "b1c98caa030b111c08d58987360d7f0e3925e420cc089224b43c39bab1aafc43",
     "src/range.ts": "37c7fd695b8ad2afa134dc37d938243907d33b8c9d92525d2639419b60bc1abf",
     "src/report.ts": "57a9a53eab06834e1d3403da9a53f2d5d7e87ffb54e7def94aa633083d03ec6c",
     "src/stats.ts": "40c5e7b213ff46afe923a8df252269132574e82335bfd5d4642ac74ebd42cc61",

@@ -196,7 +196,12 @@ Document:
 | Key | Meaning |
 |---|---|
 | `surface` | One entry per source module: repo-relative path → hex sha256 of the declarations the repository's own compiler emits for it. Equal digests mean an identical declared surface. |
-| `declaredOnce` | One entry per symbol named in the rename map: symbol name → every repo-relative file declaring it, sorted, deduplicated. A gate asserting a move — rather than a copy — expects exactly one. An empty array means the symbol is absent from the tree. |
+| `declaredOnce` | One entry per symbol named in the rename map: symbol name → every repo-relative file that declares it **as part of its exported surface**, sorted, deduplicated. A gate asserting a move — rather than a copy — expects exactly one. An empty array means the symbol is absent from the tree's exported surface. |
+
+Only exports count as declarations. A module that keeps a private helper under the same
+name is not a second copy of the tracked symbol and does not block a move. A re-export
+(`export { x } from`, `export *`, a barrel) resolves to the file holding the declaration and
+is attributed there, never counted as a declaration of its own.
 
 The declarations are produced by the repository's **own** TypeScript-equivalent compiler,
 resolved from `--repo`, with declaration emit forced in memory. No artifact is written

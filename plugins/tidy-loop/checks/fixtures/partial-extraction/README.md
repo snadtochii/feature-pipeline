@@ -6,8 +6,10 @@ and holds an unrelated `src/format.ts`. `candidate/` is the refactor done
 **half way**: `src/range.ts` now declares `Range` and `clamp` too, `src/stats.ts`
 imports from it, `src/report.ts` still imports from `src/math.ts`, the original
 declarations in `src/math.ts` were never removed, and `src/format.ts` was
-renamed to `src/text.ts` with its content untouched. That is the shape a
-structural check has to be able to see, so it is the shape the fixture pins.
+renamed to `src/text.ts` with its content untouched. Both trees also carry
+`src/percent.ts`, which keeps a **private** `clamp` of its own and exports
+only `percent`. That is the shape a structural check has to be able to see, so
+it is the shape the fixture pins.
 
 Each command's expected document says something specific about that shape:
 
@@ -20,7 +22,10 @@ Each command's expected document says something specific about that shape:
   the two documents key-comparable at all. `src/range.ts` exists only in the
   candidate. `declaredOnce` is the copy detector — `clamp` and `Range` list one
   file in `base/` and two in `candidate/`, which is exactly how a gate tells a
-  move from a copy.
+  move from a copy. `src/percent.ts` appears in neither list: its `clamp` is
+  not exported, and only a module's exported surface declares a tracked
+  symbol, so a private helper that happens to share the name cannot block a
+  legitimate move.
 
 - **`test-names`** — `src/math.spec.ts` deliberately contains two `it` cases with
   the *same* name inside one `describe`, so both documents prove the multiset
