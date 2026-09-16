@@ -168,6 +168,15 @@ makes that visible.
 execute. A test that a change turns into a skipped test therefore reads as a lost test,
 which is the intended reading.
 
+**Parametrized tests are counted as written under static collection.** With
+`"collection": "static"`, a test generated from a table (`it.each`, `test.for`, and their
+kin) appears **once**, with its title template verbatim — `case %i`, not `case 1` and
+`case 2` — because the table is never evaluated. A refactor that drops one row of such a
+table is therefore invisible to the multiset in that mode; only `"collection": "runtime"`,
+which loads the files, expands the rows into the names the run would use. A gate that
+needs row-level evidence for a parametrized test takes it from an actual run of the suite
+(§8 compares executed tests), not from this multiset.
+
 ## §6 `exported-surface`
 
 Answers *what every module exports*, as a digest per module, so a move can be proven to

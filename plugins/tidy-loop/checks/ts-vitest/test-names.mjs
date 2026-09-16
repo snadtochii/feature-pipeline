@@ -10,7 +10,10 @@
 //
 // Collection is attempted statically (`--staticParse`, no test file is
 // executed). A vitest too old to know that option is retried without it, and
-// the document records which mode answered.
+// the document records which mode answered. Static collection reports a
+// parametrized test (`it.each` and kin) once, with its title template
+// verbatim, because the table is never evaluated — CONTRACT.md §5 states the
+// consequence for the multiset.
 //
 // Usage: node test-names.mjs --repo <abs-path> [--prelude "<line>"]
 // Exit:  0 document on stdout (including an empty `tests` array);
