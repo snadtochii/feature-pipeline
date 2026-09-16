@@ -128,6 +128,7 @@ Under `state_dir` the loop owns:
 
 ```
 <state_dir>/queue.md                   # the queue — seeded by tidy-setup, see queue.md
+<state_dir>/queue.lock                 # transient — held by a skill writer for one queue write, see queue.md §5
 <state_dir>/reports/<ISO-date>.md      # the survey report — also the id-keyed record of each
                                        # proposed finding's files and structural_key
 <state_dir>/briefs/<run-id>.md         # the pull request body
