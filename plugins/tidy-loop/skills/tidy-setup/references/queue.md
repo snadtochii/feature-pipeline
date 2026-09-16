@@ -119,8 +119,13 @@ The grammar is prose followed by optional key segments:
 ```
 
 - The **prose part** is everything before the first key segment and must be non-empty.
-- A key segment is a `;` followed by optional whitespace and a known key. A bare `;` inside
-  the prose — a semicolon the human typed in an ordinary sentence — is not a separator.
+- A **key segment** is defined by shape, not by vocabulary: a `;` followed by optional
+  whitespace and a key token matching `[a-z]+:`. A `;` not followed by that shape — a
+  semicolon the human typed in an ordinary sentence — is prose, not a separator.
+- The **known keys** are `amend` and `caps`. A key token of any other spelling in segment
+  position is an unknown key. The segment shape is reserved throughout the note: it is a
+  separator wherever it occurs, including inside an `amend:` value, so prose that needs a
+  semicolon before a colon-suffixed word is rephrased rather than parsed.
 - Each key appears at most once, and in the order shown.
 - `amend:` carries a free-prose instruction that narrows or adjusts the change. It is data
   the implementer reads, never a command line.
