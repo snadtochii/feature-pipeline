@@ -108,7 +108,9 @@ main(() => {
  * report, and answer `covered: false` at exit 0 — a wrong answer where the
  * contract promises either a right one or a non-zero exit. The same check
  * rejects a target that escapes the repository, which CONTRACT.md §2 forbids
- * from appearing in the document at all.
+ * from appearing in the document at all. Each target must be an existing
+ * file for the same reason: a directory exists, matches no report entry,
+ * and would otherwise answer `covered: false` at exit 0.
  *
  * @param {string} repo
  * @param {string} value the --targets flag
@@ -132,8 +134,14 @@ function parseTargets(repo, value) {
     fail('--targets is empty', EXIT_BAD_USAGE);
   }
   for (const target of targets) {
-    if (!fs.existsSync(path.join(repo, target))) {
+    let stat;
+    try {
+      stat = fs.statSync(path.join(repo, target));
+    } catch {
       fail(`target does not exist in --repo: ${target}`, EXIT_BAD_USAGE);
+    }
+    if (!stat.isFile()) {
+      fail(`target is not a file: ${target}`, EXIT_BAD_USAGE);
     }
   }
   return targets;

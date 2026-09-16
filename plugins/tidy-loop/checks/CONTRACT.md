@@ -256,8 +256,10 @@ Answers *did the test suite actually execute these files*. This is the oracle be
 node .../coverage-hit.mjs --repo <abs-path> --targets <a,b,c> [--prelude "<line>"]
 ```
 
-`--targets` is a comma-separated list of repo-relative files, each of which must exist.
-An empty list exits 2.
+`--targets` is a comma-separated list of repo-relative files, each of which must name an
+existing **file**. A missing path, a directory, or an empty list exits 2 — a directory
+exists, matches no report entry, and would otherwise answer `covered: false` at exit 0,
+which is a wrong answer where the contract promises a right one or a non-zero exit.
 
 Document:
 
