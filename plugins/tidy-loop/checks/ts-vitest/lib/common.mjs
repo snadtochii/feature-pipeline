@@ -235,9 +235,18 @@ let runCount = 0;
 /**
  * Run a Node subprocess, optionally behind the caller's declared prelude.
  *
- * The prelude is written verbatim into a script file and the command rides as
- * an argument vector that `exec "$@"` re-executes. Nothing is ever substituted
- * into a shell string — see CONTRACT.md §4.
+ * The prelude is written verbatim into a script file, under `set -e`, so a
+ * prelude line that fails ends the run with that line's status and the command
+ * never starts; the EXIT trap names the prelude on stderr for the caller's
+ * error tail, since a failing command is free to print nothing. The command
+ * rides as an argument vector that `exec "$@"` re-executes. Nothing is ever
+ * substituted into a shell string — see CONTRACT.md §4.
+ *
+ * Behind a prelude the interpreter is `node` as resolved on the PATH the
+ * prelude leaves behind — that is what lets a prelude select a toolchain, not
+ * only an environment — with this process's own interpreter directory
+ * appended last so a prelude that sets no PATH still resolves one. Without a
+ * prelude the subprocess is this process's own interpreter.
  *
  * @param {string[]} argv arguments to the Node interpreter
  * @param {{cwd: string, prelude?: string | undefined}} options
@@ -249,10 +258,23 @@ export function run(argv, { cwd, prelude }) {
   if (prelude) {
     if (preludeScript === null) {
       preludeScript = path.join(makeTempDir(), 'prelude.sh');
-      fs.writeFileSync(preludeScript, `${prelude}\nexec "$@"\n`, { mode: 0o700 });
+      fs.writeFileSync(
+        preludeScript,
+        [
+          'trap \'echo "prelude failed with status $?" >&2\' EXIT',
+          'set -e',
+          prelude,
+          'trap - EXIT',
+          'PATH="$PATH:$1"',
+          'shift',
+          'exec "$@"',
+          '',
+        ].join('\n'),
+        { mode: 0o700 },
+      );
     }
     file = 'sh';
-    args = [preludeScript, process.execPath, ...argv];
+    args = [preludeScript, path.dirname(process.execPath), 'node', ...argv];
   }
   // Both callers read their real answer from a file the subprocess writes, and
   // want its output only as an error tail. Buffering it in the parent's heap

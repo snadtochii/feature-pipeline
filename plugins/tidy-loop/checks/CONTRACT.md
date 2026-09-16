@@ -83,15 +83,31 @@ same trust tier as the rest of that caller's profile — and it is treated as *f
 content*, never as text substituted into a command line. The command writes
 
 ```sh
+trap 'echo "prelude failed with status $?" >&2' EXIT
+set -e
 <prelude line>
+trap - EXIT
+PATH="$PATH:$1"
+shift
 exec "$@"
 ```
 
-to a private temporary file and invokes `sh <that file> <interpreter> <bin> <args…>`. The
-command being run therefore rides as an argument vector that the shell re-executes
-verbatim; nothing from the prelude, the repository, or a flag value is ever concatenated
-into a shell string. There is no `eval` and no shell-string subprocess anywhere in an
-implementation of this contract.
+to a private temporary file and invokes `sh <that file> <fallback-dir> node <bin> <args…>`,
+where `<fallback-dir>` is the directory of the interpreter running the command. The command
+being run therefore rides as an argument vector that the shell re-executes verbatim;
+nothing from the prelude, the repository, or a flag value is ever concatenated into a shell
+string. There is no `eval` and no shell-string subprocess anywhere in an implementation of
+this contract.
+
+Two consequences follow from that shape. **A prelude that fails aborts the run**: `set -e`
+stops the script at the failing line, the subprocess never starts, and the command exits 1
+(§3) with an `error` quoting the shell's stderr — where the trap has named the prelude and
+its status, since a failing command is free to print nothing of its own. A prelude is never
+silently skipped. And **the prelude selects the interpreter**: the toolchain runs under
+`node` as resolved on the `PATH` the prelude leaves behind, so activating a version manager
+changes which interpreter runs the suite, not only its environment. The directory of the
+interpreter running the command is appended last, so a prelude that sets no `PATH` still
+resolves one. Without a prelude, the subprocess is the interpreter running the command.
 
 A prelude containing a newline is accepted, because it is file content. Consumers of this
 contract constrain it to one line at their own layer; that is a profile rule, not a
