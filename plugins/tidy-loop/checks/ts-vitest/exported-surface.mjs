@@ -120,9 +120,43 @@ function readRenameMap(value) {
       if (typeof to !== 'string') {
         return fail(`--rename-map ${key}."${from}" must map to a string`, EXIT_BAD_USAGE);
       }
+      if (key === 'modules') {
+        for (const value of [from, to]) {
+          if (!isRepoRelativePath(value)) {
+            return fail(
+              `--rename-map modules entry "${value}" must be a repo-relative path`,
+              EXIT_BAD_USAGE,
+            );
+          }
+        }
+      }
     }
   }
   return { modules: parsed.modules, symbols: parsed.symbols };
+}
+
+/**
+ * A module path the rename map may name: non-empty, relative on every
+ * platform's spelling, inside the repository, and already in canonical posix
+ * form. A new-path value becomes a `surface` key verbatim, so CONTRACT.md §2's
+ * ban on absolute or escaping paths applies to it, and a non-canonical
+ * spelling (`src/./x.ts`) would produce a key the other tree's document never
+ * matches.
+ *
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isRepoRelativePath(value) {
+  if (value === '' || path.posix.isAbsolute(value) || path.win32.isAbsolute(value)) {
+    return false;
+  }
+  const normalized = path.posix.normalize(value);
+  return (
+    normalized === value &&
+    normalized !== '.' &&
+    !normalized.startsWith('../') &&
+    !normalized.endsWith('/')
+  );
 }
 
 /**

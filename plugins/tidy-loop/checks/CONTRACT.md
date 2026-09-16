@@ -234,6 +234,10 @@ answer.
   `declaredOnce` without asserting a rename.
 - Both keys are required; either may be empty. There is no heuristic that guesses whether
   an entry is a path or a symbol.
+- Every `modules` path — old and new — must be repo-relative and in canonical `/`-separated
+  form: an absolute path, a path that climbs out of the repository, or a non-canonical
+  spelling such as `src/./x.ts` exits 2. A new path becomes a `surface` key verbatim, and §2
+  forbids any other shape in the document.
 
 **The map is always applied forward** — old → new — to whichever tree the command is
 pointed at. A caller compares two trees by passing the **same** map to both runs: the run
