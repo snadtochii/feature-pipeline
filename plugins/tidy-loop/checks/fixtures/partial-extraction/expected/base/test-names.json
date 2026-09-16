@@ -1,0 +1,37 @@
+{
+  "collection": "static",
+  "tests": [
+    {
+      "file": "src/format.spec.ts",
+      "name": "pad > leaves text at or over the width alone"
+    },
+    {
+      "file": "src/format.spec.ts",
+      "name": "pad > left-pads to the requested width"
+    },
+    {
+      "file": "src/math.spec.ts",
+      "name": "add > sums two numbers"
+    },
+    {
+      "file": "src/math.spec.ts",
+      "name": "clamp > pulls a value back to the nearest bound"
+    },
+    {
+      "file": "src/math.spec.ts",
+      "name": "clamp > pulls a value back to the nearest bound"
+    },
+    {
+      "file": "src/math.spec.ts",
+      "name": "clamp > returns a value inside the range unchanged"
+    },
+    {
+      "file": "src/stats.spec.ts",
+      "name": "mean > averages the values"
+    },
+    {
+      "file": "src/stats.spec.ts",
+      "name": "mean > falls back to the lower bound on an empty list"
+    }
+  ]
+}

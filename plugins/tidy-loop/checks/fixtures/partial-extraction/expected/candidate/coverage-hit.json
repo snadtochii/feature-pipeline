@@ -1,0 +1,13 @@
+{
+  "covered": false,
+  "hit": {
+    "src/range.ts": {
+      "covered": true
+    },
+    "src/report.ts": {
+      "covered": false
+    }
+  },
+  "provider": "v8",
+  "testsPassed": true
+}
