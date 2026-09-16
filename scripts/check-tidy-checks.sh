@@ -183,21 +183,33 @@ function readManifest(fixture) {
   return [stackDir, null];
 }
 
-// Lines present in only one of the two canonical documents, in order, capped.
+// Occurrences of each line, in first-seen order.
+function countLines(text) {
+  const counts = new Map();
+  for (const line of text.split("\n")) {
+    counts.set(line, (counts.get(line) ?? 0) + 1);
+  }
+  return counts;
+}
+
+// Lines whose occurrence count differs between the two canonical documents,
+// in order, capped. Counted rather than set-based: the documents are
+// multisets (a duplicated test name is the fixture's headline case), and a
+// duplicate collapsing to one occurrence must still explain itself.
 function describeDifference(expectedText, actualText) {
-  const expectedLines = expectedText.split("\n");
-  const actualLines = actualText.split("\n");
-  const expectedSet = new Set(expectedLines);
-  const actualSet = new Set(actualLines);
+  const expectedCounts = countLines(expectedText);
+  const actualCounts = countLines(actualText);
   const parts = [];
-  for (const line of expectedLines) {
-    if (!actualSet.has(line)) {
-      parts.push(`-${line.trim()}`);
+  for (const [line, count] of expectedCounts) {
+    const missing = count - (actualCounts.get(line) ?? 0);
+    if (missing > 0) {
+      parts.push(`-${line.trim()}${missing > 1 ? ` (x${missing})` : ""}`);
     }
   }
-  for (const line of actualLines) {
-    if (!expectedSet.has(line)) {
-      parts.push(`+${line.trim()}`);
+  for (const [line, count] of actualCounts) {
+    const extra = count - (expectedCounts.get(line) ?? 0);
+    if (extra > 0) {
+      parts.push(`+${line.trim()}${extra > 1 ? ` (x${extra})` : ""}`);
     }
   }
   const shown = parts.slice(0, 12);
