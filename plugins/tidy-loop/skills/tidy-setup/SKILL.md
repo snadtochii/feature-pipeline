@@ -517,10 +517,12 @@ Close with a summary the user can act on without re-reading the transcript:
    it is on whatever branch they are working on, may not contain the profile at all, and would
    make every run depend on it.
 
-   Say what each schedule does before the user flips `execute: true`: the survey runs and fills
-   the queue regardless, so candidates and reports accumulate for review from the first week;
-   `tidy-execute` reads the flag, reports it, and exits without building. Nothing in the repo
-   changes until the user decides it should.
+   Both schedules stay manual until the user flips `execute: true`: this skill creates neither,
+   and until the flag is flipped each command is the user's to run by hand or to schedule on
+   their own surface. Say what each does while the flag is `false`: the survey runs and fills
+   the queue regardless, so scheduling it early is harmless and lets candidates and reports
+   accumulate for review from the first week; `tidy-execute` reads the flag, reports it, and
+   exits without building. Nothing in the repo changes until the user decides it should.
 
 Recommend committing `.tidyloop.yaml` and any new `.worktreeinclude` together as one commit,
 and say why: a worktree cut from base must see both.
