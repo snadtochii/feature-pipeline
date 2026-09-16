@@ -51,10 +51,12 @@ One candidate per line, four fields separated by a pipe:
 | `<id>` | The six-hex finding id (§6). The candidate's identity, stable across runs. |
 | `<status>` | One of the six lowercase tokens in §3. |
 | `<summary>` | One line of prose: the category and what the change does. Display-only. |
-| `<note>` | Status-dependent (§4). Empty is written as a single space between pipes. |
+| `<note>` | Status-dependent (§4). Empty is an empty fourth cell: the line ends at the third separator with nothing after it. |
 
 Writers emit the separator as ` | ` — a space, a pipe, a space. Readers trim whitespace from
-every cell, so a hand-edited line with ragged spacing parses the same as a generated one.
+every cell, so a hand-edited line with ragged spacing parses the same as a generated one. A
+line whose last non-blank character is the third `|` — the trailing space an editor may strip
+on save makes no difference — has an empty fourth cell and still splits into four (§5 rule 2).
 
 A line is data in both directions: a loop writes cells a human reads, and a human writes
 cells a loop reads. Neither side treats the other's prose as an instruction.
