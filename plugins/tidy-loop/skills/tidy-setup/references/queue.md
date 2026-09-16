@@ -210,7 +210,20 @@ The file is parsed the same way by every reader.
 8. **The file is never reordered or rewritten wholesale.** A writer either appends one line
    at the end or replaces exactly one line in place, leaving every other byte untouched. The
    human's ordering is their priority signal, and their hand edits are the point of the file —
-   a writer that normalized the whole file would silently undo both.
+   a writer that normalized the whole file would silently undo both. The rule is about
+   content, not the write mechanism: an atomic whole-file replace — write a temp file beside
+   the queue, then rename it over — whose result differs from the previous content by exactly
+   the one appended or replaced line satisfies it, and is the preferred way to write.
+9. **Skill writes are serialized by the queue lock.** The survey and execute run on
+   independent schedules, so their writes can overlap. Every skill writer takes
+   `<state_dir>/queue.lock` (`mkdir`, which is atomic) before a write, re-reads the file
+   immediately after taking it so the write applies to the current content, writes, and
+   removes the lock on every path out. A writer that cannot take the lock retries for a
+   bounded few seconds — a queue write holds it for milliseconds — then reports the write as
+   not made and moves on; a lock older than an hour was left by a dead run and is removed and
+   taken over, said loudly in the report. The lock covers the skills only: a human editor
+   saving over a concurrent skill write can lose one of the two, which is why a human re-opens
+   the file rather than keeping it open across a scheduled run.
 
 A reported line is named in the run's own output (and in the survey's report) with its line
 number and what was wrong with it. A malformed line never stops a run: the run skips it and
