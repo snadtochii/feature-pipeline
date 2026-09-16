@@ -136,9 +136,9 @@ Under `state_dir` the loop owns:
 ```
 
 The brief lives here rather than on the branch for a specific reason: it is the *only* copy of
-the gate evidence and the ranked candidate table, and neither is reconstructable after the run
-ends. A pushed branch carries the change but not the brief, so without a durable copy an orphan
-branch cannot have its pull request opened at all.
+the gate evidence table, which is not reconstructable after the run ends. A pushed branch
+carries the change but not the brief, so without a durable copy an orphan branch cannot have
+its pull request opened at all.
 
 Reports are retained for the same reason: a queue line carries a finding's id but not its
 shape, so the report that proposed the id is where `files` and `structural_key` are recovered
