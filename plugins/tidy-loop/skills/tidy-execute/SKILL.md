@@ -198,14 +198,10 @@ the residue that run leaves:
   belongs to a dead run. Stash its diff to `<state_dir>/blocked/<its-run-id>.patch`, then remove
   it with `--force` and prune. A failed structural change has no value to keep; the reason it
   failed does.
-- `$HOME/.tidy-loop/fence.json` — **read its `run_id` before touching it.** This path is global
-  while the lock above is per-clone, so a fence file here may belong to a live run in a different
-  clone rather than to the dead run this sweep is cleaning up after. Remove it only when its
-  `run_id` is absent, unparseable, or names the dead run whose residue this step just cleared;
-  then it is a control keyed to a worktree that no longer exists, and leaving it points a future
-  fence at a stale root. A fence file naming any **other** run is a live control: leave it, and
-  abort this run naming that run id, because the fence file is a single global and this run
-  cannot write its own without destroying that one (§8).
+- `<common-dir>/tidy-loop-fence.json` — the write fence, beside the lock this step just took.
+  Remove it: it is scoped to the clone this run now holds the lock on, so a file surviving here
+  is the dead run's, and leaving it would point a future fence at a worktree that no longer
+  exists.
 
 ### Step 5 — Clone position
 
@@ -651,32 +647,28 @@ Once per run, before the first fenced spawn:
 { "run_id": "<run-id>", "repo_root": "<WT>", "test_globs": ["…"] }
 ```
 
-written to `$HOME/.tidy-loop/fence.json`. One entry per run rather than one per agent — the glob
-set is the same for both, only the direction differs, and the direction is the mode argument each
-agent's own binding supplies.
+written to `<common-dir>/tidy-loop-fence.json` — the git common directory of `<CLONE>`, the same
+directory §2 Step 4 takes the run lock in, resolved the same way:
 
-The file lives at a fixed path because a hook's command string is static and cannot resolve
-`state_dir`, which is per-repo configuration. That fixed path is **global, while the run lock
-(§2 Step 4) is per-clone** — so a second repository running concurrently is a supported state,
-and it reaches this same file. `repo_root` scopes every decision the fence *makes*, which keeps
-one run's globs from being applied to another run's paths; it does nothing to stop one run
-deleting or overwriting the other's control. `run_id` is what closes that gap, and **every site
-that writes, sweeps, or clears this file is gated on it**:
+```bash
+git -C "<CLONE>" rev-parse --path-format=absolute --git-common-dir
+```
 
-- **Write (here).** A fence file already present whose `run_id` is **not** this run's belongs to
-  a live run in another clone. **Abort** this run, naming the other run id — never overwrite it.
-  A fence file carrying this run's own `run_id` is this run's own residue and may be rewritten.
-- **Sweep (§2 Step 4).** Remove it only when its `run_id` is absent, unparseable, or belongs to a
-  run this sweep has already established is dead. Another live run's fence is left alone.
-- **Clear (§13).** Remove it only when its `run_id` is this run's.
+One entry per run rather than one per agent — the glob set is the same for both, only the
+direction differs, and the direction is the mode argument each agent's own binding supplies.
 
-Deleting another run's fence does not merely inconvenience it: the hook exits 0 on a missing
-fence file, so the other run's implementer would continue **with no fence at all** — the loop's
-central invariant silently gone. That run's commit assertion still fails it closed at the end,
-but only after the control itself has stopped existing, which is the property worth keeping.
+**The fence sits beside the lock so that it has the lock's scope.** Every worktree of a clone
+shares one common dir, so a single file covers this run and the worktree it spawns agents in,
+while a run in a different clone cannot see it — the hook derives the location from the path it
+is asked about, not from a fixed path of its own. Two repositories running concurrently is a
+supported state and needs no bookkeeping to stay safe: neither run can read, overwrite, or delete
+the other's control, so there is nothing for a `run_id` comparison to arbitrate at write, sweep,
+or clear. The lock this run already holds on `<CLONE>` is what makes the file this run's.
 
-Refuse to write a fence file with an empty `test_globs` — the hook treats that as fail-open, and
-a fence that allows everything must never be the thing a spawn proceeds behind.
+Refuse to write a fence file with an empty `test_globs`. The hook denies a *write* it cannot find
+globs for, so an empty set fails closed rather than open — but it would deny every write the
+spawn makes, which is a fence that cannot be worked behind rather than one that allows
+everything. Either way it must never be the thing a spawn proceeds behind.
 
 ### Prove the fence denies, in this spawn's mode, before spawning
 
@@ -913,10 +905,9 @@ assertion, a disagreeing map, a red gate, the turn ceiling — it:
    failed and the two sets or two maps it compared, so a human can read what happened without
    re-running anything.
 3. **Removes the worktree.**
-4. **Clears `$HOME/.tidy-loop/fence.json`, but only when its `run_id` is this run's.** It is a
-   live control; leaving this run's behind points a future fence at a root that no longer exists,
-   and removing another run's un-fences an agent that is working right now (§8). A fence file
-   naming a different run is left exactly as found, and the report says so.
+4. **Clears `<common-dir>/tidy-loop-fence.json`.** It is a live control, scoped to the clone this
+   run holds the lock on, so the file there is this run's; leaving it behind points a future
+   fence at a worktree that no longer exists.
 5. **Writes a queue status only inside the window that owns one.** An abort **from the
    implementer's commit onward** writes `blocked` per §12 — that is the window queue.md defines
    the status against: the change was built and a gate failed. An abort **before** it leaves the

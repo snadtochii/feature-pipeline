@@ -25,12 +25,28 @@
 #     "permissionDecision":"deny","permissionDecisionReason":"…"}}
 #   Otherwise no output and exit 0. The script never blocks by exit code.
 #
-# FAILS OPEN, DELIBERATELY AND VISIBLY. Missing jq, a missing or unparseable fence
-# file, an empty glob set, an empty file_path: every one of them exits 0 and allows
-# the call. A hook that killed an unattended run over its own plumbing would be
-# worse than the risk it covers. The compensating controls live in the calling
-# skill, not here: a self-test proves this script denies before each spawn, and a
-# per-commit diff assertion proves it denied afterwards.
+# WHERE THE FENCE LIVES. Beside the run lock, in the git common directory of the
+# clone the call is touching — `<common-dir>/tidy-loop-fence.json`, located from
+# the payload itself (the directory of `file_path`, else `cwd`). Every worktree of
+# a clone shares one common dir, so one file covers a run and its worktrees while
+# two clones running at once cannot see each other's. That is the whole reason the
+# location is derived rather than fixed: a single machine-global path would make
+# concurrent runs in different clones contend, and the skill would have to carry
+# run-id bookkeeping at every write, sweep and clear to paper over it.
+#
+# FAILS OPEN FOR READS, CLOSED FOR WRITES. Missing jq, an empty payload or an empty
+# file_path exit 0 — a hook that killed an unattended run over its own plumbing
+# would be worse than the risk it covers. But once a WRITE is in hand, absence
+# stops being a plumbing detail and becomes the dangerous direction: this script is
+# bound from agent frontmatter, so it runs only inside a fenced spawn of a live
+# run, and a write with no fence to consult is a write nothing is governing. So a
+# write is DENIED when the clone cannot be located, or its fence file is missing,
+# unparseable, or carries no globs; a read in the same state is allowed. Reading a
+# spec cannot corrupt the evidence the run is judged on — writing one can.
+#
+# The compensating controls still live in the calling skill: a self-test proves
+# this script denies before each spawn, and a per-commit diff assertion proves it
+# denied afterwards.
 #
 # Glob matching: bash 3.2 has no globstar, so each glob is tried as a `case`
 # pattern in three forms — literally, with `/**/` collapsed to `/`, and with a
@@ -67,7 +83,7 @@ set -euo pipefail
 # (`?(c|m)[jt]s?(x)`). With extglob off, such a pattern matches nothing at all.
 shopt -s extglob
 
-FENCE_FILE="${HOME}/.tidy-loop/fence.json"
+FENCE_BASENAME="tidy-loop-fence.json"
 
 mode="${1:-}"
 case "$mode" in
@@ -85,20 +101,13 @@ if [ -z "$input" ]; then
     exit 0
 fi
 
-if [ ! -f "$FENCE_FILE" ]; then
-    exit 0
-fi
-
-repo_root=$(jq -r '.repo_root // empty' "$FENCE_FILE" 2>/dev/null || true)
-globs=$(jq -r '.test_globs[]? // empty' "$FENCE_FILE" 2>/dev/null || true)
-if [ -z "$repo_root" ] || [ -z "$globs" ]; then
-    exit 0
-fi
-repo_root="${repo_root%/}"
-
-tool_name=$(jq -r '.tool_name // empty' <<<"$input" 2>/dev/null || true)
-file_path=$(jq -r '.tool_input.file_path // empty' <<<"$input" 2>/dev/null || true)
-hook_cwd=$(jq -r '.cwd // empty' <<<"$input" 2>/dev/null || true)
+# The payload is parsed FIRST — one jq call for all three fields — because the
+# fence's location is derived from it, and because the two cheap exits below then
+# cost one fork rather than three.
+IFS=$'\t' read -r tool_name file_path hook_cwd <<<"$(
+    jq -r '[.tool_name // "", .tool_input.file_path // "", .cwd // ""] | @tsv' \
+        <<<"$input" 2>/dev/null || true
+)"
 if [ -z "$file_path" ]; then
     exit 0
 fi
@@ -107,6 +116,48 @@ is_write=0
 case "$tool_name" in
     Write|Edit|MultiEdit) is_write=1 ;;
 esac
+
+deny() {
+    jq -n --arg r "$1" \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+    exit 0
+}
+
+# Absence is allowed for a read and denied for a write; see the header. Anything
+# that cannot establish a governing fence routes through here.
+no_fence() {
+    if [ "$is_write" -eq 0 ]; then
+        exit 0
+    fi
+    deny "$1"
+}
+
+# Locate the clone from the call itself. `--path-format=absolute` is load-bearing:
+# `-C` selects the directory git resolves from, but `--git-common-dir` still prints
+# a path relative to it (plain `.git` for a non-linked checkout), which would then
+# be joined against this script's own working directory.
+probe_dir=$(dirname -- "$file_path")
+if [ ! -d "$probe_dir" ]; then
+    probe_dir="${hook_cwd:-.}"
+fi
+common_dir=$(
+    git -C "$probe_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true
+)
+if [ -z "$common_dir" ] || [ ! -d "$common_dir" ]; then
+    no_fence "this path is not inside a repository this run fences"
+fi
+
+FENCE_FILE="${common_dir%/}/${FENCE_BASENAME}"
+if [ ! -f "$FENCE_FILE" ]; then
+    no_fence "no write fence is active for this repository"
+fi
+
+repo_root=$(jq -r '.repo_root // empty' "$FENCE_FILE" 2>/dev/null || true)
+globs=$(jq -r '.test_globs[]? // empty' "$FENCE_FILE" 2>/dev/null || true)
+if [ -z "$repo_root" ] || [ -z "$globs" ]; then
+    no_fence "the write fence for this repository is unreadable"
+fi
+repo_root="${repo_root%/}"
 
 # deny-unmatch governs writes only. The spec-mover's binding matches write tools,
 # and a mode that denied every read outside the spec set would fence it out of the
@@ -163,12 +214,6 @@ normalize_path() {
 
 abs=$(normalize_path "$abs")
 repo_root=$(normalize_path "$repo_root")
-
-deny() {
-    jq -n --arg r "$1" \
-        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
-    exit 0
-}
 
 # Outside the run's worktree. A write there escapes the run's isolation whichever
 # direction the fence points, so both modes refuse it; a read is left alone.
