@@ -76,4 +76,4 @@ No tree carries an ignore file of its own: the runner stages them with
 the base commit.
 
 `node_modules/` is gitignored. Run the whole thing with
-`bash scripts/check-tidy-checks.sh` from the repository root.
+`node scripts/check-tidy-checks.mjs` from the repository root.

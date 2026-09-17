@@ -15,12 +15,12 @@ on:
       - 'integration/**'
     paths:
       - 'plugins/tidy-loop/checks/**'
-      - 'scripts/check-tidy-checks.sh'
+      - 'scripts/check-tidy-checks.mjs'
       - '.github/workflows/tidy-checks.yml'
   pull_request:
     paths:
       - 'plugins/tidy-loop/checks/**'
-      - 'scripts/check-tidy-checks.sh'
+      - 'scripts/check-tidy-checks.mjs'
       - '.github/workflows/tidy-checks.yml'
 
 permissions:
@@ -49,4 +49,4 @@ jobs:
           cache-dependency-path: 'plugins/tidy-loop/checks/fixtures/*/package-lock.json'
 
       - name: Run the checks fixtures
-        run: bash scripts/check-tidy-checks.sh
+        run: node scripts/check-tidy-checks.mjs

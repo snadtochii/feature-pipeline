@@ -49,7 +49,7 @@ feature-pipeline/
 │   ├── check-mode-split.sh     # Validation: per-mode reference leakage
 │   ├── check-md-links.sh      # Validation: relative-link resolution across the doc trees
 │   ├── check-runtime-contract.sh # Validation: runtime dispatch, stage templates, reviewer roles
-│   └── check-tidy-checks.sh    # Validation: tidy-loop checks script against its fixtures
+│   └── check-tidy-checks.mjs   # Validation: tidy-loop checks commands against their fixtures
 ├── plugins/
 │   ├── feature/             # The feature-development pipeline plugin
 │   │   ├── .claude-plugin/
@@ -418,11 +418,11 @@ Before committing changes to skills or agents:
 11. **Markdown links** — run `scripts/check-md-links.sh`; it must exit 0. It is the only guard against a dangling relative `.md` link, over every documentation tree listed in its `roots` array (today `plugins/feature/skills` and `plugins/tidy-loop`); vendored and generated directories are pruned from the walk. Adding a documentation tree is one line there.
 12. **Mode-pair lockstep** — when you edit a shared section of a `-fs`/`-server` pair (the Epic-completion predicate, the decision table, the status query, error handling), apply the same edit to the sibling; the two files' `##` heading sets must stay identical.
 13. **Runtime contract** — run `bash scripts/check-runtime-contract.sh`; it must exit 0. This checks the four runtime consumers, required runtime operations, neutral stage-template placeholders, and complete read-only reviewer roster. Real runtime behavior still needs a smoke run in a separate consuming project.
-14. **Tidy-loop checks** — run `bash scripts/check-tidy-checks.sh`; it must exit 0 with every `ok` line. It installs each fixture's pinned toolchain with `npm ci` (Node ≥ 20, npm, and git on PATH) and diffs every checks command's JSON document against the committed expected one. CI runs it too, on changes touching the checks subtree or the runner (`.github/workflows/tidy-checks.yml`).
+14. **Tidy-loop checks** — run `node scripts/check-tidy-checks.mjs`; it must exit 0 with every `ok` line. It installs each fixture's pinned toolchain with `npm ci` (Node ≥ 20, npm, and git on PATH) and diffs every checks command's JSON document against the committed expected one. CI runs it too, on changes touching the checks subtree or the runner (`.github/workflows/tidy-checks.yml`).
 
 15. **CI mirror** — `.github/workflows/validation.yml` runs expectations 8, 10, 11, and 13 on every pull request and on every push to `main` or an `integration/**` branch (both workflows filter `push` that way, so a pull-request commit is checked once). Adding a validation script means adding a step there, or it stays a manual-only check.
 
-The skills and agents have no automated test suite; validation there is by manual pipeline runs on real tickets. The tidy-loop checks script is the exception — it is covered by its fixtures through `scripts/check-tidy-checks.sh`, which CI runs alongside the three validation scripts.
+The skills and agents have no automated test suite; validation there is by manual pipeline runs on real tickets. The tidy-loop checks script is the exception — it is covered by its fixtures through `scripts/check-tidy-checks.mjs`, which CI runs alongside the three validation scripts.
 
 ---
 

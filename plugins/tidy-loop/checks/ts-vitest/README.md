@@ -93,5 +93,5 @@ Fixtures live in [`../fixtures/`](../fixtures/), one directory each, and declare
 in their own `fixture.json`. Run them from the repository root:
 
 ```sh
-bash scripts/check-tidy-checks.sh
+node scripts/check-tidy-checks.mjs
 ```

@@ -53,4 +53,4 @@ which is what proves `exported-surface` overrides emit settings in memory
 instead of relying on the repository's.
 
 `node_modules/` and `coverage/` are gitignored. Run the whole thing with
-`bash scripts/check-tidy-checks.sh` from the repository root.
+`node scripts/check-tidy-checks.mjs` from the repository root.
