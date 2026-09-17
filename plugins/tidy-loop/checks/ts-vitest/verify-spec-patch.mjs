@@ -18,7 +18,9 @@
 //
 // The base tree is a detached worktree inside this invocation's temp
 // directory, registered under the repository's own `.git/worktrees/` and
-// removed on every exit path. Nothing else is written under --repo.
+// removed on every exit path — a normal exit, an error exit, and a termination
+// signal, which the two awaited suite runs let a listener observe. Nothing
+// else is written under --repo.
 //
 // Usage: node verify-spec-patch.mjs --repo <abs-path> --base-sha <rev>
 //                                   --test-globs <a,b,c> [--tsconfig <path>]
@@ -28,9 +30,10 @@
 // patterns name things inside the repository and resolve against `--repo`.
 // Exit:  0 document on stdout (including `verdict: false`); 1 an untracked test
 //        file, a dirty temporary worktree, a patch that does not apply, no
-//        node_modules to bridge, or a run that produced no JSON report;
-//        2 bad flags, a --repo that is not a git working-tree root, an
-//        unresolvable --base-sha, or a malformed glob.
+//        node_modules to bridge, a run that produced no JSON report, or an
+//        interrupt, termination, or hangup signal; 2 bad flags, a --repo that
+//        is not a git working-tree root, an unresolvable --base-sha, or a
+//        malformed glob.
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -42,6 +45,7 @@ import {
   compare,
   emit,
   fail,
+  interruptSubprocess,
   isRepoSource,
   loadTsconfig,
   main,
@@ -51,7 +55,7 @@ import {
   resolveReferencePath,
   resolveRepo,
   resolveVitestBin,
-  run,
+  runAsync,
   runTool,
   tail,
   toolCommand,
@@ -60,21 +64,23 @@ import {
 
 /**
  * The signals whose default disposition would terminate the process without
- * running its `exit` listeners. `SIGHUP` matters most here: the consuming loop
+ * running its `exit` listeners. Each is forwarded to the suite run in flight,
+ * and the run then ends as the exit-1 document naming the signal, so the
+ * teardown runs on the way out. `SIGHUP` matters most here: the consuming loop
  * is scheduled and detached, so a vanishing session is the likeliest
  * interruption of all, and it is the one that would leave a registration behind
  * in the caller's repository.
+ *
+ * A listener only ever runs between turns of the event loop, which is why the
+ * two suite runs — the only long stretches of this command — are awaited
+ * rather than blocked on.
  */
-const SIGNAL_EXIT_CODES = [
-  ['SIGINT', 130],
-  ['SIGTERM', 143],
-  ['SIGHUP', 129],
-];
+const TERMINATION_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
 /** How many pathspecs one `git ls-tree` invocation carries. */
 const PATHSPEC_CHUNK = 400;
 
-main(() => {
+main(async () => {
   const flags = parseArgs(process.argv.slice(2), {
     repo: { required: true },
     'base-sha': { required: true },
@@ -104,8 +110,8 @@ main(() => {
   const worktree = materialiseBase(git, repo, baseSha, patchPath, prelude, teardown);
 
   const bin = resolveVitestBin(repo);
-  const basePlusPatchTests = runSuite(worktree, bin, 'base', additions, prelude);
-  const candidateTests = runSuite(repo, bin, 'candidate', [], prelude);
+  const basePlusPatchTests = await runSuite(worktree, bin, 'base', additions, prelude);
+  const candidateTests = await runSuite(repo, bin, 'candidate', [], prelude);
 
   emit(classify(basePlusPatchTests, candidateTests, additions));
 });
@@ -517,6 +523,10 @@ function materialiseBase(git, repo, baseSha, patchPath, prelude, teardown) {
  * worktree exists. Until `arm` is called the handlers do nothing, so claiming
  * them early costs nothing and buys the registration order the teardown needs.
  *
+ * A signal listener forwards the signal to the suite run in flight — the child
+ * must not outlive the tree it runs in — and ends the run through `fail`, whose
+ * `process.exit` is what runs this teardown.
+ *
  * `--force` is safe here and nowhere else: the checkout holds the applied patch
  * and a symlink, both of which this invocation put there. The `prune` that
  * follows is what makes the handler correct when the checkout is already gone —
@@ -552,10 +562,10 @@ function armTeardown(repo) {
     }
   };
   process.on('exit', teardown);
-  for (const [signal, code] of SIGNAL_EXIT_CODES) {
+  for (const signal of TERMINATION_SIGNALS) {
     process.on(signal, () => {
-      teardown();
-      process.exit(code);
+      interruptSubprocess(signal);
+      fail(`interrupted by ${signal}`, EXIT_CANNOT_COMPUTE);
     });
   }
   return {
@@ -606,14 +616,17 @@ function findNodeModules(start) {
  * red. Classification keys on the report file and never on the exit code: a red
  * suite, a zero-file run and a startup crash all exit 1.
  *
+ * The run is awaited, not blocked on, so that a termination signal arriving
+ * mid-suite reaches its listener (see `TERMINATION_SIGNALS`).
+ *
  * @param {string} tree absolute path to the tree to run in
  * @param {string} bin vitest executable
  * @param {string} label report file stem
  * @param {{file: string}[]} excluded
  * @param {string | undefined} prelude
- * @returns {Map<string, string>} identity to "passed" or "failed"
+ * @returns {Promise<Map<string, string>>} identity to "passed" or "failed"
  */
-function runSuite(tree, bin, label, excluded, prelude) {
+async function runSuite(tree, bin, label, excluded, prelude) {
   const reportPath = path.join(makeTempDir(), `${label}.json`);
   const argv = [
     bin,
@@ -623,7 +636,7 @@ function runSuite(tree, bin, label, excluded, prelude) {
     '--passWithNoTests',
     ...excluded.flatMap((addition) => ['--exclude', toExcludeGlob(addition.file)]),
   ];
-  const result = run(argv, { cwd: tree, prelude });
+  const result = await runAsync(argv, { cwd: tree, prelude });
 
   let report;
   try {

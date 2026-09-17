@@ -19,7 +19,7 @@
 // This file lives in `lib/` and is therefore private to the implementation:
 // only top-level `<command>.mjs` files are commands.
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
@@ -231,6 +231,7 @@ export function makeTempDir() {
 
 let preludeScript = null;
 let runCount = 0;
+let liveChild = null;
 
 /**
  * Run a Node subprocess, optionally behind the caller's declared prelude.
@@ -254,6 +255,43 @@ let runCount = 0;
  */
 export function run(argv, { cwd, prelude }) {
   return runTool(prelude ? 'node' : process.execPath, argv, { cwd, prelude });
+}
+
+/**
+ * `run`, awaited rather than blocked on.
+ *
+ * A signal listener is JavaScript, and JavaScript only runs between turns of
+ * the event loop — which `spawnSync` never yields. A command that must react
+ * to a signal while a long subprocess runs (a whole test suite) therefore
+ * spawns it through this and awaits the result; the listener can then fire
+ * meanwhile and reach the subprocess through `interruptSubprocess`. Same
+ * command, same prelude discipline, same capture as `run`.
+ *
+ * @param {string[]} argv arguments to the Node interpreter
+ * @param {{cwd: string, prelude?: string | undefined}} options
+ * @returns {Promise<{code: number, stdout: string, stderr: string, fullStdout: string}>}
+ */
+export function runAsync(argv, { cwd, prelude }) {
+  const command = toolCommand(prelude ? 'node' : process.execPath, argv, { prelude });
+  return spawnCapturedAsync(command.file, command.args, cwd);
+}
+
+/**
+ * Forward a signal to the subprocess `runAsync` is currently awaiting, if any,
+ * so that an interrupted command does not leave its suite running in a tree
+ * the command is about to remove.
+ *
+ * @param {NodeJS.Signals} signal
+ */
+export function interruptSubprocess(signal) {
+  if (liveChild === null) {
+    return;
+  }
+  try {
+    liveChild.kill(signal);
+  } catch {
+    // Already gone.
+  }
 }
 
 /**
@@ -335,6 +373,77 @@ export function toolCommand(file, args, { prelude }) {
  * @returns {{code: number, stdout: string, stderr: string, fullStdout: string}}
  */
 function spawnCaptured(file, args, cwd) {
+  const capture = openCapture();
+  let code;
+  try {
+    const result = spawnSync(file, args, { cwd, stdio: capture.stdio });
+    code = exitCodeOf(file, result.error, result.status, result.signal);
+  } finally {
+    capture.close();
+  }
+  return capture.result(code);
+}
+
+/**
+ * `spawnCaptured` for a subprocess the caller awaits instead of blocking on.
+ * The child is exposed to `interruptSubprocess` for as long as it runs.
+ *
+ * @param {string} file
+ * @param {string[]} args
+ * @param {string} cwd
+ * @returns {Promise<{code: number, stdout: string, stderr: string, fullStdout: string}>}
+ */
+function spawnCapturedAsync(file, args, cwd) {
+  const capture = openCapture();
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (error, status, signal) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      liveChild = null;
+      capture.close();
+      resolve(capture.result(exitCodeOf(file, error, status, signal)));
+    };
+    const child = spawn(file, args, { cwd, stdio: capture.stdio });
+    liveChild = child;
+    child.once('error', (error) => settle(error, null, null));
+    child.once('exit', (status, signal) => settle(null, status, signal));
+  });
+}
+
+/**
+ * The exit status of a finished subprocess, or the exit-1 document when it has
+ * none the caller could reason about.
+ *
+ * @param {string} file
+ * @param {Error | null | undefined} error
+ * @param {number | null} status
+ * @param {string | null} signal
+ * @returns {number}
+ */
+function exitCodeOf(file, error, status, signal) {
+  if (error) {
+    return fail(`could not run ${file}: ${error.message}`, EXIT_CANNOT_COMPUTE);
+  }
+  if (typeof status !== 'number') {
+    // Killed by a signal — not an exit status the caller can reason about.
+    return fail(`${file} was terminated by ${signal}`, EXIT_CANNOT_COMPUTE);
+  }
+  return status;
+}
+
+/**
+ * Open one subprocess's capture files under the temp directory.
+ *
+ * @returns {{
+ *   stdio: (string | number)[],
+ *   close: () => void,
+ *   result: (code: number) => {code: number, stdout: string, stderr: string, fullStdout: string},
+ * }}
+ */
+function openCapture() {
   const captureDir = path.join(makeTempDir(), 'capture');
   fs.mkdirSync(captureDir, { recursive: true });
   const stdoutPath = path.join(captureDir, `stdout-${runCount}`);
@@ -342,34 +451,25 @@ function spawnCaptured(file, args, cwd) {
   runCount += 1;
   const stdoutFd = fs.openSync(stdoutPath, 'w');
   const stderrFd = fs.openSync(stderrPath, 'w');
-  let code;
-  try {
-    const result = spawnSync(file, args, {
-      cwd,
-      stdio: ['ignore', stdoutFd, stderrFd],
-    });
-    if (result.error) {
-      return fail(`could not run ${file}: ${result.error.message}`, EXIT_CANNOT_COMPUTE);
-    }
-    if (typeof result.status !== 'number') {
-      // Killed by a signal — not an exit status the caller can reason about.
-      return fail(`${file} was terminated by ${result.signal}`, EXIT_CANNOT_COMPUTE);
-    }
-    code = result.status;
-  } finally {
-    fs.closeSync(stdoutFd);
-    fs.closeSync(stderrFd);
-  }
   return {
-    code,
-    get stdout() {
-      return readTail(stdoutPath);
+    stdio: ['ignore', stdoutFd, stderrFd],
+    close() {
+      fs.closeSync(stdoutFd);
+      fs.closeSync(stderrFd);
     },
-    get stderr() {
-      return readTail(stderrPath);
-    },
-    get fullStdout() {
-      return readWhole(stdoutPath);
+    result(code) {
+      return {
+        code,
+        get stdout() {
+          return readTail(stdoutPath);
+        },
+        get stderr() {
+          return readTail(stderrPath);
+        },
+        get fullStdout() {
+          return readWhole(stdoutPath);
+        },
+      };
     },
   };
 }
@@ -577,15 +677,22 @@ export function emit(document) {
 }
 
 /**
- * Run a command body, turning an unexpected throw into the exit-1 document
- * rather than a Node stack trace on stdout.
+ * Run a command body, turning an unexpected throw — or an unexpected rejection,
+ * for a body that awaits — into the exit-1 document rather than a Node stack
+ * trace on stdout.
  *
- * @param {() => void} body
+ * @param {() => void | Promise<void>} body
  */
 export function main(body) {
-  try {
-    body();
-  } catch (error) {
+  const report = (error) => {
     fail(`unexpected failure: ${error?.message ?? error}`, EXIT_CANNOT_COMPUTE);
+  };
+  try {
+    const outcome = body();
+    if (outcome !== undefined && typeof outcome.then === 'function') {
+      outcome.then(undefined, report);
+    }
+  } catch (error) {
+    report(error);
   }
 }

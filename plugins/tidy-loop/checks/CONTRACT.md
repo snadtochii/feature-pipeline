@@ -52,7 +52,7 @@ The document is written so two runs on two machines compare byte-for-byte:
 | Code | Meaning | Document |
 |---|---|---|
 | `0` | An answer was computed. This includes a **negative** answer — `covered: false`, an empty `tests` array, a symbol declared in two files. | The command's document from §5–§8. |
-| `1` | The answer could not be computed: the toolchain is unresolvable from `--repo`, a required package is missing, a subprocess crashed, a compilation could not emit. | `{"error": "<reason>"}` |
+| `1` | The answer could not be computed: the toolchain is unresolvable from `--repo`, a required package is missing, a subprocess crashed, a compilation could not emit, the run was interrupted by a signal. | `{"error": "<reason>"}` |
 | `2` | The invocation was wrong: an unknown flag, a missing required flag, a relative `--repo`, an unreadable or malformed input file. | `{"error": "<reason>"}` |
 
 A caller distinguishes "the repository says no" from "the check is broken" by the exit
@@ -129,7 +129,8 @@ command's temporary directory** and registered under `<repo>/.git/worktrees/`. T
 registration is the one thing a command adds under `--repo`, it is git's own bookkeeping
 rather than a tracked file, and it is removed — checkout and registration both — on every
 exit path the command can observe: a normal exit, an error exit, and an interrupt,
-termination, or hangup signal.
+termination, or hangup signal delivered to the command, which forwards it to the suite
+run in flight and ends as an error exit (§3) naming the signal.
 
 Commands read no environment file and no credential file of their own. Beyond the flags,
 what reaches a command is the contents of the repository it was pointed at.

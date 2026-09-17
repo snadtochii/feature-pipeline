@@ -77,9 +77,13 @@ and a startup crash alike.
    nested workspace package is not covered; no `node_modules` found at all exits 1.
 4. The checkout and its `.git/worktrees/` registration are removed on every exit path the
    command can observe, including `SIGINT`, `SIGTERM`, and `SIGHUP` — the last matters
-   because the consuming loop is scheduled and detached. A `git worktree prune` runs only
-   when the removal itself failed, since prune is repository-wide and would otherwise drop
-   another tool's registration whose directory is merely unreachable.
+   because the consuming loop is scheduled and detached. The two suite runs are awaited
+   rather than blocked on, which is what lets a signal listener run at all while a suite
+   is in flight; the listener forwards the signal to that suite and ends the run as an
+   exit-1 `{"error"}` naming the signal, and the removal happens on the way out. A
+   `git worktree prune` runs only when the removal itself failed, since prune is
+   repository-wide and would otherwise drop another tool's registration whose directory
+   is merely unreachable.
 
 ## Fixtures
 
