@@ -39,5 +39,8 @@ jobs:
       - name: Mode split
         run: bash scripts/check-mode-split.sh
 
+      - name: Markdown links
+        run: bash scripts/check-md-links.sh
+
       - name: Runtime contract
         run: bash scripts/check-runtime-contract.sh

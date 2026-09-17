@@ -287,7 +287,83 @@ reported instead ([`gates.md`](gates.md) §1).
 
 ---
 
-## §5 What a reader gets from each outcome
+## §5 Recovering an unfinished delivery
+
+A surviving `<state_dir>/briefs/<run-id>.md` means a previous run pushed a branch and did not
+finish delivering it — the brief is cleared only as the last step of a completed delivery (§3), so
+its presence is the signal and nothing else is.
+
+The brief is a better token than a scan for orphan `tidy/*` branches would be, because it also
+covers the case where the pull request *opened* and the queue write then failed. A branch scan
+skips that branch as "has a pull request", and the next run rebuilds an already-open candidate.
+
+**Recovery is bounded by the open-pull-request budget the caller binds** — `caps.max_open_prs`
+minus the current open count is the number of `gh pr create` calls recovery may make, and **a
+brief is charged against it only when it reaches that call.** Once the budget is spent, every
+further brief that would have opened one is reported as **deferred**, by name, rather than opened.
+
+The other two cases below cost no budget and are never deferred, because neither opens anything: a
+brief whose pull request already exists is only being marked, and a brief with no remote branch is
+only being reported. Charging those would let a single stranded brief — the no-branch case, whose
+documented remedy is a human deleting it — consume the whole budget every run and defer every
+later recoverable brief permanently, at a `max_open_prs` the profile pins at exactly 1. The loop
+would then report the same deferral forever instead of finishing a delivery it could finish.
+
+The bound still does the job it was added for. Two surviving briefs *both* awaiting a pull request
+is a reachable state — a run whose `gh pr create` failed leaves a brief and marks nothing, and the
+run after it can do the same — and without it recovery would open both, past a cap the churn
+budget calls the most important number in the file.
+
+Walk **every** surviving brief, oldest first by its run-id date prefix:
+
+1. **Recover the run id from the brief's filename and assert its shape** —
+   `[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]{6}`. It comes from a filename under `<state_dir>`, the
+   same directory the queue lives in, which this loop treats as hostile by default.
+2. **Recover the branch.** The run id is the first component of the branch name
+   (`tidy/<run-id>-<category>-<slug>`), so the branch is whichever
+   `git -C "<CLONE>" ls-remote --heads origin "tidy/<its-run-id>-*"` returns. **Assert the
+   returned ref matches `tidy/<that-run-id>-[a-z0-9-]+` exactly, in-skill, before it enters any
+   command.** Git ref names permit `$`, backticks and parentheses, and this is the one branch the
+   loop does not derive itself — everywhere else it sanitizes a slug to `[a-z0-9-]` precisely
+   because the value reaches a command line. A ref that fails is reported by name and the brief is
+   left in place.
+3. **Recover the finding id** from the brief's fixed second line — the bold line directly under
+   the title, first field — and **assert it is six lowercase hex characters**, the queue's own
+   class for that cell. That position is the contract (§2), and it is what makes a brief
+   self-describing enough to be a recovery token at all.
+4. **Look up the pull request**, keyed on the branch:
+
+   ```bash
+   cd "<CLONE>" && gh pr list --head "<branch>" --state all --json number,url
+   ```
+
+   `--head` with an in-skill exact match, **never `--search`** — `--search "<id> in:title"` is a
+   tokenized AND-match rather than a prefix match, and it will happily return somebody else's pull
+   request that happens to contain the same tokens. An empty array is a real answer here, not a
+   failure: the command exits 0 either way, so the two are told apart by exit code.
+
+Then one of three cases:
+
+| Found | Action |
+| --- | --- |
+| brief + remote branch + **no** pull request | **Charged against the budget.** Budget left → open the draft pull request from the retained brief per §3's *Opening from a retained brief* — from `<CLONE>`, with an explicit `--head`, and the title re-derived from the brief itself. Mark the line `opened` with its URL, clear the brief. Budget spent → report the brief as **deferred**, by name, and leave it in place. |
+| brief + remote branch + **a** pull request | **No budget.** Mark the line `opened` with that pull request's URL — idempotent, and correct whether or not the previous run got as far as the queue — then clear the brief. |
+| brief + **no** remote branch | **No budget. Change nothing.** Report the brief by name, with its finding id, and leave it in place. A brief with no branch means the push never landed; rebuilding is the next run's ordinary work, and the remedy is a human deleting the brief once they have read it. |
+
+**A `gh pr create` that fails here changes nothing either**: report it, leave the brief, and move
+to the next one. Recovery never aborts the run — it is cleanup, not this run's work.
+
+**The queue line is re-checked before it is written.** A recovery marks `opened` only on a line
+whose current status is one this loop owns; a line a human has since set to `declined` or edited
+is reported and left alone. That is the caller's queue re-check rule, applied here too, and it
+matters most here — the decision being applied was made by a different run on a different day.
+
+Both writes take the queue lock and follow §3. Recovery is reported as something unusual, always —
+a run that silently finished another run's work is a run whose report lied by omission.
+
+---
+
+## §6 What a reader gets from each outcome
 
 An `opened` line points at a draft pull request whose body carries the approval it was built
 against and an evidence table naming every gate that ran and every gate that did not. A `blocked`

@@ -36,6 +36,7 @@ import {
   run,
   tail,
   tryResolveFromRepo,
+  repoRelativeOrNull,
 } from './lib/common.mjs';
 
 // Ordered by preference: the provider a repository is most likely to have, and
@@ -123,11 +124,11 @@ function parseTargets(repo, value) {
     if (entry === '') {
       continue;
     }
-    const relative = path.relative(repo, path.resolve(repo, entry));
-    if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    const relative = repoRelativeOrNull(repo, path.resolve(repo, entry));
+    if (relative === null) {
       fail(`--targets entries must name a file inside --repo, got "${entry}"`, EXIT_BAD_USAGE);
     }
-    normalized.add(relative.split(path.sep).join('/'));
+    normalized.add(relative);
   }
   const targets = [...normalized].sort();
   if (targets.length === 0) {
@@ -177,11 +178,11 @@ function probeProvider(repo) {
 function indexByRepoRelative(repo, report) {
   const index = new Map();
   for (const [key, entry] of Object.entries(report)) {
-    const relative = path.relative(repo, path.resolve(repo, key));
-    if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    const relative = repoRelativeOrNull(repo, path.resolve(repo, key));
+    if (relative === null) {
       continue;
     }
-    index.set(relative.split(path.sep).join('/'), entry);
+    index.set(relative, entry);
   }
   return index;
 }

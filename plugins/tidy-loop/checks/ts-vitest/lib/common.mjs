@@ -530,6 +530,32 @@ export function tail(text, limit = 500) {
 }
 
 /**
+ * Express a path relative to the repository with posix separators, or `null`
+ * when it does not name something inside the repository.
+ *
+ * The containment test is `'..'` exactly, or a `'..'` segment — not
+ * `startsWith('..')`, which also rejects legitimate top-level entries whose
+ * names merely begin with dots (`..foo`, `...config`). Every containment
+ * decision in this stack routes through here so that test exists once.
+ *
+ * @param {string} repo absolute repo path (already realpath'd)
+ * @param {string} candidate
+ * @returns {string|null} repo-relative posix path, or null when outside
+ */
+export function repoRelativeOrNull(repo, candidate) {
+  const relative = path.relative(repo, path.resolve(candidate));
+  if (
+    relative === '' ||
+    relative === '..' ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    return null;
+  }
+  return relative.split(path.sep).join('/');
+}
+
+/**
  * Express an absolute path relative to the repository, with posix separators.
  * A path outside the repository is a contract violation, not a value.
  *
@@ -538,12 +564,11 @@ export function tail(text, limit = 500) {
  * @returns {string}
  */
 export function toRepoRelative(repo, absolute) {
-  const normalized = path.resolve(absolute);
-  const relative = path.relative(repo, normalized);
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
-    return fail(`path outside --repo: ${normalized}`, EXIT_CANNOT_COMPUTE);
+  const relative = repoRelativeOrNull(repo, absolute);
+  if (relative === null) {
+    return fail(`path outside --repo: ${path.resolve(absolute)}`, EXIT_CANNOT_COMPUTE);
   }
-  return relative.split(path.sep).join('/');
+  return relative;
 }
 
 /**
@@ -611,11 +636,11 @@ export function resolveReferencePath(value) {
  * @returns {boolean}
  */
 export function isRepoSource(repo, fileName) {
-  const relative = path.relative(repo, path.resolve(fileName));
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+  const relative = repoRelativeOrNull(repo, fileName);
+  if (relative === null) {
     return false;
   }
-  return !relative.split(path.sep).includes('node_modules');
+  return !relative.split('/').includes('node_modules');
 }
 
 /**

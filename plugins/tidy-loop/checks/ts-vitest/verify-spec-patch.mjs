@@ -61,6 +61,7 @@ import {
   tail,
   toolCommand,
   toRepoRelative,
+  repoRelativeOrNull,
 } from './lib/common.mjs';
 
 /**
@@ -347,10 +348,7 @@ function findAdditions(git, repo, baseSha, patchedFiles, tsconfigFlag) {
       if (!isRepoSource(repo, resolved.resolvedFileName)) {
         continue;
       }
-      const target = path
-        .relative(repo, path.resolve(resolved.resolvedFileName))
-        .split(path.sep)
-        .join('/');
+      const target = repoRelativeOrNull(repo, resolved.resolvedFileName);
       resolvedImports.push({ file, specifier, target });
       wanted.add(target);
     }

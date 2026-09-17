@@ -1,64 +1,38 @@
 #!/usr/bin/env bash
-# Two scan roots, checked for different things.
+# The per-mode reference split under plugins/feature/skills: every `*-fs.md` is
+# free of server-native vocabulary, every `*-server.md` is free of state-folder
+# vocabulary, neither names a file of the other mode, and every `-fs` file has
+# its `-server` sibling in the same directory (and vice versa).
 #
-# plugins/feature/skills — the per-mode reference split: every `*-fs.md` is
-# free of server-native vocabulary, every `*-server.md` is free of
-# state-folder vocabulary, neither names a file of the other mode, and every
-# `-fs` file has its `-server` sibling in the same directory (and vice versa).
-# These rules are bound to this root alone: it is the only tree with a
-# storage-mode split.
+# A mode file is loaded only by runs in its own storage mode, so a leaked token
+# from the other mode is prose the reader pays for and can never use, and a half
+# pair means one mode has no procedure for that concern. Both are invisible to
+# check-tool-parity.sh, which reads only SKILL.md frontmatter.
 #
-# plugins/feature/skills AND plugins/tidy-loop — every relative markdown link
-# resolves to an existing file. The link rule spans both trees.
-#
-# A mode file is loaded only by runs in its own storage mode, so a leaked
-# token from the other mode is prose the reader pays for and can never use;
-# a half pair means one mode has no procedure for that concern; a dangling
-# link fails silently at runtime because nothing else in the repo resolves
-# links. All of these are invisible to check-tool-parity.sh, which reads
-# only SKILL.md frontmatter.
-#
-# The two token rules are probed against fixed strings before the scan
-# (a regex regression fails the script before it can pass the tree). Each
-# root is required to yield at least one markdown file, so a root that
-# stopped being scanned fails loudly instead of passing on an empty set.
-#
-# Vendored and generated directories are pruned from both walks. The
-# fixtures under plugins/tidy-loop/checks install their pinned toolchains
-# into node_modules/, whose package READMEs carry relative links to files
-# npm does not ship; scanning them would fail this check on documentation
-# the repository does not own, and only on machines where the fixtures had
-# been run. The check is defined over the repository's own markdown.
+# Relative markdown links are checked by scripts/check-md-links.sh, which spans
+# every documentation tree rather than this one alone.
 #
 # Usage:  scripts/check-mode-split.sh
-# Exit:   0 all mode files clean, every pair complete, and every link in
-#         both roots resolves; 1 on any violation, probe failure, empty
-#         scan root, or unreadable input.
+# Exit:   0 all mode files clean and every pair complete; 1 on any violation,
+#         probe failure, empty scan root, or unreadable input.
 
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 skills_dir="$repo_root/plugins/feature/skills"
-tidy_dir="$repo_root/plugins/tidy-loop"
 
 if [ ! -d "$skills_dir" ]; then
   echo "FAIL: skills directory not found at $skills_dir" >&2
   exit 1
 fi
 
-if [ ! -d "$tidy_dir" ]; then
-  echo "FAIL: tidy-loop directory not found at $tidy_dir" >&2
-  exit 1
-fi
-
-python3 - "$repo_root" "$skills_dir" "$tidy_dir" <<'PY'
+python3 - "$repo_root" "$skills_dir" <<'PY'
 import pathlib
 import re
 import sys
 
 repo_root = pathlib.Path(sys.argv[1])
 skills_dir = pathlib.Path(sys.argv[2])
-tidy_dir = pathlib.Path(sys.argv[3])
 
 fs_forbidden = re.compile(r"server-native|pipeline_|mcp__|\S*-server\.md")
 
@@ -80,17 +54,6 @@ server_forbidden = re.compile(
     r"|folder[- ]move|state folder|\S*-fs\.md",
     re.IGNORECASE,
 )
-# Inline `[text](target.md)` only, and the scan runs over the two roots below.
-# What that deliberately leaves unguarded, so a later reader knows the shape of
-# the hole rather than assuming there is none:
-#   - a relative link whose target is not a `.md` file (a directory, an image);
-#   - the `#anchor` fragment, captured as group 2 and discarded — a link to a
-#     heading the target file does not contain still resolves and passes;
-#   - reference-style links, `[text][ref]` with the target defined elsewhere.
-# Links pointing INTO these roots from files outside them (the root README,
-# CLAUDE.md, AGENTS.md) are out of scope too: a third root would false-positive
-# on the illustrative relative links quoted inside those files' own templates.
-link_re = re.compile(r"\[[^\]]*\]\(([^)\s]+?\.md)(#[^)]*)?\)")
 
 # Regression probes — every string in `caught` must match, none in `clean`.
 probes = {
@@ -124,9 +87,8 @@ failures = []
 fs_files = server_files = 0
 stems = {}  # (directory, stem) -> {"fs", "server"}
 
-# Per-root tallies, reported as one `ok` line each. A root that yields zero
-# markdown files is a hard failure: a mistyped root would otherwise turn its
-# half of the check into a silent no-op.
+# A scan root that yields zero markdown files is a hard failure: a mistyped
+# root would otherwise turn the check into a silent no-op.
 counts = {}
 
 # Vendored or generated trees: never the repository's own documentation.
@@ -135,8 +97,8 @@ counts = {}
 # and pruning one would silently shrink the scanned set rather than fail.
 pruned = {"node_modules", ".git", "__pycache__"}
 
-for root, mode_rules in ((skills_dir, True), (tidy_dir, False)):
-    docs = links = 0
+for root in (skills_dir,):
+    docs = 0
     for path in sorted(root.rglob("*.md")):
         if pruned & set(path.relative_to(root).parts):
             continue
@@ -144,31 +106,20 @@ for root, mode_rules in ((skills_dir, True), (tidy_dir, False)):
         docs += 1
         lines = path.read_text(encoding="utf-8").split("\n")
 
-        if mode_rules:
-            if path.name.endswith("-fs.md"):
-                fs_files += 1
-                stems.setdefault((path.parent, path.name[: -len("-fs.md")]), set()).add("fs")
-                for n, line in enumerate(lines, 1):
-                    for m in fs_forbidden.finditer(line):
-                        failures.append(f"{rel}:{n}: fs file mentions '{m.group(0)}'")
-            elif path.name.endswith("-server.md"):
-                server_files += 1
-                stems.setdefault((path.parent, path.name[: -len("-server.md")]), set()).add("server")
-                for n, line in enumerate(lines, 1):
-                    for m in server_forbidden.finditer(line):
-                        failures.append(f"{rel}:{n}: server file mentions '{m.group(0)}'")
+        if path.name.endswith("-fs.md"):
+            fs_files += 1
+            stems.setdefault((path.parent, path.name[: -len("-fs.md")]), set()).add("fs")
+            for n, line in enumerate(lines, 1):
+                for m in fs_forbidden.finditer(line):
+                    failures.append(f"{rel}:{n}: fs file mentions '{m.group(0)}'")
+        elif path.name.endswith("-server.md"):
+            server_files += 1
+            stems.setdefault((path.parent, path.name[: -len("-server.md")]), set()).add("server")
+            for n, line in enumerate(lines, 1):
+                for m in server_forbidden.finditer(line):
+                    failures.append(f"{rel}:{n}: server file mentions '{m.group(0)}'")
 
-        for n, line in enumerate(lines, 1):
-            for m in link_re.finditer(line):
-                target = m.group(1)
-                if target.startswith(("http://", "https://")):
-                    continue
-                links += 1
-                resolved = (path.parent / target).resolve()
-                if not resolved.is_file():
-                    failures.append(f"{rel}:{n}: link target not found: {target}")
-
-    counts[root] = (docs, links)
+    counts[root] = docs
     if docs == 0:
         print(f"FAIL: no markdown files found under {root}", file=sys.stderr)
         sys.exit(1)
@@ -189,9 +140,7 @@ if fs_files == 0 or server_files == 0:
     sys.exit(1)
 
 pairs = sum(1 for modes in stems.values() if modes == {"fs", "server"})
-for root in (skills_dir, tidy_dir):
-    docs, links = counts[root]
-    print(f"  ok  {root.relative_to(repo_root)}: {docs} markdown file(s), {links} link(s) scanned")
+print(f"  ok  {skills_dir.relative_to(repo_root)}: {counts[skills_dir]} markdown file(s) scanned")
 print(f"  ok  {fs_files} fs file(s), {server_files} server file(s), {pairs} complete pair(s)")
 
 if failures:
@@ -200,8 +149,5 @@ if failures:
         print(f"  - {failure}", file=sys.stderr)
     sys.exit(1)
 
-print(
-    f"\nOK: mode files clean, every pair complete, and every relative .md link under "
-    f"{skills_dir.relative_to(repo_root)}/ and {tidy_dir.relative_to(repo_root)}/ resolves"
-)
+print(f"\nOK: mode files clean and every pair complete under {skills_dir.relative_to(repo_root)}/")
 PY

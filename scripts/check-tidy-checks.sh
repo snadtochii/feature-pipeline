@@ -318,6 +318,53 @@ function countLines(text) {
   return counts;
 }
 
+// One expected-vs-actual comparison. Both call sites — the per-tree loop and
+// the pair section — read and parse the expected document, spawn the command,
+// check the exit, parse stdout, canonicalize both sides and report, differing
+// only in how the argv is derived. That sequence lives here once so a third
+// pair command is a declaration rather than a third copy.
+//
+// Returns whether a comparison was actually made (the caller counts those) and
+// the problem to report, or null.
+function compareDocument(label, expectedPath, argvFor, project) {
+  if (!isFile(expectedPath)) {
+    return { compared: false, problem: `no expected document at ${expectedPath}` };
+  }
+  let expected;
+  try {
+    expected = JSON.parse(fs.readFileSync(expectedPath, "utf8"));
+  } catch (error) {
+    return { compared: false, problem: `expected document is not JSON: ${error.message}` };
+  }
+
+  const [argv, argvProblem] = argvFor(expected);
+  if (argvProblem !== null) {
+    return { compared: false, problem: argvProblem };
+  }
+
+  const result = spawnSync("node", argv, { encoding: "utf8" });
+  if (result.status !== 0) {
+    return {
+      compared: false,
+      problem: `exited ${result.status}: ${tail(result.stdout || result.stderr)}`,
+    };
+  }
+  let actual;
+  try {
+    actual = JSON.parse(result.stdout);
+  } catch (error) {
+    return { compared: false, problem: `stdout is not one JSON document: ${error.message}` };
+  }
+
+  const expectedText = canonical(expected);
+  const actualText = canonical(project ? project(actual) : actual);
+  if (expectedText === actualText) {
+    process.stdout.write(`  ok  ${label}\n`);
+    return { compared: true, problem: null };
+  }
+  return { compared: true, problem: describeDifference(expectedText, actualText) };
+}
+
 // Lines whose occurrence count differs between the two canonical documents,
 // in order, capped. Counted rather than set-based: the documents are
 // multisets (a duplicated test name is the fixture's headline case), and a
@@ -491,122 +538,73 @@ for (const fixture of fixtures) {
 
     for (const command of applicable) {
       const label = `${fixtureName}/${treeName}/${command}`;
-      const expectedPath = path.join(expectedDir, `${command}.json`);
-      if (!isFile(expectedPath)) {
-        failures.push(`${label}: no expected document at ${expectedPath}`);
-        continue;
-      }
-      let expected;
-      try {
-        expected = JSON.parse(fs.readFileSync(expectedPath, "utf8"));
-      } catch (error) {
-        failures.push(`${label}: expected document is not JSON: ${error.message}`);
-        continue;
-      }
-
-      const args = ARGUMENTS[command](fixture, expected);
-      if (args === null) {
-        failures.push(`${label}: expected document carries no arguments to derive`);
-        continue;
-      }
-
-      const result = spawnSync(
-        "node",
-        [path.join(stackDir, `${command}.mjs`), "--repo", path.resolve(tree), ...args],
-        { encoding: "utf8" },
+      const { compared, problem } = compareDocument(
+        label,
+        path.join(expectedDir, `${command}.json`),
+        (expected) => {
+          const args = ARGUMENTS[command](fixture, expected);
+          if (args === null) {
+            return [null, "expected document carries no arguments to derive"];
+          }
+          return [
+            [path.join(stackDir, `${command}.mjs`), "--repo", path.resolve(tree), ...args],
+            null,
+          ];
+        },
+        command === "coverage-hit" ? projectCoverageHit : undefined,
       );
-      if (result.status !== 0) {
-        failures.push(
-          `${label}: exited ${result.status}: ${tail(result.stdout || result.stderr)}`,
-        );
-        continue;
+      if (compared) {
+        comparisons += 1;
       }
-      let actual;
-      try {
-        actual = JSON.parse(result.stdout);
-      } catch (error) {
-        failures.push(`${label}: stdout is not one JSON document: ${error.message}`);
-        continue;
-      }
-      if (command === "coverage-hit") {
-        actual = projectCoverageHit(actual);
-      }
-
-      comparisons += 1;
-      const expectedText = canonical(expected);
-      const actualText = canonical(actual);
-      if (expectedText === actualText) {
-        process.stdout.write(`  ok  ${label}\n`);
-      } else {
-        failures.push(`${label}: ${describeDifference(expectedText, actualText)}`);
+      if (problem !== null) {
+        failures.push(`${label}: ${problem}`);
       }
     }
   }
 
-  // The pair section: one throwaway git repository per candidate tree.
+  // The pair section: one throwaway git repository per candidate tree, for
+  // every command PAIR_COMMANDS declares rather than one hardcoded name.
   if (specPatch !== undefined) {
     const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tidy-checks-"));
     scratchDirs.push(scratch);
-    for (const candidateTree of specPatch.candidates) {
-      exercisedPairCommands.add("verify-spec-patch");
-      const label = `${fixtureName}/${candidateTree}/verify-spec-patch`;
-      const expectedPath = path.join(expectedRoot, candidateTree, "verify-spec-patch.json");
-      if (!isFile(expectedPath)) {
-        failures.push(`${label}: no expected document at ${expectedPath}`);
-        continue;
-      }
-      let expected;
-      try {
-        expected = JSON.parse(fs.readFileSync(expectedPath, "utf8"));
-      } catch (error) {
-        failures.push(`${label}: expected document is not JSON: ${error.message}`);
-        continue;
-      }
-
-      const repo = path.join(scratch, `${fixtureName}-${candidateTree}`);
-      const [baseSha, buildProblem] = buildThrowawayRepo(
-        fixture,
-        specPatch.base,
-        candidateTree,
-        repo,
-      );
-      if (buildProblem !== null) {
-        failures.push(`${label}: ${buildProblem}`);
-        continue;
-      }
-
-      const result = spawnSync(
-        "node",
-        [
-          path.join(stackDir, "verify-spec-patch.mjs"),
-          "--repo",
-          repo,
-          "--base-sha",
-          baseSha,
-          "--test-globs",
-          specPatch.testGlobs.join(","),
-        ],
-        { encoding: "utf8" },
-      );
-      if (result.status !== 0) {
-        failures.push(`${label}: exited ${result.status}: ${tail(result.stdout || result.stderr)}`);
-        continue;
-      }
-      let actual;
-      try {
-        actual = JSON.parse(result.stdout);
-      } catch (error) {
-        failures.push(`${label}: stdout is not one JSON document: ${error.message}`);
-        continue;
-      }
-
-      comparisons += 1;
-      const expectedText = canonical(expected);
-      const actualText = canonical(actual);
-      if (expectedText === actualText) {
-        process.stdout.write(`  ok  ${label}\n`);
-      } else {
-        failures.push(`${label}: ${describeDifference(expectedText, actualText)}`);
+    for (const pairCommand of PAIR_COMMANDS) {
+      for (const candidateTree of specPatch.candidates) {
+        exercisedPairCommands.add(pairCommand);
+        const label = `${fixtureName}/${candidateTree}/${pairCommand}`;
+        const { compared, problem } = compareDocument(
+          label,
+          path.join(expectedRoot, candidateTree, `${pairCommand}.json`),
+          () => {
+            const repo = path.join(scratch, `${fixtureName}-${candidateTree}`);
+            const [baseSha, buildProblem] = buildThrowawayRepo(
+              fixture,
+              specPatch.base,
+              candidateTree,
+              repo,
+            );
+            if (buildProblem !== null) {
+              return [null, buildProblem];
+            }
+            return [
+              [
+                path.join(stackDir, `${pairCommand}.mjs`),
+                "--repo",
+                repo,
+                "--base-sha",
+                baseSha,
+                "--test-globs",
+                specPatch.testGlobs.join(","),
+              ],
+              null,
+            ];
+          },
+        );
+        if (compared) {
+          comparisons += 1;
+        }
+        if (problem !== null) {
+          failures.push(`${label}: ${problem}`);
+        }
       }
     }
   }

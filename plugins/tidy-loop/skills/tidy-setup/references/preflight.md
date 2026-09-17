@@ -19,13 +19,16 @@ its statement of where this file is loaded.
 ## §1 The run lock
 
 ```bash
-mkdir "$(git -C "<CLONE>" rev-parse --git-common-dir)/tidy-loop.lock"
+mkdir "$(git -C "<CLONE>" rev-parse --path-format=absolute --git-common-dir)/tidy-loop.lock"
 ```
 
 `mkdir` is the atomicity: it either creates the directory or fails, with no window between the
-two. The `-C "<CLONE>"` form is required throughout — `rev-parse --git-common-dir` run without
-it returns a path relative to the current working directory, which is not where the lock
-belongs.
+two. `--path-format=absolute` is load-bearing, not decoration: `-C` selects the directory git
+resolves *from*, but `--git-common-dir` still prints a path relative to it — plain `.git` for a
+non-linked checkout — so without it the `mkdir` resolves against whatever directory the shell is
+in. That either fails outright, because there is no `.git` there, or takes the lock inside an
+unrelated repository; in both cases the lock stops excluding anything. Every worktree of a clone
+shares one common dir, so the absolute form is also what makes the lock cover them together.
 
 - **Succeeds** → write `<run-id>` and an ISO-8601 timestamp into a file inside the lock
   directory, and **release the lock on every exit path**, including every abort below and every

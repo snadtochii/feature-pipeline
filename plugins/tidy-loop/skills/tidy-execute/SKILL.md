@@ -30,11 +30,12 @@ reachable.
 **Third invariant:** the human's decision is the queue's, not this run's. This skill builds
 the first `approved` line; it never selects, never re-ranks, and never re-litigates an approval.
 
-Six references, each loaded where it is needed rather than up front:
+Seven references, each loaded where it is needed rather than up front:
 
 | Reference | Loaded at |
 | --- | --- |
 | [`../tidy-setup/references/profile.md`](../tidy-setup/references/profile.md) | §1 — the profile contract and its validation rules |
+| [`../tidy-setup/references/preflight.md`](../tidy-setup/references/preflight.md) | §2 Steps 4–5 — the run lock, the clone position, the profile re-read |
 | [`../tidy-setup/references/queue.md`](../tidy-setup/references/queue.md) | §3 — line format, parsing, note grammar, the queue lock |
 | [`references/report-record.md`](references/report-record.md) | §4 — the per-finding record recovered from a survey report |
 | [`../../checks/CONTRACT.md`](../../checks/CONTRACT.md) | §4 and §6 — the mechanical checks, their flags and their exit codes |
@@ -186,26 +187,12 @@ the most common way a scheduled job differs from the interactive shell it was te
 
 ### Step 4 — The run lock, and recovery
 
-```bash
-mkdir "$(git -C "<CLONE>" rev-parse --path-format=absolute --git-common-dir)/tidy-loop.lock"
-```
+Load [`../tidy-setup/references/preflight.md`](../tidy-setup/references/preflight.md) **here**
+and perform its §1 the run lock. Its aborts are hard stops with one line and a remedy; the one
+thing that must happen on every one of them is the lock release.
 
-**`--path-format=absolute` is load-bearing, not decoration.** Without it `rev-parse` answers
-relative to *git's* working directory, so the returned `.git` is joined against whatever
-directory the shell happens to be in — and shell state does not persist between tool calls, so
-that directory is not reliably the clone. The lock would then be created somewhere else entirely,
-and two concurrent runs would both take it. A mutual-exclusion primitive that silently fails to
-exclude is worse than none, because every run still reports success.
-
-- **Succeeds** → write `<run-id>` and an ISO timestamp inside it, and **release it on every exit
-  path**, including every abort below.
-- **Fails, and the lock is younger than 24 hours** → another run is live. Abort, naming the
-  lock's recorded run id.
-- **Fails, and the lock is older than 24 hours** → stale; no legitimate run takes a day. Remove
-  it, take over, and **say so loudly in the report** — a stale lock means a previous run died,
-  and the rest of this step is what cleans up after it.
-
-Then sweep the residue a dead run leaves:
+A stale lock taken over under §1 means a previous run died, so this run cleans up after it. Sweep
+the residue that run leaves:
 
 - `git -C "<CLONE>" worktree list` — any worktree under the loop clone's worktree directory
   belongs to a dead run. Stash its diff to `<state_dir>/blocked/<its-run-id>.patch`, then remove
@@ -222,47 +209,14 @@ Then sweep the residue a dead run leaves:
 
 ### Step 5 — Clone position
 
-```bash
-git -C "<CLONE>" status --porcelain          # must be empty
-git -C "<CLONE>" symbolic-ref --short HEAD   # must equal <base>
-git -C "<CLONE>" fetch origin
-git -C "<CLONE>" merge --ff-only "origin/<base>"
-```
+Perform [`../tidy-setup/references/preflight.md`](../tidy-setup/references/preflight.md) §2 the
+clone position and §3 the profile re-read, loaded at Step 4. Bind `<BASE_SHA>` from §2 — the
+stale check and the rename-map derivation are both defined against it. §3's identity comparison
+is against the values §1 bound.
 
-Dirty, on the wrong branch, or unable to fast-forward → abort. **Never reset the clone
-automatically.** A diverged loop clone means something wrote to it by hand, and discarding that
-silently is exactly the kind of destructive convenience this loop must not have.
-
-Record `<BASE_SHA>` as the resolved `origin/<base>` commit. The stale check and the rename-map
-derivation are both defined against it.
-
-**If the fast-forward moved `HEAD`, re-read and re-validate the profile** from `<CLONE>`'s
-updated tree. §1 necessarily read the profile before this step could fetch, so without the
-re-read a run executes under the profile as it was at the *previous* run — a new forbidden path
-or a tightened cap merged to `base` during the week would take effect one run late. That is
-harmless for a cosmetic edit and exactly wrong for a safety one. A re-read profile that now fails
-validation stops the run, same as §1.
-
-**The re-read refreshes policy, never run identity.** Three settings have already been *acted on*
-by the time this step runs, so rebinding them silently would leave the run holding resources it
-never set up:
-
-| Setting | Already acted on | Rebinding it would |
-| --- | --- | --- |
-| `loop_clone` | locked (Step 4), residue recovered (Step 4), checked clean and fast-forwarded (Step 5) | continue on a checkout this run never locked, cleaned, or fast-forwarded — possibly overlapping a live run there |
-| `base` | fetched and fast-forwarded, `<BASE_SHA>` recorded (Step 5) | pair a new base with a commit resolved from the old one |
-| `state_dir` | created (§1); the queue read from it (Step 2); residue patches written into it (Step 4) | split one run's state across two directories |
-
-So compare those three against the values §1 bound. **If any differs, release the lock on the
-original `<CLONE>`, stop, and report which key changed from what to what.** Do not re-run
-preflight against the new values in the same run: the next run starts clean from them, which
-costs one day and removes a whole class of half-migrated state. Retaining the old values instead
-is not an option either — the run would then act under settings its own profile no longer
-declares.
-
-Every other setting rebinds from the re-read copy. Two of them were already used: if
-`commands.prelude` changed, re-run Step 3 under the new prelude before continuing; if `execute`
-is now `false`, exit per Step 1.
+Two of the settings §3 rebinds were already used by this skill: if `commands.prelude` changed,
+re-run Step 3 under the new prelude before continuing; if `execute` is now `false`, exit per
+Step 1.
 
 ### Step 6 — The label, and any unfinished delivery
 
@@ -292,86 +246,11 @@ this run reads unattended, and they become part of an executed command. `pr_labe
 segment. A failure aborts naming the field — never a best-effort quote.
 
 **Then, recover an unfinished delivery.** A surviving `<state_dir>/briefs/<run-id>.md` means a
-previous run pushed a branch and did not finish delivering it — the brief is cleared only as the
-last step of a completed delivery ([`references/brief.md`](references/brief.md) §3), so its
-presence is the signal and nothing else is.
-
-The brief is a better token than a scan for orphan `tidy/*` branches would be, because it also
-covers the case where the pull request *opened* and the queue write then failed. A branch scan
-skips that branch as "has a pull request", and the next run rebuilds an already-open candidate.
-
-**Recovery is bounded by the churn budget.** Read the open-PR count once, here:
-
-```bash
-cd "<CLONE>" && gh pr list --label "<pr_label>" --state open --json number,url
-```
-
-`caps.max_open_prs` minus that count is the number of `gh pr create` calls recovery may make, and
-**a brief is charged against it only when it reaches that call.** Once the budget is spent, every
-further brief that would have opened one is reported as **deferred**, by name, rather than opened.
-
-The other two cases below cost no budget and are never deferred, because neither opens anything: a
-brief whose pull request already exists is only being marked, and a brief with no remote branch is
-only being reported. Charging those would let a single stranded brief — the no-branch case, whose
-documented remedy is a human deleting it — consume the whole budget every run and defer every
-later recoverable brief permanently, at a `max_open_prs` the profile pins at exactly 1. The loop
-would then report the same deferral forever instead of finishing a delivery it could finish.
-
-The bound still does the job it was added for. Two surviving briefs *both* awaiting a pull request
-is a reachable state — a run whose `gh pr create` failed leaves a brief and marks nothing, and the
-run after it can do the same — and without it recovery would open both, past a cap Step 7 calls the
-most important number in the file. Step 7 still runs afterwards, counting whatever this step
-opened.
-
-Walk **every** surviving brief, oldest first by its run-id date prefix:
-
-1. **Recover the run id from the brief's filename and assert its shape** —
-   `[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]{6}`, the form §1 binds. It comes from a filename under
-   `<state_dir>`, the same directory the queue lives in, which this skill treats as hostile by
-   default.
-2. **Recover the branch.** The run id is the first component of the branch name
-   (`tidy/<run-id>-<category>-<slug>`), so the branch is whichever
-   `git -C "<CLONE>" ls-remote --heads origin "tidy/<its-run-id>-*"` returns. **Assert the
-   returned ref matches `tidy/<that-run-id>-[a-z0-9-]+` exactly, in-skill, before it enters any
-   command.** Git ref names permit `$`, backticks and parentheses, and this is the one branch the
-   loop does not derive itself — everywhere else it sanitizes a slug to `[a-z0-9-]` precisely
-   because the value reaches a command line (§5). A ref that fails is reported by name and the
-   brief is left in place.
-3. **Recover the finding id** from the brief's fixed second line — the bold line directly under
-   the title, first field — and **assert it is six lowercase hex characters**, the queue's own
-   class for that cell. That position is the contract
-   ([`references/brief.md`](references/brief.md) §2), and it is what makes a brief self-describing
-   enough to be a recovery token at all.
-4. **Look up the pull request**, keyed on the branch:
-
-   ```bash
-   cd "<CLONE>" && gh pr list --head "<branch>" --state all --json number,url
-   ```
-
-   `--head` with an in-skill exact match, **never `--search`** — `--search "<id> in:title"` is a
-   tokenized AND-match rather than a prefix match, and it will happily return somebody else's pull
-   request that happens to contain the same tokens. An empty array is a real answer here, not a
-   failure: the command exits 0 either way, so the two are told apart by exit code.
-
-Then one of three cases:
-
-| Found | Action |
-| --- | --- |
-| brief + remote branch + **no** pull request | **Charged against the budget.** Budget left → open the draft pull request from the retained brief per [`references/brief.md`](references/brief.md) §3's *Opening from a retained brief* — from `<CLONE>`, with an explicit `--head`, and the title re-derived from the brief itself. Mark the line `opened` with its URL, clear the brief. Budget spent → report the brief as **deferred**, by name, and leave it in place. |
-| brief + remote branch + **a** pull request | **No budget.** Mark the line `opened` with that pull request's URL — idempotent, and correct whether or not the previous run got as far as the queue — then clear the brief. |
-| brief + **no** remote branch | **No budget. Change nothing.** Report the brief by name, with its finding id, and leave it in place. A brief with no branch means the push never landed; rebuilding is the next run's ordinary work, and the remedy is a human deleting the brief once they have read it. |
-
-**A `gh pr create` that fails here changes nothing either**: report it, leave the brief, and move
-to the next one. Recovery never aborts the run — it is cleanup, not this run's work.
-
-**The queue line is re-checked before it is written.** A recovery marks `opened` only on a line
-whose current status is one this skill owns; a line a human has since set to `declined` or edited
-is reported and left alone. That is §4's re-check rule, and it matters most here, because the
-decision being applied was made by a different run on a different day.
-
-Both writes take the queue lock and follow [`references/brief.md`](references/brief.md) §3.
-Recovery is reported in §14 as something unusual, always — a run that silently finished another
-run's work is a run whose report lied by omission.
+previous run pushed a branch and did not finish delivering it. Read the open-pull-request budget
+once, here — `cd "<CLONE>" && gh pr list --label "<pr_label>" --state open --json number,url` —
+bind `caps.max_open_prs` minus that count as the budget, and perform
+[`references/brief.md`](references/brief.md) §5, which owns the walk, the three cases and what the
+budget is charged for. Step 7 runs afterwards, counting whatever this step opened.
 
 ### Step 7 — Churn budget
 
