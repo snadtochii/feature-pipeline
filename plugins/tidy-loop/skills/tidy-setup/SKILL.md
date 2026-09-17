@@ -23,8 +23,13 @@ probing, and everything it decides it writes into the consuming repo's `.tidyloo
 schema, field semantics, and validation rules are
 [`references/profile.md`](references/profile.md), and the queue this skill seeds is
 [`references/queue.md`](references/queue.md) — of which §1 is the part this skill needs, the
-location and the header line it writes; the rest is what the two loops read. Consume both
+location and the header line it writes; the rest is what the two loops read. The hotspot
+measure §3 previews is [`references/hotspots.md`](references/hotspots.md). Consume all three
 contracts as written; never restate or redefine them here.
+
+This directory is the home for text more than one skill reads, so it also holds
+[`references/preflight.md`](references/preflight.md) — the run lock and clone preflight both
+loops perform — which this skill does not itself run.
 
 Two counterpart skills read what this one writes. `tidy-survey` reads the profile and appends
 candidates to the queue. `tidy-execute` reads both, and refuses to start if any validation
@@ -207,33 +212,16 @@ cheapest calibration available: the ranking is deterministic, needs no model, an
 reproducible, so the user can judge the selection step before granting the loop any
 autonomy.
 
-```bash
-git -C "<repo>" log --since="<scan.window>" --name-only --pretty=format: -- <scan.include> \
-  | sort | uniq -c | sort -rn | head -40
-```
+The measure is [`references/hotspots.md`](references/hotspots.md): the window normalization,
+the churn command, the detected indentation width, the per-file indentation sum, the ranking,
+and the worked example every implementation reproduces before its numbers are trusted. Run it
+exactly as written there — the survey ranks from the same contract, and a preview that ranks
+differently calibrates a decision the loop never makes. Measure it, do not estimate it.
 
-Filter out `scan.exclude` matches, then measure the survivors and rank by
-`score = churn × indentation complexity` — the sum of indentation levels over the file's
-non-blank lines. Measure it, do not estimate it:
-
-```bash
-awk '/[^[:space:]]/ {
-       match($0, /^[ \t]*/); ind = substr($0, 1, RLENGTH)
-       tabs = gsub(/\t/, "", ind)
-       lvl += tabs + int(length(ind) / 2)
-     } END { print lvl + 0 }' "<file>"
-```
-
-The unit is fixed rather than detected: one tab is one level, every two leading spaces are one
-level. A two-line file indented one tab and four spaces scores `1 + 2 = 3`. Fixing the unit
-matters because the number has to mean the same thing in the survey's own ranking as it does
-here, and because the score only ever ranks files *within* one repository — where a project's
-constant indent width cancels out of the comparison.
-
-Present the top ten as a table: file, commits in window, lines, `churn × lines`, score. The
-lines-based column is shown alongside because it is the intuitive reading of "big file", and
-seeing where the two rankings disagree is what tells the user whether the loop is aimed at size
-or at tangle.
+Present the top ten as a table with the columns hotspots.md §5 names: file, churn, lines,
+`churn × lines`, and the score `churn × indentation`. The lines-based column is shown alongside
+because it is the intuitive reading of "big file", and seeing where the two rankings disagree
+is what tells the user whether the loop is aimed at size or at tangle.
 
 Say plainly what the table is and is not: it is where change and size overlap, which is the
 CodeScene hotspot proxy for *where refactoring pays off*. It is not a list of defects, and a

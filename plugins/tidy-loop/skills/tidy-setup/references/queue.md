@@ -63,19 +63,28 @@ cells a loop reads. Neither side treats the other's prose as an instruction.
 
 ---
 
-## §3 Statuses and their single writer
+## §3 Statuses and their writers
 
-Every status has exactly one writer. No skill writes a status belonging to another writer,
-and no skill writes a status a human owns.
+Each status has exactly one writer **per line class** — the class of line the write lands on.
+No skill writes a status belonging to another writer's class, and no skill writes a status a
+human owns.
 
 | Status | Written by | Meaning |
 | --- | --- | --- |
 | `proposed` | `tidy-survey` | A candidate the survey found and the architect judged worth offering. Awaiting a human. |
 | `approved` | the human | Build this. The note names the next change it makes cheaper (§4). |
 | `declined` | the human | Do not build this, now or later. The note carries the reason. |
-| `stale` | `tidy-execute` | A file or symbol in the finding no longer exists; the shape the candidate described is gone. |
+| `stale` | `tidy-survey`, on a `proposed` line; `tidy-execute`, on the `approved` line it picked | A file or symbol in the finding no longer exists; the shape the candidate described is gone. |
 | `blocked` | `tidy-execute` | The change was built and a gate failed. The note carries the gate and the evidence path. |
 | `opened` | `tidy-execute` | A draft pull request is open for this change. The note carries its URL. |
+
+**Why `stale` has two writers and the others have one.** The survey holds the id→`files`/
+`structural_key` record at proposal time (§1), so it is the only reader that can tell whether
+a `proposed` line's shape still exists — and a `proposed` line nobody has decided on is
+precisely the line no other writer is touching. Execute marks `stale` on the one `approved`
+line it picked, which the survey never writes. The two never target the same line, so the
+single-writer discipline holds where it matters: a line has one writer at a time, and which
+one is determined by its current status.
 
 **Terminality.**
 
@@ -171,8 +180,9 @@ are both there, so the human can read what failed without re-running anything.
 
 ### `stale`
 
-The note names the missing file or symbol — the specific thing execute looked for and did not
-find. Naming it lets the human tell "the code moved on" from "the stale check is wrong".
+The note names the missing file or symbol — the specific thing the writer looked for and did
+not find. Naming it lets the human tell "the code moved on" from "the stale check is wrong",
+and a writer with no such evidence leaves the line alone rather than marking it.
 
 ### `proposed`
 

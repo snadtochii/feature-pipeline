@@ -193,8 +193,14 @@ run, and the diff looks legitimate.
 
 ### `scan.window`
 
-Churn window, e.g. `120d`. Feeds the hotspot score. Too short and the ranking is noise;
-too long and it reflects a codebase that no longer exists. `120d` is the default.
+Churn window. Feeds the hotspot score. Too short and the ranking is noise; too long and it
+reflects a codebase that no longer exists. `120d` is the default.
+
+The accepted shorthand is `[0-9]+[dwmy]` — a count followed by `d`, `w`, `m`, or `y` — and
+validation rule 17 enforces it. **The shorthand is not a git-parsable date spec**: every
+consumer normalizes it per [`hotspots.md`](hotspots.md) §1 before it reaches a `git log
+--since=`. Handing the raw value to git returns zero commits without an error, which reads
+as a repository where nothing changed.
 
 ### `scan.neighbourhood`
 
@@ -395,6 +401,11 @@ the checks script.
     than defaulting to it.
 16. `caps.max_open_prs` is exactly `1`. One open draft pull request at a time is the review
     budget, and it is what keeps the loop from becoming a queue nobody reads.
+17. `scan.window` matches `[0-9]+[dwmy]` exactly. An unmatched value silently yields an empty
+    hotspot ranking rather than an error, and the value is the input to the `--since`
+    normalization in [`hotspots.md`](hotspots.md) §1 — so the character class is what makes that
+    normalization total, and what keeps an unvalidated value from reaching a `git log` argument.
+    Remedy: write the window as a count and one of `d`, `w`, `m`, `y` — for example `120d`.
 
 A failed rule is reported with the field name and the remedy, and nothing runs.
 
