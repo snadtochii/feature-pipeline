@@ -43,7 +43,8 @@ feature-pipeline/
 │   ├── install-codex-local.sh  # Local Codex install helper (stages plugins/feature/)
 │   ├── check-tool-parity.sh    # Validation: pipeline_* dual-listing in skill frontmatter
 │   ├── check-mode-split.sh     # Validation: per-mode reference leakage + relative-link resolution
-│   └── check-runtime-contract.sh # Validation: runtime dispatch, stage templates, reviewer roles
+│   ├── check-runtime-contract.sh # Validation: runtime dispatch, stage templates, reviewer roles
+│   └── check-tidy-checks.sh    # Validation: tidy-loop checks script against its fixtures
 ├── plugins/
 │   ├── feature/             # The feature-development pipeline plugin
 │   │   ├── .claude-plugin/
@@ -86,6 +87,10 @@ feature-pipeline/
 │       ├── .codex-plugin/
 │       │   └── plugin.json
 │       ├── agents/          # tidy-scanner (proposes findings), tidy-architect (the G8 verdict)
+│       ├── checks/          # The owned checks script the gates call
+│       │   ├── CONTRACT.md  # Stack-neutral command / JSON / exit-code contract
+│       │   ├── ts-vitest/   # TS + Vitest implementation of the contract's commands
+│       │   └── fixtures/    # Two-tree projects with the JSON each command must return
 │       └── skills/
 │           ├── tidy-setup/  # One-time repo onboarding + the .tidyloop.yaml contract
 │           └── tidy-run/    # One unattended run: scan → select one → worktree → gates → draft PR
@@ -408,8 +413,9 @@ Before committing changes to skills or agents:
 10. **Mode-split check** — run `scripts/check-mode-split.sh`; it must exit 0. It is the executable form of the per-mode reference convention (no other-mode token in a `-fs`/`-server` file, no half pair) and the only guard against a dangling relative `.md` link anywhere under `plugins/feature/skills` — the link check covers every reference, not just the mode pairs.
 11. **Mode-pair lockstep** — when you edit a shared section of a `-fs`/`-server` pair (the Epic-completion predicate, the decision table, the status query, error handling), apply the same edit to the sibling; the two files' `##` heading sets must stay identical.
 12. **Runtime contract** — run `bash scripts/check-runtime-contract.sh`; it must exit 0. This checks the four runtime consumers, required runtime operations, neutral stage-template placeholders, and complete read-only reviewer roster. Real runtime behavior still needs a smoke run in a separate consuming project.
+13. **Tidy-loop checks** — run `bash scripts/check-tidy-checks.sh`; it must exit 0 with every `ok` line. It installs each fixture's pinned toolchain with `npm ci` (Node ≥ 20 and npm on PATH) and diffs every checks command's JSON document against the committed expected one.
 
-There's no automated test suite for the plugin itself. Validation is by manual pipeline runs on real tickets.
+The skills and agents have no automated test suite; validation there is by manual pipeline runs on real tickets. The tidy-loop checks script is the exception — it is covered by its fixtures through `scripts/check-tidy-checks.sh`.
 
 ---
 

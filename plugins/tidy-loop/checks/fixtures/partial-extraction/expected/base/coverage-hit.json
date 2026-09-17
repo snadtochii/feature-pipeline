@@ -1,0 +1,13 @@
+{
+  "covered": true,
+  "hit": {
+    "src/math.ts": {
+      "covered": true
+    },
+    "src/stats.ts": {
+      "covered": true
+    }
+  },
+  "provider": "v8",
+  "testsPassed": true
+}
