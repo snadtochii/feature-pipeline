@@ -1,9 +1,9 @@
 // Shared runtime for the ts-vitest checks commands.
 //
 // What: flag parsing, target-repo toolchain resolution, the per-invocation temp
-// directory, the prelude-aware subprocess wrapper, repo-relative path
-// normalization, and the sorted-key JSON emitter that every command's output
-// rule depends on.
+// directory, the prelude-aware subprocess wrapper, tsconfig loading,
+// repo-relative path normalization, and the sorted-key JSON emitter that every
+// command's output rule depends on.
 //
 // Output contract: a command prints exactly one JSON document on stdout. This
 // module owns both ends of that — `emit` for the success document, `fail` for
@@ -19,7 +19,7 @@
 // This file lives in `lib/` and is therefore private to the implementation:
 // only top-level `<command>.mjs` files are commands.
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
@@ -231,6 +231,7 @@ export function makeTempDir() {
 
 let preludeScript = null;
 let runCount = 0;
+let liveChild = null;
 
 /**
  * Run a Node subprocess, optionally behind the caller's declared prelude.
@@ -250,38 +251,199 @@ let runCount = 0;
  *
  * @param {string[]} argv arguments to the Node interpreter
  * @param {{cwd: string, prelude?: string | undefined}} options
- * @returns {{code: number, stdout: string, stderr: string}}
+ * @returns {{code: number, stdout: string, stderr: string, fullStdout: string}}
  */
 export function run(argv, { cwd, prelude }) {
-  let file = process.execPath;
-  let args = argv;
-  if (prelude) {
-    if (preludeScript === null) {
-      preludeScript = path.join(makeTempDir(), 'prelude.sh');
-      fs.writeFileSync(
-        preludeScript,
-        [
-          'trap \'echo "prelude failed with status $?" >&2\' EXIT',
-          'set -e',
-          prelude,
-          'trap - EXIT',
-          'PATH="$PATH:$1"',
-          'shift',
-          'exec "$@"',
-          '',
-        ].join('\n'),
-        { mode: 0o700 },
-      );
-    }
-    file = 'sh';
-    args = [preludeScript, path.dirname(process.execPath), 'node', ...argv];
+  return runTool(prelude ? 'node' : process.execPath, argv, { cwd, prelude });
+}
+
+/**
+ * `run`, awaited rather than blocked on.
+ *
+ * A signal listener is JavaScript, and JavaScript only runs between turns of
+ * the event loop — which `spawnSync` never yields. A command that must react
+ * to a signal while a long subprocess runs (a whole test suite) therefore
+ * spawns it through this and awaits the result; the listener can then fire
+ * meanwhile and reach the subprocess through `interruptSubprocess`. Same
+ * command, same prelude discipline, same capture as `run`.
+ *
+ * @param {string[]} argv arguments to the Node interpreter
+ * @param {{cwd: string, prelude?: string | undefined}} options
+ * @returns {Promise<{code: number, stdout: string, stderr: string, fullStdout: string}>}
+ */
+export function runAsync(argv, { cwd, prelude }) {
+  const command = toolCommand(prelude ? 'node' : process.execPath, argv, { prelude });
+  return spawnCapturedAsync(command.file, command.args, cwd);
+}
+
+/**
+ * Forward a signal to the subprocess `runAsync` is currently awaiting, if any,
+ * so that an interrupted command does not leave its suite running in a tree
+ * the command is about to remove.
+ *
+ * @param {NodeJS.Signals} signal
+ */
+export function interruptSubprocess(signal) {
+  if (liveChild === null) {
+    return;
   }
-  // Both callers read their real answer from a file the subprocess writes, and
-  // want its output only as an error tail. Buffering it in the parent's heap
-  // would therefore cost memory for nothing and — worse — a suite chatty enough
-  // to pass a buffer cap would be killed and reported as "could not compute",
-  // turning an answerable question into a broken check. Spill to disk instead;
-  // the temp directory is removed at exit either way.
+  try {
+    liveChild.kill(signal);
+  } catch {
+    // Already gone.
+  }
+}
+
+/**
+ * Run any executable under the same discipline as `run`: behind the caller's
+ * prelude when one is declared, with stdio spilled to disk.
+ *
+ * `run` is the Node-interpreter case of this. The distinction matters only for
+ * which executable the prelude's `exec "$@"` re-executes — `node` resolved on
+ * the prelude's PATH for the toolchain, the named executable for everything
+ * else — so both go through one script and CONTRACT.md §4's "before any
+ * subprocess" stays literally true.
+ *
+ * @param {string} file executable name or absolute path
+ * @param {string[]} args arguments to that executable
+ * @param {{cwd: string, prelude?: string | undefined}} options
+ * @returns {{code: number, stdout: string, stderr: string, fullStdout: string}}
+ */
+export function runTool(file, args, { cwd, prelude }) {
+  const command = toolCommand(file, args, { prelude });
+  return spawnCaptured(command.file, command.args, cwd);
+}
+
+/**
+ * The `(file, args)` pair `runTool` would spawn, without spawning it.
+ *
+ * A caller that must run something from a process exit handler cannot go
+ * through `runTool` — that path reports its own failures by exiting — so it
+ * resolves the pair here while the process is still healthy and spawns it
+ * itself.
+ *
+ * @param {string} file
+ * @param {string[]} args
+ * @param {{prelude?: string | undefined}} options
+ * @returns {{file: string, args: string[]}}
+ */
+export function toolCommand(file, args, { prelude }) {
+  if (!prelude) {
+    return { file, args };
+  }
+  if (preludeScript === null) {
+    preludeScript = path.join(makeTempDir(), 'prelude.sh');
+    fs.writeFileSync(
+      preludeScript,
+      [
+        'trap \'echo "prelude failed with status $?" >&2\' EXIT',
+        'set -e',
+        prelude,
+        'trap - EXIT',
+        'PATH="$PATH:$1"',
+        'shift',
+        'exec "$@"',
+        '',
+      ].join('\n'),
+      { mode: 0o700 },
+    );
+  }
+  return {
+    file: 'sh',
+    args: [preludeScript, path.dirname(process.execPath), file, ...args],
+  };
+}
+
+/**
+ * Spawn a process, capturing stdio into the temp directory.
+ *
+ * Callers read their real answer from a file the subprocess writes — a report,
+ * a patch, or the captured stdout itself — and want the streams only as an
+ * error tail. Buffering them in the parent's heap would therefore cost memory
+ * for nothing and — worse — a suite chatty enough to pass a buffer cap would be
+ * killed and reported as "could not compute", turning an answerable question
+ * into a broken check. Spill to disk instead; the temp directory is removed at
+ * exit either way. `fullStdout` is there for the caller whose answer *is* the
+ * stream — a file list, a name listing — which the bounded tail would truncate;
+ * the capture paths themselves stay private to this module.
+ *
+ * @param {string} file
+ * @param {string[]} args
+ * @param {string} cwd
+ * @returns {{code: number, stdout: string, stderr: string, fullStdout: string}}
+ */
+function spawnCaptured(file, args, cwd) {
+  const capture = openCapture();
+  let code;
+  try {
+    const result = spawnSync(file, args, { cwd, stdio: capture.stdio });
+    code = exitCodeOf(file, result.error, result.status, result.signal);
+  } finally {
+    capture.close();
+  }
+  return capture.result(code);
+}
+
+/**
+ * `spawnCaptured` for a subprocess the caller awaits instead of blocking on.
+ * The child is exposed to `interruptSubprocess` for as long as it runs.
+ *
+ * @param {string} file
+ * @param {string[]} args
+ * @param {string} cwd
+ * @returns {Promise<{code: number, stdout: string, stderr: string, fullStdout: string}>}
+ */
+function spawnCapturedAsync(file, args, cwd) {
+  const capture = openCapture();
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (error, status, signal) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      liveChild = null;
+      capture.close();
+      resolve(capture.result(exitCodeOf(file, error, status, signal)));
+    };
+    const child = spawn(file, args, { cwd, stdio: capture.stdio });
+    liveChild = child;
+    child.once('error', (error) => settle(error, null, null));
+    child.once('exit', (status, signal) => settle(null, status, signal));
+  });
+}
+
+/**
+ * The exit status of a finished subprocess, or the exit-1 document when it has
+ * none the caller could reason about.
+ *
+ * @param {string} file
+ * @param {Error | null | undefined} error
+ * @param {number | null} status
+ * @param {string | null} signal
+ * @returns {number}
+ */
+function exitCodeOf(file, error, status, signal) {
+  if (error) {
+    return fail(`could not run ${file}: ${error.message}`, EXIT_CANNOT_COMPUTE);
+  }
+  if (typeof status !== 'number') {
+    // Killed by a signal — not an exit status the caller can reason about.
+    return fail(`${file} was terminated by ${signal}`, EXIT_CANNOT_COMPUTE);
+  }
+  return status;
+}
+
+/**
+ * Open one subprocess's capture files under the temp directory.
+ *
+ * @returns {{
+ *   stdio: (string | number)[],
+ *   close: () => void,
+ *   result: (code: number) => {code: number, stdout: string, stderr: string, fullStdout: string},
+ * }}
+ */
+function openCapture() {
   const captureDir = path.join(makeTempDir(), 'capture');
   fs.mkdirSync(captureDir, { recursive: true });
   const stdoutPath = path.join(captureDir, `stdout-${runCount}`);
@@ -289,33 +451,41 @@ export function run(argv, { cwd, prelude }) {
   runCount += 1;
   const stdoutFd = fs.openSync(stdoutPath, 'w');
   const stderrFd = fs.openSync(stderrPath, 'w');
-  let code;
-  try {
-    const result = spawnSync(file, args, {
-      cwd,
-      stdio: ['ignore', stdoutFd, stderrFd],
-    });
-    if (result.error) {
-      return fail(`could not run ${file}: ${result.error.message}`, EXIT_CANNOT_COMPUTE);
-    }
-    if (typeof result.status !== 'number') {
-      // Killed by a signal — not an exit status the caller can reason about.
-      return fail(`${file} was terminated by ${result.signal}`, EXIT_CANNOT_COMPUTE);
-    }
-    code = result.status;
-  } finally {
-    fs.closeSync(stdoutFd);
-    fs.closeSync(stderrFd);
-  }
   return {
-    code,
-    get stdout() {
-      return readTail(stdoutPath);
+    stdio: ['ignore', stdoutFd, stderrFd],
+    close() {
+      fs.closeSync(stdoutFd);
+      fs.closeSync(stderrFd);
     },
-    get stderr() {
-      return readTail(stderrPath);
+    result(code) {
+      return {
+        code,
+        get stdout() {
+          return readTail(stdoutPath);
+        },
+        get stderr() {
+          return readTail(stderrPath);
+        },
+        get fullStdout() {
+          return readWhole(stdoutPath);
+        },
+      };
     },
   };
+}
+
+/**
+ * The whole captured stream, for a subprocess whose answer *is* its stdout.
+ *
+ * @param {string} filePath
+ * @returns {string}
+ */
+function readWhole(filePath) {
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -377,6 +547,94 @@ export function toRepoRelative(repo, absolute) {
 }
 
 /**
+ * Read and parse a tsconfig through the repository's own TypeScript.
+ *
+ * A parse error is fatal only when the configuration yields neither source
+ * files nor project references: a solution-style root legitimately contributes
+ * no files of its own, and treating that as a failure would refuse the shape
+ * §6 exists to support.
+ *
+ * @param {any} ts the repository's typescript module
+ * @param {string} configPath absolute tsconfig path
+ * @param {string} [label] how to name the file in an error, when the caller has
+ *   a better spelling than the absolute path
+ * @returns {{parsed: any, real: string}}
+ */
+export function loadTsconfig(ts, configPath, label = configPath) {
+  const real = fs.realpathSync(configPath);
+  const read = ts.readConfigFile(real, ts.sys.readFile);
+  if (read.error) {
+    fail(
+      `cannot parse ${label}: ${ts.flattenDiagnosticMessageText(read.error.messageText, ' ')}`,
+      EXIT_CANNOT_COMPUTE,
+    );
+  }
+  const parsed = ts.parseJsonConfigFileContent(
+    read.config,
+    ts.sys,
+    path.dirname(real),
+    undefined,
+    real,
+  );
+  if (parsed.errors?.length) {
+    const fatal = parsed.errors.find((error) => error.category === ts.DiagnosticCategory.Error);
+    if (fatal && parsed.fileNames.length === 0 && !parsed.projectReferences?.length) {
+      fail(
+        `cannot parse ${label}: ${ts.flattenDiagnosticMessageText(fatal.messageText, ' ')}`,
+        EXIT_CANNOT_COMPUTE,
+      );
+    }
+  }
+  return { parsed, real };
+}
+
+/**
+ * A tsconfig `references` entry may name a directory or the file itself.
+ *
+ * @param {string} value
+ * @returns {string} absolute tsconfig path
+ */
+export function resolveReferencePath(value) {
+  const resolved = path.resolve(value);
+  if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
+    return path.join(resolved, 'tsconfig.json');
+  }
+  return resolved;
+}
+
+/**
+ * Source files outside the repository, and dependency sources inside it, are
+ * not this repository's own.
+ *
+ * @param {string} repo absolute repo path (already realpath'd)
+ * @param {string} fileName
+ * @returns {boolean}
+ */
+export function isRepoSource(repo, fileName) {
+  const relative = path.relative(repo, path.resolve(fileName));
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return false;
+  }
+  return !relative.split(path.sep).includes('node_modules');
+}
+
+/**
+ * Ascending comparison by code unit — the ordering CONTRACT.md §2 requires of
+ * every array in every document, and the one `sorted()` gives the runner on the
+ * other side of the diff.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+export function compare(a, b) {
+  if (a < b) {
+    return -1;
+  }
+  return a > b ? 1 : 0;
+}
+
+/**
  * Hex sha256 of a string, after normalizing line endings so a digest does not
  * depend on the platform that emitted it.
  *
@@ -419,15 +677,22 @@ export function emit(document) {
 }
 
 /**
- * Run a command body, turning an unexpected throw into the exit-1 document
- * rather than a Node stack trace on stdout.
+ * Run a command body, turning an unexpected throw — or an unexpected rejection,
+ * for a body that awaits — into the exit-1 document rather than a Node stack
+ * trace on stdout.
  *
- * @param {() => void} body
+ * @param {() => void | Promise<void>} body
  */
 export function main(body) {
-  try {
-    body();
-  } catch (error) {
+  const report = (error) => {
     fail(`unexpected failure: ${error?.message ?? error}`, EXIT_CANNOT_COMPUTE);
+  };
+  try {
+    const outcome = body();
+    if (outcome !== undefined && typeof outcome.then === 'function') {
+      outcome.then(undefined, report);
+    }
+  } catch (error) {
+    report(error);
   }
 }

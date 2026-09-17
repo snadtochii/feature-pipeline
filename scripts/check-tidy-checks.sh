@@ -10,35 +10,58 @@
 # thing standing between a change to these commands and that outcome, so this
 # script runs them all and diffs byte-for-byte.
 #
-# This runner drives the contract's SINGLE-TREE commands: each one is pointed at
-# one tree and compared to one expected document. Adding another single-tree
-# command is one row in the ARGUMENTS table below plus one expected document per
-# tree. A command whose input is a PAIR of trees does not fit that model and
-# needs its own section here rather than a table row.
-#
-# The table is also the wiring check: a command script present in the stack
-# directory but absent from the table is reported as a failure rather than run
-# with guessed arguments, so a new command cannot slip in unverified.
+# This runner drives the contract's SINGLE-TREE commands from a table: each one
+# is pointed at one tree and compared to one expected document. Adding another
+# single-tree command is one row in the ARGUMENTS table below plus one expected
+# document per tree.
 #   test-names        no arguments (plus --prelude 'true', to exercise the
 #                     prelude composition path the fixtures otherwise never hit)
 #   exported-surface  --rename-map <fixture>/rename-map.json
 #   coverage-hit      --targets = the key set of the expected document's "hit"
 #
+# A command whose input is a PAIR of trees does not fit that model and gets its
+# own section instead, driven by the fixture's `specPatch` declaration:
+#   verify-spec-patch  one throwaway git repository per candidate, committed
+#                      base-then-candidate, then --repo/--base-sha/--test-globs
+#
+# Both sets are the wiring check: a command script present in the stack
+# directory but named by neither the table nor PAIR_COMMANDS is reported as a
+# failure rather than run with guessed arguments, so a new command cannot slip
+# in unverified. A pair command that no fixture declares fails the run for the
+# same reason — it would otherwise sit on disk silently unexercised.
+#
 # Each fixture names the stack it exercises in its own `fixture.json`, so a
 # second stack's fixture is driven by that stack's commands and not by these.
+# That file also carries the optional keys this runner reads:
+#   trees          {"<tree>": ["<single-tree command>", …]} — which commands
+#                  apply to which tree. Absent: every wired single-tree command
+#                  applies to every tree. Declared, never guessed from a missing
+#                  expected document.
+#   specPatch      {"base": "<tree>", "candidates": ["<tree>", …],
+#                  "testGlobs": ["<glob>", …]} — the pair section's input.
+#   sameTestNames  [["<tree>", "<tree>"], …] — tree pairs whose `test-names`
+#                  name multiset must be identical, files disregarded. This is
+#                  how a fixture pins "the tests moved" when the pair command's
+#                  own evidence excludes the moved file as an addition.
+#
+# Fixture trees carry no ignore file of their own: the pair section stages them
+# with `git add -A`, and a `.gitignore` inside a tree would silently withhold
+# files from the base commit. Only the `node_modules` symlink the section
+# creates is excluded, through the throwaway repository's `.git/info/exclude`.
 #
 # `coverage-hit` is compared as a projection — provider, covered, testsPassed,
 # and each target's covered count reduced to a boolean. Raw statement counts
 # depend on the coverage provider and the Node build and buy a gate no signal.
 #
-# Requires `node` and `npm` on PATH (Node >= 20). Each fixture is installed with
-# `npm ci`, which dominates the runtime — this is a pre-commit check, not a
-# per-edit one.
+# Requires `node`, `npm`, and `git` on PATH (Node >= 20). Each fixture is
+# installed with `npm ci`, which dominates the runtime — this is a pre-commit
+# check, not a per-edit one.
 #
 # Usage:  scripts/check-tidy-checks.sh
 # Exit:   0 every command's output matches its expected document; 1 on any
 #         mismatch, command failure, install failure, missing expected
-#         document, missing toolchain, or an empty fixture set.
+#         document, unusable fixture declaration, missing toolchain, or an empty
+#         fixture set.
 
 set -euo pipefail
 
@@ -50,9 +73,9 @@ if [ ! -d "$checks_dir/fixtures" ]; then
   exit 1
 fi
 
-for tool in node npm; do
+for tool in node npm git; do
   if ! command -v "$tool" >/dev/null 2>&1; then
-    echo "FAIL: $tool not found on PATH — the fixtures need Node >= 20 and npm" >&2
+    echo "FAIL: $tool not found on PATH — the fixtures need Node >= 20, npm, and git" >&2
     exit 1
   fi
 done
@@ -60,6 +83,7 @@ done
 node - "$checks_dir" <<'JS'
 "use strict";
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
@@ -120,6 +144,23 @@ const ARGUMENTS = {
   },
 };
 
+// Commands whose input is a pair of trees. Driven by the pair section below,
+// not by ARGUMENTS, and each one must be exercised by at least one fixture.
+const PAIR_COMMANDS = new Set(["verify-spec-patch"]);
+const exercisedPairCommands = new Set();
+
+// Every throwaway repository this run creates lives under one of these.
+const scratchDirs = [];
+process.on("exit", () => {
+  for (const dir of scratchDirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // Best effort — the OS reclaims the temp directory either way.
+    }
+  }
+});
+
 function isDir(candidate) {
   try {
     return fs.statSync(candidate).isDirectory();
@@ -159,7 +200,8 @@ function tail(text) {
   return (text ?? "").trim().slice(-400);
 }
 
-// Which stack a fixture exercises. Declared, never guessed.
+// Which stack a fixture exercises, and how this runner should drive it.
+// Declared, never guessed.
 function readManifest(fixture) {
   const fixtureName = path.basename(fixture);
   const manifestPath = path.join(fixture, "fixture.json");
@@ -180,7 +222,91 @@ function readManifest(fixture) {
   if (!isDir(stackDir)) {
     return [null, `${fixtureName}: declared stack "${stack}" not found at ${stackDir}`];
   }
-  return [stackDir, null];
+  return [{ stackDir, manifest }, null];
+}
+
+// A declaration that names a tree or a command that does not exist is a
+// fixture bug that would otherwise read as "this command simply does not
+// apply here" — the one reading a declared-never-guessed scheme must refuse.
+function validateManifest(fixtureName, manifest, treeNames, singleTreeCommands) {
+  const problems = [];
+  const knownTree = (name) => treeNames.includes(name);
+
+  if (manifest.trees !== undefined) {
+    if (manifest.trees === null || typeof manifest.trees !== "object" || Array.isArray(manifest.trees)) {
+      problems.push(`${fixtureName}: fixture.json "trees" must be an object`);
+    } else {
+      for (const [tree, commands] of Object.entries(manifest.trees)) {
+        if (!knownTree(tree)) {
+          problems.push(`${fixtureName}: fixture.json "trees" names a missing tree "${tree}"`);
+        }
+        if (!Array.isArray(commands) || commands.some((name) => typeof name !== "string")) {
+          problems.push(`${fixtureName}: fixture.json "trees.${tree}" must be an array of command names`);
+          continue;
+        }
+        for (const name of commands) {
+          if (!singleTreeCommands.includes(name)) {
+            problems.push(`${fixtureName}: fixture.json "trees.${tree}" names an unknown command "${name}"`);
+          }
+        }
+      }
+    }
+  }
+
+  if (manifest.specPatch !== undefined) {
+    const spec = manifest.specPatch;
+    if (spec === null || typeof spec !== "object" || Array.isArray(spec)) {
+      problems.push(`${fixtureName}: fixture.json "specPatch" must be an object`);
+    } else {
+      if (!knownTree(spec.base)) {
+        problems.push(`${fixtureName}: fixture.json "specPatch.base" names a missing tree "${spec.base}"`);
+      }
+      if (!Array.isArray(spec.candidates) || spec.candidates.length === 0) {
+        problems.push(`${fixtureName}: fixture.json "specPatch.candidates" must be a non-empty array`);
+      } else {
+        for (const tree of spec.candidates) {
+          if (!knownTree(tree)) {
+            problems.push(
+              `${fixtureName}: fixture.json "specPatch.candidates" names a missing tree "${tree}"`,
+            );
+          }
+        }
+      }
+      if (
+        !Array.isArray(spec.testGlobs) ||
+        spec.testGlobs.length === 0 ||
+        spec.testGlobs.some((glob) => typeof glob !== "string" || glob === "")
+      ) {
+        problems.push(`${fixtureName}: fixture.json "specPatch.testGlobs" must be a non-empty array of globs`);
+      }
+    }
+  }
+
+  if (manifest.sameTestNames !== undefined) {
+    if (!Array.isArray(manifest.sameTestNames)) {
+      problems.push(`${fixtureName}: fixture.json "sameTestNames" must be an array of tree pairs`);
+    } else {
+      for (const pair of manifest.sameTestNames) {
+        if (!Array.isArray(pair) || pair.length !== 2 || !pair.every(knownTree)) {
+          problems.push(
+            `${fixtureName}: fixture.json "sameTestNames" entry must be two existing tree names, got ${JSON.stringify(pair)}`,
+          );
+        }
+      }
+    }
+  }
+
+  return problems;
+}
+
+// Which single-tree commands apply to one tree: what the manifest declares, or
+// all of them when it declares nothing.
+function commandsForTree(manifest, treeName, singleTreeCommands) {
+  const declared = manifest.trees?.[treeName];
+  if (!Array.isArray(declared)) {
+    return singleTreeCommands;
+  }
+  return singleTreeCommands.filter((command) => declared.includes(command));
 }
 
 // Occurrences of each line, in first-seen order.
@@ -219,6 +345,76 @@ function describeDifference(expectedText, actualText) {
   return shown.join("; ");
 }
 
+// CI runs with no git identity and no global configuration, so every commit
+// carries its own. Hooks are skipped because a contributor's global hooksPath
+// is not part of what this fixture is testing.
+const GIT_IDENTITY = [
+  "-c",
+  "user.name=tidy-checks",
+  "-c",
+  "user.email=tidy-checks@example.invalid",
+  "-c",
+  "commit.gpgsign=false",
+];
+
+function git(repo, args) {
+  return spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+}
+
+// A throwaway repository holding the base tree as one commit and the candidate
+// tree as the next. Built from copies: pointing git at the tracked fixture
+// directory would commit into this repository instead.
+function buildThrowawayRepo(fixture, baseTree, candidateTree, repo) {
+  fs.mkdirSync(repo, { recursive: true });
+  fs.cpSync(path.join(fixture, baseTree), repo, { recursive: true });
+
+  const init = git(repo, ["-c", "init.defaultBranch=main", "init", "-q"]);
+  if (init.status !== 0) {
+    return [null, `git init failed: ${tail(init.stderr)}`];
+  }
+  // The toolchain is the fixture's, installed once. Excluded through
+  // .git/info/exclude rather than a .gitignore: the exclude file is shared by
+  // linked worktrees and is not itself part of any commit, so neither the base
+  // nor the candidate commit captures the link.
+  fs.symlinkSync(path.join(fixture, "node_modules"), path.join(repo, "node_modules"), "dir");
+  fs.writeFileSync(path.join(repo, ".git", "info", "exclude"), "node_modules\n");
+
+  const baseProblem = commitEverything(repo, "base");
+  if (baseProblem !== null) {
+    return [null, baseProblem];
+  }
+  const head = git(repo, ["rev-parse", "HEAD"]);
+  if (head.status !== 0) {
+    return [null, `git rev-parse failed: ${tail(head.stderr)}`];
+  }
+  const baseSha = head.stdout.trim();
+
+  for (const entry of fs.readdirSync(repo)) {
+    if (entry === ".git" || entry === "node_modules") {
+      continue;
+    }
+    fs.rmSync(path.join(repo, entry), { recursive: true, force: true });
+  }
+  fs.cpSync(path.join(fixture, candidateTree), repo, { recursive: true });
+  const candidateProblem = commitEverything(repo, "candidate");
+  if (candidateProblem !== null) {
+    return [null, candidateProblem];
+  }
+  return [baseSha, null];
+}
+
+function commitEverything(repo, message) {
+  const staged = git(repo, ["add", "-A"]);
+  if (staged.status !== 0) {
+    return `git add failed for ${message}: ${tail(staged.stderr)}`;
+  }
+  const committed = git(repo, [...GIT_IDENTITY, "commit", "--no-verify", "-q", "-m", message]);
+  if (committed.status !== 0) {
+    return `git commit failed for ${message}: ${tail(committed.stderr)}`;
+  }
+  return null;
+}
+
 const fixtures = subdirs(fixturesDir);
 if (fixtures.length === 0) {
   process.stderr.write(`FAIL: no fixtures found under ${fixturesDir}\n`);
@@ -227,25 +423,44 @@ if (fixtures.length === 0) {
 
 for (const fixture of fixtures) {
   const fixtureName = path.basename(fixture);
-  const [stackDir, problem] = readManifest(fixture);
+  const [declaration, problem] = readManifest(fixture);
   if (problem !== null) {
     failures.push(problem);
     continue;
   }
+  const { stackDir, manifest } = declaration;
 
   // Only top-level *.mjs files are commands; lib/ is private to the stack.
-  let commands = stems(stackDir, ".mjs");
+  const commands = stems(stackDir, ".mjs");
   if (commands.length === 0) {
     failures.push(`${fixtureName}: no commands found in ${stackDir}`);
     continue;
   }
-  const unwired = commands.filter((command) => !(command in ARGUMENTS));
+  const unwired = commands.filter(
+    (command) => !(command in ARGUMENTS) && !PAIR_COMMANDS.has(command),
+  );
   for (const command of unwired) {
     failures.push(
       `${fixtureName}: ${path.basename(stackDir)}/${command}.mjs is not wired into this runner`,
     );
   }
-  commands = commands.filter((command) => command in ARGUMENTS);
+  const singleTreeCommands = commands.filter((command) => command in ARGUMENTS);
+
+  const expectedRoot = path.join(fixture, "expected");
+  const trees = subdirs(fixture).filter(
+    (tree) => !["expected", "node_modules"].includes(path.basename(tree)),
+  );
+  if (trees.length === 0) {
+    failures.push(`${fixtureName}: no trees to check`);
+    continue;
+  }
+  const treeNames = trees.map((tree) => path.basename(tree));
+
+  const declarationProblems = validateManifest(fixtureName, manifest, treeNames, singleTreeCommands);
+  if (declarationProblems.length > 0) {
+    failures.push(...declarationProblems);
+    continue;
+  }
 
   const install = spawnSync("npm", ["ci", "--no-audit", "--no-fund"], {
     cwd: fixture,
@@ -258,28 +473,23 @@ for (const fixture of fixtures) {
     continue;
   }
 
-  const expectedRoot = path.join(fixture, "expected");
-  const trees = subdirs(fixture).filter(
-    (tree) => !["expected", "node_modules"].includes(path.basename(tree)),
-  );
-  if (trees.length === 0) {
-    failures.push(`${fixtureName}: no trees to check`);
-    continue;
-  }
+  const specPatch = manifest.specPatch;
+  const pairTrees = new Set(specPatch === undefined ? [] : specPatch.candidates);
 
   for (const tree of trees) {
     const treeName = path.basename(tree);
     const expectedDir = path.join(expectedRoot, treeName);
-    // A command with no implementation must still fail loudly when an
-    // expected document names it — that keeps expected/ honest.
-    const named = stems(expectedDir, ".json");
-    for (const orphan of named) {
-      if (!commands.includes(orphan) && !unwired.includes(orphan)) {
+    const applicable = commandsForTree(manifest, treeName, singleTreeCommands);
+    // An expected document that nothing will run must fail loudly — that keeps
+    // expected/ honest about which commands a tree actually exercises.
+    for (const orphan of stems(expectedDir, ".json")) {
+      const isPairDocument = PAIR_COMMANDS.has(orphan) && pairTrees.has(treeName);
+      if (!applicable.includes(orphan) && !unwired.includes(orphan) && !isPairDocument) {
         failures.push(`${fixtureName}/${treeName}/${orphan}: expected document has no command`);
       }
     }
 
-    for (const command of commands) {
+    for (const command of applicable) {
       const label = `${fixtureName}/${treeName}/${command}`;
       const expectedPath = path.join(expectedDir, `${command}.json`);
       if (!isFile(expectedPath)) {
@@ -318,7 +528,6 @@ for (const fixture of fixtures) {
         failures.push(`${label}: stdout is not one JSON document: ${error.message}`);
         continue;
       }
-
       if (command === "coverage-hit") {
         actual = projectCoverageHit(actual);
       }
@@ -332,6 +541,123 @@ for (const fixture of fixtures) {
         failures.push(`${label}: ${describeDifference(expectedText, actualText)}`);
       }
     }
+  }
+
+  // The pair section: one throwaway git repository per candidate tree.
+  if (specPatch !== undefined) {
+    const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tidy-checks-"));
+    scratchDirs.push(scratch);
+    for (const candidateTree of specPatch.candidates) {
+      exercisedPairCommands.add("verify-spec-patch");
+      const label = `${fixtureName}/${candidateTree}/verify-spec-patch`;
+      const expectedPath = path.join(expectedRoot, candidateTree, "verify-spec-patch.json");
+      if (!isFile(expectedPath)) {
+        failures.push(`${label}: no expected document at ${expectedPath}`);
+        continue;
+      }
+      let expected;
+      try {
+        expected = JSON.parse(fs.readFileSync(expectedPath, "utf8"));
+      } catch (error) {
+        failures.push(`${label}: expected document is not JSON: ${error.message}`);
+        continue;
+      }
+
+      const repo = path.join(scratch, `${fixtureName}-${candidateTree}`);
+      const [baseSha, buildProblem] = buildThrowawayRepo(
+        fixture,
+        specPatch.base,
+        candidateTree,
+        repo,
+      );
+      if (buildProblem !== null) {
+        failures.push(`${label}: ${buildProblem}`);
+        continue;
+      }
+
+      const result = spawnSync(
+        "node",
+        [
+          path.join(stackDir, "verify-spec-patch.mjs"),
+          "--repo",
+          repo,
+          "--base-sha",
+          baseSha,
+          "--test-globs",
+          specPatch.testGlobs.join(","),
+        ],
+        { encoding: "utf8" },
+      );
+      if (result.status !== 0) {
+        failures.push(`${label}: exited ${result.status}: ${tail(result.stdout || result.stderr)}`);
+        continue;
+      }
+      let actual;
+      try {
+        actual = JSON.parse(result.stdout);
+      } catch (error) {
+        failures.push(`${label}: stdout is not one JSON document: ${error.message}`);
+        continue;
+      }
+
+      comparisons += 1;
+      const expectedText = canonical(expected);
+      const actualText = canonical(actual);
+      if (expectedText === actualText) {
+        process.stdout.write(`  ok  ${label}\n`);
+      } else {
+        failures.push(`${label}: ${describeDifference(expectedText, actualText)}`);
+      }
+    }
+  }
+
+  // The name multiset carries the half of the evidence the pair command
+  // excludes: a moved spec file is an addition there, so only this comparison
+  // shows that the tests it holds are the same ones.
+  //
+  // It reads the two COMMITTED documents, not the two actual ones. The actuals
+  // were byte-compared against these a few lines up, so asserting on them would
+  // be determined by the same two files and could only ever restate a failure
+  // already reported. Reading expected/ instead makes this an unconditional
+  // check of the fixture's own invariant: a hand-edit to either document that
+  // breaks the multiset fails here even when every command is healthy.
+  for (const [left, right] of manifest.sameTestNames ?? []) {
+    const label = `${fixtureName}/test-names-multiset/${left}=${right}`;
+    const names = [];
+    let readable = true;
+    for (const tree of [left, right]) {
+      const documentPath = path.join(expectedRoot, tree, "test-names.json");
+      if (!isFile(documentPath)) {
+        failures.push(`${label}: no expected document at ${documentPath}`);
+        readable = false;
+        break;
+      }
+      try {
+        const document = JSON.parse(fs.readFileSync(documentPath, "utf8"));
+        names.push((document.tests ?? []).map((test) => test.name).sort().join("\n"));
+      } catch (error) {
+        failures.push(`${label}: ${documentPath} is not JSON: ${error.message}`);
+        readable = false;
+        break;
+      }
+    }
+    if (!readable) {
+      continue;
+    }
+    comparisons += 1;
+    if (names[0] === names[1]) {
+      process.stdout.write(`  ok  ${label}\n`);
+    } else {
+      failures.push(`${label}: ${describeDifference(names[0], names[1])}`);
+    }
+  }
+}
+
+// A pair command on disk that no fixture declares would sit unverified, which
+// is the one thing the wiring checks exist to prevent.
+for (const command of PAIR_COMMANDS) {
+  if (!exercisedPairCommands.has(command)) {
+    failures.push(`${command}: no fixture declares a "specPatch" exercising this pair command`);
   }
 }
 

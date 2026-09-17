@@ -1,0 +1,10 @@
+{
+  "name": "tidy-checks-fixture-spec-split",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}

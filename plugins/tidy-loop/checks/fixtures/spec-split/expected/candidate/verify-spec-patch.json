@@ -1,0 +1,19 @@
+{
+  "additions": [
+    {
+      "file": "src/range.spec.ts",
+      "missingImports": [
+        "./range"
+      ]
+    }
+  ],
+  "basePlusPatch": {
+    "failed": [],
+    "green": true
+  },
+  "candidate": {
+    "missingToFail": [],
+    "passToFail": []
+  },
+  "verdict": true
+}

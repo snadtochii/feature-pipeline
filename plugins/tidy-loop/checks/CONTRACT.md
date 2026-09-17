@@ -52,7 +52,7 @@ The document is written so two runs on two machines compare byte-for-byte:
 | Code | Meaning | Document |
 |---|---|---|
 | `0` | An answer was computed. This includes a **negative** answer — `covered: false`, an empty `tests` array, a symbol declared in two files. | The command's document from §5–§8. |
-| `1` | The answer could not be computed: the toolchain is unresolvable from `--repo`, a required package is missing, a subprocess crashed, a compilation could not emit. | `{"error": "<reason>"}` |
+| `1` | The answer could not be computed: the toolchain is unresolvable from `--repo`, a required package is missing, a subprocess crashed, a compilation could not emit, the run was interrupted by a signal. | `{"error": "<reason>"}` |
 | `2` | The invocation was wrong: an unknown flag, a missing required flag, a relative `--repo`, an unreadable or malformed input file. | `{"error": "<reason>"}` |
 
 A caller distinguishes "the repository says no" from "the check is broken" by the exit
@@ -76,7 +76,9 @@ exits 2 rather than being ignored.
 resolves against `--repo`. A flag naming one of the caller's own files — an input document
 it wrote, an output directory it wants written — resolves against the caller's working
 directory. Each flag in §5–§8 states which it is, and passing an absolute path is always
-unambiguous.
+unambiguous. A flag whose value is a *pattern* rather than a path follows the same split:
+§8's `--test-globs` names files inside the repository, so its patterns are repo-relative
+and never absolute.
 
 **How `--prelude` is composed.** The prelude is the caller's own declared command — the
 same trust tier as the rest of that caller's profile — and it is treated as *file
@@ -121,6 +123,16 @@ Running the repository's own tooling can still touch that tooling's own ignored 
 inside `--repo` — a test runner's cache directory, for instance — which is the toolchain
 behaving normally and never reaches a gate's output or a diff.
 
+§8 needs a second tree of the same repository to answer its question, and materialises it
+through the repository's own version control: a detached worktree checked out **inside the
+command's temporary directory** and registered in the repository's own worktree list — its
+common git directory, which belongs to the main repository when `--repo` is itself a linked
+worktree. That registration is the one thing a command adds to the repository, it is git's
+own bookkeeping rather than a tracked file, and it is removed — checkout and registration both — on every
+exit path the command can observe: a normal exit, an error exit, and an interrupt,
+termination, or hangup signal delivered to the command, which forwards it to the suite
+run in flight and ends as an error exit (§3) naming the signal.
+
 Commands read no environment file and no credential file of their own. Beyond the flags,
 what reaches a command is the contents of the repository it was pointed at.
 
@@ -129,8 +141,9 @@ something of the caller rather than the implementation. Answering these question
 using the repository's own toolchain, and that has two consequences worth stating plainly:
 the toolchain is resolved by walking up from `--repo`, so it may come from an ancestor
 directory rather than from `--repo` itself; and a command loads and runs that toolchain —
-and, for §7, the repository's entire test suite — in the invoking process's environment
-and with its privileges. Pointing a command at an untrusted checkout executes that
+and, for §7 and §8, the repository's entire test suite, which §8 runs twice: once at the
+checked-out revision and once at `--base-sha` with the spec patch applied — in the invoking
+process's environment and with its privileges. Pointing a command at an untrusted checkout executes that
 checkout's code. No sandboxing is claimed or attempted.
 
 ## §5 `test-names`
@@ -307,35 +320,80 @@ therefore reports `0/0` and `covered: false`. Targets are source files.
 ## §8 `verify-spec-patch`
 
 Answers *whether a change's test suite is symmetric evidence*: the same tests, moved
-rather than weakened. This section is the contract; the flag spellings are fixed by the
-change that implements it and are deliberately not written here.
+rather than weakened.
 
-Inputs, named semantically: a **base tree**, a **candidate tree**, a **spec patch** (the
-test-file-only portion of the change), and a **base revision** identifying what existed
-before the change.
+```text
+node .../verify-spec-patch.mjs --repo <abs-path> --base-sha <rev>
+                               --test-globs <a,b,c> [--prelude "<line>"]
+```
+
+`--repo` is the **candidate** tree and must be the root of a git working tree — the
+command addresses git objects by repository-relative path, so a subdirectory would
+silently mis-key them; anything else exits 2. `--base-sha` is any revision resolvable
+there, and names what existed before the change. `--test-globs` is a comma-separated list
+of repo-relative glob patterns naming the test files; the portion of the change that
+touches them is the **spec patch**. The dialect is fixed here, because two stacks reading
+the same profile value must select the same files: `/` separates path components, `**`
+matches across separators and `*` does not, `?` matches one character, and a pattern is
+matched against the whole repo-relative path. A pattern that is absolute, begins with `/`,
+or contains a `..` segment exits 2.
+
+The command derives the base tree itself: it checks `--base-sha` out into a detached
+worktree under its own temporary directory (§4), applies the spec patch there, and runs
+the suite on that tree and on `--repo`.
 
 Document:
 
 ```json
 {
-  "added": ["src/range.spec.ts > clamp > clamps to the range"],
-  "missingToFail": [],
-  "passToFail": [],
+  "additions": [
+    { "file": "src/range.spec.ts", "missingImports": ["./range"] }
+  ],
+  "basePlusPatch": { "failed": [], "green": true },
+  "candidate": { "missingToFail": [], "passToFail": [] },
   "verdict": true
 }
 ```
 
 | Key | Meaning |
 |---|---|
-| `passToFail` | Tests that pass on the base tree with the spec patch applied, and fail on the candidate. Each entry is a test identity in the `§5` `file > name` form. |
-| `missingToFail` | Tests present on the base tree with the spec patch applied and absent from the candidate. A silently deleted test. |
-| `added` | Tests present only on the candidate that are **not** evidence of a regression, because the module they exercise did not exist at the base revision. Reported for the record, never counted against the change. |
-| `verdict` | True iff `passToFail` and `missingToFail` are both empty. |
+| `basePlusPatch.failed` | Test identities that failed on the base tree with the spec patch applied. |
+| `basePlusPatch.green` | True iff `failed` is empty. A spec patch that only passes on the candidate fails here, which is the question this command exists to ask. |
+| `candidate.passToFail` | Tests that pass on base-plus-patch and fail on the candidate. |
+| `candidate.missingToFail` | Tests present on base-plus-patch and absent from the candidate. A silently deleted test. |
+| `additions` | Test **files** excluded from the base-plus-patch run because they exercise a module that did not exist at the base revision, each with the import specifiers that were missing there. Reported so the evidence states what was not cross-checked; never counted against the change. |
+| `verdict` | True iff `basePlusPatch.green` and both `candidate` arrays are empty. |
 
-Ordering: every array sorted ascending by code unit.
+Each entry of `failed`, `passToFail`, and `missingToFail` is a test identity in §5's
+`file > name` form. `failed` alone may also carry a bare file path with **no** ` > `: a
+suite that failed to collect, whose tests therefore have no individual identities. Such a
+file contributed no tests to base-plus-patch, so it never appears in `missingToFail` —
+which would otherwise read as a test the candidate deleted — nor in `passToFail`, which
+requires a test that passed.
 
-Exit codes follow §3 unchanged: a verdict of `false` is a computed answer and exits 0;
-only an inability to run the two trees exits non-zero.
+Ordering: every array sorted ascending by code unit, and `additions` by `file`.
+
+**An addition is decided mechanically, at file granularity.** A patched test file is an
+addition when any of its import specifiers resolves to a repository file that does not
+exist at `--base-sha`. That whole file is then excluded from the base-plus-patch run and
+executed on the candidate only. One new import therefore withdraws its whole file from the
+evidence, which the `additions` entry makes visible.
+
+**Every unignored test file matching the globs must be tracked.** The spec patch is computed
+against version control, so a test file the candidate never staged is invisible to it and
+would be silently dropped from the comparison. The command exits 1 naming those files
+instead. A test file the repository's own ignore rules exclude is outside version control
+by the repository's declaration and takes no part in the comparison: it is never in the
+spec patch, and the document is keyed by the tests that ran on base-plus-patch, so a test
+that ran on the candidate alone is never read.
+
+**No retry.** A red base-plus-patch is a computed answer, not a flake to re-run.
+
+Exit codes follow §3 unchanged: a verdict of `false` — and `green: false` with it — is a
+computed answer and exits 0. Being unable to materialise or run the two trees exits
+non-zero: an untracked test file, a dirty temporary worktree, a spec patch that does not
+apply, or a suite run that produced no machine-readable report all exit 1, never a `false`
+verdict.
 
 ## §9 Adding a stack
 
@@ -349,14 +407,23 @@ the ordering rules, the exit-code split, and §4's subprocess discipline. What i
 to choose: how it resolves its toolchain, how it collects test names, what it digests to
 represent a declared surface, and which coverage instrumentation it drives.
 
-What is deliberately **not** in this contract: any knowledge of the consuming profile,
-any git operation, and any notion of a queue, a finding, or a gate. A command is given a
-directory and some flags, and answers one question about it.
+What is deliberately **not** in this contract: any knowledge of the consuming profile, any
+notion of a queue, a finding, or a gate, and any use of version control beyond §8 — which
+materialises its base tree through the repository's own, because "what did this file look
+like before the change" has no other mechanical source. A command is given a directory and
+some flags, and answers one question about it.
 
 ### Coverage of this contract by fixtures
 
-The shipped fixtures exercise the common path of every implemented command against two
-trees. They do **not** exercise: a solution-style root configuration that builds through
-project references (§6), the fallback from static to runtime test collection (§5), or a
-`--prelude` beyond a trivial no-op line (§4). Those paths are verified against a real
-repository when they change.
+The shipped fixtures exercise the common path of every implemented command: §5, §6, and
+§7 against the two trees of `partial-extraction`, §5 additionally against the base and
+honest candidate of `spec-split`, and §8 against `spec-split`'s base paired with each of
+its three candidates — one per answer branch. They do **not** exercise: a solution-style
+root configuration that builds through project references (§6), the fallback from static
+to runtime test collection (§5), a `--prelude` beyond a trivial no-op line (§4), a
+repository whose test files live in nested workspace packages (§8 bridges one
+`node_modules` into the base tree, not a package tree), `paths` aliases beyond the
+relative imports the fixtures use (§8), §8's exit-1 paths — an untracked test file, a
+dirty temporary worktree, a spec patch that does not apply, a run that produced no
+report — or its signal path (§4). Those paths are verified against a real repository
+when they change.

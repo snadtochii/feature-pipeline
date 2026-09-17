@@ -1,0 +1,21 @@
+{
+  "additions": [
+    {
+      "file": "src/range.spec.ts",
+      "missingImports": [
+        "./range"
+      ]
+    }
+  ],
+  "basePlusPatch": {
+    "failed": [
+      "src/math.spec.ts > add > sums two numbers"
+    ],
+    "green": false
+  },
+  "candidate": {
+    "missingToFail": [],
+    "passToFail": []
+  },
+  "verdict": false
+}

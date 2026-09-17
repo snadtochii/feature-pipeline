@@ -1,0 +1,15 @@
+{
+  "stack": "ts-vitest",
+  "trees": {
+    "base": ["test-names"],
+    "candidate": ["test-names"],
+    "candidate-cheating": [],
+    "candidate-regression": []
+  },
+  "specPatch": {
+    "base": "base",
+    "candidates": ["candidate", "candidate-cheating", "candidate-regression"],
+    "testGlobs": ["src/**/*.spec.ts"]
+  },
+  "sameTestNames": [["base", "candidate"]]
+}
