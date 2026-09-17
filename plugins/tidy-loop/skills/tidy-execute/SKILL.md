@@ -188,8 +188,14 @@ Then sweep the residue a dead run leaves:
   belongs to a dead run. Stash its diff to `<state_dir>/blocked/<its-run-id>.patch`, then remove
   it with `--force` and prune. A failed structural change has no value to keep; the reason it
   failed does.
-- `$HOME/.tidy-loop/fence.json` — remove it if present. It is a live control keyed to a worktree
-  that no longer exists, and leaving it there points a future fence at a stale root.
+- `$HOME/.tidy-loop/fence.json` — **read its `run_id` before touching it.** This path is global
+  while the lock above is per-clone, so a fence file here may belong to a live run in a different
+  clone rather than to the dead run this sweep is cleaning up after. Remove it only when its
+  `run_id` is absent, unparseable, or names the dead run whose residue this step just cleared;
+  then it is a control keyed to a worktree that no longer exists, and leaving it points a future
+  fence at a stale root. A fence file naming any **other** run is a live control: leave it, and
+  abort this run naming that run id, because the fence file is a single global and this run
+  cannot write its own without destroying that one (§8).
 
 ### Step 5 — Clone position
 
@@ -587,6 +593,30 @@ because the single-commit revert promise downstream has to be true.
 
 The exclusion list from §5 applies to this commit as it does to every other.
 
+### Assert the worktree is clean
+
+**Immediately after every agent commit this run makes** — this one, §8's and §9's — and before
+anything downstream reads the tree:
+
+```bash
+git -C "<WT>" status --porcelain      # empty, the §5 exclusion-list paths aside
+```
+
+A commit-range assertion answers only what an agent **committed**. An agent denied an `Edit` on a
+test file can write that file through `Bash` — `sed -i`, a redirect, a heredoc, none of which the
+`Read|Write|Edit|MultiEdit` binding matches — and simply not stage it. The commit then contains
+only what it should, the range assertion passes, and the edit stays in the working tree as
+ambient state that every later section inherits: §9 runs the test command against a tree already
+carrying the weakened test, reads green, and commits spec files over the top of it — and §9's own
+assertion is satisfied, because a spec file is exactly what it expects to see there. Without this
+check the first clean-tree test in the run is §11's teardown, which is after §9 and §10 have both
+consumed the result.
+
+Non-empty **aborts**, naming the paths, with the evidence written as for any other failed
+assertion. The §5 exclusion-list paths are the single exemption — copied deliberately, left
+uncommitted deliberately, and known by name. Nothing else is exempt, and this assertion is never
+softened into a warning for the same reason the commit assertion is not.
+
 ---
 
 ## §8 Implement
@@ -604,9 +634,24 @@ set is the same for both, only the direction differs, and the direction is the m
 agent's own binding supplies.
 
 The file lives at a fixed path because a hook's command string is static and cannot resolve
-`state_dir`, which is per-repo configuration. Cross-repo safety is therefore inside the file
-rather than in its path: `repo_root` scopes every decision the fence makes, so two repositories
-running concurrently cannot fence each other.
+`state_dir`, which is per-repo configuration. That fixed path is **global, while the run lock
+(§2 Step 4) is per-clone** — so a second repository running concurrently is a supported state,
+and it reaches this same file. `repo_root` scopes every decision the fence *makes*, which keeps
+one run's globs from being applied to another run's paths; it does nothing to stop one run
+deleting or overwriting the other's control. `run_id` is what closes that gap, and **every site
+that writes, sweeps, or clears this file is gated on it**:
+
+- **Write (here).** A fence file already present whose `run_id` is **not** this run's belongs to
+  a live run in another clone. **Abort** this run, naming the other run id — never overwrite it.
+  A fence file carrying this run's own `run_id` is this run's own residue and may be rewritten.
+- **Sweep (§2 Step 4).** Remove it only when its `run_id` is absent, unparseable, or belongs to a
+  run this sweep has already established is dead. Another live run's fence is left alone.
+- **Clear (§11).** Remove it only when its `run_id` is this run's.
+
+Deleting another run's fence does not merely inconvenience it: the hook exits 0 on a missing
+fence file, so the other run's implementer would continue **with no fence at all** — the loop's
+central invariant silently gone. That run's commit assertion still fails it closed at the end,
+but only after the control itself has stopped existing, which is the property worth keeping.
 
 Refuse to write a fence file with an empty `test_globs` — the hook treats that as fail-open, and
 a fence that allows everything must never be the thing a spawn proceeds behind.
@@ -619,9 +664,17 @@ run from the outside. So the fence is never the only mechanism, and it is never 
 1. Confirm `<plugin-root>/hooks/spec-fence.sh` exists and is executable at the same path the
    agent frontmatter names.
 2. Invoke it directly, in the mode this spawn uses, feeding a synthetic `PreToolUse` payload on
-   stdin: for `deny-match`, a path matching a real entry in `test_globs`; for `deny-unmatch`, a
-   path matching none of them, with a write tool name.
+   stdin. **The probe path is a real spec file that exists in the worktree** — take the first
+   path `git -C "<WT>" ls-files -- <commands.test_globs>` returns, never the glob string itself
+   and never a path invented to look like one. A probe built from the glob's own text can match
+   it trivially while no real file does, which is the one outcome this self-test exists to rule
+   out. For `deny-match` that real path is the payload; for `deny-unmatch` the payload is a
+   source file that matches none of the globs, with a write tool name.
 3. Assert `permissionDecision: "deny"` on stdout. **Anything else aborts before the spawn.**
+
+`ls-files` returning **nothing** for `commands.test_globs` aborts here too, and is the loud
+failure that a brace or extglob spelling the matcher cannot handle would otherwise hide: a glob
+set that selects no file in the repository cannot fence anything, whichever direction it points.
 
 A missing fence file at this point is **the skill's own bug**, not a fail-open case, and aborts.
 
@@ -663,6 +716,10 @@ hold — whether it never fired, or was routed around through a shell — and th
 both sets written to the evidence file**. This is the assertion that makes the second invariant
 checkable rather than hopeful, so it is never softened into a warning.
 
+On its own it does not cover a test file the implementer wrote through a shell and left
+unstaged — the range only sees what was committed. §7's **clean-tree assertion** covers that, and
+it runs here too, immediately after this one and before §9 is allowed to read the tree.
+
 No commit at all → abort: the run has nothing to carry forward. More than one commit → abort, for
 the revert promise.
 
@@ -697,12 +754,14 @@ Otherwise:
 1. **Self-test the fence in `deny-unmatch` mode**, exactly as §8 does in `deny-match`. The mode
    is what differs between the two bindings, so testing one does not test the other.
 2. **Spawn one `tidy-spec-mover`**, one fresh instance. Its brief inlines the worktree path, the
-   agreed rename map, the moved or renamed modules, `commands.test_globs`, and the test command
+   declared rename map, the moved or renamed modules, `commands.test_globs`, and the test command
    with prelude, plus the rule that it applies the map and never amends it.
 3. **Assert the commit**: every path in it must be **inside** `commands.test_globs`. A source
    file aborts the run with the offending paths in the evidence file, on the same reasoning as
    §8 — a source edit arriving inside the test-side follow-up is a change nobody selected, in the
-   commit least likely to be read.
+   commit least likely to be read. Then **assert the worktree is clean** (§7), as after every
+   other agent commit; this is the last spawn, so an unstaged edit surviving here would reach
+   §10's derivation, and the gates that follow this skill, as ambient state nothing has read.
 
 No commit is a valid outcome and is reported as such. More than one commit aborts.
 
@@ -714,12 +773,17 @@ The declared map is an agent's claim about its own diff. This section checks it 
 
 ### Derive — over the implementer's commit, and nothing after it
 
-The range is `<BASE_SHA>..<IMPL_SHA>` (§8), **not** `..HEAD`. The declared map is the
-implementer's claim about the implementer's own commit, so that is the only range it can honestly
-be checked against. Including the spec-mover's commit would compare the claim against work the
-implementer never did and never saw: a spec split is explicitly permitted (§9), and a split moves
-exports between spec files, which the derivation below reads as an undeclared move — aborting the
-run for doing exactly what it was allowed to do.
+The range is `<BASE_SHA>..<IMPL_SHA>` (§8), **not** `..HEAD`. What is excluded is everything
+*after* the implementer's commit. Including the spec-mover's commit would compare the claim
+against work the implementer never did and never saw: a spec split is explicitly permitted (§9),
+and a split moves exports between spec files, which the derivation below reads as an undeclared
+move — aborting the run for doing exactly what it was allowed to do.
+
+The range does still span the **characterization commit**, which the implementer equally never
+made. That is deliberate and it is safe: §7 asserts that commit contains only test files, and its
+tests are added rather than moved, so it contributes no export removal — nothing the derivation
+can read as a move. Starting at `<CHAR_SHA>` instead would also have to handle the run where the
+characterizer was skipped or its commit dropped (§7), for no gain.
 
 Within that range, a **move** is an export removed from one file and added under the same name to
 another. Module moves come from git's own rename detection:
@@ -771,8 +835,10 @@ assertion, a disagreeing map, the turn ceiling — it:
    failed and the two sets or two maps it compared, so a human can read what happened without
    re-running anything.
 3. **Removes the worktree.**
-4. **Clears `$HOME/.tidy-loop/fence.json`.** It is a live control; leaving it behind points a
-   future fence at a root that no longer exists.
+4. **Clears `$HOME/.tidy-loop/fence.json`, but only when its `run_id` is this run's.** It is a
+   live control; leaving this run's behind points a future fence at a root that no longer exists,
+   and removing another run's un-fences an agent that is working right now (§8). A fence file
+   naming a different run is left exactly as found, and the report says so.
 5. **Leaves the queue line untouched** — with the single exception of the `stale` case in §4,
    which is the one status this skill writes.
 

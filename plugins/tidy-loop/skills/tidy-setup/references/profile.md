@@ -151,6 +151,19 @@ from ([`queue.md`](queue.md) §1).
 The `blocked/` pair is the target a `blocked` queue note points at
 ([`queue.md`](queue.md) §4), so the human can read what failed without re-running anything.
 
+One piece of loop state deliberately sits **outside `state_dir`**, one level above it:
+
+```
+$HOME/.tidy-loop/fence.json            # transient — the live write fence for one execution run
+```
+
+It is not under `state_dir` because a hook reads it, and a hook's command string is static: it
+cannot resolve `state_dir`, which is per-repo configuration. The path therefore has to be fixed,
+and a fixed path is global — every repository on the machine shares this one file. What keeps
+that safe lives inside the file rather than in its path: `repo_root` scopes the decisions the
+fence makes, and `run_id` identifies whose control it is, so one execution run will not overwrite,
+sweep, or clear a fence file belonging to another.
+
 ### `checks`
 
 The loop's mechanical checks are commands the plugin ships, invoked by name as
