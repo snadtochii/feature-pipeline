@@ -415,10 +415,15 @@ some flags, and answers one question about it.
 
 ### Coverage of this contract by fixtures
 
-The shipped fixtures exercise the common path of every implemented command against two
-trees. They do **not** exercise: a solution-style root configuration that builds through
-project references (§6), the fallback from static to runtime test collection (§5), a
-`--prelude` beyond a trivial no-op line (§4), a repository whose test files live in nested
-workspace packages (§8 bridges one `node_modules` into the base tree, not a package tree),
-or `paths` aliases beyond the relative imports the fixtures use (§8). Those paths are
-verified against a real repository when they change.
+The shipped fixtures exercise the common path of every implemented command: §5, §6, and
+§7 against the two trees of `partial-extraction`, §5 additionally against the base and
+honest candidate of `spec-split`, and §8 against `spec-split`'s base paired with each of
+its three candidates — one per answer branch. They do **not** exercise: a solution-style
+root configuration that builds through project references (§6), the fallback from static
+to runtime test collection (§5), a `--prelude` beyond a trivial no-op line (§4), a
+repository whose test files live in nested workspace packages (§8 bridges one
+`node_modules` into the base tree, not a package tree), `paths` aliases beyond the
+relative imports the fixtures use (§8), §8's exit-1 paths — an untracked test file, a
+dirty temporary worktree, a spec patch that does not apply, a run that produced no
+report — or its signal path (§4). Those paths are verified against a real repository
+when they change.
