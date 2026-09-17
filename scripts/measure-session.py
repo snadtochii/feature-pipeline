@@ -147,6 +147,16 @@ construction and unproven by measurement:
     the post-gate phase of its parent build; any spawn that means to be
     recognised as one must emit exactly that description.
 
+    This clause reaches the phase table through the `self+children` column:
+    the child's re-read sum is attributed to the phase holding its spawn
+    turn. The phase boundaries themselves, and the parity fields, are read
+    from the *build's own* tool calls, so the build must keep authoring its
+    own `06-summary.md` write. Were that write to move into the finalizer,
+    the post-gate boundary would read as missing and `verdict`, `findings`,
+    `commit` and `pr` would all degrade to `unknown` - correctly, but the
+    measurement would stop answering AC 4. A change to who writes the
+    summary is therefore a change to this script.
+
 Codex transcripts are out of scope and take the loud-failure path.
 """
 
@@ -201,7 +211,35 @@ READ_ONLY_COMMANDS = frozenset(
 )
 
 ARTIFACT_NAME_RE = re.compile(r"^0[3-6]-[a-z-]+\.md$")
+QUOTED_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
 TICKET_RE = re.compile(r"\b[A-Z][A-Z0-9]*-\d+\b")
+# `<LETTERS>-<digits>` is also the shape of a standard's name, and those appear
+# in agent descriptions ("normalise to UTF-8"). They are indistinguishable from
+# a ticket id by pattern alone - `UTF`/`SHA`/`RFC` are three letters and
+# `8`/`256`/`7231` are one to four digits - so the separation is by name. A
+# project whose real prefix collides pins it with `--ticket-prefix`.
+NON_TICKET_PREFIXES = frozenset(
+    """UTF SHA RFC ISO CVE CWE MD AES RSA HMAC CRC BASE ASCII PEP ECMA IEEE ANSI
+    HTTP HTTPS TLS SSL IPV EC CJK GB BIG WIN CP KOI""".split()
+)
+
+
+def find_ticket(text: str, allowed_prefixes=None):
+    """First ticket id in `text`, or None.
+
+    `allowed_prefixes` (from `--ticket-prefix`) makes the match exact; without
+    it every `<LETTERS>-<digits>` token is a ticket except the standards names
+    in `NON_TICKET_PREFIXES`.
+    """
+    for match in TICKET_RE.finditer(text or ""):
+        prefix = match.group(0).split("-", 1)[0]
+        if allowed_prefixes is not None:
+            if prefix in allowed_prefixes:
+                return match.group(0)
+            continue
+        if prefix not in NON_TICKET_PREFIXES:
+            return match.group(0)
+    return None
 VERDICT_RE = re.compile(r"^verdict:\s*[*_`]*\s*(pass|partial|stuck)\b", re.MULTILINE | re.IGNORECASE)
 SEVERITIES = ("CRITICAL", "IMPORTANT", "SUGGESTION")
 # The build verdict set, plus the artifact-store vocabulary that a server-side
@@ -519,8 +557,8 @@ def _merge_usage(raw: RawAgent):
             content = message.get("content")
             if isinstance(content, str) and SLASH_BUILD_RE.search(content):
                 args = COMMAND_ARGS_RE.search(content)
-                found = TICKET_RE.search(args.group(1)) if args else None
-                slash_ticket = found.group(0) if found else UNATTRIBUTED
+                found = find_ticket(args.group(1)) if args else None
+                slash_ticket = found or UNATTRIBUTED
 
         if rtype != "assistant":
             continue
@@ -655,13 +693,13 @@ def parse_agents(raws, role_map) -> list:
     return agents
 
 
-def attribute_tickets(agents) -> None:
+def attribute_tickets(agents, ticket_prefixes=None) -> None:
     by_id = {a.agent_id: a for a in agents}
     own = {}
     for agent in agents:
-        found = TICKET_RE.search(agent.description or "")
+        found = find_ticket(agent.description or "", ticket_prefixes)
         if found:
-            own[agent.agent_id] = found.group(0)
+            own[agent.agent_id] = found
         elif agent.slash_build_ticket and agent.slash_build_ticket != UNATTRIBUTED:
             own[agent.agent_id] = agent.slash_build_ticket
 
@@ -750,11 +788,21 @@ def counts_as_run(command: str, check_re) -> bool:
     return False
 
 
+def _strip_quoted(text: str) -> str:
+    """Blank out single- and double-quoted runs, keeping the string's length.
+
+    A git verb is always a bare word, never inside a quoted argument, so the
+    quoted text is noise for verb detection: without this
+    `git commit -m "fix push bug"` reports a push that never happened.
+    """
+    return QUOTED_RE.sub(lambda match: " " * len(match.group(0)), text)
+
+
 def _git_segment(command: str, verb: str) -> bool:
     for segment, first_word in _command_segments(command):
         if first_word != "git":
             continue
-        words = segment.split()
+        words = _strip_quoted(segment).split()
         # `git -C <dir> commit ...` keeps the verb after the option block.
         if verb in words[1:]:
             return True
@@ -870,6 +918,17 @@ def split_phases(agent: Agent, spawn_turn_of_child, children_by_parent, by_id) -
             summary_write = call.turn
     if review_write is not None and summary_write is not None and summary_write <= review_write:
         summary_write = None
+    # The same normalisation for the other ordering: a 04-review.md write that
+    # precedes the first reviewer spawn is not this review's output, so the
+    # review boundary is unknown. Without this the phases overlap -
+    # `implement` runs to first_reviewer-1 while `post-review` starts at
+    # review_write+1, which is earlier - and the shares sum past 100%.
+    review_before_spawn = (
+        review_write is not None and first_reviewer is not None and review_write < first_reviewer
+    )
+    if review_before_spawn:
+        review_write = None
+        summary_write = None
 
     total_turns = len(agent.turns)
     windows = [t.window for t in agent.turns]
@@ -900,10 +959,13 @@ def split_phases(agent: Agent, spawn_turn_of_child, children_by_parent, by_id) -
     else:
         bounds.append(("implement", 1, first_reviewer - 1, "ok", ""))
         if review_write is None:
-            bounds.append(
-                ("review", first_reviewer, total_turns, "ok", "no 04-review.md write; review runs to the end")
-            )
-            missing = "no 04-review.md write, so the review boundary is unknown"
+            if review_before_spawn:
+                tail = "the only 04-review.md write precedes the first reviewer spawn"
+                missing = f"{tail}, so the review boundary is unknown"
+            else:
+                tail = "no 04-review.md write"
+                missing = f"{tail}, so the review boundary is unknown"
+            bounds.append(("review", first_reviewer, total_turns, "ok", f"{tail}; review runs to the end"))
             for name in PHASE_NAMES[2:]:
                 bounds.append((name, None, None, "n/a", missing))
         else:
@@ -1151,12 +1213,12 @@ class Report:
         return sum(a.weighted_units(self.weights) for a in self.agents)
 
 
-def build_report(session_id, raws, weights, role_map_source, check_pattern) -> Report:
+def build_report(session_id, raws, weights, role_map_source, check_pattern, ticket_prefixes=None) -> Report:
     role_map = compile_role_map(role_map_source)
     check_re = compile_check_pattern(check_pattern)
 
     agents = parse_agents(raws, role_map)
-    attribute_tickets(agents)
+    attribute_tickets(agents, ticket_prefixes)
 
     by_id = {a.agent_id: a for a in agents}
     children_by_parent = {}
@@ -1185,6 +1247,23 @@ def build_report(session_id, raws, weights, role_map_source, check_pattern) -> R
         notes.append(
             f"{len(orphans)} agent(s) name a parent that is not in this session: "
             + ", ".join(sorted(orphans))
+        )
+
+    # Degradations belong on the report, not in one renderer: a `--json`
+    # consumer - `compare --assert` included - must see the same undercount
+    # warning a reader of the text report sees.
+    no_usage = sum(a.turns_without_usage for a in agents)
+    if no_usage:
+        notes.append(
+            f"{no_usage} turn(s) carry no usage and are counted as zero tokens; "
+            "every sum and share below them is an undercount, and an agent whose "
+            "first turn is one reports its floor as '-'"
+        )
+    unknown_types = sorted({t for a in agents for t in a.unknown_record_types})
+    if unknown_types:
+        notes.append(
+            "record type(s) this script does not classify were ignored: "
+            + ", ".join(unknown_types)
         )
 
     builds = []
@@ -1684,22 +1763,11 @@ def render_text(report: Report, session_path=None) -> str:
                 out.append(f"  note: {note}")
             out.append("")
 
-    no_usage = sum(a.turns_without_usage for a in report.agents)
-    if no_usage:
-        out.append(
-            f"note: {no_usage} turn(s) carry no usage and are counted as zero tokens; "
-            "every sum and share below them is an undercount, and an agent whose "
-            "first turn is one reports its floor as '-'"
-        )
-    unknown_types = sorted({t for a in report.agents for t in a.unknown_record_types})
-    if unknown_types:
-        out.append(
-            "note: record type(s) this script does not classify were ignored: "
-            + ", ".join(unknown_types)
-        )
+    # Every note lives on `report.notes`, so the text report and the JSON
+    # document a `compare --assert` reads carry the same degradations.
     for note in report.notes:
         out.append(f"note: {note}")
-    if report.notes or no_usage or unknown_types:
+    if report.notes:
         out.append("")
 
     out.append(f"OK: measured {len(report.agents)} agent(s) in session {report.session_id}.")
@@ -2395,6 +2463,183 @@ def run_self_test() -> int:
         "phases: a post-gate rewrite of 06-summary.md stays in post-gate",
         ranges["post-gate"] == (7, 8),
     )
+
+    # The mirror of the FIRST-write rule: a 04-review.md write that PRECEDES
+    # the first reviewer spawn is not this review's output. Without the guard
+    # `implement` and `post-review` overlap and the shares sum past 100%.
+    early_records = []
+    for index in range(1, 9):
+        content = None
+        if index == 2:
+            content = [
+                {
+                    "type": "tool_use",
+                    "id": "e1",
+                    "name": "Write",
+                    "input": {"file_path": "/t/04-review.md", "content": "stale"},
+                }
+            ]
+        elif index == 4:
+            content = [
+                {
+                    "type": "tool_use",
+                    "id": "e2",
+                    "name": "Task",
+                    "input": {"subagent_type": REVIEWER_SUBAGENT, "description": "Correctness review T"},
+                }
+            ]
+        elif index == 6:
+            content = [
+                {
+                    "type": "tool_use",
+                    "id": "e3",
+                    "name": "Write",
+                    "input": {"file_path": "/t/06-summary.md", "content": "verdict: pass"},
+                }
+            ]
+        early_records.append(_assistant(f"e{index}", content=content))
+    early_agents = parse_agents([_synthetic_agent("early", early_records)], role_map)
+    early_phases = split_phases(early_agents[0], {}, {}, {a.agent_id: a for a in early_agents})
+    early_by_name = {p.name: p for p in early_phases}
+    early_share = sum(p.share_self or 0.0 for p in early_phases)
+    probe(
+        "phases: a 04-review.md write BEFORE the first reviewer spawn does not overlap",
+        early_share <= 100.0001,
+        f"shares sum to {early_share:.1f}%",
+    )
+    probe(
+        "phases: that ordering renders the downstream phases n/a with a reason",
+        early_by_name["post-review"].status == "n/a"
+        and early_by_name["post-gate"].status == "n/a"
+        and "precedes the first reviewer spawn" in early_by_name["post-review"].reason,
+        f"got {[(p.name, p.status) for p in early_phases]}",
+    )
+
+    # AC 3's second recognition site: a standalone `/feature:build` root
+    # session, recognised through the <command-name> record rather than a
+    # `Build stage for ...` description.
+    slash_records = [
+        {
+            "type": "user",
+            "message": {
+                "content": "<command-name>/feature:build</command-name>"
+                "<command-args>FP-42</command-args>"
+            },
+        }
+    ]
+    for index in range(1, 5):
+        content = None
+        if index == 2:
+            content = [
+                {
+                    "type": "tool_use",
+                    "id": "r1",
+                    "name": "Task",
+                    "input": {"subagent_type": REVIEWER_SUBAGENT, "description": "Correctness review FP-42"},
+                }
+            ]
+        elif index == 3:
+            content = [
+                {
+                    "type": "tool_use",
+                    "id": "r2",
+                    "name": "Write",
+                    "input": {"file_path": "/t/04-review.md", "content": "| CRITICAL | 0 |"},
+                }
+            ]
+        slash_records.append(_assistant(f"r{index}", content=content))
+    slash_agents = parse_agents(
+        [_synthetic_agent(ROOT_AGENT_ID, slash_records, label="<synthetic>/root.jsonl")], role_map
+    )
+    attribute_tickets(slash_agents)
+    probe(
+        "build site: a standalone /feature:build root session is recognised as a build",
+        is_build_agent(slash_agents[0]) and slash_agents[0].agent_id == ROOT_AGENT_ID,
+    )
+    probe(
+        "build site: that root session reports the standalone site and its ticket",
+        build_site(slash_agents[0]).startswith("root session")
+        and slash_agents[0].ticket == "FP-42",
+        f"site={build_site(slash_agents[0])} ticket={slash_agents[0].ticket}",
+    )
+
+    # AC 3's finalizer clause, as behaviour rather than as a role-map string:
+    # a `Finalize <TICKET>` child spawned after the 06-summary.md write is
+    # attributed to its parent build's post-gate phase.
+    fin_parent_records = []
+    for index in range(1, 7):
+        content = None
+        if index == 2:
+            content = [
+                {
+                    "type": "tool_use",
+                    "id": "f1",
+                    "name": "Task",
+                    "input": {"subagent_type": REVIEWER_SUBAGENT, "description": "Correctness review FP-42"},
+                }
+            ]
+        elif index == 3:
+            content = [
+                {
+                    "type": "tool_use",
+                    "id": "f2",
+                    "name": "Write",
+                    "input": {"file_path": "/t/04-review.md", "content": "| CRITICAL | 0 |"},
+                }
+            ]
+        elif index == 4:
+            content = [
+                {
+                    "type": "tool_use",
+                    "id": "f3",
+                    "name": "Write",
+                    "input": {"file_path": "/t/06-summary.md", "content": "verdict: pass"},
+                }
+            ]
+        elif index == 5:
+            content = [
+                {
+                    "type": "tool_use",
+                    "id": "f4",
+                    "name": "Task",
+                    "input": {"subagent_type": "general-purpose", "description": "Finalize FP-42"},
+                }
+            ]
+        fin_parent_records.append(_assistant(f"f{index}", content=content))
+    fin_child_records = [_assistant(f"fc{i}") for i in range(1, 4)]
+    fin_agents = parse_agents(
+        [
+            _synthetic_agent("pbuild", fin_parent_records),
+            _synthetic_agent(
+                "fchild",
+                fin_child_records,
+                meta={
+                    "agentType": "general-purpose",
+                    "description": "Finalize FP-42",
+                    "parentAgentId": "pbuild",
+                    "spawnDepth": 3,
+                    "toolUseId": "f4",
+                },
+            ),
+        ],
+        role_map,
+    )
+    attribute_tickets(fin_agents)
+    fin_by_id = {a.agent_id: a for a in fin_agents}
+    fin_parent = fin_by_id["pbuild"]
+    fin_phases = split_phases(
+        fin_parent, {"fchild": 5}, {"pbuild": ["fchild"]}, fin_by_id
+    )
+    fin_post_gate = next(p for p in fin_phases if p.name == "post-gate")
+    fin_child_reread = fin_by_id["fchild"].reread_sum
+    probe(
+        "finalizer: a Finalize <TICKET> child lands in its parent build's post-gate",
+        fin_post_gate.status == "ok"
+        and fin_post_gate.reread_self_children - fin_post_gate.reread_self == fin_child_reread
+        and fin_child_reread > 0,
+        f"post-gate self={fin_post_gate.reread_self} "
+        f"self+children={fin_post_gate.reread_self_children} child={fin_child_reread}",
+    )
     stuck_records = [_assistant(f"s{i}") for i in range(1, 4)]
     stuck_agents = parse_agents([_synthetic_agent("stuck", stuck_records)], role_map)
     stuck_phases = split_phases(stuck_agents[0], {}, {}, {a.agent_id: a for a in stuck_agents})
@@ -2593,10 +2838,13 @@ def parse_role_map(text: str) -> dict:
     return parsed
 
 
-def _emit(text: str, out_path: str | None) -> None:
-    if out_path is None:
-        print(text)
-        return
+def _write_out(text: str, out_path) -> Path:
+    """Write `text` to `out_path`, guarded. The only write this script performs.
+
+    Both the success and the failure path go through here, so an unwritable
+    `--out` fails the same way either way - the docstring's "Exit: 1 on an
+    unwritable `--out` path" holds regardless of what is being written.
+    """
     path = Path(out_path).expanduser()
     # No directory is created: the only write this script performs is the file
     # it was explicitly given.
@@ -2606,7 +2854,14 @@ def _emit(text: str, out_path: str | None) -> None:
         path.write_text(text + "\n", encoding="utf-8")
     except OSError as exc:
         raise MeasureError(path, f"cannot write the output ({exc.strerror})") from exc
-    print(f"OK: wrote {path}")
+    return path
+
+
+def _emit(text: str, out_path: str | None) -> None:
+    if out_path is None:
+        print(text)
+        return
+    print(f"OK: wrote {_write_out(text, out_path)}")
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -2624,6 +2879,13 @@ def make_parser() -> argparse.ArgumentParser:
     report.add_argument("--weights", help="i=1,cw=1.25,cr=0.1,o=5")
     report.add_argument("--role-map", dest="role_map", help="JSON object, or a path to one")
     report.add_argument("--check-pattern", dest="check_pattern", help="check/test-run regex")
+    report.add_argument(
+        "--ticket-prefix",
+        dest="ticket_prefix",
+        action="append",
+        default=[],
+        help="repeatable; only these prefixes are ticket ids (e.g. --ticket-prefix FP)",
+    )
 
     compare = subparsers.add_parser("compare", help="compare two or more reports")
     compare.add_argument("positional", nargs="*", help="baseline.json candidate.json")
@@ -2669,7 +2931,8 @@ def run_report(args) -> int:
     assert_pattern_probes(compile_role_map(DEFAULT_ROLE_MAP))
 
     session_id, session_path, raws = read_session(args.session, args.project)
-    report = build_report(session_id, raws, weights, role_map, check_pattern)
+    ticket_prefixes = {p.strip().upper() for p in args.ticket_prefix if p.strip()} or None
+    report = build_report(session_id, raws, weights, role_map, check_pattern, ticket_prefixes)
 
     if args.as_json:
         text = json.dumps(report_to_dict(report), indent=2, sort_keys=False)
@@ -2710,8 +2973,8 @@ def run_compare(args) -> int:
         for failure in failures:
             print(f"  - {failure}", file=sys.stderr)
         if args.out:
-            Path(args.out).expanduser().write_text("\n".join(lines) + "\n", encoding="utf-8")
-            print(f"delta table written to {args.out}", file=sys.stderr)
+            written = _write_out("\n".join(lines), args.out)
+            print(f"delta table written to {written}", file=sys.stderr)
         else:
             print("\n".join(lines))
         return 1
