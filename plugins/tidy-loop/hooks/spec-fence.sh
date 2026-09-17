@@ -35,12 +35,37 @@
 # Glob matching: bash 3.2 has no globstar, so each glob is tried as a `case`
 # pattern in three forms — literally, with `/**/` collapsed to `/`, and with a
 # leading `**/` stripped — so `src/**/*.spec.ts` also matches `src/x.spec.ts`.
-# `*` spans `/` inside a case pattern, which makes this slightly over-permissive
-# for exotic globs; the skill's commit assertion is the backstop.
+# A leading `./` is stripped first, because a runner's config often spells its
+# include patterns that way and the subject path never does.
+#
+# Brace alternations are expanded before matching, and extglob is enabled, since
+# `case` does neither on its own. A runner's own include pattern is routinely
+# spelled with both — vitest's default is `**/*.{test,spec}.?(c|m)[jt]s?(x)` — and
+# that is the spelling tidy-setup is told to derive `test_globs` from. UNDER-
+# matching is the dangerous direction, and it is silent in one mode and loud in
+# the other: a glob that matches nothing leaves `deny-match` allowing every spec
+# edit, which unfences the implementer — the one invariant this file exists to
+# enforce — and leaves `deny-unmatch` denying every spec write, which fences the
+# spec-mover out of its own job. Over-matching is the tolerable direction: `*`
+# spans `/` inside a case pattern, which makes this slightly over-permissive for
+# exotic globs, and the skill's commit assertion is the backstop.
+#
+# Path containment is textual. `normalize_path` collapses `.` and `..` lexically
+# and the containment test is a string prefix; neither side is resolved through
+# symlinks. Where `repo_root` and the agent's `file_path` spell the same directory
+# differently — one side through a symlink (`/var` vs `/private/var` on macOS, a
+# symlinked projects root) — the path reads as outside the root, which denies a
+# write loudly and allows a read under `deny-match` silently. Both sides are
+# expected to arrive in one spelling: the skill records `repo_root` as the same
+# worktree path it gives the agent to work in.
 #
 # Bash version: targets bash 3.2 (macOS default) — no associative arrays, no mapfile.
 
 set -euo pipefail
+
+# Half of what a runner's include pattern is spelled with is an extended glob
+# (`?(c|m)[jt]s?(x)`). With extglob off, such a pattern matches nothing at all.
+shopt -s extglob
 
 FENCE_FILE="${HOME}/.tidy-loop/fence.json"
 
@@ -158,20 +183,106 @@ case "$abs" in
         ;;
 esac
 
+# Expand `{a,b}` alternations into one pattern per branch. `case` performs no
+# brace expansion, so an unexpanded `{test,spec}` is matched as those literal
+# characters and the glob matches no file at all. Nesting is tracked for `{}` and
+# for extglob `()` so a comma inside either stays inside its group. Never `eval` —
+# the glob is data from the fence file and is matched, never executed.
+expand_braces() {
+    local pat="$1"
+    local i ch open close depth bdepth pdepth body prefix suffix seg alt
+    local -a alts
+
+    open=-1
+    for (( i=0; i<${#pat}; i++ )); do
+        if [ "${pat:i:1}" = '{' ]; then
+            open=$i
+            break
+        fi
+    done
+    if [ "$open" -lt 0 ]; then
+        printf '%s\n' "$pat"
+        return
+    fi
+
+    depth=0
+    close=-1
+    for (( i=open; i<${#pat}; i++ )); do
+        ch="${pat:i:1}"
+        if [ "$ch" = '{' ]; then
+            depth=$(( depth + 1 ))
+        elif [ "$ch" = '}' ]; then
+            depth=$(( depth - 1 ))
+            if [ "$depth" -eq 0 ]; then
+                close=$i
+                break
+            fi
+        fi
+    done
+    # Unbalanced braces: match the pattern as written rather than guessing.
+    if [ "$close" -lt 0 ]; then
+        printf '%s\n' "$pat"
+        return
+    fi
+
+    prefix="${pat:0:open}"
+    body="${pat:open+1:close-open-1}"
+    suffix="${pat:close+1}"
+
+    alts=()
+    seg=""
+    bdepth=0
+    pdepth=0
+    for (( i=0; i<${#body}; i++ )); do
+        ch="${body:i:1}"
+        case "$ch" in
+            '{') bdepth=$(( bdepth + 1 )); seg="$seg$ch" ;;
+            '}') bdepth=$(( bdepth - 1 )); seg="$seg$ch" ;;
+            '(') pdepth=$(( pdepth + 1 )); seg="$seg$ch" ;;
+            ')') pdepth=$(( pdepth - 1 )); seg="$seg$ch" ;;
+            ',')
+                if [ "$bdepth" -eq 0 ] && [ "$pdepth" -eq 0 ]; then
+                    alts=( "${alts[@]+"${alts[@]}"}" "$seg" )
+                    seg=""
+                else
+                    seg="$seg$ch"
+                fi
+                ;;
+            *) seg="$seg$ch" ;;
+        esac
+    done
+    alts=( "${alts[@]+"${alts[@]}"}" "$seg" )
+
+    for alt in "${alts[@]+"${alts[@]}"}"; do
+        expand_braces "$prefix$alt$suffix"
+    done
+}
+
 matched=0
 while IFS= read -r glob; do
     [ -z "$glob" ] && continue
-    collapsed="${glob//\/\*\*\//\/}"
-    stripped="$glob"
-    case "$stripped" in
-        '**/'*) stripped="${stripped#\*\*/}" ;;
-    esac
-    # Unquoted on purpose: the glob is the pattern, the path is the subject.
-    case "$rel" in
-        $glob) matched=1 ;;
-        $collapsed) matched=1 ;;
-        $stripped) matched=1 ;;
-    esac
+    while IFS= read -r pattern; do
+        [ -z "$pattern" ] && continue
+        # A runner spells its include patterns relative to the repo root and often
+        # writes that leading `./`; `rel` never carries one.
+        case "$pattern" in
+            './'*) pattern="${pattern#./}" ;;
+        esac
+        collapsed="${pattern//\/\*\*\//\/}"
+        stripped="$pattern"
+        case "$stripped" in
+            '**/'*) stripped="${stripped#\*\*/}" ;;
+        esac
+        # Unquoted on purpose: the glob is the pattern, the path is the subject.
+        case "$rel" in
+            $pattern) matched=1 ;;
+            $collapsed) matched=1 ;;
+            $stripped) matched=1 ;;
+        esac
+        [ "$matched" -eq 1 ] && break
+    done <<INNER_EOF
+$(expand_braces "$glob")
+INNER_EOF
     [ "$matched" -eq 1 ] && break
 done <<EOF
 $globs
