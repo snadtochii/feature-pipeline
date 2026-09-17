@@ -1,0 +1,11 @@
+# Paired-run benchmark evidence
+
+Captured on 2026-09-17 for the [paired-run benchmark protocol](../2026-09-17-paired-run-benchmark-protocol.md).
+
+- `before-feature-3.6.1-opus-5.json`: the `--json` report of the paired run's **"before" arm** — one standalone `/feature:build PS-153 --pr --no-ui-testing` session, plugin `feature` 3.6.1, model `claude-opus-5`. Plugin version and model live in the file name because the report format carries neither: `generator` names the script and `schema_version` the format, and the model appears only as a runtime model ID inside `models[]`.
+
+Produced by `scripts/measure-session.py` from the session transcript preserved outside this repository, invoked through the absolute `/usr/bin/python3` (3.9.6). The regenerated file is byte-identical to the copy held beside that transcript, and it is the regenerated file that is committed here.
+
+No credentials are included, and no absolute path, home directory, username, message text or URL appears in it. Its only free-text strings are four `<Role> review PS-153` agent descriptions, the root session's empty description, the ticket ID `PS-153`, and one `notes` entry recording a transcript record type the script does not classify. The transcript itself is private and is not committed — see the protocol's §2.4.
+
+The three FP-84 builds that this arm is compared against are **not** in this directory. They are `builds[0..2]` of `scripts/measure-session.expected.json`, the script's committed regression anchor, referenced in place rather than duplicated so the anchor stays single-valued; the protocol's §4.1 records the `compare … --assert` run that re-verified it on the same date.
