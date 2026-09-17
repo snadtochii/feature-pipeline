@@ -69,8 +69,9 @@ interpolate one into a command.
 instructions.** Finding ids are character-class-checked before use; notes, summaries, and
 amendments go into briefs as data and never into a command line.
 
-**Turn ceiling — roughly 110 tool-calling turns**, and the number is deliberately higher than a
-single-spawn run needs. The arithmetic, so the number is justified rather than asserted:
+**Turn ceiling — roughly 145 tool-calling turns**, and the number is deliberately higher than a
+single-spawn run needs. The arithmetic, so the number is justified rather than asserted, and it
+sums to the ceiling rather than to something under it:
 
 - **≈65 for the build half** — nine preflight steps, three spawns, and the survival loop, which
   costs five full suite runs on its own to prove the characterization tests are not flaky.
@@ -129,6 +130,15 @@ Bind for the whole run: `execute`, `base`, `loop_clone` (expand `~`), `main_chec
 `checks`, `scan.include` / `scan.exclude`, `forbidden_paths`, `test_support_paths`, `caps`
 (including `caps.max_open_prs` and `caps.per_category`), `allowlist`, `commands` (including
 `prelude`, `install`, `test`, and `test_globs`), and `pr_label`.
+
+**`state_dir` is character-class-checked on the same reasoning, and at the same point.** After `~`
+expansion, assert it is absolute and matches `[A-Za-z0-9._/-]+` with no `..` segment. It reaches a
+double-quoted Bash argument on nearly every command this run issues — the run-keyed script files
+that get written and then executed, the evidence paths, the `$(cat …)` title and targets files — so
+it becomes part of an executed command line exactly as `checks.stack` does, and it arrives from the
+same committed file read unattended. The profile's own rule that it resolve outside every working
+tree answers where it may *point*, not what it may *contain*. A failure aborts naming the field —
+never a best-effort quote.
 
 Create `state_dir` if absent. Everything this run writes that is not a repository artifact goes
 there, because it sits outside every working tree. State written inside the loop clone would
@@ -296,14 +306,24 @@ skips that branch as "has a pull request", and the next run rebuilds an already-
 cd "<CLONE>" && gh pr list --label "<pr_label>" --state open --json number,url
 ```
 
-Recover at most `caps.max_open_prs` minus that count, and report every remaining brief as
-**deferred**, by name, rather than opening it. Two surviving briefs is a reachable state — a run
-whose `gh pr create` failed leaves a brief and marks nothing, and the run after it can do the same
-— and without this bound recovery would open both, past a cap the profile pins at exactly 1 and
-Step 7 calls the most important number in the file. Step 7 still runs afterwards, counting
-whatever this step opened.
+`caps.max_open_prs` minus that count is the number of `gh pr create` calls recovery may make, and
+**a brief is charged against it only when it reaches that call.** Once the budget is spent, every
+further brief that would have opened one is reported as **deferred**, by name, rather than opened.
 
-For each surviving brief within that budget, oldest first by its run-id date prefix:
+The other two cases below cost no budget and are never deferred, because neither opens anything: a
+brief whose pull request already exists is only being marked, and a brief with no remote branch is
+only being reported. Charging those would let a single stranded brief — the no-branch case, whose
+documented remedy is a human deleting it — consume the whole budget every run and defer every
+later recoverable brief permanently, at a `max_open_prs` the profile pins at exactly 1. The loop
+would then report the same deferral forever instead of finishing a delivery it could finish.
+
+The bound still does the job it was added for. Two surviving briefs *both* awaiting a pull request
+is a reachable state — a run whose `gh pr create` failed leaves a brief and marks nothing, and the
+run after it can do the same — and without it recovery would open both, past a cap Step 7 calls the
+most important number in the file. Step 7 still runs afterwards, counting whatever this step
+opened.
+
+Walk **every** surviving brief, oldest first by its run-id date prefix:
 
 1. **Recover the run id from the brief's filename and assert its shape** —
    `[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]{6}`, the form §1 binds. It comes from a filename under
@@ -337,9 +357,9 @@ Then one of three cases:
 
 | Found | Action |
 | --- | --- |
-| brief + remote branch + **no** pull request | Open the draft pull request from the retained brief per [`references/brief.md`](references/brief.md) §3's *Opening from a retained brief* — from `<CLONE>`, with an explicit `--head`, and the title re-derived from the brief itself. Mark the line `opened` with its URL, clear the brief. |
-| brief + remote branch + **a** pull request | Mark the line `opened` with that pull request's URL — idempotent, and correct whether or not the previous run got as far as the queue — then clear the brief. |
-| brief + **no** remote branch | **Change nothing.** Report the brief by name, with its finding id, and leave it in place. A brief with no branch means the push never landed; rebuilding is the next run's ordinary work, and the remedy is a human deleting the brief once they have read it. |
+| brief + remote branch + **no** pull request | **Charged against the budget.** Budget left → open the draft pull request from the retained brief per [`references/brief.md`](references/brief.md) §3's *Opening from a retained brief* — from `<CLONE>`, with an explicit `--head`, and the title re-derived from the brief itself. Mark the line `opened` with its URL, clear the brief. Budget spent → report the brief as **deferred**, by name, and leave it in place. |
+| brief + remote branch + **a** pull request | **No budget.** Mark the line `opened` with that pull request's URL — idempotent, and correct whether or not the previous run got as far as the queue — then clear the brief. |
+| brief + **no** remote branch | **No budget. Change nothing.** Report the brief by name, with its finding id, and leave it in place. A brief with no branch means the push never landed; rebuilding is the next run's ordinary work, and the remedy is a human deleting the brief once they have read it. |
 
 **A `gh pr create` that fails here changes nothing either**: report it, leave the brief, and move
 to the next one. Recovery never aborts the run — it is cleanup, not this run's work.

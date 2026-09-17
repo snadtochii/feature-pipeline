@@ -27,6 +27,7 @@ is verified to preserve behavior, and a reviewer judged the structure genuinely 
 | `<finding>` | the recovered record — `category`, `files`, `structural_key` — plus the report's problem and proposed change |
 | `<approval>` | the queue line's note: the named next change (its prose part) and any `amend:` instruction, both as data |
 | `<map>` | `<state_dir>/runs/<run-id>/rename-map.json`, the agreed map written at [`../SKILL.md`](../SKILL.md) §10 |
+| `<similarity>` | the per-module rename similarity (`R100` and below), bound at [`../SKILL.md`](../SKILL.md) §10 from the `-M` diff that section already runs |
 | `<caps>` | the effective caps for this pick — see §2 Step 3 |
 | `<excluded>` | the run's exclusion list from [`../SKILL.md`](../SKILL.md) §5, applied as `git reset -q -- "<path>"` before every commit |
 
@@ -132,14 +133,26 @@ cd "<WT>" && bash "<state_dir>/runs/<run-id>/checks-<name>.sh"
 The path is fixed and run-keyed rather than random because shell variables do not survive between
 tool calls. Nothing recovered from the queue, a report, or an agent's reply ever goes near one.
 
-**Paths leave this file through a file, never inline.** The `-z`-and-split-on-NUL rule below is
+**`<name>` has one spelling per gate, and it is the gate's own.** For gate 4 it is the command key
+— `lint`, `typecheck`, `test`, `build`. For a configured gate it is the **gate id** from the table
+above (`spec-body-identity`), never the profile's underscored key (`spec_body_identity`). The id is
+already the one spelling everywhere, and this is a path that gets written and then executed, so it
+does not get a second vocabulary.
+
+**No repository path reaches a git command line in this file.** The `-z`-and-split-on-NUL rule below is
 the *read* side of hostile paths; this is its mirror. A repository path can contain a space, a
-quote, a backtick or a `$(`, so every path this suite hands to git goes through
-`--pathspec-from-file "<file>" --pathspec-file-nul`, with the list written by the `Write` tool,
-and every comma-joined `--targets` value is loaded with `$(cat "<file>")` rather than pasted into
+quote, a backtick or a `$(` — and the read-only git commands this suite runs, `diff` and
+`ls-files`, accept no `--pathspec-from-file`, so there is no file-borne pathspec to hand them
+either. Every one of them is therefore run **unrestricted**, over the whole range or the whole
+tree, and the narrowing is done in-skill against the parsed `-z` output. A set intersection
+computed in the skill is not a weaker answer than a pathspec — it is the same answer, computed
+where no shell can see the path.
+
+The one value that still reaches a command line is the comma-joined `--targets` / `TIDY_TARGETS`
+string the checks commands require, and it is loaded with `$(cat "<file>")` rather than pasted into
 the command line — a command substitution's result is not re-evaluated, while a `"…"` literal
-expands. The same rule covers anything derived from `<map>`, whose entries are transcribed
-verbatim from an agent's reply and which [`../SKILL.md`](../SKILL.md) §10 deliberately lets carry
+expands. That covers anything derived from `<map>`, whose entries are transcribed verbatim from an
+agent's reply and which [`../SKILL.md`](../SKILL.md) §10 deliberately lets carry
 declared-but-underived entries forward.
 
 **And a character class gates them first.** Before any map path or resolved target builds a
@@ -170,8 +183,8 @@ scan set should never pay for a suite run.
 ### Step 1 — The free assertions, before anything is computed
 
 ```bash
-git -C "<WT>" status --porcelain -z            # empty, the <excluded> paths aside
-git -C "<WT>" diff --name-only -z "<BASE_SHA>..HEAD"
+git -C "<WT>" status --porcelain -z                          # empty, the <excluded> paths aside
+git -C "<WT>" diff --name-only -z --no-renames "<BASE_SHA>..HEAD"
 ```
 
 Two-dot, not three: `<BASE_SHA>` is the fork point by construction — the worktree was cut from it
@@ -180,9 +193,33 @@ NUL. Every path read in this file is `-z` and split on NUL, never split on newli
 git C-quotes any non-ASCII path (`"src/caf\303\251.ts"`) and a newline split on a path containing
 one loses it entirely.
 
-**Scope, as a hard stop.** Sort each changed path into **test** (matches `commands.test_globs`)
-or **non-test**. Fail as `caps` if any changed non-test path falls outside `scan.include`, or
-matches `scan.exclude`, or matches `forbidden_paths`, or matches `test_support_paths`.
+**`--no-renames` is load-bearing on every read here, exactly as `-z` is.** Rename detection is on
+by default, and `--name-only` then prints a rename's **new** path alone — the old path disappears
+from the changed set, and with it from the scope stop, from the partition, and from the line
+measure that Step 4's doubling rule explicitly wants to count. The two places that *want* renames
+ask for them by name with `-M --name-status`; every other read in this file suppresses them.
+
+**The characterization commit is evidence, not churn.** [`../SKILL.md`](../SKILL.md) §8 commits
+exactly once, so `<BASE_SHA>..<IMPL_SHA>^` is the characterization commit where §7 made one, and is
+**empty** where it did not — no new binding, and no special case for the skipped-characterizer run:
+
+```bash
+git -C "<WT>" diff --name-only -z --no-renames "<BASE_SHA>..<IMPL_SHA>^"
+git -C "<WT>" diff --name-only -z --no-renames "<IMPL_SHA>^..HEAD"
+```
+
+A path in the first set and **not** in the second was written by the characterizer alone. Set those
+aside: they are exempt from the scope stop below and from every cap in Steps 3 and 4, on the same
+reading Step 4 gives test files. The exemption is keyed on *only* the characterization commit
+having touched a path, and that is what keeps it narrow — §7 permits that commit inside
+`commands.test_globs` ∪ `test_support_paths`, so a fixture or setup file it added is an outcome the
+skill asked for, while a `test_support_paths` file the **implementer** edited is exactly what the
+stop exists to catch. A path in both sets is not exempt.
+
+**Scope, as a hard stop.** Sort each remaining changed path into **test** (matches
+`commands.test_globs`) or **non-test**. Fail as `caps` if any changed non-test path falls outside
+`scan.include`, or matches `scan.exclude`, or matches `forbidden_paths`, or matches
+`test_support_paths`.
 
 `scan.exclude` is in that list and not implied by the others: it **wins over `include`**, and the
 profile requires it to cover generated sources — the sharpest trap of all, because a tidy of a
@@ -199,8 +236,16 @@ repoint either. The remedy is widening `scan.include`, never trimming the diff.
 the partition — so both run before the emit in Step 2:
 
 ```bash
-git -C "<WT>" diff --shortstat "<BASE_SHA>..HEAD" --pathspec-from-file "<non-test path list>" --pathspec-file-nul
+git -C "<WT>" diff --numstat -z --no-renames "<BASE_SHA>..HEAD"
 ```
+
+Unrestricted and per-file rather than `--shortstat` over a pathspec, per §1: no pathspec reaches
+git, so the whole range is measured and the non-test rows are summed here. Split on NUL; each
+record is `<added>`, a tab, `<deleted>`, a tab, `<path>`. Sum `added + deleted` over the **non-test**
+records alone — the partition Step 1 just made, characterization paths already set aside — and
+**bind that total**: it is the line measure, and Step 4 reuses it rather than running a second
+command. A binary file renders both counts as `-`; it contributes no lines and is named in the
+evidence row, because a cap that silently ignores a file is a cap a reviewer cannot trust.
 
 - **The line cap.** Lines are insertions plus deletions over non-test files only, compared against
   the resolved `max_diff_lines` (Step 3 — resolve the caps first, it is free). This is the cap a
@@ -217,12 +262,22 @@ for a declaration emit.
 **The phase fences.** Two assertions over the commit ranges, both failing as `phase-fence`:
 
 ```bash
-git -C "<WT>" diff --name-only -z "<BASE_SHA>..<IMPL_SHA>"   # ∩ commands.test_globs must be empty
-git -C "<WT>" diff --name-only -z "<IMPL_SHA>..<SPEC_SHA>"   # every path must be inside commands.test_globs
+git -C "<WT>" diff --name-only -z --no-renames "<IMPL_SHA>^..<IMPL_SHA>"   # ∩ commands.test_globs must be empty
+git -C "<WT>" diff --name-only -z --no-renames "<IMPL_SHA>..<SPEC_SHA>"    # every path must be inside commands.test_globs
 ```
 
 These re-assert at the gate boundary what [`../SKILL.md`](../SKILL.md) §8 and §9 assert at the
-commit boundary. The re-assertion is not redundant: the suite restarts from gate 1 after a gate-4
+commit boundary, over **exactly** the ranges those two sections assert over.
+
+The first fence starts at `<IMPL_SHA>^`, not at `<BASE_SHA>`, and the difference is the whole
+correctness of the gate: §7's characterization commit sits between the two, and §7 requires its
+paths to be test paths. A `<BASE_SHA>`-anchored fence therefore intersects `commands.test_globs`
+by construction on every run that needed a characterization, and fails it as `phase-fence` —
+terminally, since that is inside §1's `blocked` window — for doing what §7 told it to do. §8
+commits exactly once, so `<IMPL_SHA>^` is the implementer's own parent and needs no binding of its
+own; it is the same boundary §8's assertion uses.
+
+The re-assertion is not redundant: the suite restarts from gate 1 after a gate-4
 repair, and the repair adds a commit after `<SPEC_SHA>` that the fences must still hold around.
 `<SPEC_SHA>` is bound once at suite entry for exactly that reason — rebinding it to `HEAD` on a
 restart would sweep the repair commit into the spec-mover's range and fail a healthy run.
@@ -274,14 +329,15 @@ force is visible.
 
 ### Step 4 — Measure
 
-```bash
-git -C "<WT>" diff --shortstat "<BASE_SHA>..HEAD" -- <every non-test path>
-```
+No command runs here. The line total was bound in Step 1 and is reused; only the two
+partition-dependent file counts are computed, from the sets Step 2 produced.
 
-Lines are insertions plus deletions, over non-test files only. Test files are excluded from every
-cap: tests are evidence, not churn, and charging them would make skipping the characterization
-the cheapest route under a cap. Note the doubling the measure implies — a relocated body is added
-in its new home and deleted from its old — which the per-category numbers already account for.
+Lines are insertions plus deletions, over non-test files only. Test files — and the
+characterization commit's own paths, per Step 1 — are excluded from every cap: tests are evidence,
+not churn, and charging them would make skipping the characterization the cheapest route under a
+cap. Note the doubling the measure implies — a relocated body is added in its new home and deleted
+from its old, which is why Step 1 reads the range with `--no-renames` — and which the per-category
+numbers already account for.
 
 **Pass:** substantive files within `max_files`, import-update files within
 `max_import_update_files`, non-test changed lines within `max_diff_lines`.
@@ -441,8 +497,8 @@ tests it is judged against, which is the one thing the fence exists to prevent. 
 After the repair commit, assert the same two things asserted after every agent commit:
 
 ```bash
-git -C "<WT>" diff --name-only -z "<SPEC_SHA>..HEAD"   # ∩ commands.test_globs must be empty
-git -C "<WT>" status --porcelain -z                    # empty, the <excluded> paths aside
+git -C "<WT>" diff --name-only -z --no-renames "<SPEC_SHA>..HEAD"   # ∩ commands.test_globs must be empty
+git -C "<WT>" status --porcelain -z                                # empty, the <excluded> paths aside
 ```
 
 Then **restart the suite from gate 1**. The second red — of any command, including one that was
@@ -539,12 +595,14 @@ Did the suite actually execute the code after it moved. A static import graph is
 Then confirm every resolved target exists on the candidate:
 
 ```bash
-git -C "<WT>" ls-files -z --pathspec-from-file "<state_dir>/runs/<run-id>/targets.txt" --pathspec-file-nul
+git -C "<WT>" ls-files -z
 ```
 
-One call, not one per target, and the list goes through a file per §1 rather than inline —
-targets derive from the finding's `files` and from `<map>`, and both have already been
-character-class-checked there.
+One call, not one per target, and **no pathspec at all** — `ls-files` takes no file-borne
+pathspec, and §1's rule is that no repository path reaches a git command line in the first place.
+Split the output on NUL and assert every resolved target is a member of that set. The targets
+derive from the finding's `files` and from `<map>`, and both have already been
+character-class-checked in §1; the set comparison is what keeps them out of the shell.
 
 A resolved target **missing** from the candidate aborts as `coverage`, naming it, as an undeclared
 deletion. Checking here rather than letting the command decide is deliberate: `coverage-hit` exits
@@ -586,7 +644,9 @@ call and the only judgement — runs last against a diff that is fully mechanica
 ### Dispatch
 
 Same trust discipline as every other declared command (§1): the value is written verbatim to
-`<state_dir>/runs/<run-id>/checks-<name>.sh` with the `Write` tool and executed. Five environment
+`<state_dir>/runs/<run-id>/checks-<name>.sh` with the `Write` tool and executed, where `<name>` is
+this gate's **id** from §1 — `spec-body-identity`, never the profile's `spec_body_identity`, per
+§1's one-spelling rule. Five environment
 variables are the interface, passed on the invocation and documented here so a project can write
 against them:
 
