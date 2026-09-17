@@ -17,10 +17,11 @@
 // was not cross-checked.
 //
 // The base tree is a detached worktree inside this invocation's temp
-// directory, registered under the repository's own `.git/worktrees/` and
-// removed on every exit path — a normal exit, an error exit, and a termination
-// signal, which the two awaited suite runs let a listener observe. Nothing
-// else is written under --repo.
+// directory, registered in the repository's own worktree list (its common git
+// directory, which is the main repository's when --repo is itself a linked
+// worktree) and removed on every exit path — a normal exit, an error exit, and
+// a termination signal, which the two awaited suite runs let a listener
+// observe. Nothing else is written under --repo.
 //
 // Usage: node verify-spec-patch.mjs --repo <abs-path> --base-sha <rev>
 //                                   --test-globs <a,b,c> [--tsconfig <path>]
@@ -531,8 +532,8 @@ function materialiseBase(git, repo, baseSha, patchPath, prelude, teardown) {
  * and a symlink, both of which this invocation put there. The `prune` that
  * follows is what makes the handler correct when the checkout is already gone —
  * an interrupted `worktree add`, or a directory the temp sweep reached first —
- * because a stale registration under `.git/worktrees/` is exactly what it
- * removes.
+ * because a stale registration in the repository's worktree list is exactly
+ * what it removes.
  *
  * @param {string} repo
  * @returns {{arm: (worktree: string, prelude: string | undefined) => void}}

@@ -125,9 +125,10 @@ behaving normally and never reaches a gate's output or a diff.
 
 §8 needs a second tree of the same repository to answer its question, and materialises it
 through the repository's own version control: a detached worktree checked out **inside the
-command's temporary directory** and registered under `<repo>/.git/worktrees/`. That
-registration is the one thing a command adds under `--repo`, it is git's own bookkeeping
-rather than a tracked file, and it is removed — checkout and registration both — on every
+command's temporary directory** and registered in the repository's own worktree list — its
+common git directory, which belongs to the main repository when `--repo` is itself a linked
+worktree. That registration is the one thing a command adds to the repository, it is git's
+own bookkeeping rather than a tracked file, and it is removed — checkout and registration both — on every
 exit path the command can observe: a normal exit, an error exit, and an interrupt,
 termination, or hangup signal delivered to the command, which forwards it to the suite
 run in flight and ends as an error exit (§3) naming the signal.

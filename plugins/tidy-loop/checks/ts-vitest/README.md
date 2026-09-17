@@ -75,8 +75,10 @@ and a startup crash alike.
    lockfile by definition, so the two trees run the same toolchain. **Known limit:** one
    directory is bridged, so a repository whose test files resolve their toolchain from a
    nested workspace package is not covered; no `node_modules` found at all exits 1.
-4. The checkout and its `.git/worktrees/` registration are removed on every exit path the
-   command can observe, including `SIGINT`, `SIGTERM`, and `SIGHUP` — the last matters
+4. The checkout and its registration in the repository's worktree list (its common git
+   directory — the main repository's when `--repo` is itself a linked worktree) are removed
+   on every exit path the command can observe, including `SIGINT`, `SIGTERM`, and `SIGHUP`
+   — the last matters
    because the consuming loop is scheduled and detached. The two suite runs are awaited
    rather than blocked on, which is what lets a signal listener run at all while a suite
    is in flight; the listener forwards the signal to that suite and ends the run as an
