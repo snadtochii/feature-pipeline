@@ -24,6 +24,7 @@ import path from 'node:path';
 
 import {
   EXIT_CANNOT_COMPUTE,
+  compare,
   emit,
   fail,
   main,
@@ -80,18 +81,3 @@ main(() => {
 
   emit({ collection, tests });
 });
-
-/**
- * Ascending comparison by code unit — the ordering CONTRACT.md §2 requires,
- * and the one `sorted()` gives the runner on the other side of the diff.
- *
- * @param {string} a
- * @param {string} b
- * @returns {number}
- */
-function compare(a, b) {
-  if (a < b) {
-    return -1;
-  }
-  return a > b ? 1 : 0;
-}

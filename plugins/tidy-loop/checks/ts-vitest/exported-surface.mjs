@@ -38,10 +38,13 @@ import {
   EXIT_CANNOT_COMPUTE,
   emit,
   fail,
+  isRepoSource,
+  loadTsconfig,
   main,
   makeTempDir,
   parseArgs,
   requireFromRepo,
+  resolveReferencePath,
   resolveRepo,
   sha256,
   toRepoRelative,
@@ -178,17 +181,7 @@ function collectProject(context, configPath) {
   }
   visited.add(real);
 
-  const read = ts.readConfigFile(real, ts.sys.readFile);
-  if (read.error) {
-    fail(`cannot parse ${toRepoRelative(repo, real)}: ${flatten(ts, read.error)}`, EXIT_CANNOT_COMPUTE);
-  }
-  const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, path.dirname(real), undefined, real);
-  if (parsed.errors?.length) {
-    const fatal = parsed.errors.find((error) => error.category === ts.DiagnosticCategory.Error);
-    if (fatal && parsed.fileNames.length === 0 && !parsed.projectReferences?.length) {
-      fail(`cannot parse ${toRepoRelative(repo, real)}: ${flatten(ts, fatal)}`, EXIT_CANNOT_COMPUTE);
-    }
-  }
+  const { parsed } = loadTsconfig(ts, real, toRepoRelative(repo, real));
 
   if (parsed.fileNames.length === 0 && parsed.projectReferences?.length) {
     for (const reference of parsed.projectReferences) {
@@ -273,37 +266,6 @@ function collectProject(context, configPath) {
       }
     }
   }
-}
-
-/**
- * A referenced project path may name a directory or the config file itself.
- *
- * @param {string} value
- * @returns {string}
- */
-function resolveReferencePath(value) {
-  const resolved = path.resolve(value);
-  if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
-    return path.join(resolved, 'tsconfig.json');
-  }
-  return resolved;
-}
-
-/**
- * Source files outside the repository, and dependency sources inside it, are
- * not this repository's surface.
- *
- * @param {string} repo
- * @param {string} fileName
- * @returns {boolean}
- */
-function isRepoSource(repo, fileName) {
-  const resolved = path.resolve(fileName);
-  const relative = path.relative(repo, resolved);
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
-    return false;
-  }
-  return !relative.split(path.sep).includes('node_modules');
 }
 
 /**
