@@ -202,6 +202,10 @@ function parseTestGlobs(value) {
  * file is invisible to it — the comparison would quietly proceed without the
  * very file the change added. Name them and stop.
  *
+ * `--exclude-standard` leaves ignored files out on purpose: the repository has
+ * declared them outside version control, and a test that ran on the candidate
+ * alone never reaches the document, which is keyed by base-plus-patch.
+ *
  * @param {(args: string[], cwd?: string) => any} git
  * @param {string[]} pathspecs
  */

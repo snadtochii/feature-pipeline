@@ -379,9 +379,13 @@ exist at `--base-sha`. That whole file is then excluded from the base-plus-patch
 executed on the candidate only. One new import therefore withdraws its whole file from the
 evidence, which the `additions` entry makes visible.
 
-**Every test file matching the globs must be tracked.** The spec patch is computed against
-version control, so a test file the candidate never staged is invisible to it and would be
-silently dropped from the comparison. The command exits 1 naming those files instead.
+**Every unignored test file matching the globs must be tracked.** The spec patch is computed
+against version control, so a test file the candidate never staged is invisible to it and
+would be silently dropped from the comparison. The command exits 1 naming those files
+instead. A test file the repository's own ignore rules exclude is outside version control
+by the repository's declaration and takes no part in the comparison: it is never in the
+spec patch, and the document is keyed by the tests that ran on base-plus-patch, so a test
+that ran on the candidate alone is never read.
 
 **No retry.** A red base-plus-patch is a computed answer, not a flake to re-run.
 
