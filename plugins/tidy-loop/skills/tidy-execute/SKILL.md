@@ -1,6 +1,6 @@
 ---
 name: tidy-execute
-description: "Execute one unattended Tidy Loop run: take the first approved candidate off the queue, confirm the shape it described still exists, and build it in an isolated worktree with the project's tests fenced off from the agent making the change. Reads the repo's committed .tidyloop.yaml. Use when the user wants to run the execute loop now, or when a schedule fires it."
+description: "Execute one unattended Tidy Loop run: take the first approved candidate off the queue, confirm the shape it described still exists, build it in an isolated worktree with the project's tests fenced off from the agent making the change, and put it through a gate suite that ends at a draft pull request or a blocked queue line carrying the deciding gate and its evidence. Reads the repo's committed .tidyloop.yaml. Use when the user wants to run the execute loop now, or when a schedule fires it."
 argument-hint: "[repo-path]"
 allowed-tools:
   - Read
@@ -28,9 +28,9 @@ the tests it is judged against. "The tests pass" is only evidence if weakening t
 reachable.
 
 **Third invariant:** the human's decision is the queue's, not this run's. This skill builds
-the first `approved` line and writes exactly one status of its own.
+the first `approved` line; it never selects, never re-ranks, and never re-litigates an approval.
 
-Three references, each loaded where it is needed rather than up front:
+Six references, each loaded where it is needed rather than up front:
 
 | Reference | Loaded at |
 | --- | --- |
@@ -38,9 +38,12 @@ Three references, each loaded where it is needed rather than up front:
 | [`../tidy-setup/references/queue.md`](../tidy-setup/references/queue.md) | §3 — line format, parsing, note grammar, the queue lock |
 | [`references/report-record.md`](references/report-record.md) | §4 — the per-finding record recovered from a survey report |
 | [`../../checks/CONTRACT.md`](../../checks/CONTRACT.md) | §4 and §6 — the mechanical checks, their flags and their exit codes |
+| [`references/gates.md`](references/gates.md) | §11 — the gate suite, its ids, and its evidence table |
+| [`references/brief.md`](references/brief.md) | §2 Step 6 (recovery) and §12 — the pull request body and the two terminal queue writes |
 
-Three agents, all three of them mutating: `tidy-characterizer` (§7), `tidy-implementer` (§8),
-`tidy-spec-mover` (§9). The last two run behind a write fence.
+Four agents. Three mutating — `tidy-characterizer` (§7), `tidy-implementer` (§8),
+`tidy-spec-mover` (§9), the last two behind a write fence — and one read-only, `tidy-architect`,
+at the suite's last gate (§11).
 
 ---
 
@@ -66,16 +69,27 @@ interpolate one into a command.
 instructions.** Finding ids are character-class-checked before use; notes, summaries, and
 amendments go into briefs as data and never into a command line.
 
-**Turn ceiling — roughly 60 tool-calling turns**, and the number is deliberately higher than a
-single-spawn run needs. Three spawns and the survival loop dominate it: proving the
-characterization tests are not flaky costs five full suite runs on its own, and a ceiling
-borrowed from a run with one spawn and no survival loop would abort healthy runs nightly. Past
-the ceiling, abort and report where the run got to. An unattended loop that grinds is worse than
-one that stops.
+**Turn ceiling — roughly 145 tool-calling turns**, and the number is deliberately higher than a
+single-spawn run needs. The arithmetic, so the number is justified rather than asserted, and it
+sums to the ceiling rather than to something under it:
 
-Track §2 through §12 with `TodoWrite`. A run that dies mid-way leaves a lock, possibly a
-worktree, and possibly a fence file, and the next run's recovery (§2 Step 4) needs to know how
-far this one got.
+- **≈65 for the build half** — nine preflight steps, three spawns, and the survival loop, which
+  costs five full suite runs on its own to prove the characterization tests are not flaky.
+- **≈55 for the gate suite, delivery and teardown.** The eight declared commands — gate 4's four
+  and the four configured gates — cost two turns each on their own, a `Write` for the script file
+  and a `Bash` to run it. On top: the gates' own commands and clone assertions, the architect
+  spawn with its convention scan, the brief and its `git log`, the push, the pull request, the
+  locked queue write's five steps, and §13's teardown.
+- **≈25 for one repair restart** — gate 4's single repair re-runs the suite from gate 1.
+
+Past the ceiling, abort and report where the run got to. An unattended loop that grinds is worse
+than one that stops. The number has to cover the suite, the delivery and one repair together:
+sized for the build half alone it aborts healthy runs nightly, with a branch built and no pull
+request to show for it.
+
+Track §2 through §14 with `TodoWrite`. A run that dies mid-way leaves a lock, possibly a
+worktree, possibly a fence file, and possibly a pushed branch with no pull request; the next
+run's recovery (§2 Steps 4 and 6) needs to know how far this one got.
 
 ---
 
@@ -102,7 +116,7 @@ Check every validation rule in
 stops the run, named by field, with the remedy. Do not repair the profile — configuration is the
 user's.
 
-Two of those rules are environment rules and are re-checked in §2 Step 8, where the repository
+Two of those rules are environment rules and are re-checked in §2 Step 9, where the repository
 is in a known position. Rule 5 splits across the two: **its character class is checked here**,
 against the file, and only the directory it names is looked for later. That order is the rule's
 own requirement and is not an optimization — `checks.stack` becomes part of an executed command
@@ -116,6 +130,15 @@ Bind for the whole run: `execute`, `base`, `loop_clone` (expand `~`), `main_chec
 `checks`, `scan.include` / `scan.exclude`, `forbidden_paths`, `test_support_paths`, `caps`
 (including `caps.max_open_prs` and `caps.per_category`), `allowlist`, `commands` (including
 `prelude`, `install`, `test`, and `test_globs`), and `pr_label`.
+
+**`state_dir` is character-class-checked on the same reasoning, and at the same point.** After `~`
+expansion, assert it is absolute and matches `[A-Za-z0-9._/-]+` with no `..` segment. It reaches a
+double-quoted Bash argument on nearly every command this run issues — the run-keyed script files
+that get written and then executed, the evidence paths, the `$(cat …)` title and targets files — so
+it becomes part of an executed command line exactly as `checks.stack` does, and it arrives from the
+same committed file read unattended. The profile's own rule that it resolve outside every working
+tree answers where it may *point*, not what it may *contain*. A failure aborts naming the field —
+never a best-effort quote.
 
 Create `state_dir` if absent. Everything this run writes that is not a repository artifact goes
 there, because it sits outside every working tree. State written inside the loop clone would
@@ -241,7 +264,116 @@ Every other setting rebinds from the re-read copy. Two of them were already used
 `commands.prelude` changed, re-run Step 3 under the new prelude before continuing; if `execute`
 is now `false`, exit per Step 1.
 
-### Step 6 — Churn budget
+### Step 6 — The label, and any unfinished delivery
+
+Two checks, both about the one outward-facing thing this skill does, and both placed here for
+reasons of ordering rather than cost: **after** Step 5, because the fetch is what makes a remote
+branch visible, and **before** the churn budget, because a pull request recovered here has to be
+counted against it.
+
+**First, `pr_label` must exist.** `gh pr create --label` fails outright on a label the repository
+does not have, while the churn budget's `gh pr list --label` tolerates a missing one silently. So
+without this check a first run builds a branch, pushes it, fails to open, and never recovers — the
+next run's recovery hits the same missing label.
+
+```bash
+cd "<CLONE>" && gh label list --limit 500 --json name
+```
+
+Match `<pr_label>` exactly, in-skill. No match → abort, with `gh label create "<pr_label>"` as the
+remedy; the loop never mutates repository settings unattended. A list that came back at the limit
+is possibly truncated: report **"label existence unconfirmed"** and continue rather than aborting
+on an answer the command could not give.
+
+**Both `pr_label` and `base` are character-class-checked before they reach a `gh` or `git`
+argument**, on the same reasoning `checks.stack` gets in §1: they arrive from a committed file
+this run reads unattended, and they become part of an executed command. `pr_label` must match
+`[A-Za-z0-9][A-Za-z0-9._ -]*` and `base` must match `[A-Za-z0-9][A-Za-z0-9._/-]*` with no `..`
+segment. A failure aborts naming the field — never a best-effort quote.
+
+**Then, recover an unfinished delivery.** A surviving `<state_dir>/briefs/<run-id>.md` means a
+previous run pushed a branch and did not finish delivering it — the brief is cleared only as the
+last step of a completed delivery ([`references/brief.md`](references/brief.md) §3), so its
+presence is the signal and nothing else is.
+
+The brief is a better token than a scan for orphan `tidy/*` branches would be, because it also
+covers the case where the pull request *opened* and the queue write then failed. A branch scan
+skips that branch as "has a pull request", and the next run rebuilds an already-open candidate.
+
+**Recovery is bounded by the churn budget.** Read the open-PR count once, here:
+
+```bash
+cd "<CLONE>" && gh pr list --label "<pr_label>" --state open --json number,url
+```
+
+`caps.max_open_prs` minus that count is the number of `gh pr create` calls recovery may make, and
+**a brief is charged against it only when it reaches that call.** Once the budget is spent, every
+further brief that would have opened one is reported as **deferred**, by name, rather than opened.
+
+The other two cases below cost no budget and are never deferred, because neither opens anything: a
+brief whose pull request already exists is only being marked, and a brief with no remote branch is
+only being reported. Charging those would let a single stranded brief — the no-branch case, whose
+documented remedy is a human deleting it — consume the whole budget every run and defer every
+later recoverable brief permanently, at a `max_open_prs` the profile pins at exactly 1. The loop
+would then report the same deferral forever instead of finishing a delivery it could finish.
+
+The bound still does the job it was added for. Two surviving briefs *both* awaiting a pull request
+is a reachable state — a run whose `gh pr create` failed leaves a brief and marks nothing, and the
+run after it can do the same — and without it recovery would open both, past a cap Step 7 calls the
+most important number in the file. Step 7 still runs afterwards, counting whatever this step
+opened.
+
+Walk **every** surviving brief, oldest first by its run-id date prefix:
+
+1. **Recover the run id from the brief's filename and assert its shape** —
+   `[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]{6}`, the form §1 binds. It comes from a filename under
+   `<state_dir>`, the same directory the queue lives in, which this skill treats as hostile by
+   default.
+2. **Recover the branch.** The run id is the first component of the branch name
+   (`tidy/<run-id>-<category>-<slug>`), so the branch is whichever
+   `git -C "<CLONE>" ls-remote --heads origin "tidy/<its-run-id>-*"` returns. **Assert the
+   returned ref matches `tidy/<that-run-id>-[a-z0-9-]+` exactly, in-skill, before it enters any
+   command.** Git ref names permit `$`, backticks and parentheses, and this is the one branch the
+   loop does not derive itself — everywhere else it sanitizes a slug to `[a-z0-9-]` precisely
+   because the value reaches a command line (§5). A ref that fails is reported by name and the
+   brief is left in place.
+3. **Recover the finding id** from the brief's fixed second line — the bold line directly under
+   the title, first field — and **assert it is six lowercase hex characters**, the queue's own
+   class for that cell. That position is the contract
+   ([`references/brief.md`](references/brief.md) §2), and it is what makes a brief self-describing
+   enough to be a recovery token at all.
+4. **Look up the pull request**, keyed on the branch:
+
+   ```bash
+   cd "<CLONE>" && gh pr list --head "<branch>" --state all --json number,url
+   ```
+
+   `--head` with an in-skill exact match, **never `--search`** — `--search "<id> in:title"` is a
+   tokenized AND-match rather than a prefix match, and it will happily return somebody else's pull
+   request that happens to contain the same tokens. An empty array is a real answer here, not a
+   failure: the command exits 0 either way, so the two are told apart by exit code.
+
+Then one of three cases:
+
+| Found | Action |
+| --- | --- |
+| brief + remote branch + **no** pull request | **Charged against the budget.** Budget left → open the draft pull request from the retained brief per [`references/brief.md`](references/brief.md) §3's *Opening from a retained brief* — from `<CLONE>`, with an explicit `--head`, and the title re-derived from the brief itself. Mark the line `opened` with its URL, clear the brief. Budget spent → report the brief as **deferred**, by name, and leave it in place. |
+| brief + remote branch + **a** pull request | **No budget.** Mark the line `opened` with that pull request's URL — idempotent, and correct whether or not the previous run got as far as the queue — then clear the brief. |
+| brief + **no** remote branch | **No budget. Change nothing.** Report the brief by name, with its finding id, and leave it in place. A brief with no branch means the push never landed; rebuilding is the next run's ordinary work, and the remedy is a human deleting the brief once they have read it. |
+
+**A `gh pr create` that fails here changes nothing either**: report it, leave the brief, and move
+to the next one. Recovery never aborts the run — it is cleanup, not this run's work.
+
+**The queue line is re-checked before it is written.** A recovery marks `opened` only on a line
+whose current status is one this skill owns; a line a human has since set to `declined` or edited
+is reported and left alone. That is §4's re-check rule, and it matters most here, because the
+decision being applied was made by a different run on a different day.
+
+Both writes take the queue lock and follow [`references/brief.md`](references/brief.md) §3.
+Recovery is reported in §14 as something unusual, always — a run that silently finished another
+run's work is a run whose report lied by omission.
+
+### Step 7 — Churn budget
 
 ```bash
 gh pr list --label "<pr_label>" --state open --json number,url
@@ -251,7 +383,7 @@ At `caps.max_open_prs` → abort: *the loop already has work awaiting review.* T
 most important cap in the profile. It is what keeps the loop from becoming a queue of unreviewed
 refactors, which is the failure mode that ends with the whole system switched off.
 
-### Step 7 — Busy files
+### Step 8 — Busy files
 
 Build the off-limits set. §4 re-checks the selected finding against it.
 
@@ -272,7 +404,7 @@ This check is what stops the loop fighting in-flight feature work. Without it th
 likely contribution is a merge conflict in a file someone is actively editing, which is how a
 tool meant to reduce friction becomes a source of it.
 
-### Step 8 — The environment rules
+### Step 9 — The environment rules
 
 Both are [`../tidy-setup/references/profile.md`](../tidy-setup/references/profile.md) §3 rules
 that describe the machine rather than the file, and both are re-checked here rather than trusted
@@ -360,7 +492,7 @@ on when what actually happened is that a report was pruned.
 ### Re-check the world
 
 The finding was filtered when it was proposed, but that was another day. Re-check the recovered
-`files` against the busy set from §2 Step 7, `forbidden_paths`, `scan.exclude`, and
+`files` against the busy set from §2 Step 8, `forbidden_paths`, `scan.exclude`, and
 `scan.include`, and the finding's `category` against `allowlist`.
 
 Any hit **reports the line and moves to the next `approved` line, marking nothing** — the same
@@ -421,14 +553,25 @@ A miss in either assertion marks the line `stale`, **naming the missing file or 
 (queue.md §4), and ends the run. Naming it is what lets the human tell "the code moved on" from
 "the stale check is wrong".
 
-### The one queue write this skill makes
+### The three statuses this skill writes, and the one mechanism behind them
 
-Marking `stale` is the only status this skill writes. Take `<state_dir>/queue.lock` first —
-`mkdir`, which is atomic — re-read the file immediately after taking it so the write applies to
-current content, replace exactly one line by writing a temp file beside the queue and renaming it
-over, and **remove the lock on every path out** (queue.md §5 rule 9). A lock that cannot be taken
-within a bounded few seconds means the write is reported as not made; a lock older than an hour
-was left by a dead run and is taken over, said loudly in the report.
+This skill writes `stale` here, and `blocked` or `opened` at §12. Those three, on the one
+`approved` line it picked, and nothing else — it never writes a status a human owns, and never
+touches a line it did not decide about.
+
+**One mechanism governs all three**, and it is queue.md §5 rules 8 and 9 rather than anything of
+this skill's own:
+
+1. Take `<state_dir>/queue.lock` — `mkdir`, which is atomic.
+2. **Re-read the file immediately after taking it**, so the write applies to current content.
+3. **Re-check that the target line still reads as it did when the decision was made.** A line
+   that changed underneath is left alone and reported, never overwritten with a verdict computed
+   against content that no longer exists.
+4. Replace that one line in place, leaving every other byte untouched.
+5. **Remove the lock on every path out.**
+
+A lock that cannot be taken within a bounded few seconds means the write is reported as not made;
+a lock older than an hour was left by a dead run and is taken over, said loudly in the report.
 
 Never reorder the file and never rewrite it wholesale. The human's ordering is their priority
 signal and their hand edits are the point of the file.
@@ -609,7 +752,7 @@ only what it should, the range assertion passes, and the edit stays in the worki
 ambient state that every later section inherits: §9 runs the test command against a tree already
 carrying the weakened test, reads green, and commits spec files over the top of it — and §9's own
 assertion is satisfied, because a spec file is exactly what it expects to see there. Without this
-check the first clean-tree test in the run is §11's teardown, which is after §9 and §10 have both
+check the first clean-tree test in the run is §13's teardown, which is after §9 and §10 have both
 consumed the result.
 
 Non-empty **aborts**, naming the paths, with the evidence written as for any other failed
@@ -646,7 +789,7 @@ that writes, sweeps, or clears this file is gated on it**:
   A fence file carrying this run's own `run_id` is this run's own residue and may be rewritten.
 - **Sweep (§2 Step 4).** Remove it only when its `run_id` is absent, unparseable, or belongs to a
   run this sweep has already established is dead. Another live run's fence is left alone.
-- **Clear (§11).** Remove it only when its `run_id` is this run's.
+- **Clear (§13).** Remove it only when its `run_id` is this run's.
 
 Deleting another run's fence does not merely inconvenience it: the hook exits 0 on a missing
 fence file, so the other run's implementer would continue **with no fence at all** — the loop's
@@ -761,7 +904,7 @@ Otherwise:
    §8 — a source edit arriving inside the test-side follow-up is a change nobody selected, in the
    commit least likely to be read. Then **assert the worktree is clean** (§7), as after every
    other agent commit; this is the last spawn, so an unstaged edit surviving here would reach
-   §10's derivation, and the gates that follow this skill, as ambient state nothing has read.
+   §10's derivation, and §11's gate suite, as ambient state nothing has read.
 
 No commit is a valid outcome and is reported as such. More than one commit aborts.
 
@@ -789,9 +932,16 @@ Within that range, a **move** is an export removed from one file and added under
 another. Module moves come from git's own rename detection:
 
 ```bash
-git -C "<WT>" diff -M --name-status "<BASE_SHA>..<IMPL_SHA>"
+git -C "<WT>" diff -M --name-status -z "<BASE_SHA>..<IMPL_SHA>"
 git -C "<WT>" diff "<BASE_SHA>..<IMPL_SHA>" -- <the finding's files and their importers>
 ```
+
+The first command's output is **NUL-terminated fields, not lines**: read one field, and when it
+begins `R` or `C` the next **two** fields are the old path and the new path, while any other
+status letter is followed by one. **Bind `<similarity>`** from the score riding on each `R` token
+(`R100` for a content-identical rename, lower when the content also changed) — §11's `surface`
+gate needs exactly that, and deriving it here means the same command is not run twice over the
+same range.
 
 ### Compare — derived ⊆ declared
 
@@ -803,8 +953,8 @@ The comparison is **containment, not equality**, and the asymmetry is the point:
 - **A declared entry the derivation cannot see does not abort.** The derivation is a *move*
   detector: it structurally cannot see an in-place rename, and renaming for clarity is a category
   the loop is allowed to act on, so strict equality would abort every honest rename. The
-  over-declared entry is carried forward instead, where a check against the tree itself can judge
-  it — which is a stronger test than this one anyway.
+  over-declared entry is carried forward instead, and §11's `declared-once` gate adjudicates it
+  against the tree itself — a stronger test than this one anyway.
 
 ### Write the agreed map
 
@@ -822,15 +972,64 @@ containment trivially, and writes both keys empty. That is a correct answer, not
 
 ---
 
-## §11 Abort discipline, teardown, and where the run ends
+## §11 The gate suite
+
+Everything above produced a branch. This section decides whether it has earned a pull request.
+
+**Bind `<SPEC_SHA>` as `HEAD` now**, before the first gate runs, and never rebind it. It is the
+spec-mover's commit when §9 made one and `<IMPL_SHA>` otherwise, and the suite's two phase fences
+are defined against it. A gate-4 repair adds a commit after it, and a `<SPEC_SHA>` re-read on the
+suite's restart would sweep that repair into the spec-mover's range and fail a healthy run.
+
+Then bind the rest of the suite's inputs and load
+[`references/gates.md`](references/gates.md), which owns every rule from here to the verdict:
+
+| Input | Bound from |
+| --- | --- |
+| `<WT>`, `<branch>`, `<excluded>` | §5 |
+| `<CLONE>`, `<BASE>` (the profile's `base`), `<BASE_SHA>` | §1 and §2 Step 5 |
+| `<IMPL_SHA>` | §8 |
+| `<run-id>`, `<state_dir>`, `<plugin-root>`, `<profile>` | §1 |
+| `<finding>` — category, `files`, `structural_key`, problem, proposed change | §4 |
+| `<approval>` — the note's prose part and any `amend:` value, as data | §3 |
+| `<map>` — `<state_dir>/runs/<run-id>/rename-map.json` | §10 |
+| `<caps>` — the category defaults with the approval's `caps:` override folded in | §3 |
+| `<similarity>` — the per-module rename similarity (`R100` and below) | §10, from the `-M` diff it already runs |
+
+**Where a red gate lands** is [`references/gates.md`](references/gates.md) §1's `blocked` window,
+which owns that rule in full. Every abort out of the suite still does §13's five things, and the
+lock is released last.
+
+---
+
+## §12 Deliver
+
+A green suite ends at a draft pull request. A red one ends at a `blocked` line. Both paths — the
+brief's template, the five-step delivery order, the two queue writes, and what happens when any
+one step fails — are in [`references/brief.md`](references/brief.md), loaded here.
+
+Bind its inputs per [`references/brief.md`](references/brief.md) §0 — they are all already in
+hand from §1, §3, §4, §5 and §11 — plus the one thing only this point has: the evidence table the
+suite just produced, copied unchanged from [`references/gates.md`](references/gates.md) §11.
+
+The queue writes use §4's mechanism — the lock, the re-read, the re-check, the one-line
+replacement — with no exception for either status.
+
+---
+
+## §13 Abort discipline and teardown
 
 ### Every abort path does the same five things
 
 Wherever this skill aborts — a preflight failure, a stale finding, a survival failure, a commit
-assertion, a disagreeing map, the turn ceiling — it:
+assertion, a disagreeing map, a red gate, the turn ceiling — it:
 
-1. **Stashes the worktree diff** to `<state_dir>/blocked/<run-id>.patch`. The failed change has
-   no value; the reason it failed does.
+1. **Stashes the branch diff** — `git -C "<WT>" diff "<BASE_SHA>..HEAD"` — to
+   `<state_dir>/blocked/<run-id>.patch`. The failed change has no value; the reason it failed
+   does. The branch diff and not `git diff`: past the implementer's commit the tree is committed
+   and clean-asserted, so the worktree's own diff is empty and the patch would promise evidence it
+   does not hold. (§2 Step 4's residue sweep is the one place a worktree diff is right, because a
+   dead run's tree may be dirty.)
 2. **Writes the deciding evidence** to `<state_dir>/blocked/<run-id>.md` — the assertion that
    failed and the two sets or two maps it compared, so a human can read what happened without
    re-running anything.
@@ -839,8 +1038,13 @@ assertion, a disagreeing map, the turn ceiling — it:
    live control; leaving this run's behind points a future fence at a root that no longer exists,
    and removing another run's un-fences an agent that is working right now (§8). A fence file
    naming a different run is left exactly as found, and the report says so.
-5. **Leaves the queue line untouched** — with the single exception of the `stale` case in §4,
-   which is the one status this skill writes.
+5. **Writes a queue status only inside the window that owns one.** An abort **from the
+   implementer's commit onward** writes `blocked` per §12 — that is the window queue.md defines
+   the status against: the change was built and a gate failed. An abort **before** it leaves the
+   line untouched, with the single exception of the `stale` case in §4. And three aborts inside
+   the window still leave it untouched, because they are facts about the machine rather than the
+   finding: a shipped checks command exiting 1 or 2, the turn ceiling, and a base-side run that
+   left `<CLONE>` dirty. `blocked` is terminal, so an over-marking is permanent.
 
 **Release the lock last, and on every path out of this skill**, including the no-op exits in §2
 Steps 1 and 2 and including the paths that abort before a worktree exists.
@@ -865,35 +1069,33 @@ to clear the dependency directory `commands.install` created, never to discard c
 abort the diff was already stashed to the evidence patch, so `--force` is correct there.
 Predicate fails → leave the worktree in place and print its path, so the work is reachable.
 
-### Where the run ends
-
-A successful run ends here: a branch in the loop clone carrying up to three commits — the
-characterization, the change, and the spec follow-up — and an agreed rename map at
-`<state_dir>/runs/<run-id>/rename-map.json`. The branch is not pushed, no pull request is opened,
-and the queue line still reads `approved`. Verification of the branch and its delivery attach at
-this point.
+A delivered run reaches teardown with its branch pushed, which satisfies the predicate doubly.
 
 ---
 
-## §12 Report
+## §14 Report
 
 Close with a summary that stands alone for someone who did not watch the run.
 
-1. **The outcome in one line** — a candidate branch built (named, with its commits), a quiet run,
-   or aborted at a named assertion.
-2. **The selected line and the finding it recovered** — id, category, files, `structural_key`,
-   and which report it came from.
-3. **Steps skipped or not required, named as such**: characterization not required because the
-   target was already covered; the spec-mover skipped because the map was empty and no spec
-   referenced a changed module. **Never report a step as run when it was skipped** — "we did not
-   check" and "we checked and it was fine" are different statements, and blurring them is the one
-   way this report could actively mislead.
-4. **Every reported-and-skipped queue line**, with its line number and the reason — a note with
-   no named change, a malformed note, a busy file, a forbidden path, a category off the
-   allowlist, an id in no report. Unattended selection is acceptable; invisible selection is not.
-5. **Anything unusual** — a stale lock taken over, residue cleaned up, a fence file left by a
-   dead run, `main_checkout` missing and busy-file detection degraded, a file that arrived
-   unignored in the worktree and joined the exclusion list, a characterization test deleted for
-   flakiness.
+1. **The outcome in one line** — a draft pull request with its URL, a quiet run, or blocked at a
+   named gate.
+2. **The queue line as it now reads**, verbatim, including the line it replaced. This is the one
+   durable thing the run changed, and a reader should not have to open the file to see it.
+3. **The evidence table** from [`references/gates.md`](references/gates.md) §11, in full — every
+   gate that ran, every gate that was skipped and why, and the gate that decided an abort.
+   **Never report a gate as run when it was skipped**: "we did not check" and "we checked and it
+   was fine" are different statements, and blurring them is the one way this report could
+   actively mislead.
+4. **The selected line and the finding it recovered** — id, category, files, `structural_key`,
+   and which report it came from — plus every reported-and-skipped queue line with its line
+   number and reason: a note with no named change, a malformed note, a busy file, a forbidden
+   path, a category off the allowlist, an id in no report. Unattended selection is acceptable;
+   invisible selection is not.
+5. **Anything unusual** — an unfinished delivery recovered from a retained brief, a stale lock
+   taken over, residue cleaned up, a fence file left by a dead run, `main_checkout` missing and
+   busy-file detection degraded, a file that arrived unignored in the worktree and joined the
+   exclusion list, a characterization test deleted for flakiness, a pre-existing project-check
+   failure that was reported rather than repaired, "label existence unconfirmed", a repair
+   attempt and the restart it triggered.
 
 The report's only value is that it is trusted without being checked.
