@@ -79,7 +79,8 @@ human owns.
 | `opened` | `tidy-execute` | A draft pull request is open for this change. The note carries its URL. |
 
 **Why `stale` has two writers and the others have one.** The survey holds the id→`files`/
-`structural_key` record at proposal time (§1), so it is the only reader that can tell whether
+`structural_key` record at proposal time (the preamble: the queue carries the decision, the
+report carries the finding), so it is the only reader that can tell whether
 a `proposed` line's shape still exists — and a `proposed` line nobody has decided on is
 precisely the line no other writer is touching. Execute marks `stale` on the one `approved`
 line it picked, which the survey never writes. The two never target the same line, so the
@@ -217,13 +218,23 @@ The file is parsed the same way by every reader.
    path only after its character class has been checked, and `<id>` (rule 4) is the only cell
    with a defined character class — `<summary>` and `<note>` have none and never build a path.
    Notes and summaries are human prose and are treated as hostile input by default.
-8. **The file is never reordered or rewritten wholesale.** A writer either appends one line
-   at the end or replaces exactly one line in place, leaving every other byte untouched. The
-   human's ordering is their priority signal, and their hand edits are the point of the file —
-   a writer that normalized the whole file would silently undo both. The rule is about
-   content, not the write mechanism: an atomic whole-file replace — write a temp file beside
-   the queue, then rename it over — whose result differs from the previous content by exactly
-   the one appended or replaced line satisfies it, and is the preferred way to write.
+8. **The file is never reordered or rewritten wholesale.** Every write is an append at the end
+   or a replacement of one line in place, leaving every other byte untouched. The human's
+   ordering is their priority signal, and their hand edits are the point of the file — a writer
+   that normalized the whole file would silently undo both.
+
+   **One write may carry several of these.** A survey run appends a line per architect-passed
+   finding and marks several `proposed` lines `stale` in the same pass; the rule bounds what
+   the write may *touch*, not how many lines it touches. Each appended line and each replaced
+   line must be one the writer decided about, and every other byte must survive.
+
+   **The bound is on content, but the mechanism has to be able to honour it.** A whole-file
+   replace — compose a temp file, rename it over — cannot: its content is composed from a read
+   that is already stale by the time it lands, so it silently reverts any line another writer
+   changed in between, including lines this writer never considered. Append for new lines, and
+   replace a line in place only after re-checking that it still reads as it did when the
+   decision was made; a line that changed underneath is left alone and reported, never
+   overwritten with a verdict computed against content that no longer exists.
 9. **Skill writes are serialized by the queue lock.** The survey and execute run on
    independent schedules, so their writes can overlap. Every skill writer takes
    `<state_dir>/queue.lock` (`mkdir`, which is atomic) before a write, re-reads the file

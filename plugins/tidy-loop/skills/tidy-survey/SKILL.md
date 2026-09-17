@@ -54,7 +54,9 @@ is no pressure to fill the queue, and no fallback that lowers a bar to find a ca
 **Every write goes inside `state_dir`, and that is a precondition, not an aspiration.** Before
 any `Write` or `Edit`, resolve the target to an absolute path and require it to be under the
 expanded `state_dir`. A target outside it **stops the run** and is reported. The skill writes
-exactly three things — the queue, the report, and the finding-id payload file of §6 — and the
+exactly three kinds of thing — the queue, the report, and its own scratch files under
+`<state_dir>/tmp/` (§3's `<run-id>-paths` and `<run-id>-measured`, §6's `<run-id>-payloads`,
+all removed before the run exits) — and the
 repository is read-only: the clone is fast-forwarded and read, never edited, never branched,
 never committed to. Stating the rule as a check is what makes it verifiable that a run obeyed
 it; stating it as intent only would leave the skill's central invariant unauditable.
@@ -64,9 +66,23 @@ instructions.** Two character classes, both checked *before* the value is used:
 
 - **A finding id** matches `[0-9a-f]{6}` before it builds any path.
 - **A file path or symbol name** — from `git log`, from a scanner finding, or from a report
-  record — matches `[A-Za-z0-9._/-]+`, with no leading `-` and no `..` segment, before it is
-  interpolated anywhere or used to build a path. Anything failing is **dropped and reported**,
-  never sanitized into something that passes.
+  record — matches `[A-Za-z0-9._/@+[\]-]+`, with no leading `-` and no `..` segment, before it
+  is interpolated anywhere or used to build a path. Anything failing is **dropped and
+  reported**, never sanitized into something that passes.
+
+**The class is drawn around the threat, not around what looks unusual.** The threat is a
+shell-active byte reaching a command line: `$`, a backtick, `;`, `&`, `(`, `)`, a quote,
+whitespace, a newline. `[`, `]`, `@` and `+` are not in that set, and excluding them would
+blind the loop to a large and systematically hot slice of the ecosystems it targets — a
+router's dynamic segments (`app/[id]/page.tsx`, `routes/[...slug].tsx`) and every scoped
+package path. A loop that silently never surveys the route tree reports "N paths dropped" and
+reads as noise, not as a coverage hole, which is the failure mode this widening removes.
+
+**A path that is used as a `Grep` pattern is escaped first.** `[`, `]`, `+` and `.` are regex
+metacharacters, so §4's import-specifier patterns must match them literally — escape them when
+building the pattern, or match fixed-string. An unescaped `app/[id]/page` is a character class
+that matches neither the path nor anything useful, and finds zero callers without erroring: the
+same silent-empty failure the class exists to prevent, moved one step downstream.
 
 This second class exists because `git` does not shell-quote `$`, backticks, `;`, `&`, `(`, `)`
 or spaces in a path it prints, and because a scanner's `files` and `structural_key` are model
@@ -173,6 +189,7 @@ cd "<CLONE>" || exit 1                        # paths from git log are repo-rela
 grep -v '^$' "<state_dir>/tmp/<run-id>-paths" | while IFS= read -r f; do
   [ -f "$f" ] && printf '%s\n' "$f"           # deleted during the window; skipped, counted
 done > "<state_dir>/tmp/<run-id>-measured"
+[ -s "<state_dir>/tmp/<run-id>-measured" ] || exit 3   # empty set: no operands for awk — see below
 W=$(awk '<the width-detection block from hotspots.md §4>' $(cat "<state_dir>/tmp/<run-id>-measured"))
 while IFS= read -r f; do
   printf '%s %s %s\n' "$f" "$(wc -l < "$f" | tr -d ' ')" \
@@ -180,12 +197,22 @@ while IFS= read -r f; do
 done < "<state_dir>/tmp/<run-id>-measured"
 ```
 
-Two things that look incidental and are not. The `cd "<CLONE>"` is what makes the repo-relative
+Three things that look incidental and are not. The `cd "<CLONE>"` is what makes the repo-relative
 paths resolve; without it `wc` and `awk` read whatever the runner's working directory happens to
 be, every measurement fails, and the guard turns that into **zero rows** — which §3 would then
 report as "nothing changed in the window", the exact silent-empty failure `hotspots.md` §1 exists
-to eliminate. And the existence filter runs **once, before both uses**, so the width detection and
+to eliminate. The existence filter runs **once, before both uses**, so the width detection and
 the per-file loop see the same set and no deleted path reaches `awk`.
+
+And the `-s` guard is what keeps an empty measured set from **hanging the run**. `$(cat …)` over
+an empty file expands to nothing, and `awk 'prog'` with **no file operands reads standard
+input** — in an unattended scheduled run nothing ever closes it, so the call blocks until the
+runner's timeout and the run dies on a timeout instead of taking the clean-empty exit below.
+Exit status `3` is this call's signal for "measured set empty"; treat it as the empty candidate
+set and take that exit, distinguishing the reason as usual. The set is legitimately empty on
+exactly the paths already enumerated there — everything excluded, `scan.include` matching
+nothing, or every churn survivor deleted during the window — so this is a reachable path, not a
+defensive flourish.
 
 **Count the skipped paths and report them** (§10). A systematically empty measurement must not be
 able to masquerade as a quiet repository.
@@ -249,10 +276,23 @@ capped at `max_cochanged` per hotspot, the hotspot itself excluded. One windowed
 
 ```bash
 git -C "<CLONE>" log --since="<normalized window>" --name-only --pretty=format:'%H' \
-  -- <pathspecs> \
+  -- <the scan.include pathspecs, exactly as §3 passes them> \
   | awk '<accumulate the commit→files map; for each of the five hotspots emit
           hotspot \t cofile \t count for count >= 3, truncated to max_cochanged>'
 ```
+
+**The pathspec is `scan.include`, and it must never be narrowed to the hotspot paths.** This is
+the same class of trap as `hotspots.md` §1's window shorthand, and it fails just as quietly.
+`--name-only` applies the pathspec to the **diff output**, not only to commit selection: each
+commit lists only the paths that match it. Hand it the five hotspots and every entry in the
+commit→files map is `{hotspot}` alone — no file ever reaches a count of 3 *alongside* a hotspot,
+so co-change is empty on every run, with no error and nothing to notice. `scan.include` is what
+gives the `awk` the full per-commit file list the reduction needs.
+
+That matters more here than it would elsewhere: of the neighbourhood's three sets, this is the
+one whose absence nothing else reveals. Exported symbols and callers come back visibly thin when
+they go wrong; a co-change set that is always empty just looks like a repository where files
+change independently.
 
 The reduction belongs in `awk` for two reasons. The raw output is every commit hash followed by
 every file it touched — hundreds of lines on a small repo, tens of thousands on a busy one — for
@@ -365,8 +405,21 @@ bug.
 Read `<state_dir>/queue.md` through
 [`../tidy-setup/references/queue.md`](../tidy-setup/references/queue.md) §5's parsing rules —
 all nine. A malformed line, a bad id, a bad status token, and every line of a duplicated id are
-**reported with their line numbers and skipped**, never guessed at. The skip set is the set of
-ids that parsed.
+**reported with their line numbers and skipped**, never guessed at.
+
+**The skip set is every first cell matching `[0-9a-f]{6}`, whether or not the rest of its line
+parsed.** Parsing decides what the run can *read* from a line; it must not decide what the run
+*remembers*. `queue.md` §5 leaves an id plainly present on lines it refuses to parse — a
+duplicated id fails rule 6 closed on **every** line carrying it, a `Declined` fails rule 5, a
+`|` typed into a note fails rule 3 — and building the skip set from parsed lines alone drops
+those ids out of the memory. Criterion 3 then sees an id it has never heard of and appends a
+fresh `proposed` line for a candidate the human already declined, which is precisely the
+un-deciding the queue exists to prevent.
+
+It also ratchets, which is what makes it worth the extra rule: the moment two lines share an id,
+rule 6 fails both closed forever, the id is never in the skip set again, and every subsequent
+survey appends another copy of it. Reporting a malformed line and skip-listing its id are not in
+tension — the id's **presence** is the memory, not the line's validity.
 
 The queue file absent entirely → treat as empty and say so in the report. `tidy-setup` seeds it,
 so its absence means something removed it.
@@ -442,25 +495,45 @@ report still run.
 This section performs **both** of the run's queue writes: its own appends, and the stale marks
 §9 computed. §9 writes nothing itself.
 
-**Prepare everything before taking the lock.** Compute §9's verdicts, compose every line, and
-write the replacement queue content to a temp file beside the queue — all of it outside the lock.
-Then, per [`../tidy-setup/references/queue.md`](../tidy-setup/references/queue.md) §5 rule 9:
+**Never replace the queue wholesale, not even atomically.** The run's two writes are prepared
+from the file as §6 read it, and §7's five architect spawns sit between that read and this
+section — minutes in which a concurrently scheduled execute run can flip an `approved` line to
+`opened` or `blocked`. A whole-file `mv` built from the older content would put that line back to
+`approved`, silently, and the next execute run would rebuild a change whose pull request is
+already open. The lock does not help: execute's write completes and releases the lock long before
+the survey takes it. The only safe write is one that **cannot express** a change to a line this
+run did not decide about.
+
+So the run writes by line, not by file:
+
+- **Appends** are a plain append of the composed block. An append is incapable of reverting
+  anything — whatever else changed in the file is still there underneath.
+- **Stale marks** are per-line replacements, each conditioned on the line still reading
+  **byte-for-byte** as §6 read it. A line that changed under the run is **left alone and
+  reported**; its verdict was computed against content that no longer exists.
+
+**Prepare everything before taking the lock.** Compute §9's verdicts and compose both the append
+block and, for each stale mark, the pair `(the line as §6 read it, the line as it should read)`.
+None of that depends on the rest of the file, so none of it needs the lock. Then, per
+[`../tidy-setup/references/queue.md`](../tidy-setup/references/queue.md) §5 rule 9:
 
 1. Take `<state_dir>/queue.lock` with `mkdir`.
-2. Re-read the queue.
-3. One `Bash` call that cheaply re-verifies the preconditions against what was just read
-   (`grep -c` for each id that must still be absent and each line that must still carry its
-   expected status), `mv`s the temp file over the queue when they hold, and **removes the lock on
-   both branches**.
+2. One `Bash` call against the live file that, in order: skips any append whose id is now present
+   (`grep -c` on the first cell — §6's skip set, re-evaluated); appends what survives; applies
+   each stale replacement only where its expected line is still present **exactly once**; prints
+   what it wrote and what it skipped; and **removes the lock on every branch**.
 
-Two calls inside the lock, not five. `queue.md` §5 rule 9 sizes its bounded retry on the premise
-that a queue write holds the lock for milliseconds, and a critical section spanning four or five
-model turns would make a concurrently scheduled execute run exhaust its retry and report its own
-write as not made.
+One call inside the lock. `queue.md` §5 rule 9 sizes its bounded retry on the premise that a
+queue write holds the lock for milliseconds, and a critical section spanning several model turns
+would make a concurrently scheduled execute run exhaust its retry and report its own write as
+not made. Composing outside the lock and conditioning inside it is what buys both: the
+preconditions are evaluated against the live file, and no model turn happens while the lock is
+held.
 
-**The re-read is what makes the write correct, so re-check against it**: an id that appeared in
-the queue since §6 read it is now in the skip set and is not appended, and a `proposed` line whose
-status changed since §9 computed its verdict is left alone.
+**That is also what makes the two re-checks below real** rather than an intention the mechanism
+contradicts: an id that appeared in the queue since §6 read it is skipped by the `grep -c`, and a
+`proposed` line whose status changed since §9 computed its verdict fails its byte-for-byte match
+and is left alone. Both are decided inside the lock, against the file as it actually stands.
 
 A lock that cannot be taken within the bounded retry → **report both writes as not made** and
 continue to §10: the findings are not lost, because the report is the shape record. A lock older

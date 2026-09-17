@@ -81,6 +81,15 @@ the within-repo comparability the score depends on; a single detected width pres
 project's constant indent width cancels out of a comparison between its own files — while still
 scoring a 2-space project the same way a 4-space one is scored.
 
+Two other units are the intuitive readings, and this contract takes neither on purpose. **A
+fixed width** — four leading spaces is one level everywhere — scores a 2-space project at double
+the levels of an identically-structured 4-space one, so the measure would rank by house style
+rather than by nesting. **The file's own modal indent** fixes that but reintroduces the worse
+problem: the score's only job is to order files *within one repository*, and a per-file unit
+means the two numbers being compared were produced by different rulers. Detecting once, over the
+whole measured set, is the unit that makes the comparison the score is actually used for a valid
+one.
+
 ```bash
 awk '/^ +[^ ]/ { match($0, /^ +/); c[RLENGTH]++ }
      END {

@@ -134,7 +134,14 @@ Under `state_dir` the loop owns:
 <state_dir>/briefs/<run-id>.md         # the pull request body
 <state_dir>/blocked/<run-id>.patch     # the diff of a gate-blocked run
 <state_dir>/blocked/<run-id>.md        # the deciding gate output
+<state_dir>/tmp/<run-id>-*             # a run's own scratch files, removed before it exits
 ```
+
+The listing is exhaustive, and that is what makes it useful: a cleanup step can treat anything
+under `state_dir` that is not one of these as residue. `tmp/` is where a run puts the
+intermediate files it writes rather than carries in context — a path list, a measurement set, a
+hash payload — and a run removes its own before exiting, so anything still there was left by a
+run that died.
 
 The brief lives here rather than on the branch for a specific reason: it is the *only* copy of
 the gate evidence table, which is not reconstructable after the run ends. A pushed branch

@@ -149,10 +149,11 @@ Most neighbourhoods return nothing.
   forbidden.** A tidy of a generated file is undone by the next codegen run.
 - **Never propose changes to the test harness** — runner setup files, temp or in-memory database
   helpers, fakes, other test doubles, shared fixtures, or anything your brief lists under test
-  support. The behavior oracle restores spec files from the base commit but not the harness they
-  run against, so a refactored fake would let the base specs run against a modified stub and
-  mask the very regression the gate exists to catch. A module whose importers are all test files
-  is test support whatever it is named.
+  support. The behavior oracle compares a run against a symmetric test patch — the specs move
+  with the code — and a test double is not a spec file, so it is not part of that patch. A
+  refactored fake would therefore compare specs running against two different fakes, and an
+  altered stub can mask exactly the regression the comparison exists to catch. A module whose
+  importers are all test files is test support whatever it is named.
 - **No scores, no rankings, no recommendation of which finding to take.** Selection is not
   yours: it depends on the queue, the architect's verdicts, and a human's decision, none of
   which you can see.
