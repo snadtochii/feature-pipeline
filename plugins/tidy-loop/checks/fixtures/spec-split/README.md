@@ -45,7 +45,12 @@ Each expected document says something specific about that shape:
   never cross-checks the cases it carries. The `sameTestNames` comparison is what
   carries that half of the evidence: the two trees hold the **same** test names,
   files disregarded, duplicates included. Together the two documents say "nothing
-  was lost, and nothing that stayed was weakened".
+  was lost, and nothing that stayed was weakened". Names, not bodies: a moved case
+  whose assertion was weakened in the new file is an addition to the pair command
+  and an unchanged name to the multiset, so neither document changes. That is the
+  blind spot of this split shape — a test moved into a new module is guarded by
+  its name alone — and closing it takes a per-test body identity, which belongs
+  to a separate gate at the consumer's layer rather than to this command.
 
 The duplicate-named pair is among the moved cases on purpose: it exercises both
 the multiset's duplicate preservation and the pair command's rule that two tests
