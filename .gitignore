@@ -7,3 +7,6 @@ claudedocs/
 node_modules/
 coverage/
 *.tsbuildinfo
+
+# Bytecode left behind when a script under scripts/ is imported rather than run
+__pycache__/
