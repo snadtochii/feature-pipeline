@@ -101,13 +101,20 @@ if [ -z "$input" ]; then
     exit 0
 fi
 
-# The payload is parsed FIRST — one jq call for all three fields — because the
-# fence's location is derived from it, and because the two cheap exits below then
-# cost one fork rather than three.
-IFS=$'\t' read -r tool_name file_path hook_cwd <<<"$(
-    jq -r '[.tool_name // "", .tool_input.file_path // "", .cwd // ""] | @tsv' \
-        <<<"$input" 2>/dev/null || true
-)"
+# The payload is parsed FIRST, because the fence's location is derived from it.
+#
+# One jq call per field, deliberately, rather than one `@tsv` row split on tabs.
+# The combined row saves two forks and costs two parsing hazards, in the one
+# script whose job is to be unambiguous about which path it was asked about. Tab
+# is IFS *whitespace*, so a run of tabs collapses: a payload carrying `cwd` but
+# no `file_path` shifts the cwd into `file_path`, and the guard below can then
+# never fire for that shape. And `@tsv` escapes a tab or backslash inside a path
+# to `\t` / `\\`, which `read -r` preserves verbatim, so the path reaching
+# `dirname`, `normalize_path` and the glob match is not the path the tool was
+# given — and under `deny-match` a path that fails to match is an allowed write.
+tool_name=$(jq -r '.tool_name // empty' <<<"$input" 2>/dev/null || true)
+file_path=$(jq -r '.tool_input.file_path // empty' <<<"$input" 2>/dev/null || true)
+hook_cwd=$(jq -r '.cwd // empty' <<<"$input" 2>/dev/null || true)
 if [ -z "$file_path" ]; then
     exit 0
 fi

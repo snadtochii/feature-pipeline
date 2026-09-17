@@ -661,9 +661,12 @@ direction differs, and the direction is the mode argument each agent's own bindi
 shares one common dir, so a single file covers this run and the worktree it spawns agents in,
 while a run in a different clone cannot see it — the hook derives the location from the path it
 is asked about, not from a fixed path of its own. Two repositories running concurrently is a
-supported state and needs no bookkeeping to stay safe: neither run can read, overwrite, or delete
-the other's control, so there is nothing for a `run_id` comparison to arbitrate at write, sweep,
-or clear. The lock this run already holds on `<CLONE>` is what makes the file this run's.
+supported state: neither run can read, overwrite, or delete the other's control, and the lock
+this run already holds on `<CLONE>` is what makes the file in that directory this run's.
+
+`run_id` is written for a human reading a file that outlived its run; the hook reads `repo_root`
+and `test_globs` alone. A fence file sitting in a clone whose lock is free is residue, and the id
+names the run that left it — §2 Step 4 removes it, and the report says what it found.
 
 Refuse to write a fence file with an empty `test_globs`. The hook denies a *write* it cannot find
 globs for, so an empty set fails closed rather than open — but it would deny every write the
