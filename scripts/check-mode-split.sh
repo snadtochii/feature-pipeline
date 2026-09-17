@@ -80,6 +80,16 @@ server_forbidden = re.compile(
     r"|folder[- ]move|state folder|\S*-fs\.md",
     re.IGNORECASE,
 )
+# Inline `[text](target.md)` only, and the scan runs over the two roots below.
+# What that deliberately leaves unguarded, so a later reader knows the shape of
+# the hole rather than assuming there is none:
+#   - a relative link whose target is not a `.md` file (a directory, an image);
+#   - the `#anchor` fragment, captured as group 2 and discarded — a link to a
+#     heading the target file does not contain still resolves and passes;
+#   - reference-style links, `[text][ref]` with the target defined elsewhere.
+# Links pointing INTO these roots from files outside them (the root README,
+# CLAUDE.md, AGENTS.md) are out of scope too: a third root would false-positive
+# on the illustrative relative links quoted inside those files' own templates.
 link_re = re.compile(r"\[[^\]]*\]\(([^)\s]+?\.md)(#[^)]*)?\)")
 
 # Regression probes — every string in `caught` must match, none in `clean`.

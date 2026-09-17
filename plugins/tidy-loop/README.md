@@ -14,8 +14,9 @@ committed `.tidyloop.yaml`. Claude Code only.
 That is checkable, not aspirational. A structure-only change has an oracle: the project's own
 tests, moved rather than weakened. The `spec-patch` gate proves the test suite is *symmetric*
 evidence — the same tests before and after — and the write fence makes that evidence mean
-something, because the agent making the change cannot edit the tests it is judged against. "The
-tests pass" is only evidence if weakening them was never reachable.
+something, because the agent making the change can neither read nor edit the tests it is judged
+against. "The tests pass" is only evidence if weakening them was never reachable — and if quietly
+shaping the source to fit them was never reachable either.
 
 Second invariant: **the loop never merges.** It opens draft pull requests. A human merges, or
 closes them.
@@ -55,8 +56,10 @@ kind of file:
   untouched tree, and commits them alone. Runs only when the target files are not already covered.
   Writing test files is its job, so no hook constrains it.
 - **`tidy-implementer`** — makes the one declared structural change to source files. A
-  `PreToolUse` hook declared in its own frontmatter refuses every edit that matches the project's
-  test globs.
+  `PreToolUse` hook declared in its own frontmatter refuses every **read and every write** of a
+  path matching the project's test globs. Both halves are load-bearing: the write block is why
+  "the tests pass" cannot be reached by weakening them, and the read block is why it cannot be
+  reached by shaping the source to specs the agent was never shown.
 - **`tidy-spec-mover`** — applies the declared rename map to the spec files. The same hook in the
   opposite mode refuses every write *outside* those globs.
 
@@ -84,8 +87,10 @@ Every run passes these, in order, before a pull request exists:
 | `architect` | the change deepened a module rather than relocating code |
 
 Four more are **configured-or-skipped**: `spec-body-identity`, `dom-golden`,
-`differential-property`, and `mutation`. Each is keyed to a `checks.<key>` entry in the profile
-and reports `skipped (not configured)` until a command is set for it.
+`differential-property`, and `mutation`. Those are the gate ids; the profile key is the id with
+underscores, so each is configured as `checks.spec_body_identity`, `checks.dom_golden`,
+`checks.differential_property`, or `checks.mutation`. Each reports `skipped (not configured)`
+until a command is set for it.
 
 A failing gate marks the queue line `blocked` and writes its evidence under `state_dir`. The
 loop never edits code to turn a gate green, never weakens a test, never adds a skip. The gate
@@ -115,7 +120,7 @@ contract — flags, output shapes, exit codes — is [`checks/CONTRACT.md`](chec
 ## Setup
 
 ```
-/tidy-setup
+/tidy-loop:tidy-setup
 ```
 
 Run it in the repo you want to onboard. It asks three questions; everything else it probes. It
@@ -125,8 +130,8 @@ repo has none.
 Then enable the two schedules on your own surface (a local scheduled task, or a cron entry):
 
 ```
-/tidy-survey <loop_clone>     # weekly
-/tidy-execute <loop_clone>    # daily
+/tidy-loop:tidy-survey <loop_clone>     # weekly
+/tidy-loop:tidy-execute <loop_clone>    # daily
 ```
 
 Both take the **loop clone** as the repo path, never your own checkout. Setup writes
