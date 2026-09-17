@@ -562,42 +562,47 @@ for (const fixture of fixtures) {
     }
   }
 
-  // The pair section: one throwaway git repository per candidate tree, for
-  // every command PAIR_COMMANDS declares rather than one hardcoded name.
+  // The pair section: one throwaway git repository per candidate tree, shared by
+  // every command PAIR_COMMANDS declares. Candidates are the outer loop because
+  // the repository is a property of the candidate, not of the command run
+  // against it — building it per command would copy the base tree over the
+  // candidate's files and re-symlink node_modules into a directory that already
+  // has one.
   if (specPatch !== undefined) {
     const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tidy-checks-"));
     scratchDirs.push(scratch);
-    for (const pairCommand of PAIR_COMMANDS) {
-      for (const candidateTree of specPatch.candidates) {
+    for (const candidateTree of specPatch.candidates) {
+      const repo = path.join(scratch, `${fixtureName}-${candidateTree}`);
+      const [baseSha, buildProblem] = buildThrowawayRepo(
+        fixture,
+        specPatch.base,
+        candidateTree,
+        repo,
+      );
+
+      for (const pairCommand of PAIR_COMMANDS) {
         exercisedPairCommands.add(pairCommand);
         const label = `${fixtureName}/${candidateTree}/${pairCommand}`;
+        if (buildProblem !== null) {
+          failures.push(`${label}: ${buildProblem}`);
+          continue;
+        }
+
         const { compared, problem } = compareDocument(
           label,
           path.join(expectedRoot, candidateTree, `${pairCommand}.json`),
-          () => {
-            const repo = path.join(scratch, `${fixtureName}-${candidateTree}`);
-            const [baseSha, buildProblem] = buildThrowawayRepo(
-              fixture,
-              specPatch.base,
-              candidateTree,
+          () => [
+            [
+              path.join(stackDir, `${pairCommand}.mjs`),
+              "--repo",
               repo,
-            );
-            if (buildProblem !== null) {
-              return [null, buildProblem];
-            }
-            return [
-              [
-                path.join(stackDir, `${pairCommand}.mjs`),
-                "--repo",
-                repo,
-                "--base-sha",
-                baseSha,
-                "--test-globs",
-                specPatch.testGlobs.join(","),
-              ],
-              null,
-            ];
-          },
+              "--base-sha",
+              baseSha,
+              "--test-globs",
+              specPatch.testGlobs.join(","),
+            ],
+            null,
+          ],
         );
         if (compared) {
           comparisons += 1;
