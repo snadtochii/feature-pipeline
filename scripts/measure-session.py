@@ -132,18 +132,16 @@ rather than absorbed by widening a tolerance.
 
 ## Unverified paths
 
-Two recognition surfaces are implemented from their documented contracts and
-exercised by nothing: no available transcript reaches them, and a synthetic
+One recognition surface is implemented from its documented contract and
+exercised by nothing: no available transcript reaches it, and a synthetic
 probe there would assert this script's reading of the contract rather than
-the real shape. They are correct by construction and unproven:
+the real shape. It is correct by construction and unproven:
 
   - `pipeline_write_artifact` artifact writes (server-native storage mode).
     The anchor session contains zero MCP tool calls.
-  - shell writes to an artifact (`> path`, `>> path`, `tee path`) - a session
-    working through the shell writes artifacts with a heredoc, never `Write`.
 
-Two more are covered by synthetic probes in `self-test` - the behaviour is
-pinned, the real-transcript shape is not:
+Two more are pinned by synthetic probes in `self-test`; their behaviour is
+asserted, their real-transcript shape is not:
 
   - A standalone `/feature:build` root session, recognised through the
     `<command-name>/feature:build</command-name>` record.
@@ -744,32 +742,7 @@ def artifact_write_name(call: ToolCall) -> str | None:
             base = name if name.endswith(".md") else name + ".md"
             if ARTIFACT_NAME_RE.match(base):
                 return base
-        return None
-    if call.name == "Bash":
-        match = _shell_artifact_redirect(call.input.get("command"))
-        if match:
-            return match.group("base")
     return None
-
-
-# A shell write to an artifact: `> path`, `>> path` or `tee [-a] path` whose
-# basename is a 03-06 artifact. A session told to work through the shell writes
-# its artifacts with `cat > .../04-review.md <<'EOF'`, never with Write. Reading
-# a file (`cat 04-review.md`, `< 04-review.md`) is not matched.
-SHELL_ARTIFACT_REDIRECT_RE = re.compile(
-    r"(?:(?<![<>&\d])>>?|\btee\s+(?:-a\s+)?)\s*[\"']?"
-    r"(?P<path>(?:[^\s\"'<>|;&]*/)?(?P<base>0[3-6]-[a-z-]+\.md))(?![\w.-])"
-)
-HEREDOC_BODY_RE = re.compile(
-    r"<<-?\s*[\"']?(?P<tag>[A-Za-z_][A-Za-z0-9_]*)[\"']?[^\n]*\n(?P<body>.*?)\n[ \t]*(?P=tag)[ \t]*(?:\n|$)",
-    re.S,
-)
-
-
-def _shell_artifact_redirect(command):
-    if not isinstance(command, str):
-        return None
-    return SHELL_ARTIFACT_REDIRECT_RE.search(command)
 
 
 def artifact_write_body(call: ToolCall) -> str:
@@ -784,12 +757,6 @@ def artifact_write_body(call: ToolCall) -> str:
         ) if isinstance(edits, list) else ""
     elif call.name.split("__")[-1] == "pipeline_write_artifact":
         value = call.input.get("body")
-    elif call.name == "Bash" and _shell_artifact_redirect(call.input.get("command")):
-        # The heredoc body when there is one; otherwise the command text, which
-        # still carries an `echo`/`printf` payload.
-        command = call.input.get("command")
-        heredoc = HEREDOC_BODY_RE.search(command)
-        value = heredoc.group("body") if heredoc else command
     else:
         value = ""
     return value if isinstance(value, str) else ""
@@ -2196,41 +2163,6 @@ def _register_pattern_probes(probe, role_map):
     probe(
         "artifact write NOT: a Bash command naming 04-review.md",
         artifact_write_name(_call("Bash", command="cat 04-review.md")) is None,
-    )
-    probe(
-        "artifact write: Bash heredoc redirect to 04-review.md",
-        artifact_write_name(
-            _call("Bash", command="cd /r && cat > claudedocs/tickets/in-progress/X-1/04-review.md <<'EOF'\n# Review\nEOF")
-        )
-        == "04-review.md",
-    )
-    probe(
-        "artifact write: Bash append redirect to 06-summary.md",
-        artifact_write_name(_call("Bash", command="cat >> t/06-summary.md <<'EOF'\n## PR\nEOF"))
-        == "06-summary.md",
-    )
-    probe(
-        "artifact write: Bash tee -a to 05-tests.md",
-        artifact_write_name(_call("Bash", command="printf 'x' | tee -a t/05-tests.md")) == "05-tests.md",
-    )
-    probe(
-        "artifact write NOT: Bash input redirect from 04-review.md",
-        artifact_write_name(_call("Bash", command="wc -l < t/04-review.md")) is None,
-    )
-    probe(
-        "artifact write NOT: Bash stderr redirect beside a read of 04-review.md",
-        artifact_write_name(_call("Bash", command="cat t/04-review.md 2>/dev/null")) is None,
-    )
-    probe(
-        "artifact write NOT: Bash redirect to 04-review.md.bak",
-        artifact_write_name(_call("Bash", command="cp a > t/04-review.md.bak")) is None,
-    )
-    probe(
-        "artifact body: Bash heredoc body is what is scanned",
-        artifact_write_body(
-            _call("Bash", command="cat > t/06-summary.md <<'EOF'\n# Summary\nverdict: pass\nEOF")
-        )
-        == "# Summary\nverdict: pass",
     )
 
     # --- reviewer spawn ----------------------------------------------------
