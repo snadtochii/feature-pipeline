@@ -1,0 +1,8 @@
+# Gitignored files a fresh worktree of this repo needs.
+# Patterns are gitignore-style, one per line; matched files are copied from the
+# main checkout into a new worktree, preserving relative paths.
+# No secrets here — this file is committed and patterns name paths, never values.
+
+# Local permission allowlist; ignored via the user's global gitignore, so an
+# unattended run in a fresh worktree would otherwise re-prompt for every tool.
+.claude/settings.local.json
