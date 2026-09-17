@@ -7,3 +7,6 @@ claudedocs/
 node_modules/
 coverage/
 *.tsbuildinfo
+
+# Bytecode, should a local probe import a script under scripts/ rather than run it
+__pycache__/
