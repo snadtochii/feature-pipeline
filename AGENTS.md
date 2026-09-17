@@ -41,7 +41,7 @@ feature-pipeline/
 │       └── marketplace.json # Codex marketplace — indexes plugins/* (stays at repo root)
 ├── .github/
 │   └── workflows/
-│       ├── validation.yml      # CI: the three validation scripts, every push and pull request
+│       ├── validation.yml      # CI: the three validation scripts, every pull request + pushes to main and integration/**
 │       └── tidy-checks.yml     # CI: the checks runner, on changes touching plugins/tidy-loop/checks/
 ├── scripts/
 │   ├── install-codex-local.sh  # Local Codex install helper (stages plugins/feature/)
@@ -417,7 +417,7 @@ Before committing changes to skills or agents:
 12. **Runtime contract** — run `bash scripts/check-runtime-contract.sh`; it must exit 0. This checks the four runtime consumers, required runtime operations, neutral stage-template placeholders, and complete read-only reviewer roster. Real runtime behavior still needs a smoke run in a separate consuming project.
 13. **Tidy-loop checks** — run `bash scripts/check-tidy-checks.sh`; it must exit 0 with every `ok` line. It installs each fixture's pinned toolchain with `npm ci` (Node ≥ 20, npm, and git on PATH) and diffs every checks command's JSON document against the committed expected one. CI runs it too, on changes touching the checks subtree or the runner (`.github/workflows/tidy-checks.yml`).
 
-14. **CI mirror** — `.github/workflows/validation.yml` runs expectations 8, 10, and 12 on every push and pull request. Adding a validation script means adding a step there, or it stays a manual-only check.
+14. **CI mirror** — `.github/workflows/validation.yml` runs expectations 8, 10, and 12 on every pull request and on every push to `main` or an `integration/**` branch (both workflows filter `push` that way, so a pull-request commit is checked once). Adding a validation script means adding a step there, or it stays a manual-only check.
 
 The skills and agents have no automated test suite; validation there is by manual pipeline runs on real tickets. The tidy-loop checks script is the exception — it is covered by its fixtures through `scripts/check-tidy-checks.sh`, which CI runs alongside the three validation scripts.
 

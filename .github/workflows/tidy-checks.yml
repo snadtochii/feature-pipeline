@@ -3,12 +3,16 @@
 # Separate from the validation workflow because it installs each fixture's
 # pinned toolchain with `npm ci`. That cost is charged only to changes that can
 # affect the answer, so the filter names the checks subtree, the runner, and
-# this file.
+# this file. Pushes to other branches are checked through their pull request
+# alone, so one commit runs the fixtures once.
 
 name: Tidy Loop checks
 
 on:
   push:
+    branches:
+      - main
+      - 'integration/**'
     paths:
       - 'plugins/tidy-loop/checks/**'
       - 'scripts/check-tidy-checks.sh'
