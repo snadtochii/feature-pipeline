@@ -32,6 +32,12 @@ The repo is a **multi-plugin marketplace**: the two marketplace files stay at th
 
 Path convention: in prose references throughout this file, an unqualified `skills/`, `agents/`, `hooks/`, or `docs/` path names the item inside the `feature` plugin (i.e. `plugins/feature/…`). Operational commands and audit steps use the full repo-root-relative `plugins/feature/…` path so they run as written from the repo root.
 
+`scripts/` at the repo root holds the repository's own tooling, repo-root-relative like every operational path above: the `check-*.sh` validators, the `check-tidy-checks.mjs` checks runner, and `measure-session.py` beside its committed `measure-session.expected.json` anchor.
+
+### Measuring a run
+
+`scripts/measure-session.py` turns a Claude Code session transcript into a token report — per agent, per role, per ticket, and per build phase — so a change to the pipeline is measured before and after rather than argued about. It **reports rather than gates**, which is why it is deliberately absent from `.github/workflows/validation.yml`; its own check is `python3 scripts/measure-session.py self-test`. Two things about it are invariants rather than usage: no saving is ever reported without the quality-parity fields beside it, and the report's two units — weighted units for the role and ticket tables, re-read sum for the phase tables — are never comparable to each other. Its module docstring owns the command lines, the weights and the recognition contracts; this file does not restate them.
+
 ---
 
 ## Pipeline flow (conceptual)
