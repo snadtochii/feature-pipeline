@@ -16,16 +16,16 @@ A Claude Code & Codex plugin that runs an agentic feature-development pipeline f
 /plugin marketplace add <github-user>/feature-pipeline   # add the repo as a marketplace (ships four plugins)
 /plugin install feature@<github-user>-feature            # install the pipeline plugin
 /plugin install stack-first@<github-user>-feature        # optional: the dependency-guard plugin
-/plugin install tidy-loop@<github-user>-feature           # optional: the structure-only refactoring loop
+/plugin install tidy-loop@<github-user>-feature          # optional: the structure-only refactoring loops
 /plugin install server-native@<github-user>-feature      # optional: only for mode: server-native
 /reload-plugins                                          # activate
 ```
 
-The marketplace ships four independent plugins: `feature` (the pipeline), `stack-first` (a stack-agnostic dependency guard), `tidy-loop` (a scheduled structure-only refactoring loop), and `server-native` (the MCP connector that turns on server-native ticket storage). Install whichever you need. `stack-first` and `tidy-loop` have their own READMEs ([stack-first](plugins/stack-first/README.md), [tidy-loop](plugins/tidy-loop/README.md)).
+The marketplace ships four independent plugins: `feature` (the pipeline), `stack-first` (a stack-agnostic dependency guard), `tidy-loop` (structure-only refactoring in two scheduled loops — a weekly survey proposes candidates into a human-approved queue, a daily run builds one approved line behind behavior-preservation gates and opens a draft pull request), and `server-native` (the MCP connector that turns on server-native ticket storage). Install whichever you need. `tidy-loop` and `server-native` are Claude Code only. `stack-first` and `tidy-loop` have their own READMEs ([stack-first](plugins/stack-first/README.md), [tidy-loop](plugins/tidy-loop/README.md)).
 
 ### Codex
 
-The three runtime plugins carry their own Codex manifests (`plugins/feature/.codex-plugin/plugin.json`, `plugins/stack-first/.codex-plugin/plugin.json`, `plugins/tidy-loop/.codex-plugin/plugin.json`); the repo-root marketplace file (`.agents/plugins/marketplace.json`) indexes them with subdirectory-aware sources. `server-native` is Claude-only — on Codex you bind the same server through `config.toml` (see the requirements bullet below).
+Two plugins carry their own Codex manifests (`plugins/feature/.codex-plugin/plugin.json`, `plugins/stack-first/.codex-plugin/plugin.json`); the repo-root marketplace file (`.agents/plugins/marketplace.json`) indexes them with subdirectory-aware sources. `tidy-loop` and `server-native` are Claude-only: `tidy-loop`'s write fences are `PreToolUse` hooks declared in agent frontmatter and its run delegates to Claude subagent types, and `server-native` declares its MCP server through install-time prompts — on Codex you bind the same server through `config.toml` (see the requirements bullet below).
 
 Install the stable plugin from GitHub:
 
@@ -34,7 +34,6 @@ codex plugin marketplace add snadtochii/feature-pipeline --ref main
 codex plugin list                           # verify feature@feature is available
 codex plugin add feature@feature
 codex plugin add stack-first@feature        # optional: the dependency-guard plugin
-codex plugin add tidy-loop@feature          # optional: the structure-only refactoring loop
 codex plugin list                           # verify installed version and status
 ```
 
@@ -58,7 +57,7 @@ codex plugin list                           # verify feature@feature-local is in
 
 Set `CODEX_HOME` to test against an isolated Codex home, or `FEATURE_CODEX_LOCAL_MARKETPLACE` to choose a different staging root. Both locations must be outside the checkout. Re-run the helper after local edits, then start a new Codex task to load the refreshed plugin.
 
-Whichever platform you develop against, run the validation scripts from the checkout root before opening a pull request: `scripts/check-tool-parity.sh` checks that every `pipeline_*` tool a skill lists is dual-listed in its frontmatter (bare and Claude-scoped), and `scripts/check-mode-split.sh` checks that no storage-mode reference file leaks the other mode, every `-fs`/`-server` pair is complete, and every relative `.md` link under `skills/` resolves. `bash scripts/check-runtime-contract.sh` checks runtime dispatch, shared stage templates, and the independent reviewer roster. All three must exit 0.
+Whichever platform you develop against, run the validation scripts from the checkout root before opening a pull request: `scripts/check-tool-parity.sh` checks that every `pipeline_*` tool a skill lists is dual-listed in its frontmatter (bare and Claude-scoped); `scripts/check-mode-split.sh` checks that no storage-mode reference file leaks the other mode, that every `-fs`/`-server` pair is complete, and that every relative `.md` link in the repository's own markdown resolves under both `plugins/feature/skills/` and `plugins/tidy-loop/` (vendored and generated trees are pruned from the walk); `scripts/check-runtime-contract.sh` checks runtime dispatch, shared stage templates, and the independent reviewer roster; and `scripts/check-tidy-checks.sh` drives the tidy-loop checks commands against their committed fixtures and diffs the JSON byte-for-byte (it needs Node, npm, and Git, and installs each fixture's pinned toolchain, so it is slower than the other three). All four must exit 0.
 
 Switch back to the stable GitHub installation:
 

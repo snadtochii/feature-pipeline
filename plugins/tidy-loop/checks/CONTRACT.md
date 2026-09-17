@@ -81,7 +81,7 @@ unambiguous. A flag whose value is a *pattern* rather than a path follows the sa
 and never absolute.
 
 **How `--prelude` is composed.** The prelude is the caller's own declared command — the
-same trust tier as the rest of that caller's profile — and it is treated as *file
+same trust level as the rest of that caller's profile — and it is treated as *file
 content*, never as text substituted into a command line. The command writes
 
 ```sh
