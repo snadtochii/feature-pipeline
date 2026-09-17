@@ -1,0 +1,52 @@
+# The tidy-loop checks commands against their committed fixtures.
+#
+# Separate from the validation workflow because it installs each fixture's
+# pinned toolchain with `npm ci`. That cost is charged only to changes that can
+# affect the answer, so the filter names the checks subtree, the runner, and
+# this file. Pushes to other branches are checked through their pull request
+# alone, so one commit runs the fixtures once.
+
+name: Tidy Loop checks
+
+on:
+  push:
+    branches:
+      - main
+      - 'integration/**'
+    paths:
+      - 'plugins/tidy-loop/checks/**'
+      - 'scripts/check-tidy-checks.mjs'
+      - '.github/workflows/tidy-checks.yml'
+  pull_request:
+    paths:
+      - 'plugins/tidy-loop/checks/**'
+      - 'scripts/check-tidy-checks.mjs'
+      - '.github/workflows/tidy-checks.yml'
+
+permissions:
+  contents: read
+
+# A re-push supersedes the run it interrupts rather than queueing behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fixtures:
+    name: Checks fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'plugins/tidy-loop/checks/fixtures/*/package-lock.json'
+
+      - name: Run the checks fixtures
+        run: node scripts/check-tidy-checks.mjs

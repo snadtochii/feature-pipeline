@@ -1,0 +1,29 @@
+{
+  "collection": "static",
+  "tests": [
+    {
+      "file": "src/format.spec.ts",
+      "name": "pad > leaves a long enough string alone"
+    },
+    {
+      "file": "src/format.spec.ts",
+      "name": "pad > pads to the requested width"
+    },
+    {
+      "file": "src/math.spec.ts",
+      "name": "add > sums two numbers"
+    },
+    {
+      "file": "src/math.spec.ts",
+      "name": "clamp > clamps above the maximum"
+    },
+    {
+      "file": "src/math.spec.ts",
+      "name": "clamp > clamps below the minimum"
+    },
+    {
+      "file": "src/math.spec.ts",
+      "name": "clamp > clamps below the minimum"
+    }
+  ]
+}

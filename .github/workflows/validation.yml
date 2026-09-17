@@ -1,0 +1,46 @@
+# The repository's validation scripts, on every pull request and on every push
+# to a long-lived branch.
+#
+# These are bash plus python3 and finish in seconds, so they carry no path
+# filter: a change anywhere can break a frontmatter budget, a mode-split rule,
+# or the runtime contract. Pushes to other branches are checked through their
+# pull request alone, so one commit runs the scripts once.
+
+name: Validation
+
+on:
+  push:
+    branches:
+      - main
+      - 'integration/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+# A re-push supersedes the run it interrupts rather than queueing behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scripts:
+    name: Validation scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Tool parity
+        run: bash scripts/check-tool-parity.sh
+
+      - name: Mode split
+        run: bash scripts/check-mode-split.sh
+
+      - name: Markdown links
+        run: bash scripts/check-md-links.sh
+
+      - name: Runtime contract
+        run: bash scripts/check-runtime-contract.sh

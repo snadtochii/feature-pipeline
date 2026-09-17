@@ -1,7 +1,7 @@
 # The `.tidyloop.yaml` contract
 
 Authoritative schema for a consuming repo's Tidy Loop profile. Written by `tidy-setup`,
-read by `tidy-run`. Committed at the repo root.
+read by `tidy-survey` and `tidy-execute`. Committed at the repo root.
 
 The plugin ships **zero project facts**. Every command, path, glob, and cap the loop needs
 lives here. A repo with no `.tidyloop.yaml`, or with `version` other than `1`, is not
@@ -13,20 +13,30 @@ eligible and the run refuses rather than guessing.
 
 ```yaml
 version: 1                   # required, must be 1
+execute: false               # required bool — `tidy-execute` is a no-op until a human flips it
 
-tier: 0                      # required — 0 observe | 1 single-pr | 2 graduated
 base: main                   # required — the branch every run forks from
 loop_clone: "~/Projects/myrepo-tidy"   # required — the dedicated checkout the loop owns
 main_checkout: "~/Projects/myrepo"     # optional — the user's own checkout, read-only, for busy-file detection
-state_dir: "~/.tidy-loop/myrepo"       # required — run state, OUTSIDE every repo working tree
+state_dir: "~/.tidy-loop/myrepo"       # required — run state and the queue, OUTSIDE every repo working tree
+
+checks:
+  stack: ts-vitest           # required — names a directory under the plugin's checks/
+  # Each gate below is null or a command/config string. Null means skipped, and reported as skipped.
+  spec_body_identity: null
+  dom_golden: null
+  differential_property: null
+  mutation: null
 
 scan:
   window: 120d               # churn window for the hotspot score
   include: []                # globs the loop may propose changes in (required, non-empty)
   exclude: []                # never scanned, never touched
-  top_n: 10                  # how many hotspot files the scanner actually reads
+  neighbourhood:             # how far around a hotspot the survey reads
+    max_callers: 10
+    max_cochanged: 5
 
-forbidden_paths: []          # a finding touching any of these is dropped at any tier
+forbidden_paths: []          # a finding touching any of these is dropped
 test_support_paths: []       # required — test harness that is not a spec file; forbidden, and why: §2
 
 caps:
@@ -41,44 +51,35 @@ caps:
     extract-type-to-file: { max_diff_lines: 150 }
     dedupe-identical-block: { max_diff_lines: 250 }
     extract-function: { max_diff_lines: 400 }
-    delete-dead-code: { max_diff_lines: 400 }
     split-file-by-concern: { max_diff_lines: 600, max_files: 10 }
+    deepen-module: { max_diff_lines: 400, max_files: 6, max_import_update_files: 30 }
 
-allowlist: []                # required, non-empty, ORDERED safest first — position is a ranking input, see §2
+allowlist: []                # required, non-empty — the categories the loop may act on (§2)
 
 commands:
   prelude: null              # nullable — prefixed to every command below; how a scheduled run gets the toolchain
   install: "…"               # required — makes a fresh worktree buildable
   lint: "…"                  # nullable
   typecheck: "…"             # nullable
-  test: "…"                  # required — G1 and G2 have no meaning without it
+  test: "…"                  # required — the behavior gates have no meaning without it
   build: "…"                 # nullable
-  test_globs: []             # required, non-empty — the files G1 restores from base
-  mutation: null             # nullable, tier 2+
-  smoke: null                # nullable
+  test_globs: []             # required, non-empty — the project's spec files; three roles in §2
 
-surface_oracle: []           # artifacts that must be byte-identical after build; empty disables G4
-
-ticket_adapter: none         # none | github-issues | feature-pipeline-fs
-ledger: docs/tidy-ledger.md  # required
 pr_label: tidy-loop
-tier0_report: file           # file | issue
 ```
 
 ---
 
 ## §2 Field semantics
 
-### `tier`
+### `execute`
 
-| Value | Loop produces | Caps | Categories |
-| --- | --- | --- | --- |
-| `0` | a report only — no branch, no PR | — | all, for visibility |
-| `1` | one draft PR per run | as declared | `allowlist` only |
-| `2` | one draft PR per run, raised caps for proven categories | per-category | widened; `commands.mutation` expected |
+`tidy-setup` always writes `false`, and nothing in either loop ever writes this key.
 
-No tier auto-merges. `tidy-setup` writes `0` and never higher — graduation is a human
-decision informed by the ledger.
+While it is `false`, `tidy-survey` runs normally — it scans, proposes, and fills the queue —
+and `tidy-execute` is a no-op that reports the flag and exits. This is the shape of a safe
+pilot: the queue accumulates real candidates and the human reads real survey reports, with
+nothing building anything, until the human has seen enough to flip one boolean.
 
 ### `base`
 
@@ -95,10 +96,10 @@ multi-repo workspace.
 Worktrees are created at `<loop_clone>/../<clone-dirname>-worktrees/<run-id>`, matching the
 feature plugin's convention so the two systems produce the same directory shape.
 
-**A scheduler passes this path to `tidy-run`, never `main_checkout`.** The loop clone is always
-on `base`, so its committed profile always governs. The user's checkout sits on whatever branch
-they are working on, which may predate the profile entirely — a first real run was handed exactly
-that and found no profile to read.
+**A scheduler passes this path to `tidy-survey` and `tidy-execute`, never `main_checkout`.**
+The loop clone is always on `base`, so its committed profile always governs. The user's
+checkout sits on whatever branch they are working on, which may predate the profile entirely
+— a first real run was handed exactly that and found no profile to read.
 
 ### `main_checkout`
 
@@ -115,29 +116,96 @@ The run never writes here, never fetches here, and never changes its branch.
 
 ### `state_dir`
 
-Where a run keeps everything that is not a repository artifact: tier-0 reports, the patch and
-output of a blocked run, and the pending-ledger set. It **must sit outside every repository
-working tree**.
+Where the loop keeps everything that is not a repository artifact. It **must sit outside every
+repository working tree**.
 
 This is not a stylistic preference. A run aborts at preflight when the loop clone is dirty, so
 state written *inside* the clone would appear as untracked files and every subsequent run would
 abort on residue the previous run created. State under the repo is a loop that disables itself
 after one execution.
 
-Under `state_dir` the run owns three things:
+Under `state_dir` the loop owns:
 
 ```
-<state_dir>/reports/<ISO-date>.md      # tier-0 reports
-<state_dir>/blocked/<run-id>.patch     # the diff of a gate-aborted run
+<state_dir>/queue.md                   # the queue — seeded by tidy-setup, see queue.md
+<state_dir>/queue.lock                 # transient — held by a skill writer for one queue write, see queue.md §5
+<state_dir>/reports/<ISO-date>.md      # the survey report — also the id-keyed record of each
+                                       # proposed finding's files and structural_key
+<state_dir>/briefs/<run-id>.md         # the pull request body
+<state_dir>/blocked/<run-id>.patch     # the diff of a gate-blocked run
 <state_dir>/blocked/<run-id>.md        # the deciding gate output
-<state_dir>/briefs/<run-id>.md         # the pull request body — see ledger.md §7
-<state_dir>/pending-ledger.md          # rows not yet carried onto a branch — see ledger.md §7
+<state_dir>/runs/<run-id>/             # one run's working files, discarded with the run
+<state_dir>/runs/<run-id>/rename-map.json  # the agreed module/symbol map, in the checks
+                                       # script's schema, read by the gates that follow
+<state_dir>/tmp/<run-id>-*             # a run's own scratch files, removed before it exits
 ```
+
+The listing is exhaustive, and that is what makes it useful: a cleanup step can treat anything
+under `state_dir` that is not one of these as residue. `tmp/` is where a run puts the
+intermediate files it writes rather than carries in context — a path list, a measurement set, a
+hash payload — and a run removes its own before exiting, so anything still there was left by a
+run that died.
 
 The brief lives here rather than on the branch for a specific reason: it is the *only* copy of
-the gate evidence and the ranked candidate table, and neither is reconstructable after the run
-ends. A pushed branch carries the change and the ledger row but not the brief, so without a
-durable copy an orphan branch cannot have its pull request opened at all.
+the gate evidence table, which is not reconstructable after the run ends. A pushed branch
+carries the change but not the brief, so without a durable copy an orphan branch cannot have
+its pull request opened at all.
+
+Reports are retained for the same reason: a queue line carries a finding's id but not its
+shape, so the report that proposed the id is where `files` and `structural_key` are recovered
+from ([`queue.md`](queue.md) §1).
+
+The `blocked/` pair is the target a `blocked` queue note points at
+([`queue.md`](queue.md) §4), so the human can read what failed without re-running anything.
+
+One piece of loop state deliberately sits **outside `state_dir`**, in the loop clone's own git
+common directory:
+
+```
+<loop_clone>/.git/tidy-loop-fence.json   # transient — the live write fence for one execution run
+```
+
+It is not under `state_dir` because a hook reads it, and a hook's command string is static: it
+cannot resolve `state_dir`, which is per-repo configuration. So the hook derives the location
+instead, from the path it is asked about — `git -C <that path> rev-parse --path-format=absolute
+--git-common-dir` — which puts the fence beside the run lock and gives it the lock's scope. Every
+worktree of a clone shares one common dir, so a single file covers a run and the worktree it
+spawns agents in, while a run in another clone cannot read, overwrite or delete it. Cross-repo
+safety is structural rather than bookkeeping: there is nothing for two runs to arbitrate.
+
+### `checks`
+
+The loop's mechanical checks are commands the plugin ships, invoked by name as
+`node "${CLAUDE_PLUGIN_ROOT}/checks/<stack>/<command>.mjs"`.
+
+**`stack`** names which shipped implementation answers them — a directory under the plugin's
+`checks/`. It is inferred from the repo's own toolchain, not asked. A toolchain no shipped
+stack answers stops setup rather than being approximated: a check that cannot run is worth
+more as an honest refusal than as a silent skip.
+
+This is the one profile value that becomes part of an executed path, and it arrives from a
+committed file the loop reads unattended, so it is character-class-checked before use: a
+single path segment matching `[a-z0-9-]+`, with the resolved `checks/<stack>` directory
+verified to stay inside the plugin's own `checks/`. Validation enforces both (§3).
+
+The stack's implementation runs against the **target repo's own** toolchain, so the repo must
+have a coverage provider installed for the coverage check to answer at all. That is a
+validation rule (§3), not a runtime surprise.
+
+The four keys below it are **configured-or-skipped gates**. Each is `null` or a command or
+config string, and `null` means the gate is skipped *and reported as skipped* — a run's
+evidence table names it, so the human always knows how much of the suite actually ran.
+
+- **`spec_body_identity`** — proves the symmetric test patch moved spec bodies rather than
+  rewriting them.
+- **`dom_golden`** — proves rendered output is unchanged for a repo that renders.
+- **`differential_property`** — proves old and new implementations agree over generated
+  inputs.
+- **`mutation`** — proves the specs actually discriminate, by scoring them against injected
+  faults.
+
+A project configuring none of them still gets the always-on gates; it simply gets less
+evidence, stated plainly rather than implied.
 
 ### `scan.include` / `scan.exclude`
 
@@ -150,12 +218,31 @@ run, and the diff looks legitimate.
 
 ### `scan.window`
 
-Churn window, e.g. `120d`. Feeds `score = churn × lines`. Too short and the ranking is noise;
-too long and it reflects a codebase that no longer exists. `120d` is the default.
+Churn window. Feeds the hotspot score. Too short and the ranking is noise; too long and it
+reflects a codebase that no longer exists. `120d` is the default.
+
+The accepted shorthand is `[0-9]+[dwmy]` — a count followed by `d`, `w`, `m`, or `y` — and
+validation rule 17 enforces it. **The shorthand is not a git-parsable date spec**: every
+consumer normalizes it per [`hotspots.md`](hotspots.md) §1 before it reaches a `git log
+--since=`. Handing the raw value to git returns zero commits without an error, which reads
+as a repository where nothing changed.
+
+### `scan.neighbourhood`
+
+How far around a ranked hotspot `tidy-survey` reads before proposing anything. A structural
+finding is rarely visible in one file: the duplication is in the caller, the missing seam
+shows up in what changes alongside it.
+
+- **`max_callers`** (default `10`) — files importing the hotspot, most-relevant first.
+- **`max_cochanged`** (default `5`) — files that repeatedly change in the same commits as the
+  hotspot within `scan.window`.
+
+Raising these widens what the survey can see and lengthens the run; the defaults are sized so
+a weekly survey stays comfortably bounded.
 
 ### `forbidden_paths`
 
-Dropped at **every** tier, including a finding the scanner rates highly. This is the list of
+Dropped **always**, including a finding the survey rates highly. This is the list of
 places where a structural change is never merely structural. Typical members:
 
 - database migrations (rewriting an applied migration is not a refactor)
@@ -173,14 +260,12 @@ database helpers, fakes and other test doubles, and shared fixtures. Treated as 
 finding touching any of them is dropped.
 
 **Why they need naming separately from `forbidden_paths`, and why forbidding is the right
-answer.** The behavior oracle restores the files matching `test_globs` from the base commit and
-runs them. It therefore assumes the *harness* those specs run against is fixed. A test double
-is not a spec file, so it is not restored — meaning a run that refactored a fake would execute
-the base specs against its own modified fake. An altered stub can then mask exactly the
-regression the gate exists to catch.
+answer.** The behavior oracle compares a run against a symmetric test patch: the specs move
+with the code, and the comparison is only meaningful if the *harness* those specs run against
+is identical on both sides of it. A test double is not a spec file, so it is not part of the
+patch — meaning a run that refactored a fake would compare specs running against two different
+fakes. An altered stub can then mask exactly the regression the comparison exists to catch.
 
-Adding them to `test_globs` instead looks tempting and is worse: restoring a file the diff
-modified means the gate never exercises the modified version, so the change ships unverified.
 Forbidding is the coherent choice — the payoff from tidying test infrastructure is low, and
 nothing tests the double itself, so its behavior preservation has no oracle at all.
 
@@ -199,24 +284,16 @@ behavior gate with a hole. Too broad silently shrinks what the loop is allowed t
 ### `caps`
 
 A finding estimated over any cap is dropped at selection, and a *branch* measured over any cap
-aborts the run at gate G5. Never split-and-do-part-one: a partial structural change leaves the
+fails the caps gate. Never split-and-do-part-one: a partial structural change leaves the
 codebase worse than either end state.
 
 **`max_open_prs`** — the churn budget. With the cap reached, the run aborts at preflight. The
 single most important number in the file: it is what keeps the loop from becoming a review queue
 nobody reads.
 
-**It must be `1`**, and validation rule 15 enforces that. Beyond the review-queue argument,
-raising it breaks pending-row delivery. A pending row is keyed by the run that *created* it,
-while a *different* run may be the one that carries it onto a branch — which is the whole point
-of the pending set. With one pull request in flight at a time, a run that would append an
-already-carried row aborts at the churn budget first, so the row cannot be delivered twice. With
-two in flight, it can: the carrier's pull request is open, the originating run has no branch of
-its own, the row is not yet on base, and nothing stops a third run appending it again. Both then
-merge and the row is counted twice, distorting the metrics that drive graduation.
-
-Lifting this needs a durable per-row delivery record — a stable row id in the committed ledger,
-plus the branch that actually carried it — not a bigger number here.
+**It must be `1`**, and the validation rule on `max_open_prs` enforces that. One open draft pull
+request at a time is the whole review budget the loop is allowed to spend, and a loop that
+outruns its reviewer has stopped being useful whatever its diffs look like.
 
 **Test files never count toward any cap.** They are evidence, not churn. Charging them would
 create the worst possible incentive — the cheapest way under a cap would be to skip the
@@ -225,26 +302,29 @@ excluded from every measurement below.
 
 **`max_files` counts substantive files only** — files whose logic actually changed.
 
-**`max_import_update_files`** is a separate, far looser allowance for files touched *only* to
-repoint an import at a moved symbol. These carry no behavioral risk and the typechecker is very
-nearly a total oracle for them: a wrong path fails the typecheck every time, with the base-test
-gate behind it. Capping them at the same number as substantive files caps the one thing already
-fully verified, and on a real codebase it blocks the highest-value work outright — moving a
-symbol out of a widely-imported module means repointing every importer, which is routinely
-twenty files or more.
-
-How the two are told apart, mechanically and fail-closed: gates.md §2.
+**`max_import_update_files`** is a separate, far looser allowance for a file whose diff consists
+solely of import/export-from statement changes — touched only to repoint an import at a moved
+symbol. These carry no behavioral risk and the typechecker is very nearly a total oracle for
+them: a wrong path fails the typecheck every time, with the behavior gates behind it. Capping
+them at the same number as substantive files caps the one thing already fully verified, and on a
+real codebase it blocks the highest-value work outright — moving a symbol out of a
+widely-imported module means repointing every importer, which is routinely twenty files or more.
 
 **`max_diff_lines` is measured as insertions plus deletions**, which double-charges every moved
 line — a relocated function body is added in its new home and deleted from its old one. A
 90-line extraction therefore costs about 180. Set the numbers with that doubling in mind, or the
 cap silently permits only trivial work.
 
-**`per_category`** exists because the categories have wildly different natural sizes. Deleting
-300 lines of dead code is charged at 1× and is trivially reviewable; extracting a 200-line
-function is charged at 2×; splitting a large module can legitimately produce several new files.
-One flat number is the wrong shape. Any category absent from `per_category` uses the top-level
-defaults, and a per-category block may override `max_diff_lines`, `max_files`, or both.
+**`per_category`** exists because the categories have wildly different natural sizes. Extracting
+a 200-line function is charged at 2×; splitting a large module can legitimately produce several
+new files; deepening a module moves logic behind an interface and repoints every importer. One
+flat number is the wrong shape. Any category absent from `per_category` uses the top-level
+defaults, and a per-category block may override `max_diff_lines`, `max_files`,
+`max_import_update_files`, or any combination.
+
+An approval may raise the caps for its own pick with a `caps:` override in the queue note
+([`queue.md`](queue.md) §4). That override wins for that pick alone and changes nothing in this
+file — the human who read the candidate is better placed than a default to size it.
 
 A note on what the caps are *for*, since it is easy to over-weight them. The safety in this
 system comes from the gates, not from the caps. The caps keep one run to one coherent change and
@@ -253,35 +333,25 @@ point buys no safety and forfeits the value.
 
 ### `allowlist`
 
-Categories the loop may act on. Mechanical categories only at tier 1.
-
-**The order is not decoration: it is a ranking input.** Selection sorts eligible findings by
-behavior risk first and allowlist position second, *ahead of* hotspot score. So the list's
-order decides which of two equally risk-free findings the loop builds — and it outranks how
-hot the file is. A first real run showed what an unconsidered order does: an `extract-function`
-finding won purely because that category was written first, over a dead-code deletion scoring
-2.5× higher and a magic-number rename that was trivially safe, and the architect then failed the
-winner on placement.
-
-Order it **safest first**, where safest means the strongest mechanical oracle and the least code
-moved:
+The categories the loop may act on, as an unordered set. A finding whose category is absent is
+dropped, not deferred. The permitted categories are exactly:
 
 ```
 literal-to-named-constant   # a value gets a name; typecheck and tests see every use
 extract-type-to-file        # types are erased at runtime; zero runtime behavior can change
 rename-for-clarity          # typecheck sees symbol uses, but not strings, logs, or serialized keys
-delete-dead-code            # safe only once non-import wiring is ruled out — scripts, framework
-                            # entries, config — which no typecheck can see
 extract-function            # moves logic; relies on the tests exercising it
 dedupe-identical-block      # merges logic, and can erase duplication that was deliberate
-split-file-by-concern       # the largest change and the most to review
+split-file-by-concern       # a large change and the most to review
+deepen-module               # cross-file structural work: a narrower interface over more
+                            # implementation, which moves logic and repoints every importer
 ```
 
-Reorder deliberately if the project wants something else — putting a category first says "do
-this whenever it is available". Never leave the order as an accident of how the list was typed.
+Each line says what the category is and where its risk sits, so a project narrowing the list is
+choosing against a known cost rather than a name.
 
-A finding whose category is absent is dropped, not deferred. Widening the list is a
-graduation decision, not a setup decision.
+Widening or narrowing the list is a deliberate decision about what the loop is allowed to do in
+this codebase, and it is the human's to make.
 
 ### `commands`
 
@@ -304,68 +374,63 @@ Two hard requirements on the commands themselves:
   fixed port can be answered by a server already running from another checkout, producing a
   false green — the worst possible failure for this loop.
 
-`test_globs` selects the files gate G1 restores from the base commit. Get these wrong and G1
-silently checks nothing.
+`test_globs` names **the project's spec files**, and three separate mechanisms key off it:
 
-### `surface_oracle`
+- It is the file set the symmetric test patch is computed over — the specs that move with the
+  code when a run relocates what they cover.
+- It is the set the run's write fences are keyed to: the implementer neither reads nor writes
+  a file matching it, and the spec-mover writes nothing else.
+- It is the set excluded from every cap measurement, per `caps` above.
 
-Build artifacts that must be **byte-identical** before and after. A repo publishing a typed
-boundary (emitted `.d.ts`, an OpenAPI document, a generated schema) gets a strong,
-near-free behavior check here. Empty list disables G4, and the project is correspondingly
-less protected — state that plainly rather than inventing an oracle.
-
-### `ticket_adapter`
-
-- `none` — the branch, the PR, and the ledger line are the whole record. The default, and
-  correct whenever the loop runs from a dedicated clone.
-- `github-issues` — one issue per run, labelled `pr_label`.
-- `feature-pipeline-fs` — a real pipeline ticket. **Only valid when the loop runs in the same
-  checkout as the user's own work.** From a separate clone this is unsafe: the ticket
-  contract prevents duplicate IDs by rescanning every path from `git worktree list`, a
-  separate clone never appears in that listing, and the ticket tree is gitignored, so two
-  allocations can collide and corrupt the tree.
-
-### `ledger`
-
-Path, repo-relative, to the committed append-only ledger. One line per run. Created by
-`tidy-setup` if absent.
-
-### `tier0_report`
-
-- `file` — the tier-0 report is written to `<state_dir>/reports/<ISO-date>.md`
-  and its path is printed. No commits, no network. The default.
-- `issue` — the report is opened as a GitHub issue labelled `pr_label`. Requires `gh`.
+Get these wrong and all three go quietly wrong at once, which is why §3 requires them to match
+at least one real file.
 
 ---
 
 ## §3 Validation rules
 
-`tidy-run` refuses to start unless all of these hold. `tidy-setup` checks them before writing.
+Every rule below must hold. `tidy-setup` checks them all before writing the profile, and each
+loop re-checks them at its own preflight and refuses to start on a failure.
+
+Two of them — the `checks.stack` rule and the coverage-provider rule — are **environment**
+rules: they describe the machine and the repo rather than the file. `tidy-setup` still checks
+both, but of the two loops only `tidy-execute` re-checks them, since the survey never invokes
+the checks script.
 
 1. `version` is `1`.
-2. `tier` is `0`, `1`, or `2`.
+2. `execute` is a boolean.
 3. `base` exists on `origin`.
 4. `loop_clone` resolves to a directory containing `.git`, whose current branch is `base`.
-5. `scan.include` is non-empty.
-6. `allowlist` is non-empty.
-7. `commands.install`, `commands.test`, and `commands.test_globs` are all present and non-empty.
-8. `commands.test_globs` matches at least one file in the repo.
-9. `ledger` is a path inside the repo.
-10. `ticket_adapter` is `feature-pipeline-fs` only if `loop_clone` is the repo itself.
-11. `main_checkout`, when present, resolves to a directory containing `.git` and is not
-    `loop_clone`.
+5. `checks.stack` is a single path segment matching `[a-z0-9-]+` — no path separators, no `.`
+   segments, no other character — and names an existing directory whose resolved path stays
+   inside the plugin's own `checks/`. The value becomes part of an executed command path, so
+   the character class is checked before the directory is looked for, not after. *(environment)*
+6. A coverage provider for `checks.stack` is resolvable from the repo — for `ts-vitest`,
+   `@vitest/coverage-v8` or `@vitest/coverage-istanbul`. Remedy: add `@vitest/coverage-v8` as a
+   devDependency and commit. *(environment)*
+7. Each of `checks.spec_body_identity`, `checks.dom_golden`, `checks.differential_property`,
+   and `checks.mutation` is `null` or a string.
+8. `scan.include` is non-empty.
+9. `allowlist` is non-empty and every entry is one of the categories in §2.
+10. `commands.install`, `commands.test`, and `commands.test_globs` are all present and non-empty.
+11. `commands.test_globs` matches at least one file in the repo.
 12. `commands.prelude`, when present, is a single line with no newline — it is prefixed to other
     commands, so a multi-line value would break every one of them.
-13. `state_dir` is present and resolves **outside** every configured repository working tree —
+13. `main_checkout`, when present, resolves to a directory containing `.git` and is not
+    `loop_clone`.
+14. `state_dir` is present and resolves **outside** every configured repository working tree —
     not inside `loop_clone` and not inside `main_checkout`. A state directory inside the clone
     makes every run after the first abort on its predecessor's residue.
-14. `test_support_paths` is present. An empty list is permitted only for a project with no test
+15. `test_support_paths` is present. An empty list is permitted only for a project with no test
     harness beyond its spec files, and `tidy-setup` states that conclusion explicitly rather
     than defaulting to it.
-15. `caps.max_open_prs` is exactly `1`. A larger value makes pending-row delivery
-    non-idempotent, because a row created by one run and carried by another can be appended a
-    second time while the carrier's pull request is still open. Refuse the profile rather than
-    silently double-counting; the semantics above name what lifting it would require.
+16. `caps.max_open_prs` is exactly `1`. One open draft pull request at a time is the review
+    budget, and it is what keeps the loop from becoming a queue nobody reads.
+17. `scan.window` matches `[0-9]+[dwmy]` exactly. An unmatched value silently yields an empty
+    hotspot ranking rather than an error, and the value is the input to the `--since`
+    normalization in [`hotspots.md`](hotspots.md) §1 — so the character class is what makes that
+    normalization total, and what keeps an unvalidated value from reaching a `git log` argument.
+    Remedy: write the window as a count and one of `d`, `w`, `m`, `y` — for example `120d`.
 
 A failed rule is reported with the field name and the remedy, and nothing runs.
 
@@ -375,6 +440,7 @@ A failed rule is reported with the field name and the remedy, and nothing runs.
 
 - **No secret values.** The file is committed. It names paths and commands, never tokens,
   passwords, or connection strings.
-- **No per-run state.** Findings, scores, and outcomes live in the ledger. The profile is
-  configuration, and a run never writes to it.
-- **No tier promotion by the loop.** Only a human edits `tier`.
+- **No per-run state.** Findings, decisions, and outcomes live in `state_dir` — the queue, the
+  reports, the briefs, and the blocked evidence. The profile is configuration, and a run never
+  writes to it.
+- **No `execute: true` from the loop.** Only a human flips it.

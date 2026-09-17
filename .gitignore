@@ -2,3 +2,8 @@
 
 # Pipeline artifacts and tickets are local working state, not for the plugin repo
 claudedocs/
+
+# Node tooling for the tidy-loop checks fixtures
+node_modules/
+coverage/
+*.tsbuildinfo

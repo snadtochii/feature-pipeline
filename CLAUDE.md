@@ -28,7 +28,7 @@ Editing a skill or agent while another Claude Code session is open:
 
 ## Repository layout
 
-The repo is a **multi-plugin marketplace**: the two marketplace files stay at the repo root and index the plugins under `plugins/`. A plugin that ships runtime components carries both manifests; `server-native` is Claude-only by design — it exists to declare an MCP server through install-time prompts, which Codex has no equivalent for, so it appears in the Claude marketplace alone and Codex users bind the same server through `config.toml`.
+The repo is a **multi-plugin marketplace**: the two marketplace files stay at the repo root and index the plugins under `plugins/`. `feature` and `stack-first` carry both manifests. Two plugins are Claude-only by design and appear in the Claude marketplace alone: `server-native` exists to declare an MCP server through install-time prompts, which Codex has no equivalent for, so Codex users bind the same server through `config.toml`; `tidy-loop` binds its write fences as `PreToolUse` hooks declared in agent frontmatter and delegates every write to Claude subagent types, neither of which Codex can load from a plugin manifest.
 
 Path convention: in prose references throughout this file, an unqualified `skills/`, `agents/`, `hooks/`, or `docs/` path names the item inside the `feature` plugin (i.e. `plugins/feature/…`). Operational commands and audit steps use the full repo-root-relative `plugins/feature/…` path so they run as written from the repo root.
 
@@ -39,11 +39,17 @@ feature-pipeline/
 ├── .agents/
 │   └── plugins/
 │       └── marketplace.json # Codex marketplace — indexes plugins/* (stays at repo root)
+├── .github/
+│   └── workflows/
+│       ├── validation.yml      # CI: the three validation scripts, every pull request + pushes to main and integration/**
+│       └── tidy-checks.yml     # CI: the checks runner, on changes touching plugins/tidy-loop/checks/
 ├── scripts/
 │   ├── install-codex-local.sh  # Local Codex install helper (stages plugins/feature/)
 │   ├── check-tool-parity.sh    # Validation: pipeline_* dual-listing in skill frontmatter
-│   ├── check-mode-split.sh     # Validation: per-mode reference leakage + relative-link resolution
-│   └── check-runtime-contract.sh # Validation: runtime dispatch, stage templates, reviewer roles
+│   ├── check-mode-split.sh     # Validation: per-mode reference leakage
+│   ├── check-md-links.sh      # Validation: relative-link resolution across the doc trees
+│   ├── check-runtime-contract.sh # Validation: runtime dispatch, stage templates, reviewer roles
+│   └── check-tidy-checks.mjs   # Validation: tidy-loop checks commands against their fixtures
 ├── plugins/
 │   ├── feature/             # The feature-development pipeline plugin
 │   │   ├── .claude-plugin/
@@ -80,15 +86,20 @@ feature-pipeline/
 │   │   │   └── stack-first-guard.sh
 │   │   └── skills/
 │   │       └── stack-first/ # Five-step tech-selection procedure + docs/STACK.md contract
-│   └── tidy-loop/           # Scheduled structure-only refactoring loop (independent versions)
+│   └── tidy-loop/           # Structure-only refactoring in two scheduled loops (independent versions)
 │       ├── .claude-plugin/
 │       │   └── plugin.json
-│       ├── .codex-plugin/
-│       │   └── plugin.json
-│       ├── agents/          # tidy-scanner (proposes findings), tidy-architect (the G8 verdict)
+│       ├── agents/          # tidy-scanner, tidy-architect (read-only); tidy-characterizer, tidy-implementer, tidy-spec-mover (the writers)
+│       ├── checks/          # The owned checks script the gates call
+│       │   ├── CONTRACT.md  # Stack-neutral command / JSON / exit-code contract
+│       │   ├── ts-vitest/   # TS + Vitest implementation of the contract's commands
+│       │   └── fixtures/    # Two-tree projects with the JSON each command must return
+│       ├── hooks/
+│       │   └── spec-fence.sh # Write fence, bound from agent frontmatter — the plugin ships no hooks.json
 │       └── skills/
-│           ├── tidy-setup/  # One-time repo onboarding + the .tidyloop.yaml contract
-│           └── tidy-run/    # One unattended run: scan → select one → worktree → gates → draft PR
+│           ├── tidy-setup/   # One-time repo onboarding + the .tidyloop.yaml contract
+│           ├── tidy-survey/  # Weekly: rank hotspots, judge candidates, write proposed lines into the queue
+│           └── tidy-execute/ # Daily: build the first approved queue line, run the gates, open a draft PR
 ├── README.md                # End-user docs
 ├── AGENTS.md                # Codex twin of this file
 └── CLAUDE.md                # This file
@@ -229,7 +240,7 @@ When a block would otherwise be duplicated across multiple stage skills, extract
 
 ### Per-mode reference convention
 
-Storage-mode-specific prose lives in **one file per concern per storage mode** — never in a shared file. Names carry the mode suffix, `<concern>-fs.md` / `<concern>-server.md`, and `scripts/check-mode-split.sh` enforces the split: a `-fs` file never contains `server-native`, `pipeline_`, or `mcp__`; a `-server` file never names a state folder (`backlog/`, `in-progress/`, `review/`, `done/`) or a folder move; every `-fs` file has its `-server` sibling in the same directory and vice versa; every relative `.md` link under `plugins/feature/skills` resolves.
+Storage-mode-specific prose lives in **one file per concern per storage mode** — never in a shared file. Names carry the mode suffix, `<concern>-fs.md` / `<concern>-server.md`, and `scripts/check-mode-split.sh` enforces the split: a `-fs` file never contains `server-native`, `pipeline_`, or `mcp__`; a `-server` file never names a state folder (`backlog/`, `in-progress/`, `review/`, `done/`) or a folder move; and every `-fs` file has its `-server` sibling in the same directory and vice versa. Relative `.md` link resolution is `scripts/check-md-links.sh`, which spans every documentation tree it lists rather than this one alone.
 
 - **Header.** Every mode file opens with the conditional-load sentence: `Canonical logic for <X> in <mode> storage mode. Read when the storage mode detected per [storage.md](storage.md) is <mode> — <the other case> never needs this file. Referenced by <Y>.` In a `-fs` file the other case is worded "a run in the other storage mode" (the token `server-native` is forbidden there); a `-server` file may say "an fs-native run".
 - **Absence, not negation.** The other mode is excluded by leaving its text out — never by sentences like "there are no folders to move here". Beyond the header, a reader of a mode file never learns the other mode exists.
@@ -405,11 +416,15 @@ Before committing changes to skills or agents:
 7. **Reviewer-agent read-only audit** — confirm `plugins/feature/agents/code-reviewer.md`, `plugins/feature/agents/security-engineer.md`, `plugins/feature/agents/performance-engineer.md`, and `plugins/feature/agents/code-architect.md` list no `Bash` or `Edit` in their `tools:`. Reviewers must not mutate the tree they review.
 8. **Tool-parity check** — run `scripts/check-tool-parity.sh`; it must exit 0. This is the executable form of expectation 1 and an automated check in the repo.
 9. **Failed-criteria placement** — failed test criteria live inside `05-tests.md` under a `## Failed Criteria` section. Verify build-skill output stays consistent with this placement.
-10. **Mode-split check** — run `scripts/check-mode-split.sh`; it must exit 0. It is the executable form of the per-mode reference convention (no other-mode token in a `-fs`/`-server` file, no half pair) and the only guard against a dangling relative `.md` link anywhere under `plugins/feature/skills` — the link check covers every reference, not just the mode pairs.
-11. **Mode-pair lockstep** — when you edit a shared section of a `-fs`/`-server` pair (the Epic-completion predicate, the decision table, the status query, error handling), apply the same edit to the sibling; the two files' `##` heading sets must stay identical.
-12. **Runtime contract** — run `bash scripts/check-runtime-contract.sh`; it must exit 0. This checks the four runtime consumers, required runtime operations, neutral stage-template placeholders, and complete read-only reviewer roster. Real runtime behavior still needs a smoke run in a separate consuming project.
+10. **Mode-split check** — run `scripts/check-mode-split.sh`; it must exit 0. It is the executable form of the per-mode reference convention: no other-mode token in a `-fs`/`-server` file, no half pair, bound to `plugins/feature/skills`.
+11. **Markdown links** — run `scripts/check-md-links.sh`; it must exit 0. It is the only guard against a dangling relative `.md` link, over every documentation tree listed in its `roots` array (today `plugins/feature/skills` and `plugins/tidy-loop`); vendored and generated directories are pruned from the walk. Adding a documentation tree is one line there.
+12. **Mode-pair lockstep** — when you edit a shared section of a `-fs`/`-server` pair (the Epic-completion predicate, the decision table, the status query, error handling), apply the same edit to the sibling; the two files' `##` heading sets must stay identical.
+13. **Runtime contract** — run `bash scripts/check-runtime-contract.sh`; it must exit 0. This checks the four runtime consumers, required runtime operations, neutral stage-template placeholders, and complete read-only reviewer roster. Real runtime behavior still needs a smoke run in a separate consuming project.
+14. **Tidy-loop checks** — run `node scripts/check-tidy-checks.mjs`; it must exit 0 with every `ok` line. It installs each fixture's pinned toolchain with `npm ci` (Node ≥ 20, npm, and git on PATH) and diffs every checks command's JSON document against the committed expected one. CI runs it too, on changes touching the checks subtree or the runner (`.github/workflows/tidy-checks.yml`).
 
-There's no automated test suite for the plugin itself. Validation is by manual pipeline runs on real tickets.
+15. **CI mirror** — `.github/workflows/validation.yml` runs expectations 8, 10, 11, and 13 on every pull request and on every push to `main` or an `integration/**` branch (both workflows filter `push` that way, so a pull-request commit is checked once). Adding a validation script means adding a step there, or it stays a manual-only check.
+
+The skills and agents have no automated test suite; validation there is by manual pipeline runs on real tickets. The tidy-loop checks script is the exception — it is covered by its fixtures through `scripts/check-tidy-checks.mjs`, which CI runs alongside the three validation scripts.
 
 ---
 
@@ -418,7 +433,7 @@ There's no automated test suite for the plugin itself. Validation is by manual p
 - No marketing language in commit messages ("magnificent", "blazingly fast", etc.).
 - Reference the issue/feature the commit addresses.
 - Keep commits small — one concern per commit.
-- **Bump the plugin version every PR.** For the `feature` plugin, update `version` in BOTH `plugins/feature/.claude-plugin/plugin.json` and `plugins/feature/.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two `feature` manifests must stay in lockstep. `stack-first` and `tidy-loop` version independently: when a change touches one, bump its own lockstep pair (`plugins/<name>/.claude-plugin/plugin.json` + `plugins/<name>/.codex-plugin/plugin.json`); the plugins' versions are not coupled. The discover → plan → build pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/build step.
+- **Bump the plugin version every PR.** For the `feature` plugin, update `version` in BOTH `plugins/feature/.claude-plugin/plugin.json` and `plugins/feature/.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two `feature` manifests must stay in lockstep. `stack-first` and `tidy-loop` version independently, and their versions are not coupled to each other or to `feature`: a change touching `stack-first` bumps its lockstep pair (`plugins/stack-first/.claude-plugin/plugin.json` + `plugins/stack-first/.codex-plugin/plugin.json`), and a change touching `tidy-loop` bumps `plugins/tidy-loop/.claude-plugin/plugin.json` alone. The discover → plan → build pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/build step.
 
 ## Editing discipline
 

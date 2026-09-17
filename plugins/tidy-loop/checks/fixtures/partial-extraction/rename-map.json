@@ -1,0 +1,9 @@
+{
+  "modules": {
+    "src/format.ts": "src/text.ts"
+  },
+  "symbols": {
+    "Range": "Range",
+    "clamp": "clamp"
+  }
+}

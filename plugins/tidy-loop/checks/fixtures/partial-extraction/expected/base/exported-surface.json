@@ -1,0 +1,17 @@
+{
+  "declaredOnce": {
+    "Range": [
+      "src/math.ts"
+    ],
+    "clamp": [
+      "src/math.ts"
+    ]
+  },
+  "surface": {
+    "src/math.ts": "6859235dab058bb2dbf308bb451c326343eea1b16d6dd2b898368de17dc91e33",
+    "src/percent.ts": "b1c98caa030b111c08d58987360d7f0e3925e420cc089224b43c39bab1aafc43",
+    "src/report.ts": "57a9a53eab06834e1d3403da9a53f2d5d7e87ffb54e7def94aa633083d03ec6c",
+    "src/stats.ts": "251234053208741e2929d211d8630d19e4326b55bcf756d3aae02a0bf416265e",
+    "src/text.ts": "678747a288d8c26d743f3bb4be86b7e367c54ebfd18b1065694ea2160563a433"
+  }
+}

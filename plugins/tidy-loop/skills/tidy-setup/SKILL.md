@@ -1,6 +1,6 @@
 ---
 name: tidy-setup
-description: "Prepare a repository for the Tidy Loop: probe its commands and hotspots, verify the worktree prerequisites actually hold, provision the dedicated loop clone, and write a committed .tidyloop.yaml profile. Run once per repo, before the first scheduled run. Use when the user wants to enable, configure, re-verify, or onboard a project to the tidy loop."
+description: "Prepare a repository for the Tidy Loop: probe its commands and hotspots, verify the worktree prerequisites actually hold, provision the dedicated loop clone, and write a committed .tidyloop.yaml profile. Run once per repo, before the first survey. Use when the user wants to enable, configure, re-verify, or onboard a project to the tidy loop."
 allowed-tools:
   - Read
   - Write
@@ -21,15 +21,23 @@ checks are worth watching the first time.
 This skill **hardcodes no project facts**. Everything it learns about the repo it learns by
 probing, and everything it decides it writes into the consuming repo's `.tidyloop.yaml`. The
 schema, field semantics, and validation rules are
-[`references/profile.md`](references/profile.md) — consume that contract as written; never
-restate or redefine it here.
+[`references/profile.md`](references/profile.md), and the queue this skill seeds is
+[`references/queue.md`](references/queue.md) — of which §1 is the part this skill needs, the
+location and the header line it writes; the rest is what the two loops read. The hotspot
+measure §3 previews is [`references/hotspots.md`](references/hotspots.md). Consume all three
+contracts as written; never restate or redefine them here.
 
-The counterpart run skill is `tidy-run`. It reads the profile this skill writes and refuses
-to start if any validation rule in profile.md §3 fails.
+This directory is the home for text more than one skill reads, so it also holds
+[`references/preflight.md`](references/preflight.md) — the run lock and clone preflight both
+loops perform — which this skill does not itself run.
+
+Two counterpart skills read what this one writes. `tidy-survey` reads the profile and appends
+candidates to the queue. `tidy-execute` reads both, and refuses to start if any validation
+rule in profile.md §3 fails.
 
 ## What this skill will and will not do
 
-It **will** write three things: `.tidyloop.yaml` at the repo root, a seeded ledger file, and
+It **will** write three things: `.tidyloop.yaml` at the repo root, a seeded queue file, and
 (with permission) a `.worktreeinclude` if the repo has none. It will clone a dedicated loop
 checkout outside the repo.
 
@@ -37,7 +45,7 @@ It **will not**:
 
 - read, print, or copy the contents of any `.env` or secrets file — see §0
 - add a secret-bearing path to `.worktreeinclude` to make a gate pass
-- write `tier` higher than `0`
+- write `execute: true`
 - modify the repo's source, tests, `.gitignore`, or CI
 - commit anything
 
@@ -121,8 +129,9 @@ the cheapest possible path through this skill.
 
 **Test globs.** Derive `commands.test_globs` from the test runner's own config where it
 declares an include pattern; otherwise glob the repo for existing test files and generalize.
-Then verify the globs match at least one real file — an unmatched glob makes gate G1 silently
-check nothing, and that is the single most damaging misconfiguration available.
+Then verify the globs match at least one real file — an unmatched glob leaves the symmetric
+test patch with nothing to compare, and that is the single most damaging misconfiguration
+available.
 
 **Source layout.** Derive `scan.include` from where source actually lives. Derive
 `scan.exclude` to cover, at minimum: test files, build output, and generated sources.
@@ -142,8 +151,8 @@ a module means repointing every importer, so a cap below the hotspots' fan-out b
 the work the ranking says matters most.
 
 **Test-support paths.** Find the test harness that is *not* a spec file, because the behavior
-oracle restores spec files from the base commit and assumes the harness they run against is
-fixed. Two signals, both mechanical:
+oracle compares a run against a symmetric test patch and assumes the harness those specs run
+against is identical on both sides of the comparison. Two signals, both mechanical:
 
 1. The runner's configured setup and global-fixture files, read from its config.
 2. **Every module whose importers are all test files.** This finds the ones no naming convention
@@ -172,23 +181,27 @@ Report the candidates you rejected and why, alongside the ones you kept. An over
 `test_support_paths` is quieter than a hole but costs the loop exactly the work it exists to do.
 
 These become `test_support_paths`, which the loop treats as forbidden. Say why in the §7 report,
-because the reasoning is not obvious: a run that refactored a fake would execute the base specs
-against its own modified fake, and an altered stub can mask exactly the regression the gate
-exists to catch. Adding them to `test_globs` instead would be worse — restoring a file the diff
-modified means the gate never exercises the modified version, so the change ships unverified.
+because the reasoning is not obvious: the symmetric patch moves the specs, but the harness those
+specs run against must be identical on both sides of the comparison, and a run that refactored a
+fake would be comparing specs running against two different fakes. An altered stub can then mask
+exactly the regression the comparison exists to catch.
 
 **Forbidden-path candidates.** Search for the places where a structural change is never
 merely structural: migration directories, table or schema declarations, published contract
 definitions, generated clients. Collect candidates; the user confirms in §4.
 
-**Surface-oracle candidates.** Determine whether the repo publishes a typed boundary whose
-build output can be compared byte-for-byte — emitted declaration files for a shared package,
-a generated API document, a checked-in schema artifact. Present candidates or, honestly,
-none.
+**Checks stack.** Determine which shipped checks implementation answers this repo's toolchain
+and record it as `checks.stack`: a TypeScript project whose test runner is Vitest is
+`ts-vitest`. A toolchain no shipped stack answers is a **stop** — report the finding and the
+toolchain you found, rather than approximating with a stack that would return wrong answers.
+This value is inferred, shown in §4's review block, and not asked. The coverage-provider
+prerequisite it implies is probed for real in §5 step 4.
 
-**Domain docs for the architecture gate.** Note whether a domain glossary and architecture
-decision records exist. Their absence is not blocking, but the run's architecture gate
-degrades to convention-only review without them, and the user should hear that now.
+**Domain docs for the architect's verdict.** Note whether a domain glossary and architecture
+decision records exist. Their absence is not blocking, but the architect's diff verdict reads
+them for the justification it asks of a change — whether the change actually reduces the
+complexity the interface exposes. Without them it judges from the diff alone, and the user
+should hear that now.
 
 ---
 
@@ -199,14 +212,16 @@ cheapest calibration available: the ranking is deterministic, needs no model, an
 reproducible, so the user can judge the selection step before granting the loop any
 autonomy.
 
-```bash
-git -C "<repo>" log --since="<scan.window>" --name-only --pretty=format: -- <scan.include> \
-  | sort | uniq -c | sort -rn | head -40
-```
+The measure is [`references/hotspots.md`](references/hotspots.md): the window normalization,
+the churn command, the detected indentation width, the per-file indentation sum, the ranking,
+and the worked example every implementation reproduces before its numbers are trusted. Run it
+exactly as written there — the survey ranks from the same contract, and a preview that ranks
+differently calibrates a decision the loop never makes. Measure it, do not estimate it.
 
-Filter out `scan.exclude` matches, then measure size for the survivors and rank by
-`score = churn × lines`. Present the top ten as a table: file, commits in window, lines,
-score.
+Present the top ten as a table with the columns hotspots.md §5 names: file, churn, lines,
+`churn × lines`, and the score `churn × indentation`. The lines-based column is shown alongside
+because it is the intuitive reading of "big file", and seeing where the two rankings disagree
+is what tells the user whether the loop is aimed at size or at tangle.
 
 Say plainly what the table is and is not: it is where change and size overlap, which is the
 CodeScene hotspot proxy for *where refactoring pays off*. It is not a list of defects, and a
@@ -220,28 +235,27 @@ effort, that is a signal to fix `scan.include` / `scan.exclude` now — not a re
 ## §4 Confirm the undecidable
 
 Ask with `AskUserQuestion`. Batch the questions into one pass. Every question carries a
-recommended option first, drawn from §2's probe. Four questions, no more — anything else was
+recommended option first, drawn from §2's probe. Three questions, no more — anything else was
 inferable and should have been inferred.
 
 1. **Base branch** — the confirmed default branch on `origin`.
 2. **Forbidden paths** — multi-select over §2's candidates, plus the option to add more.
    Frame it as: *a structural change here is never merely structural*.
-3. **Surface oracle** — the byte-identical build artifacts, or explicitly none. When the
-   answer is none, state that gate G4 will be disabled and the project is correspondingly
-   less protected.
-4. **Loop clone path and permission to create it** — default
+3. **Loop clone path and permission to create it** — default
    `<repo-parent>/<repo-name>-tidy`. This question is also the authorization to run
    `git clone`, which writes outside the repo and uses the network, so it is asked
    explicitly rather than inferred from the user's general go-ahead.
 
-Present the inferred commands, globs, caps, and the proposed `commands.prelude` alongside the
-questions as a review block. The user correcting an inferred value there is expected and cheap;
-discovering it wrong during the first scheduled run is not.
+Present the inferred commands, globs, caps, the inferred `checks.stack`, the proposed
+`allowlist`, and the proposed `commands.prelude` alongside the questions as a review block. The user correcting an inferred
+value there is expected and cheap; discovering it wrong during the first scheduled run is not.
 
 The prelude is reviewed rather than asked, because it is derivable: §2 found the pinned version
-and the version manager, and the composed line is either right or visibly wrong at a glance.
+and the version manager, and the composed line is either right or visibly wrong at a glance. The
+checks stack is reviewed for the same reason — it follows from the test runner and the language,
+and there is nothing for the user to decide when only one shipped stack answers the toolchain.
 
-Do not ask about `tier` — setup always writes `0`. Do not ask about cadence — that is the
+Do not ask about `execute` — setup always writes `false`. Do not ask about cadence — that is the
 scheduler's concern in §7.
 
 ---
@@ -353,6 +367,53 @@ shape is rejected outright rather than warned about.
 Also verify `commands.test` actually executed tests rather than trivially succeeding on an
 empty selection, and that `commands.test_globs` matched files in the probe worktree.
 
+**The checks script answers against this repo.** The loop's mechanical checks run the repo's
+own toolchain through the stack inferred in §2, so whether they can answer at all is a
+property of the repo and is settled here rather than by the first run that needs them.
+
+First the precondition, in this order: `${CLAUDE_PLUGIN_ROOT}` is non-empty; `<stack>` matches
+`[a-z0-9-]+` as a single path segment; and `"${CLAUDE_PLUGIN_ROOT}/checks/<stack>"` resolves to
+a directory inside the plugin's own `checks/`. The character class is checked **before** the
+directory is looked for, because the value becomes part of the command path below. Any of the
+three failing is a **stop** naming what was wrong — there is nothing to probe with.
+
+Pick one target for the coverage probe: the highest-ranked file from §3 that survives
+`scan.exclude` and `forbidden_paths` and does **not** match `commands.test_globs`, expressed
+as one repo-relative path present in the probe worktree. A file matching `test_globs` is not a
+valid target: coverage of a spec file is not the question being asked.
+
+The target is repository content, so validate it before use: decode git's quoted output first
+(`git` C-quotes paths outside its safe set), then require a plain repo-relative path — no
+quote, `$`, backtick, or newline. A path that does not clear that check is not a valid target;
+pick the next-ranked file rather than passing it through.
+
+Run both commands inside the probe worktree, carrying the prelude. Every argument is a
+separate, literal argv word — never a concatenated shell string — and when `commands.prelude`
+is null the `--prelude` word is omitted entirely rather than passed empty:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/checks/<stack>/test-names.mjs" \
+  --repo "<probe-path>" --prelude "<commands.prelude>"
+
+node "${CLAUDE_PLUGIN_ROOT}/checks/<stack>/coverage-hit.mjs" \
+  --repo "<probe-path>" --targets "<target>" --prelude "<commands.prelude>"
+```
+
+`<probe-path>` is absolute. Triage by exit code:
+
+- **0** → the command computed an answer. Record the reported `provider` and whether the
+  target was `covered`. **`covered: false` is an answer, not a failure** — it says this
+  particular file has no test reaching it, which is information the loop uses, not a
+  prerequisite it needs.
+- **1 with the no-provider error** → report it with the remedy *add `@vitest/coverage-v8` as a
+  devDependency and commit*, and **stop**. Without a provider the coverage check can never
+  answer, and a loop that cannot tell covered from uncovered code is choosing blind.
+- **any other 1** → **stop** and quote the `error` line verbatim.
+- **2** → an invocation bug in this skill, not a repo problem. Quote it and stop.
+
+This probe is the one place setup runs the repo's test suite with coverage instrumentation.
+It is a single run over one target inside the probe worktree, bounded and one-time.
+
 ### Step 5 — Remove the probe worktree
 
 ```bash
@@ -365,31 +426,35 @@ installed dependencies, all of it accounted for.
 
 ---
 
-## §6 Write the profile and seed the ledger
+## §6 Write the profile and seed the queue
 
 Compose `.tidyloop.yaml` per [`references/profile.md`](references/profile.md) §1 from the
 probed values, the §4 answers, and the §5 results. Then check every validation rule in
 profile.md §3 against what you are about to write. A rule that fails is a bug in this run —
-report the field and stop rather than writing a profile `tidy-run` will reject.
+report the field and stop rather than writing a profile the loops will reject.
 
 Fixed values this skill always writes, regardless of what was probed:
 
 - `version: 1`
-- `tier: 0` — a new project observes first; graduation is a human decision informed by the
-  ledger, never a setup default
+- `execute: false` — a new project surveys first. The queue fills with real candidates and the
+  human reads real reports before anything builds, and flipping this is their decision, never a
+  setup default
+- `checks.stack` — the stack inferred in §2 and confirmed by the §5 step 4 probe
+- the four `checks.*` gate keys as `null`. A project configuring one later is a one-key edit,
+  and a null gate is reported as skipped in every run's evidence rather than quietly absent
 - `caps.max_open_prs: 1` — the churn budget
-- `allowlist` in the **safest-first order** from profile.md §2, not in whatever order the
-  categories come to mind. Its position is a selection input that outranks hotspot score, so an
-  accidental order silently decides what the loop builds
-- the `caps.per_category` block from profile.md §1, unless the probe found a reason to differ.
-  Do not collapse it to one flat number: the categories have very different natural sizes, lines
-  are charged as insertions plus deletions so every moved line counts twice, and files touched
-  only to repoint an import need their own allowance or a widely imported module cannot be
-  tidied at all. Measure the repo's own import fan-out during §2 and say in the §7 report what
-  the busiest modules cost, so the `max_import_update_files` number is grounded rather than
-  inherited
-- `ticket_adapter: none` unless `loop_clone` is the repo itself
-- `tier0_report: file`
+- the `caps.per_category` block from profile.md §1, including `deepen-module`, unless the probe
+  found a reason to differ. Do not collapse it to one flat number: the categories have very
+  different natural sizes, lines are charged as insertions plus deletions so every moved line
+  counts twice, and files touched only to repoint an import need their own allowance or a widely
+  imported module cannot be tidied at all. Measure the repo's own import fan-out during §2 and
+  say in the §7 report what the busiest modules cost, so the `max_import_update_files` number is
+  grounded rather than inherited
+- `pr_label: tidy-loop`
+- `allowlist` — every category in profile.md §2, unless the user narrowed the list in §4's
+  review block. It is a set and not a ranking: narrowing it is a statement about what the loop
+  may do in this codebase, which is the user's call and not an inference, so the default is the
+  full set and the review block is where it gets cut
 - `main_checkout` — the repo root this run onboarded, so a run can see the user's in-flight work
   and drop findings that touch it
 - `state_dir` — `~/.tidy-loop/<repo-name>` by default, and it must resolve **outside** every
@@ -401,20 +466,16 @@ Fixed values this skill always writes, regardless of what was probed:
   the §7 report rather than arrived at by default
 
 On a re-verify run, present a field-by-field diff against the existing profile and get
-approval before writing.
+approval before writing. A key in the existing file that the current schema does not have shows
+in that diff as a removal, with no commentary — the diff is a statement of what the profile will
+say, not a history of what it said.
 
-Seed the ledger at the `ledger` path if absent, with the header row and nothing else:
+Seed the queue at `<state_dir>/queue.md` if absent, containing exactly the header line from
+[`references/queue.md`](references/queue.md) §1 and nothing else. Copy that line from §1 rather
+than from memory — it is the legend every later reader parses against, and a second copy of it
+in this file would be a place for the two to drift apart.
 
-```markdown
-# Tidy Loop ledger
-
-Append-only. One line per run. Status: proposed | merged | rejected | reverted | escalated | blocked.
-
-| date | finding-id | category | files | status | pr | note |
-|------|-----------|----------|-------|--------|----|------|
-```
-
-Neither file is committed by this skill.
+`.tidyloop.yaml` is not committed by this skill; `queue.md` lives outside the repo.
 
 ---
 
@@ -422,25 +483,34 @@ Neither file is committed by this skill.
 
 Close with a summary the user can act on without re-reading the transcript:
 
-1. **What was written** — the three paths, and that nothing was committed.
+1. **What was written** — the profile path, the seeded queue path, any new `.worktreeinclude`,
+   and that nothing was committed.
 2. **Gate coverage** — which gates are live and which are disabled, each disabled one with
-   the reason and what it was protecting. This is the honest statement of how much the loop
-   is actually verified, and it belongs in front of the user before any run.
-3. **Prerequisite findings** — any not-ignored paths from §5 step 3, and any command that
-   failed for a missing secret.
-4. **The hotspot top ten** from §3, so the first tier-0 run has something to be compared
+   the reason and what it was protecting. This covers both the project commands that came back
+   green or `null` in §5 step 4 **and** the four `checks.*` gates, all of which are written
+   `null` and will be reported as skipped until the user configures them. This is the honest
+   statement of how much the loop is actually verified, and it belongs in front of the user
+   before any run.
+3. **Prerequisite findings** — any not-ignored paths from §5 step 3, any command that
+   failed for a missing secret, and the coverage provider the §5 step 4 probe reported.
+4. **The hotspot top ten** from §3, so the first survey report has something to be compared
    against.
-5. **How to enable the schedule.** The loop runs weekly and locally, so that the run can see
-   the loop clone on disk. Give the user the concrete next step for their own surface — a
-   local scheduled task, or a cron entry invoking the run — rather than describing the
-   options abstractly. Do not create the schedule from this skill: a recurring unattended job
-   is the user's to switch on.
+5. **How to enable the schedules.** There are two, both local so the run can see the loop
+   clone on disk: `/tidy-survey <loop_clone>` weekly, and `/tidy-execute <loop_clone>` daily.
+   Give the user the concrete next step for their own surface — a local scheduled task, or a
+   cron entry invoking each — rather than describing the options abstractly. Do not create the
+   schedules from this skill: a recurring unattended job is the user's to switch on.
 
-   The command the schedule runs must pass the **loop clone** as the repo path:
-   `/tidy-run <loop_clone>`. Never the user's own checkout — it is on whatever branch they are
-   working on, may not contain the profile at all, and would make every weekly run depend on it.
-6. **The tier-0 exit criterion** — two to four weekly reports whose top pick the user agrees
-   with. Then `tier: 1` is a one-field edit.
+   Both commands must pass the **loop clone** as the repo path. Never the user's own checkout —
+   it is on whatever branch they are working on, may not contain the profile at all, and would
+   make every run depend on it.
 
-Recommend committing `.tidyloop.yaml`, the ledger, and any new `.worktreeinclude` together as
-one commit, and say why: a worktree cut from base must see all three.
+   Both schedules stay manual until the user flips `execute: true`: this skill creates neither,
+   and until the flag is flipped each command is the user's to run by hand or to schedule on
+   their own surface. Say what each does while the flag is `false`: the survey runs and fills
+   the queue regardless, so scheduling it early is harmless and lets candidates and reports
+   accumulate for review from the first week; `tidy-execute` reads the flag, reports it, and
+   exits without building. Nothing in the repo changes until the user decides it should.
+
+Recommend committing `.tidyloop.yaml` and any new `.worktreeinclude` together as one commit,
+and say why: a worktree cut from base must see both.
