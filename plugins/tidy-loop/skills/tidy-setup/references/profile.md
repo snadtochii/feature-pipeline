@@ -134,6 +134,9 @@ Under `state_dir` the loop owns:
 <state_dir>/briefs/<run-id>.md         # the pull request body
 <state_dir>/blocked/<run-id>.patch     # the diff of a gate-blocked run
 <state_dir>/blocked/<run-id>.md        # the deciding gate output
+<state_dir>/runs/<run-id>/             # one run's working files, discarded with the run
+<state_dir>/runs/<run-id>/rename-map.json  # the agreed module/symbol map, in the checks
+                                       # script's schema, read by the gates that follow
 ```
 
 The brief lives here rather than on the branch for a specific reason: it is the *only* copy of
