@@ -118,7 +118,7 @@ A spawn prompt inlines the resolved text of its view, never a path or a link to 
 | Reviewer shared base (`review-stage/SKILL.md`, shared base) | Neutral |
 | `ui-tester` prompt (`close-stage/SKILL.md`, test checkpoint) | Neutral |
 | Worktree re-bind (`build/SKILL.md` State setup; `review-stage/SKILL.md` Entry; `close-stage/SKILL.md` Entry) | Worktree |
-| Stuck arbiter ([`stuck-detection.md`](stuck-detection.md) §6) | Newest steps, plus the current `## Post-review` / `## Post-test` bullets when it fires in that checkpoint |
+| Stuck arbiter ([`stuck-detection.md`](stuck-detection.md) §6) | Newest steps |
 | The step that validates review findings (`review-stage/SKILL.md`, validate step) | Full |
 | Resumption router (`build/SKILL.md` §2) | The done signal (§8) |
 | Readiness check (`review-stage/SKILL.md` Entry; `close-stage/SKILL.md` Entry) | The done signal (§8) |

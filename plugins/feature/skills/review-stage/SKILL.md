@@ -21,14 +21,14 @@ allowed-tools:
   - mcp__plugin_server-native_ps__pipeline_get_artifact
   - mcp__plugin_server-native_ps__pipeline_list_artifacts
   - mcp__plugin_server-native_ps__pipeline_write_artifact
-argument-hint: "[ticket-id]"
+argument-hint: "[ticket-id] [--base branch]"
 ---
 
 # Review Stage
 
 Run a ticket's review round from a fresh context that holds only the spec, the plan, the diff and the implementer's handoff. Four independent reviewers judge the change; the stage then validates every finding against the current code, records each as accepted, dismissed or deferred, and fixes the accepted ones smallest first.
 
-The stage is **non-interactive end to end**: it never asks anything and never pauses. Every stop is a structured result (see Result). It fires no ticket transition, makes no commit, and captures no lessons. Standalone or under `flow`, the four reviewers are its children.
+The stage is **non-interactive end to end**: it never asks anything and never pauses. Every stop is a structured result (see Result). It fires no ticket transition, makes no commit, and captures no lessons. Standalone, under `flow`, or under standalone `build`'s stage chain, the four reviewers are its children.
 
 ## Arguments
 
@@ -36,7 +36,7 @@ The stage is **non-interactive end to end**: it never asks anything and never pa
 /feature:review-stage $ARGUMENTS
 ```
 
-`$1` = ticket ID (e.g. `BL-1`) or path to the ticket folder.
+`$1` = ticket ID (e.g. `BL-1`) or path to the ticket folder. Optional flag: `--base <branch>` — the branch the change forks from and its PR targets (a ship epic's integration branch, say); step 1 diffs against it instead of resolving the base itself. Without it, step 1's default resolution applies.
 
 ## Required Input
 
@@ -81,11 +81,20 @@ The diff is everything between the merge-base and the working tree, plus untrack
 
 ```bash
 cd "<root>" || exit 1
-base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)
-[ -n "$base" ] || for b in origin/main origin/master main master; do
-  git rev-parse --verify -q "$b^{commit}" >/dev/null && { base=$b; break; }
-done
-[ -n "$base" ] || { echo "NO_BASE"; exit 1; }
+want=<base-arg>
+if [ -n "$want" ]; then
+  case "$want" in *@{*) echo "NO_BASE"; exit 1 ;; esac
+  git check-ref-format --branch "$want" >/dev/null 2>&1 || { echo "NO_BASE"; exit 1; }
+  if git rev-parse --verify -q "origin/$want^{commit}" >/dev/null; then base="origin/$want"
+  elif git rev-parse --verify -q "$want^{commit}" >/dev/null; then base="$want"
+  else echo "NO_BASE"; exit 1; fi
+else
+  base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)
+  [ -n "$base" ] || for b in origin/main origin/master main master; do
+    git rev-parse --verify -q "$b^{commit}" >/dev/null && { base=$b; break; }
+  done
+  [ -n "$base" ] || { echo "NO_BASE"; exit 1; }
+fi
 mb=$(git merge-base "$base" HEAD) || exit 1
 echo "=== BASE $base"
 git diff --shortstat "$mb" -- . ':(exclude)claudedocs/' <exclude-pathspecs>
@@ -98,7 +107,7 @@ git ls-files -z --others --exclude-standard -- . ':(exclude)claudedocs/' <exclud
 true
 ```
 
-`<exclude-pathspecs>` is one single-quoted `':(exclude)<path>'` per `<excluded>` entry, empty when none is bound; an embedded `'` in a path is written as `'\''`. Untracked file names never pass through the model: the NUL-delimited loop quotes them, so a name with spaces, `$( )` or a leading `-` stays data. `git diff --no-index` exits non-zero when it prints a diff, which is why the call ends in `true` and never runs under `pipefail`; a binary file prints as `Binary files … differ`. The remote-tracking base (`origin/main`) is intended — it is only ever diffed against. `NO_BASE` → `error`, `failed-step: base`.
+`<base-arg>` is `''` without `--base`, else the `--base` value single-quoted, an embedded `'` written as `'\''`. The script validates it with `git check-ref-format --branch` before any use — a name starting with `-`, carrying ref-illegal characters, or containing `@{` (which `check-ref-format` would expand to a different branch) is rejected — then prefers `origin/<branch>`, falls back to the local `<branch>`, and otherwise stops. A given `--base` never falls back to the default resolution: a wrong base silently widens the diff. `<exclude-pathspecs>` is one single-quoted `':(exclude)<path>'` per `<excluded>` entry, empty when none is bound; an embedded `'` in a path is written as `'\''`. Untracked file names never pass through the model: the NUL-delimited loop quotes them, so a name with spaces, `$( )` or a leading `-` stays data. `git diff --no-index` exits non-zero when it prints a diff, which is why the call ends in `true` and never runs under `pipefail`; a binary file prints as `Binary files … differ`. The remote-tracking base (`origin/main`) is intended — it is only ever diffed against. `NO_BASE` → `error`, `failed-step: base`.
 
 The **diff union** is the tracked diff plus the rendered untracked files. `claudedocs/` is excluded because the ticket's own artifacts are not the change under review. Empty union → write `04-review.md` with the `verdict: skipped (no changes)` label and `fix-step: complete` (§3, §4), and return `no-diff`.
 
@@ -208,6 +217,7 @@ On the resume route, start here from the decisions recorded in `04-review.md`. A
 
 - Work through every accepted finding, whatever its severity, **smallest change first**. A fix touches a file outside the diff only when the finding requires it.
 - **Validate after each edit**: the `PostToolUse` hook plus the commands resolved above.
+- **At most 2 edit-validate attempts per accepted finding** — the review stage's hard maximum ([`../build/references/stuck-detection.md`](../build/references/stuck-detection.md), Hard maximum per stage), counted within this invocation. After the second red run, the fix is reverted and recorded `fix-failed`.
 - **A fix that will not validate, or cannot be made cleanly, is reverted** with `Edit`, restoring that finding's pre-edit text, and recorded `fix-failed — <error>`. Never use `git checkout`, `git restore` or `git stash` on a file: the implement phase's uncommitted work lives in the same files. A fix that did not land is never reported as applied.
 - **Watch for stuck patterns** 1–5 in [`../build/references/stuck-detection.md`](../build/references/stuck-detection.md) (action↔observation repetition, action↔error repetition, monologue, ping-pong, repeated context errors). On detection, stop fixing, mark every remaining accepted finding `not attempted`, and continue to step 8 with result `stuck`, naming the pattern.
 
@@ -249,7 +259,7 @@ Every result except `error` is also on disk as `04-review.md`'s first-line label
 - **Ticket not found, spec missing, ambiguous project root, or an epic** → `error`, `failed-step: ticket`.
 - **No `## Rationale` in the current pass of `03-implementation.md`, or no file** → `error`, `failed-step: implement-incomplete`.
 - **Recorded worktree gone from disk** → `error`, `failed-step: worktree`.
-- **No base resolves** → `error`, `failed-step: base`.
+- **No base resolves**, or `--base` names a branch that fails validation or resolves neither remotely nor locally → `error`, `failed-step: base`.
 - **Storage operation fails** → §7.
 - **Reviewer failure** — not an error: recorded in `04-review.md`; all four failing is the `reviewers-failed` result.
 - **Stuck pattern during fixes** — not an error: the `stuck` result, with remaining findings `not attempted`.
