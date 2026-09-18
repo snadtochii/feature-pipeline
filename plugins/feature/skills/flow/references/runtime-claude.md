@@ -32,4 +32,8 @@ Launch the review stage's four independent reviewers concurrently when capacity 
 
 Count subagent layers below the current caller: `flow → stage → role` needs two; `ship → worker → stage → role` needs three. The finalizer and the UI tester are role layers under the close stage, and the reviewers a role layer under the review stage — all at the same depth, so these counts are unchanged. Check exposed depth constraints before dispatch; a missing nested spawn tool or explicit depth rejection stops that stage with a capability error, preserving artifacts. Do not assume a universal numeric limit or modify user settings. For `ship --parallel`, reserve capacity for each worker's stage plus at least one leaf role; reduce the effective worker count and print the change when the exposed limit requires it.
 
+## Tool results
+
+A `Bash` result past about 20KB is not returned to the conversation: Claude Code persists it to a file and shows a 2KB preview, so reading it back is a further call and the same tokens twice. Fetch a file through `Read`, which returns its content inline, and keep a Bash print to small items — a config, a frontmatter, a listing, a grep. One message may carry several tool calls in parallel; the window is re-read once per message, not once per call.
+
 Claude's native skill invocation, registered role definitions, artifact routing, and pause/answer behavior otherwise remain unchanged.
