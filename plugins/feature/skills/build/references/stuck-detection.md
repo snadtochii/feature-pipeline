@@ -44,12 +44,25 @@ You are reviewing the recent iteration history of a build loop on ticket <ticket
 Acceptance criteria from 01-spec.md:
 <ACs verbatim>
 
-Last <N> entries from 03-implementation.md (most recent first):
+Last <N> ## Steps entries from 03-implementation.md (most recent first):
 <entries>
+<checkpoint-activity>
 
 Question: is the loop making progress toward the acceptance criteria, or cycling without convergence?
 Respond with strict JSON only: {"status": "progress" | "stuck", "reason": "<one short sentence>"}
 ```
+
+`<entries>` is the newest-steps view of `03-implementation.md` per [`implementation-handoff.md`](implementation-handoff.md) §6: the last `<N>` `### Step` entries under `## Steps`, newest first, or all of them when fewer exist. `## Rationale` is never included.
+
+`<checkpoint-activity>` is empty when the arbiter fires in the implement checkpoint, where the step entries already show the recent work. When it fires in the review or test checkpoint, the step entries say nothing about that checkpoint, so build fills it with this block:
+
+```
+Current checkpoint (<review|test>) activity, most recent first:
+<the current pass's ## Post-review or ## Post-test bullets, when that section exists>
+<one line per turn of this checkpoint so far: the action taken and its outcome>
+```
+
+The per-turn lines come from build's own context, because the checkpoint's section is written only after its fixes are applied and is usually absent when the arbiter fires.
 
 The arbiter runs at most once per checkpoint per build invocation; cache the verdict for the rest of that checkpoint's turns.
 

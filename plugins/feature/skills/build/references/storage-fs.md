@@ -16,7 +16,7 @@ Read ticket metadata reads the frontmatter of `01-spec.md`; `repos` is bound whe
 
 ## §4 Artifact writes
 
-Each artifact is a `Write` to `<ticket-folder>/0N-*.md` the moment its producing step completes, so a re-run resumes from what is on disk.
+Each artifact is a `Write` to `<ticket-folder>/0N-*.md` the moment its producing step completes, so a re-run resumes from what is on disk. `03-implementation.md` is the exception: it is appended, never rewritten, by the mechanism in [`implementation-handoff.md`](implementation-handoff.md) §5, and that append is the write — it lands on disk in the call that validates the step, so no write costs a turn of its own.
 
 ## §5 Worktree binding
 

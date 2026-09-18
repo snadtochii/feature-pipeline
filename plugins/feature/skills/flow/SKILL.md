@@ -87,7 +87,7 @@ Each stage reads and writes artifacts in `<ticket-folder>/`. This contract is lo
 | Stage | Reads | Writes |
 |---|---|---|
 | `plan` | `01-spec.md`, `exploration.md` (optional seed — used for incremental Phase 1 synthesis if present) | `02-plan.md` (includes Codebase Context + Open Questions Resolved sections from Phase 1 synthesis) |
-| `build` | `01-spec.md`, `02-plan.md` (plus whichever of `03-implementation.md`/`04-review.md`/`05-tests.md` exist on disk for auto-resumption); optional user hint from the invoking stage brief, per build's Required Input contract | `03-implementation.md` (live, updated per plan step), `04-review.md` (merged from 4 reviewer subagents), `05-tests.md` (UI test results, or a skip artifact — no-UI, `--no-ui-testing` flag-skip, or app-unreachable), `06-summary.md` (always written, content varies per verdict) |
+| `build` | `01-spec.md`, `02-plan.md` (plus whichever of `03-implementation.md`/`04-review.md`/`05-tests.md` exist on disk for auto-resumption); optional user hint from the invoking stage brief, per build's Required Input contract | `03-implementation.md` (implementer handoff, appended per plan step), `04-review.md` (merged from 4 reviewer subagents), `05-tests.md` (UI test results, or a skip artifact — no-UI, `--no-ui-testing` flag-skip, or app-unreachable), `06-summary.md` (always written, content varies per verdict) |
 
 ---
 
@@ -183,7 +183,7 @@ claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlo
 ├── 01-spec.md              # The ticket — frontmatter (id, status, priority, ...) + spec body
 ├── exploration.md          # Discover-time codebase exploration (optional — only when the ticket went through /feature:discover)
 ├── 02-plan.md              # Implementation blueprint (includes Phase 1 synthesis as Codebase Context + Open Questions Resolved sections)
-├── 03-implementation.md    # Implementation summary + validation results (live — updated per plan step)
+├── 03-implementation.md    # Implementer handoff: per-step entries (live — appended per plan step) + rationale
 ├── 04-review.md            # Merged review findings (4 reviewer subagents)
 ├── 05-tests.md             # UI test results, skip artifact, or Failed Criteria section
 └── 06-summary.md           # Build exit summary (always written, content varies per verdict)
