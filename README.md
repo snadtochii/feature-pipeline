@@ -1,12 +1,12 @@
 # Feature Pipeline
 
-A Claude Code & Codex plugin that runs an agentic feature-development pipeline for personal projects: **discover → plan → build**. Each stage is a skill you can run on its own or chain together with `flow`.
+A Claude Code & Codex plugin that runs an agentic feature-development pipeline for personal projects: **discover → plan → implement → review → close**. Each stage is a skill you can run on its own or chain together with `flow`.
 
 ```
-/discover → ticket(s) → /flow → plan → build → done
+/discover → ticket(s) → /flow → plan → implement → review → close → done
 ```
 
-`build` is one continuous loop — **implement → review → test** run as internal checkpoints, with fixes applied in context, exiting on a verdict of `pass | partial | stuck`. Once that gate resolves, its closing mechanics — commit, PR, ticket transition, worktree teardown — run in a fresh-context finalizer child. The only stop under `/flow` is that verdict gate.
+Three stages turn a plan into shipped code, each from a fresh context: `build` implements the plan step by step and writes an implementer handoff; `review-stage` runs four independent reviewers, validates every finding against the code and fixes the accepted ones; `close-stage` runs the UI test pass, sets a verdict of `pass | partial | stuck` and presents the verdict gate. Once that gate resolves, the closing mechanics — commit, PR, ticket transition, worktree teardown — run in a fresh-context finalizer child. The only stop under `/flow` is that verdict gate.
 
 ## Install
 
@@ -73,21 +73,23 @@ The validation hook uses Codex's hook system — enable `codex_hooks` and `plugi
 
 ```bash
 /feature:discover I want to add dark mode to the app --project my-app   # create a ticket
-/feature:flow FP-1                                                      # plan → build → done
+/feature:flow FP-1                                                      # plan → implement → review → close → done
 ```
 
-`discover` runs an interactive Socratic dialogue and writes ticket folder(s) under `claudedocs/tickets/backlog/`. `flow` then plans and builds the ticket, stopping only at build's verdict gate. On the first run in a project you'll be asked for a ticket prefix (e.g. `FP`), saved to `claudedocs/tickets/config.yaml`.
+`discover` runs an interactive Socratic dialogue and writes ticket folder(s) under `claudedocs/tickets/backlog/`. `flow` then plans and builds the ticket, stopping only at the close stage's verdict gate. On the first run in a project you'll be asked for a ticket prefix (e.g. `FP`), saved to `claudedocs/tickets/config.yaml`.
 
 ## The pipeline
 
 | Command | What it does |
 |---|---|
 | `/feature:discover <idea>` | Socratic intake → one ticket, or an epic with child tickets when the scope splits. Add `--explore` to challenge an idea before committing. |
-| `/feature:flow <id>` | Runs `plan → build` with a single verdict gate; each stage runs in its own subagent, so build starts from a fresh context with the spec and saved plan as inputs. Walks an epic's children in dependency order. Flags: `--pr`, `--no-commit`, `--no-ui-testing`, `--worktree`, `--hint`, `--plan-model`, `--build-model`. |
+| `/feature:flow <id>` | Runs `plan → implement → review → close` with a single verdict gate; each stage runs in its own subagent from a fresh context, with the previous stages' saved artifacts as inputs. Walks an epic's children in dependency order. Flags: `--pr`, `--no-commit`, `--no-ui-testing`, `--worktree`, `--hint`, `--plan-model`, `--build-model`. |
 | `/feature:plan <id>` | Plan stage alone — pre-plan synthesis (codebase patterns + open questions), then interactive plan mode. |
-| `/feature:build <id>` | Build loop alone — implement → review (4 reviewer roles, batched to available capacity) → test (real-browser UI — acceptance criteria plus required error-state and layout checks at desktop and mobile width), then a finalizer child for the post-gate commit/PR/transition work. Auto-resumes from the ticket's existing artifacts. |
+| `/feature:build <id>` | Implements the plan step by step, then runs the review and close stages in turn — the same stages and single verdict gate `flow` runs. Auto-resumes from the ticket's existing artifacts. Flags: `--pr`, `--no-commit`, `--no-ui-testing`, `--worktree`, `--hint`. |
+| `/feature:review-stage <id>` | Review stage alone — 4 independent reviewer roles (batched to available capacity) over the built diff, then each finding validated against the code and the accepted ones fixed. Never asks anything. |
+| `/feature:close-stage <id>` | Close stage alone — real-browser UI test (acceptance criteria plus required error-state and layout checks at desktop and mobile width) or its skip artifact, the verdict, the verdict gate, then a finalizer child for the post-gate commit/PR/transition work. Flags: `--pr`, `--no-commit`, `--no-ui-testing`. |
 
-`flow`, `plan`, `build`, and `ship` select the active Claude or Codex runtime from the available tools. Claude keeps native skill and agent invocation; Codex loads the same skill and role instructions into fresh children and resumes paused stages with your answers. Nested agent support is required, and reviewer batches and ship worker counts respect the active runtime's limits. See [runtime behavior and stage models](plugins/feature/docs/advanced.md#stage-subagents-and-per-stage-models---plan-model---build-model).
+`flow`, `plan`, `build`, `review-stage`, `close-stage`, and `ship` select the active Claude or Codex runtime from the available tools. Claude keeps native skill and agent invocation; Codex loads the same skill and role instructions into fresh children and resumes paused stages with your answers. Nested agent support is required, and reviewer batches and ship worker counts respect the active runtime's limits. See [runtime behavior and stage models](plugins/feature/docs/advanced.md#stage-subagents-and-per-stage-models---plan-model---build-model).
 
 Resumption is auto-detected from the artifacts on disk; delete them to start a stage fresh. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md) for the `--pr` auto-PR flow, `--no-ui-testing`, `--no-commit` and the `git.commit` config default, `--worktree` isolation, epics, and blocker dependencies.
 
@@ -124,10 +126,10 @@ claudedocs/tickets/<state>/FP-1/
 ├── 01-spec.md              # the ticket: frontmatter + spec body
 ├── exploration.md          # discover-time codebase exploration
 ├── 02-plan.md              # plan — implementation blueprint
-├── 03-implementation.md    # build — implementation summary
-├── 04-review.md            # build — merged reviewer findings
-├── 05-tests.md             # build — UI test results
-└── 06-summary.md           # build — exit summary
+├── 03-implementation.md    # implement (build) — implementer handoff
+├── 04-review.md            # review stage — validated reviewer findings
+├── 05-tests.md             # close stage — UI test results
+└── 06-summary.md           # close stage — exit summary
 ```
 
 **Epic with children** — a parent PRD plus child tickets nested under `tasks/`, sharing one exploration:
@@ -142,7 +144,7 @@ claudedocs/tickets/<state>/FP-1/
     └── FP-4/
 ```
 
-`/feature:flow <EPIC-ID>` walks the children in `blocked_by` order; `plan` and `build` refuse to run against an epic directly (run them on a child). See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#epics-and-blocker-dependencies) for epics and blocker dependencies.
+`/feature:flow <EPIC-ID>` walks the children in `blocked_by` order; the stage skills refuse to run against an epic directly (run them on a child). See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#epics-and-blocker-dependencies) for epics and blocker dependencies.
 
 ## Configuration
 
@@ -154,7 +156,7 @@ mode: fs-native                  # where tickets live; omit the key and you get 
 validate:                        # lint/typecheck run after each edit (opt-in)
   lint: "bun run lint"
   typecheck: "bun run typecheck"
-test:                            # lets build reach your app for the UI checkpoint
+test:                            # lets the close stage reach your app for the UI checkpoint
   url: http://localhost:4200
   start: "npm start"
 worktree:                        # makes a fresh git worktree buildable
@@ -173,7 +175,7 @@ The pipeline also reads your project's `CLAUDE.md` for conventions. Full referen
 
 - Claude Code CLI or Codex CLI
 - Git — for the review stage's diff
-- Playwright MCP — for build's UI test checkpoint, including its `browser_resize` tool for the desktop and mobile checks (optional; skip with `--no-ui-testing`)
+- Playwright MCP — for the close stage's UI test checkpoint, including its `browser_resize` tool for the desktop and mobile checks (optional; skip with `--no-ui-testing`)
 - A personal MCP server — only for `mode: server-native`, where it *is* the ticket store (optional; the default `fs-native` mode needs no server). Its tool surface spans several domains; the `feature` skills use only its `pipeline_*` tools. On Claude Code install the separate `server-native` plugin alongside `feature` and it prompts for a URL and token; on Codex add the server to `config.toml`. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#storage-mode-and-the-personal-server)
 - GitHub CLI (`gh`), authenticated, with a GitHub `origin` — for `--pr` and the `ship`/`review`/`address-review`/`sync` helpers; the pipeline degrades to local commits without it, and the PR helpers fail closed (change nothing) without it
 
