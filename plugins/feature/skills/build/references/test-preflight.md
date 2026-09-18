@@ -94,7 +94,7 @@ A server that was **already running** when pre-flight first probed (no PID captu
 
 ## §5 Compose the auth recipe + resolved URL into the spawn prompt
 
-Build composes the recipe into the `ui-tester` spawn prompt (mirrors how the review checkpoint injects the confidence scale verbatim — single source of truth, the `ui-tester` body stays recipe-schema-free). Inject:
+Build composes the recipe into the `ui-tester` spawn prompt (mirrors how the review stage injects the confidence scale verbatim — single source of truth, the `ui-tester` body stays recipe-schema-free). Inject:
 
 - **Resolved URL** — the pre-flight-resolved, reachable URL. The `ui-tester` spawn prompt receives this URL directly; the agent does not re-discover it.
 - **`auth.attach_tab`** (when truthy) — instruct the agent to prefer attaching to an already-authenticated same-origin tab.

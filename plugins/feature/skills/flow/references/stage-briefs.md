@@ -1,6 +1,6 @@
 # Flow — stage briefs (plan and build as stage subagents)
 
-Read this file at exactly one point: flow's STAGE EXECUTION, when it spawns a stage. Inline the matching template below **verbatim** into the spawn prompt, filling every placeholder — the stage subagent does not share flow's context and cannot follow relative links, so the brief text itself must land in the prompt (the same spawn-time injection pattern as ship's `reviewer-prompt.md` and build's `confidence-scale.md`).
+Read this file at exactly one point: flow's STAGE EXECUTION, when it spawns a stage. Inline the matching template below **verbatim** into the spawn prompt, filling every placeholder — the stage subagent does not share flow's context and cannot follow relative links, so the brief text itself must land in the prompt (the same spawn-time injection pattern as ship's `reviewer-prompt.md` and `review-stage`'s `confidence-scale.md`).
 
 This file is mode-neutral. The two values that differ by storage mode — `<TICKET_ARG>` and `<STORAGE_MODE>` — are resolved by flow per [`keying-fs.md`](keying-fs.md) / [`keying-server.md`](keying-server.md) §5, for the mode detected at SETUP, and land here as filled-in text. Sections are numbered so the skill body cites `§N`.
 

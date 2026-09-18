@@ -172,7 +172,7 @@ The pipeline also reads your project's `CLAUDE.md` for conventions. Full referen
 ## Requirements
 
 - Claude Code CLI or Codex CLI
-- Git — for build's review-checkpoint diff
+- Git — for the review stage's diff
 - Playwright MCP — for build's UI test checkpoint, including its `browser_resize` tool for the desktop and mobile checks (optional; skip with `--no-ui-testing`)
 - A personal MCP server — only for `mode: server-native`, where it *is* the ticket store (optional; the default `fs-native` mode needs no server). Its tool surface spans several domains; the `feature` skills use only its `pipeline_*` tools. On Claude Code install the separate `server-native` plugin alongside `feature` and it prompts for a URL and token; on Codex add the server to `config.toml`. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#storage-mode-and-the-personal-server)
 - GitHub CLI (`gh`), authenticated, with a GitHub `origin` — for `--pr` and the `ship`/`review`/`address-review`/`sync` helpers; the pipeline degrades to local commits without it, and the PR helpers fail closed (change nothing) without it

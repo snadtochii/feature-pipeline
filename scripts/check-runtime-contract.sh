@@ -14,7 +14,7 @@ plugin = root / "plugins/feature"
 refs = plugin / "skills/flow/references"
 errors = []
 
-for name in ("flow", "plan", "build", "ship"):
+for name in ("flow", "plan", "build", "review-stage", "ship"):
     path = plugin / "skills" / name / "SKILL.md"
     text = path.read_text()
     frontmatter = text.split("---", 2)[1]
@@ -55,10 +55,12 @@ for number, name in ((4, "Plan"), (6, "Build")):
         errors.append(f"{name}: shared template embeds a native invocation")
 
 build = (plugin / "skills/build/SKILL.md").read_text()
-roles = re.findall(r"\*\*[a-d]\. `feature:([^`]+)`", build)
+review_stage = (plugin / "skills/review-stage/SKILL.md").read_text()
+roles = re.findall(r"\*\*[a-d]\. `feature:([^`]+)`", review_stage)
 expected = {"code-reviewer", "security-engineer", "performance-engineer", "code-architect"}
 if len(roles) != 4 or set(roles) != expected:
-    errors.append("build: independent review roster must contain each of the four roles once")
+    errors.append("review-stage: independent review roster must contain each of the four roles once")
+
 for role in expected:
     path = plugin / "agents" / f"{role}.md"
     if not path.is_file():
@@ -67,6 +69,13 @@ for role in expected:
     frontmatter = path.read_text().split("---", 2)[1]
     if re.search(r"^  - (?:Bash|Write|Edit|Agent|Task)$", frontmatter, re.M):
         errors.append(f"{role}: read-only role has a mutating/delegating tool")
+
+# The confidence scale is stated once and injected into every reviewer prompt;
+# a stage that stops naming it, or a missing file, silently drops the rubric.
+if not (plugin / "skills/review-stage/references/confidence-scale.md").is_file():
+    errors.append("missing reviewer rubric: skills/review-stage/references/confidence-scale.md")
+if "references/confidence-scale.md" not in review_stage:
+    errors.append("review-stage: shared base must inject references/confidence-scale.md")
 
 # The post-gate finalizer is the mirror image of the reviewer block above: build
 # must name it, its definition must exist, and it must KEEP the mutating tool the
@@ -108,5 +117,5 @@ for resize_tool in ("mcp__playwright__browser_resize", "mcp__chrome-devtools__re
 if errors:
     print("\n".join(f"FAIL: {error}" for error in errors), file=sys.stderr)
     sys.exit(1)
-print("OK: 4 runtime consumers, 2 runtime implementations, 2 neutral stage templates, 4 read-only reviewer roles, 1 mutating finalizer role, 2 ui-checks injection sites")
+print("OK: 5 runtime consumers, 2 runtime implementations, 2 neutral stage templates, 4 read-only reviewer roles, 1 confidence-scale injection site, 1 mutating finalizer role, 2 ui-checks injection sites")
 PY

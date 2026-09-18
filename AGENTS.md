@@ -65,7 +65,7 @@ discover → ticket(s) → flow → plan → build → completion
 
 **Operational details live in `skills/flow/SKILL.md`**, not here. That file is loaded by the consumer's runtime when a consumer runs the pipeline; this `AGENTS.md` is only loaded when editing the plugin repo itself. If you move operational rules out of the skill and into this file, consumers lose visibility.
 
-**Runtime dispatch.** `flow`, `plan`, `build`, and `ship` load [`runtime.md`](plugins/feature/skills/flow/references/runtime.md) at entry and read its selected `runtime-claude.md` or `runtime-codex.md`. That reference owns skill invocation, fresh child creation, role loading, model mapping, wait/resume, and capacity. Child briefs carry the absolute plugin root and runtime binding independently of storage mode and stage overrides. Keep these operational rules in the runtime references so consumers receive them.
+**Runtime dispatch.** `flow`, `plan`, `build`, `review-stage`, and `ship` load [`runtime.md`](plugins/feature/skills/flow/references/runtime.md) at entry and read its selected `runtime-claude.md` or `runtime-codex.md`. That reference owns skill invocation, fresh child creation, role loading, model mapping, wait/resume, and capacity. Child briefs carry the absolute plugin root and runtime binding independently of storage mode and stage overrides. Keep these operational rules in the runtime references so consumers receive them.
 
 Canonical sources in `skills/flow/SKILL.md`:
 - **Stage Contract** — reads/writes per stage
@@ -172,7 +172,7 @@ Not every stage runs as a subagent. The rule:
 | Runs in main context | Runs as subagent |
 |---|---|
 | `flow` (orchestrator) | `code-explorer`, `requirements-analyst` (spawned by `plan` Phase 1) |
-| `discover` (interactive dialogue) | `code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect` (spawned by `build`'s review checkpoint) |
+| `discover` (interactive dialogue) | `code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect` (spawned by the `review-stage` skill) |
 | `plan` standalone (interactive plan mode, or auto mode's batched no-default / complexity-overflow pauses; spawns subagents in Phase 1) | `ui-tester` (spawned by `build`'s test checkpoint) |
 | | `finalizer` (spawned by `build`'s verdict gate once the decision is resolved; non-interactive — a condition needing a human comes back as a `needs-decision` result build relays) |
 | `build` standalone (long interactive loop with implement/review/test checkpoints) | `plan` and `build` under `flow` — each a stage subagent spawned from `skills/flow/references/stage-briefs.md`; their user-facing stops pause the subagent and flow relays them (`stage-briefs.md` §5) |

@@ -1,6 +1,6 @@
 # Build — `03-implementation.md` handoff format
 
-`03-implementation.md` is the implementer's handoff. It is the implement phase's progress log. It also carries the implementer's knowledge to readers that never saw its conversation. This reference owns the whole contract for the file: its layout, what each entry holds, when entries are written, and which part each reader gets. `build/SKILL.md` cites it at every site that writes or reads the file, and so does [`stuck-detection.md`](stuck-detection.md). The append mechanism itself is §5 here. Where the file lives, and when an append reaches the ticket store in the detected storage mode, stay in [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §4.
+`03-implementation.md` is the implementer's handoff. It is the implement phase's progress log. It also carries the implementer's knowledge to readers that never saw its conversation. This reference owns the whole contract for the file: its layout, what each entry holds, when entries are written, and which part each reader gets. `build/SKILL.md` cites it at every site that writes or reads the file, and so do `review-stage/SKILL.md` and [`stuck-detection.md`](stuck-detection.md). The append mechanism itself is §5 here. Where the file lives, and when an append reaches the ticket store in the detected storage mode, stay in [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §4.
 
 ## 1. Layout
 
@@ -41,10 +41,12 @@ The file opens with a `# Implementation — <TICKET-ID>` title, written together
 - **`## Rationale`** holds one entry per step, written once at the end of the implement phase (§3).
 - **`## Post-review`** and **`## Post-test`** hold the changes made after the implement phase (§4).
 
-**Later passes.** A `continue-with-hint` re-entry, or a resumed run that re-enters the review checkpoint, runs the loop again over an existing file. One rule decides where its writes go:
+**Later passes.** A `continue-with-hint` re-entry runs the loop again over an existing file. One rule decides where its writes go:
 
 - **The current pass has its `## Rationale` section** → the re-entry opens a new pass. It appends its own sections in the same order, with every heading suffixed ` (pass K)`, K counting from 2: `## Steps (pass 2)`, `## Rationale (pass 2)`, `## Post-review (pass 2)`, `## Post-test (pass 2)`.
 - **The current pass has no `## Rationale` section** (the loop exited before the implement phase ended, as a `stuck` exit mid-implement does) → the re-entry continues the current pass. Its step entries go under that pass's `## Steps` section, and its phase-end write adds that pass's `## Rationale`, with an entry for every step of the pass.
+
+**Review rounds.** The review stage never opens a pass. The first review round of a pass writes that pass's `## Post-review` section; a later review round in the same pass writes `## Post-review (round R)`, R counting from 2 — `## Post-review (pass K, round R)` in pass K ≥ 2.
 
 `## Worktree` is never repeated. In this reference, "a `## Steps` section" (and likewise for the other three) means the unsuffixed section and every suffixed one; the current pass is the one with the highest K.
 
@@ -72,7 +74,7 @@ The section is written once, as the last action of the implement phase, with an 
 
 ## 4. `## Post-review` and `## Post-test`
 
-The review checkpoint writes `## Post-review` after it applies fixes. The test checkpoint writes `## Post-test` after it applies fixes. Each bullet names the finding or failed criterion it addresses, then what changed, where, and why. A checkpoint that changed no code writes no section. These headings are what let a reader tell implement-phase entries from later ones: entries under a `## Steps` or `## Rationale` section were written by an implement phase, and entries under a `## Post-review` or `## Post-test` section were written after one.
+The review stage writes `## Post-review` after it applies fixes. The test checkpoint writes `## Post-test` after it applies fixes. Each bullet names the finding or failed criterion it addresses, then what changed, where, and why. A checkpoint that changed no code writes no section. These headings are what let a reader tell implement-phase entries from later ones: entries under a `## Steps` or `## Rationale` section were written by an implement phase, and entries under a `## Post-review` or `## Post-test` section were written after one.
 
 ## 5. Write timing
 
@@ -106,12 +108,13 @@ A spawn prompt inlines the resolved text of its view, never a path or a link to 
 
 | Reader | View |
 |---|---|
-| Reviewer shared base (`build/SKILL.md` §2b) | Neutral |
+| Reviewer shared base (`review-stage/SKILL.md`, shared base) | Neutral |
 | `ui-tester` prompt (`build/SKILL.md` §3b) | Neutral |
-| Worktree re-bind (`build/SKILL.md` State setup) | Worktree |
+| Worktree re-bind (`build/SKILL.md` State setup; `review-stage/SKILL.md` Entry) | Worktree |
 | Stuck arbiter ([`stuck-detection.md`](stuck-detection.md) §6) | Newest steps, plus the current `## Post-review` / `## Post-test` bullets when it fires in that checkpoint |
-| The step that applies review findings (`build/SKILL.md` §2e) | Full |
+| The step that validates review findings (`review-stage/SKILL.md`, validate step) | Full |
 | Resumption router (`build/SKILL.md` §5) | The done signal (§8) |
+| Readiness check (`review-stage/SKILL.md` Entry) | The done signal (§8) |
 | `06-summary.md` | Never `## Rationale` (`build/SKILL.md` §4b) |
 
 The rationale is kept from reviewers, the tester and the summary so that they judge the change on its own terms. The fix step reads it so that it can accept or dismiss a finding the way the implementer would have.
