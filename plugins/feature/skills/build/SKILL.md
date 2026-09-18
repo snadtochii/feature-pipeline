@@ -382,7 +382,7 @@ Build resolves the ending into one instruction set and hands it to a single `fea
 - **`partial`** or **`stuck`** + **`continue-with-hint`** → **the one ending that spawns no finalizer**, because the loop continues and none of this is post-gate work. Build applies Transition 4 itself (status flips to `partial-completion`; folder stays in `in-progress/`). Then:
   1. Ask the user for the hint text.
   2. Reset turn counter to `Turn 1/25`.
-  3. Re-enter the build loop **in this same invocation** with the hint added to context. Its `03-implementation.md` writes open a new pass (` (pass K)` headings, [`references/implementation-handoff.md`](references/implementation-handoff.md) §1).
+  3. Re-enter the build loop **in this same invocation** with the hint added to context. Its `03-implementation.md` writes open a new pass (` (pass K)` headings) when the current pass already has its `## Rationale` section, and otherwise continue the current pass ([`references/implementation-handoff.md`](references/implementation-handoff.md) §1, Later passes).
   4. After the loop returns with a new verdict, restart this section from 4a.
 
 **Worktree teardown** — part of the handed-over instruction set on the three spawning endings, only when a worktree is bound. [`references/worktree.md`](references/worktree.md) §4 owns the safety predicate and the mechanics and the finalizer runs them; build names the row that applies:

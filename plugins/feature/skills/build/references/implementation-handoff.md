@@ -41,11 +41,18 @@ The file opens with a `# Implementation — <TICKET-ID>` title, written together
 - **`## Rationale`** holds one entry per step, written once at the end of the implement phase (§3).
 - **`## Post-review`** and **`## Post-test`** hold the changes made after the implement phase (§4).
 
-**Later passes.** The loop can run again over a file that already has `## Rationale`: a `continue-with-hint` re-entry, or a resumed run that re-enters the review checkpoint. Each later pass appends its own sections in the same order, with every heading suffixed ` (pass K)`, K counting from 2: `## Steps (pass 2)`, `## Rationale (pass 2)`, `## Post-review (pass 2)`, `## Post-test (pass 2)`. `## Worktree` is never repeated. In this reference, "a `## Steps` section" (and likewise for the other three) means the unsuffixed section and every suffixed one; the current pass is the one with the highest K.
+**Later passes.** A `continue-with-hint` re-entry, or a resumed run that re-enters the review checkpoint, runs the loop again over an existing file. One rule decides where its writes go:
+
+- **The current pass has its `## Rationale` section** → the re-entry opens a new pass. It appends its own sections in the same order, with every heading suffixed ` (pass K)`, K counting from 2: `## Steps (pass 2)`, `## Rationale (pass 2)`, `## Post-review (pass 2)`, `## Post-test (pass 2)`.
+- **The current pass has no `## Rationale` section** (the loop exited before the implement phase ended, as a `stuck` exit mid-implement does) → the re-entry continues the current pass. Its step entries go under that pass's `## Steps` section, and its phase-end write adds that pass's `## Rationale`, with an entry for every step of the pass.
+
+`## Worktree` is never repeated. In this reference, "a `## Steps` section" (and likewise for the other three) means the unsuffixed section and every suffixed one; the current pass is the one with the highest K.
+
+**Keys in a later pass.** An entry that redoes a Build Sequence step keeps that step's `N.M` key, headed as a revisit (§5). Work driven by the hint that maps to no Build Sequence step is keyed `P<K>.<n>`, numbered in order within pass K: `### Step P2.1 — <goal>`. A `P` key stays visible to every view but never counts toward the done signal (§8), which reads Build Sequence keys only.
 
 ## 2. `## Steps` entries
 
-Each entry is headed `### Step N.M — <goal>`. `N.M` is copied from the `02-plan.md` Build Sequence line. It is never derived from the plan's unnumbered Implementation Steps bullets, because the Build Sequence number is the only stable identifier. Each entry has four fields, and each field is one to three bullet lines:
+Each entry is headed `### Step N.M — <goal>`. `N.M` is copied from the `02-plan.md` Build Sequence line. It is never derived from the plan's unnumbered Implementation Steps bullets, because the Build Sequence number is the only stable identifier. Hint-driven work in a later pass that maps to no Build Sequence step takes a `P<K>.<n>` key instead (§1). Each entry has four fields, and each field is one to three bullet lines:
 
 - **changed** — the files created or modified, as paths. Do not restate the diff. A step that changes no code still gets an entry: `changed: none — covered by Step X.Y`, or `changed: none — verification only`.
 - **constraints** — constraints discovered while doing the step that the plan did not state: an invariant, an ordering requirement, or a check that failed and why.
