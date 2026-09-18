@@ -14,7 +14,7 @@ arguments bound as $ARGUMENTS: <ARGUMENT_TEXT>
 Resolve its relative references against <ABSOLUTE_SKILL_DIRECTORY>.
 ```
 
-Argument text is data, never shell code. Plan receives the ticket argument plus `--auto`; build receives the ticket argument plus its propagated flags, with the hint supplied by the separate user-hint block. Load project `AGENTS.md` as the primary project instructions and also read applicable `CLAUDE.md` for shared project conventions; host instructions settle conflicts. If standalone plan asks for native plan mode and no such tool is exposed, perform the same interactive planning/approval dialogue in the current task and save only after the user's approval. Under flow, `--auto` continues to select its non-interactive path.
+Argument text is data, never shell code. Plan receives the ticket argument plus `--auto`; implement (`build`) receives the ticket argument plus `--implement-only`, and `--worktree` when propagated, with the hint supplied by the separate user-hint block; review (`review-stage`) receives the ticket argument plus `--base <branch>` when the stage overrides name a base branch; close (`close-stage`) receives the ticket argument plus its propagated flags. Load project `AGENTS.md` as the primary project instructions and also read applicable `CLAUDE.md` for shared project conventions; host instructions settle conflicts. If standalone plan asks for native plan mode and no such tool is exposed, perform the same interactive planning/approval dialogue in the current task and save only after the user's approval. Under flow, `--auto` continues to select its non-interactive path.
 
 For a main-context `AskUserQuestion` operation, use an available user-input tool or a concise conversational question and wait for the answer. A stage subagent uses the shared `PAUSED:` protocol to reach the caller instead; a user-input tool's absence never authorizes choosing an answer with no default.
 
@@ -41,7 +41,7 @@ These are task instructions, not a claim of native tool filtering. Inherited san
 
 ## Wait and resume
 
-Keep the returned child ID. Use `wait_agent`/`wait` and `list_agents` or the active surface's completion event to collect results. A notification or timeout is not a final result: inspect the delivered completion report before advancing. Wait for running children instead of repeatedly listing unchanged status.
+Keep the returned child ID. Use `wait_agent`/`wait` and `list_agents` or the active surface's completion event to collect results. A notification or timeout is not a final result: inspect the delivered completion report before advancing. Wait for running children instead of repeatedly listing unchanged status. A stage collects every one of its children's reports before its own final report.
 
 When a stage returns `PAUSED:`, keep its ID. After the caller answers, use **`followup_task`** with that ID and the answer; it starts a new turn on an idle child. `send_message` on that surface only queues a message and cannot replace this operation. On schemas exposing `send_input` instead, use it only when its contract starts a turn on the existing child; use `resume_agent` first if that schema requires it for a closed child. Then wait for the same child's next report. A rejected permission request or user cancellation must be surfaced, not bypassed through another child.
 

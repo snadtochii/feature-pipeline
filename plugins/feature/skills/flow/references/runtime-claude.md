@@ -10,7 +10,7 @@ Use `Skill` with `skill: feature:<name>` and the complete `args` string. Render 
 Invoke the Skill tool with skill feature:<stage> and args <ARGUMENT_TEXT>.
 ```
 
-The argument is tool data, never a shell command. Plan gets the ticket argument plus `--auto`; build gets the ticket argument plus its propagated flags. The stage brief's user-hint block is build's optional hint input.
+The argument is tool data, never a shell command. Plan gets the ticket argument plus `--auto`; implement (`build`) gets the ticket argument plus `--implement-only`, and `--worktree` when propagated; review (`review-stage`) gets the ticket argument plus `--base <branch>` when the stage overrides name a base branch; close (`close-stage`) gets the ticket argument plus its propagated flags. The implement brief's user-hint block is build's optional hint input.
 
 ## Spawn and models
 
@@ -21,6 +21,8 @@ For a stage override, `inherit` → omit `model`; otherwise pass the user's requ
 ## Wait and resume
 
 Retain each returned agent ID and collect its result using the active tool's foreground result or background completion mechanism. A timeout or progress update is not a final report. A `PAUSED:` report is a turn boundary, not completion of the stage.
+
+A stage waits for its role children in the foreground (`run_in_background: false`, independent roles launched together in one message), or collects every background completion before ending its turn. A child still running when the stage ends its turn reports to the root session, not to the stage, and its result is lost to the stage.
 
 Resume that same ID with `SendMessage` (`to` = agent ID, message = the caller's answer, using the active schema). It resumes a completed subagent where supported. On a surface exposing resume through the spawn tool instead, use its documented resume field with the same ID. If neither mechanism can resume, use stage-briefs §5's bounded artifact fallback. A permission denial or user cancellation is not a missing resume capability.
 

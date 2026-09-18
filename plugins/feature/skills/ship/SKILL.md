@@ -55,7 +55,7 @@ orchestrator (main)
   ├─ epic run (resolved ID is kind: epic): create integration/<epic-id> off <base> (base for every per-ticket PR)
   ├─ solo run (one parentless ID) / multi-solo run (2+ parentless IDs): no integration branch — each ticket's PR targets <base> and is a resulting PR
   └─ per ticket, in blocked_by order (epic) or list order (multi-solo):
-       1. implementer subagent → Skill feature:flow <id> --pr --no-ui-testing [--worktree]   (plan → build → open PR against <BASE_BRANCH>)
+       1. implementer subagent → Skill feature:flow <id> --pr --no-ui-testing [--worktree]   (plan → implement → review → close → open PR against <BASE_BRANCH>)
        2. reviewer subagent     → spec + diff only → posts PR review
        3. implementer subagent → Skill feature:address-review <n> --auto (validate → fix → reply → push) → re-run typecheck + tests → epic run: gh pr merge --squash into the integration branch; solo/multi-solo: leave the PR open
   ├─ orchestrator: verify the hop (epic run: merge landed + checks green; solo/multi-solo: PR open + checks green) → next ticket

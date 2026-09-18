@@ -11,6 +11,7 @@ allowed-tools:
   - Task
   - Agent
   - TodoWrite
+  - SendMessage
   - pipeline_get_ticket
   - pipeline_list_tickets
   - pipeline_get_artifact
@@ -23,14 +24,17 @@ allowed-tools:
   - mcp__plugin_server-native_ps__pipeline_list_artifacts
   - mcp__plugin_server-native_ps__pipeline_write_artifact
   - mcp__plugin_server-native_ps__pipeline_transition_ticket
-argument-hint: "[ticket-id] [--worktree] [--hint text]"
+argument-hint: "[ticket-id] [--worktree] [--hint text] [--pr] [--no-commit] [--no-ui-testing]"
 ---
 
 # Build Stage
 
 Implement the ticket's plan one Build Sequence step at a time, validating each step and recording it in the implementer handoff (`03-implementation.md`). All fixes happen in-context — no rewinds to earlier stages. The phase ends with the completed handoff: its `## Rationale` section when every step is done, or its `## Stuck` record when the loop stops on a stuck pattern or the turn cap.
 
-**Invoked standalone, this stage runs in the main conversation; under `flow` it runs as a stage subagent with a self-contained brief.** The stuck arbiter is its only child. Review and the closing work run as their own stages from a fresh context — the `review-stage` skill, then the `close-stage` skill, which owns the test checkpoint, the verdict, the verdict gate and the finalizer.
+Build runs in one of two modes:
+
+- **Implement stage** (`--implement-only`, always passed by the implement stage brief): build runs as a stage subagent spawned by a sequencer — `flow`, or standalone build itself — and ends after the handoff. The stuck arbiter is its only child.
+- **Standalone** (`/feature:build` without `--implement-only`): build runs the implement phase in the main conversation, then sequences the review and close stages itself (step 3) from the same briefs flow uses, so a run without flow gets the same stages, stops and endings. Review and the closing work run from a fresh context each — the `review-stage` skill, then the `close-stage` skill, which owns the test checkpoint, the verdict, the verdict gate and the finalizer.
 
 ## Arguments
 
@@ -38,13 +42,15 @@ Implement the ticket's plan one Build Sequence step at a time, validating each s
 /feature:build $ARGUMENTS
 ```
 
-`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into this run's loop — a fresh run or an auto-resumed one, passed directly or through `flow --hint`; the close stage's `continue-with-hint` option returns its hint for exactly this input), `--worktree` (do this run's code work in a dedicated git worktree instead of the current checkout — see State setup's worktree binding and [`references/worktree.md`](references/worktree.md)).
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into this run's loop — a fresh run or an auto-resumed one, passed directly or through `flow --hint`; the close stage's `continue-with-hint` option returns its hint for exactly this input), `--worktree` (do this run's code work in a dedicated git worktree instead of the current checkout — see State setup's worktree binding and [`references/worktree.md`](references/worktree.md)). Standalone only, forwarded to the close stage's brief (step 3): `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/`), `--no-commit` (on verdict `pass`, leave the changes uncommitted), `--no-ui-testing` (skip the close stage's browser pass) — each as `close-stage` defines it.
+
+**Internal flag** `--implement-only` — the sequencer→build signal (not advertised in `argument-hint`, but honored if present from any source) that selects the implement-stage mode: build ends after the handoff (1d or 1e) and runs no stage chain.
 
 Resumption is auto-detected from the ticket's existing artifacts — see step 2 below. To start fresh against a partially-built ticket, delete the relevant artifacts (`03-implementation.md` onward) before invoking build — a user-side action; build itself never deletes artifacts. Start-fresh mechanics: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §10, for the mode detected at Ticket Resolution.
 
 ## Ticket Resolution & Artifacts Setup
 
-**Runtime.** Bind the runtime and plugin root per [../flow/references/runtime.md](../flow/references/runtime.md) before work. Use its operations for every skill call and role spawn, including the stuck arbiter. Prefix their complete prompts with the runtime block and honor its capacity policy and role boundaries.
+**Runtime.** Bind the runtime and plugin root per [../flow/references/runtime.md](../flow/references/runtime.md) before work. Use its operations for every skill call and role spawn, including the stuck arbiter and, standalone, the review and close stage spawns and their resumes. Prefix their complete prompts with the runtime block and honor its capacity policy and role boundaries.
 
 **Storage mode.** Detect it once per run per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection; every per-mode reference cited in this skill (`-fs` / `-server`) is the file for that mode.
 
@@ -70,9 +76,20 @@ Validate `kind` per [`ticket-resolution-fs.md`](../flow/references/ticket-resolu
 
 A ticket in `review/` (status `in-review`) has an open PR, and checking it is the close stage's merge-check row, not a build. Checked before State setup, so Transition 1 never runs on it: stop with one line — `<ticket-id> is in review/ — run /feature:close-stage <ticket-id> to check its PR.` Signal keying: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §10. The `review/ → in-progress` re-plan path (revise an open PR's code) belongs to `plan`.
 
+## Closed-ticket check
+
+Without a bound hint (Required Input), a ticket whose gate decision was already applied is not reopened. Checked before State setup, so Transition 1 never resets its status: when `06-summary.md` exists with verdict `partial` or `stuck`, is not older than any of `03-implementation.md`, `04-review.md` and `05-tests.md`, and the ticket's own status is neither `in-progress` nor `in-review`, stop with one line — `<ticket-id> already closed (<status>, verdict <v>). Re-run with --hint to continue, or delete 03-implementation.md onward to rebuild.` These are flow's routing signals, read per [`keying-fs.md`](../flow/references/keying-fs.md) / [`keying-server.md`](../flow/references/keying-server.md) §1, for the mode detected at Ticket Resolution.
+
 ## Blocker validation
 
 Validate blockers per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) Step 6. If any entry in `blocked_by` is not yet done (status `done` or `cancelled` per Step 6's completion test), abort with the message in Step 6 listing the unblocked blockers. If a `blocked_by` entry is wrong, edit this ticket's `blocked_by` frontmatter.
+
+## Flag validation
+
+Runs before State setup, so Transition 1 never fires on a decidable error.
+
+- `--pr` and `--no-commit` together contradict — `--pr` must commit and push. Stop with one line — `--pr and --no-commit contradict — --pr must commit and push. Drop one and re-run.` No work happens, no artifacts are written, no transition fires.
+- With `--implement-only`, each of `--pr`, `--no-commit` and `--no-ui-testing` that was passed prints one line — `<flag> ignored — no close stage in an implement-only run.` — and the run continues.
 
 ## State setup
 
@@ -130,12 +147,12 @@ c. **For each step in `02-plan.md`'s Build Sequence, in order:**
    3. **Run validation and record the step in one call.** Run lint/typecheck via `Bash`, chaining this step's `## Steps` entry onto the same command as a heredoc append to `03-implementation.md` with a quoted, entry-unique delimiter — what changed and where, constraints discovered, rough edges left on purpose, validation state, per [`references/implementation-handoff.md`](references/implementation-handoff.md) §2 and §5. Never spend a turn of its own on the entry. A red run appends nothing: fix the errors, then re-issue the combined call. With no validation commands documented, the append rides as a parallel call beside the next step's first tool call (§5).
    4. **Emit `Turn N/25`** at the start of the next iteration.
    5. **Watch the transcript for stuck patterns** (per `references/stuck-detection.md` patterns 1–5): action↔observation repetition, action↔error repetition, agent monologue, ping-pong between two states, repeated context errors. On detection, take the stuck exit (1e).
-   6. **Outer-loop arbiter check** (per `references/stuck-detection.md` pattern 6). When the current checkpoint has accumulated 4+ turns without exiting, fire the arbiter once via a `Task` call with the prompt in stuck-detection.md §6. Cache the verdict for the rest of the checkpoint. On `status: stuck`, take the stuck exit (1e), recording the arbiter's `reason`.
-   7. **On hitting `Turn 26`**, take the stuck exit (1e) regardless of semantic-pattern detection. The hybrid stop rule: either trigger ends the phase stuck.
+   6. **Outer-loop arbiter check** (per `references/stuck-detection.md` pattern 6). When 4 turns pass without a new `### Step` entry in `03-implementation.md`, fire the arbiter through the runtime's Spawn operation with the prompt in stuck-detection.md §6. Its verdict holds until the next `### Step` entry lands, which re-arms it. On `status: stuck`, take the stuck exit (1e), recording the arbiter's `reason`.
+   7. **On hitting `Turn 26`**, take the stuck exit (1e) regardless of semantic-pattern detection — the implement stage's hard maximum ([`references/stuck-detection.md`](references/stuck-detection.md), Hard maximum per stage), counted within this invocation. The hybrid stop rule: either trigger ends the phase stuck.
 
-d. **After all plan steps are implemented**, run final validation across all changes. Fix any cross-cutting failures in-context. Then, as the last action of the implement phase and chained onto the final validation command in the same call, complete `03-implementation.md` in one append: a `(revisit)` `## Steps` entry for any step the cross-cutting fixes changed, followed by the `## Rationale` section — one entry per step, why this shape and what was rejected (§3 and §5 of the handoff reference). The implement phase ends here; the review and close stages follow. Print one line — `Implement phase complete for <ticket-id> — handoff: <absolute path of 03-implementation.md>`.
+d. **After all plan steps are implemented**, run final validation across all changes. Fix any cross-cutting failures in-context. Then, as the last action of the implement phase and chained onto the final validation command in the same call, complete `03-implementation.md` in one append: a `(revisit)` `## Steps` entry for any step the cross-cutting fixes changed, followed by the `## Rationale` section — one entry per step, why this shape and what was rejected (§3 and §5 of the handoff reference). The implement phase ends here. Print one line — `Implement phase complete for <ticket-id> — handoff: <absolute path of 03-implementation.md>`. With `--implement-only`, end. Standalone, continue into the stage chain (step 3) at the review stage.
 
-e. **Stuck exit.** As the phase's last action, append the `## Stuck` record to `03-implementation.md` per [`references/implementation-handoff.md`](references/implementation-handoff.md) §9 — the pattern (or `turn cap exceeded`), the arbiter's `reason` verbatim or `none`, the newest 3–5 step keys and actions, and a suggested next move — with an entry-unique delimiter (`HANDOFF_STUCK_<K>_END`). It may take a call of its own. Then print one line — `Implement phase stopped stuck for <ticket-id> — handoff: <absolute path of 03-implementation.md>` — and end. The close stage writes `06-summary.md` from the record and presents the verdict gate.
+e. **Stuck exit.** As the phase's last action, append the `## Stuck` record to `03-implementation.md` per [`references/implementation-handoff.md`](references/implementation-handoff.md) §9 — the pattern (or `turn cap exceeded`), the arbiter's `reason` verbatim or `none`, the newest 3–5 step keys and actions, and a suggested next move — with an entry-unique delimiter (`HANDOFF_STUCK_<K>_END`). It may take a call of its own. Then print one line — `Implement phase stopped stuck for <ticket-id> — handoff: <absolute path of 03-implementation.md>` — With `--implement-only`, end. Standalone, continue into the stage chain (step 3) at the close stage. The close stage writes `06-summary.md` from the record and presents the verdict gate.
 
 ### 2. Auto-resumption from existing artifacts
 
@@ -146,9 +163,9 @@ At build start, before the implement checkpoint, inspect the ticket's existing a
 | On disk | Routing |
 |---|---|
 | `06-summary.md` exists with verdict `pass` | Print "Build already complete for `<ticket-id>` (verdict: pass). Delete `03-implementation.md` onward to re-run, or run `/feature:plan` first if you want to revise the plan." Exit. |
-| `03-implementation.md`'s current pass has a `## Stuck` section, and no hint is bound | Print "Implement stopped stuck for `<ticket-id>` — run `/feature:close-stage <ticket-id>` for the verdict gate, or re-run with `--hint`." Exit. |
+| `03-implementation.md`'s current pass has a `## Stuck` section, and no hint is bound | With `--implement-only`: print "Implement stopped stuck for `<ticket-id>` — run `/feature:close-stage <ticket-id>` for the verdict gate, or re-run with `--hint`." Exit. Standalone: continue into the stage chain (step 3) at the close stage. |
 | `03-implementation.md` lacks a `## Steps` entry for some Build Sequence step, or its current pass has neither `## Rationale` nor `## Stuck` | Continue from the first Build Sequence step without an entry, per the done signal in [`references/implementation-handoff.md`](references/implementation-handoff.md) §8; all steps present but the phase not ended → the final validation and phase-end write (1d). Where the writes land — the current pass or a new one — follows the handoff's §1 Later passes rule. |
-| `03-implementation.md`'s current pass has a `## Rationale` section, and no hint is bound | Print "Implement phase already complete for `<ticket-id>`." Exit. |
+| `03-implementation.md`'s current pass has a `## Rationale` section, and no hint is bound | With `--implement-only`: print "Implement phase already complete for `<ticket-id>`." Exit. Standalone: continue into the stage chain (step 3) at the review stage; each stage's own router returns a round that is already recorded without redoing it. |
 | `03-implementation.md`'s current pass has a `## Rationale` or `## Stuck` section, and a hint is bound | Open a new pass (handoff §1, Later passes) and work the hint: redo the Build Sequence steps it touches under their own keys as revisits, and key work that maps to no step `P<K>.<n>`. End with the phase-end write (1d). |
 | Nothing relevant exists | Fresh start: implement step 1, Turn 1/25. |
 
@@ -156,9 +173,17 @@ At build start, before the implement checkpoint, inspect the ticket's existing a
 
 **Worktree re-binding happens upstream.** State setup re-binds a recorded `<wt-path>` before this router runs, and does so whether or not `--worktree` was passed again — so every row below already operates on the right tree. Without that ordering, the rows that continue an existing pass would validate a main checkout holding none of the prior run's code.
 
-**Turn-counter reset on resume**. Resumed sessions start at `Turn 1/25` — the prior budget is forfeited.
+**User hint**. The optional hint bound per Required Input becomes part of the resumed (or fresh) loop's context, whether supplied by direct `--hint "<text>"` or flow's stage brief. The close stage's `continue-with-hint` option returns its hint for a fresh implement run: under flow it arrives as this stage's hint input; standalone, the stage chain (step 3) binds it here and re-enters the router in this same context.
 
-**User hint**. The optional hint bound per Required Input becomes part of the resumed (or fresh) loop's context, whether supplied by direct `--hint "<text>"` or flow's stage brief. The close stage's `continue-with-hint` option returns its hint for a fresh implement run: under flow it arrives as this stage's hint input, and standalone the user re-runs `/feature:build <ticket-id> --hint "<text>"`.
+### 3. Stage chain (standalone only)
+
+Never under `--implement-only`. Build is the sequencer: read [`../flow/references/stage-briefs.md`](../flow/references/stage-briefs.md) at this point and follow its §11 chain from the entry stage. After `## Stuck`, enter at close. After `## Rationale`, pick the entry stage with the same rows flow's routing table applies at that point, reading the signals per [`keying-fs.md`](../flow/references/keying-fs.md) / [`keying-server.md`](../flow/references/keying-server.md) §1: `06-summary.md` current and the status `in-progress`, or `05-tests.md` newer than `04-review.md` with the current pass carrying `## Post-test` → close; `04-review.md` missing, carrying `fix-step: pending`, or older than `03-implementation.md` → review; otherwise → close. Every `stage-briefs §N` below is a section of that file.
+
+1. **Fill each brief** — stage-briefs §9 (review) and §10 (close) — verbatim, resolving every placeholder per stage-briefs §3: `<RUNTIME_BLOCK>` from this run's runtime binding; `<PROJECT_ROOT>` the current working directory; `<TICKET_ARG>` and `<STORAGE_MODE>` per [`keying-fs.md`](../flow/references/keying-fs.md) / [`keying-server.md`](../flow/references/keying-server.md) §5, for the mode detected at Ticket Resolution, re-resolved **immediately before each spawn**; `<ATTENDED>` and `<OVERRIDES_BLOCK>` bound once, from how build itself was invoked (stage-briefs §3 and §7 — a user's own prompt is attended with no overrides; headless `claude -p` is unattended); `<REVIEW_FLAGS>` per stage-briefs §3; `<CLOSE_FLAGS>` from this invocation's `--pr`, `--no-commit` and `--no-ui-testing`.
+2. **Spawn** each stage through the runtime's Spawn operation, one at a time, and print its report as it returns (stage-briefs §8). Advance on the report's first line per stage-briefs §11.
+3. **Relay close's stops** per stage-briefs §5. Attended: print the `PAUSED:` block, end your turn, and resume the same close agent through the runtime's Resume operation with the user's next message. Unattended with no autonomy rule to apply: print the stop and end the run — the ticket stays at its gate, and the close stage's incomplete-tail row re-presents it on the next run.
+4. **`close: continue-with-hint`** — bind the hint text you relayed at that close stage's hint-text stop as this run's hint input (Required Input) — the report's hint block is a cross-check only, and a `continue-with-hint` with no relayed hint-text answer is a stage failure — re-apply State setup's Transition 1 (it resets the `partial-completion` status to `in-progress`), and re-enter the router (step 2) in this same context, with the turn count at `Turn 1/25`: its hint-bound row opens a new pass, and the chain follows when the phase ends. There is no count cap: every round needs a relayed decision.
+5. **Stop** on any other `close:` result, an `exit:` line, or a stage failure (stage-briefs §8's failure keys): print the report, or the failure, and end. A failure is reported, never retried.
 
 ---
 
@@ -168,7 +193,7 @@ The build skill writes one artifact to `<ticket-folder>/` (write mechanics: [`st
 
 - **`03-implementation.md`** — the implementer handoff, structured per [`references/implementation-handoff.md`](references/implementation-handoff.md): a `## Steps` entry appended with each plan step's validation (the live progress log), then `## Rationale` at the end of the implement phase, or the `## Stuck` record on a stuck exit. The `## Post-review` and `## Post-test` sections are written by the review and close stages.
 
-Turn count and stuck patterns are conversational state, not file state. The run ends with one line naming the handoff's absolute path (1d or 1e).
+Turn count and stuck patterns are conversational state, not file state. With `--implement-only`, the run ends with one line naming the handoff's absolute path (1d or 1e). Standalone, the review and close stages write `04-review.md`, `05-tests.md` and `06-summary.md` from their own contexts, and the run ends with the last stage's report (step 3).
 
 ## Error Handling
 
@@ -177,3 +202,5 @@ Turn count and stuck patterns are conversational state, not file state. The run 
 - **Validation commands not documented in project `CLAUDE.md`**: log warning, proceed without skill-body validation. Graceful degradation; the loop continues.
 - **Storage operation fails mid-loop**: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §12, for the mode detected at Ticket Resolution.
 - **Stuck pattern detected or `Turn 26` reached**: not an error — handled by the `## Stuck` exit (1e).
+- **`--pr` with `--no-commit`**: stopped by Flag validation before State setup.
+- **A stage in the chain fails** (standalone — step 3): report what came back and stop; artifacts stay in place, and re-running `/feature:build` resumes from them.
