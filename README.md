@@ -6,7 +6,7 @@ A Claude Code & Codex plugin that runs an agentic feature-development pipeline f
 /discover → ticket(s) → /flow → plan → implement → review → close → done
 ```
 
-Three stages turn a plan into shipped code, each from a fresh context: `build` implements the plan step by step and writes an implementer handoff; `review-stage` runs four independent reviewers, validates every finding against the code and fixes the accepted ones; `close-stage` runs the UI test pass, sets a verdict of `pass | partial | stuck` and presents the verdict gate. Once that gate resolves, the closing mechanics — commit, PR, ticket transition, worktree teardown — run in a fresh-context finalizer child. The only stop under `/flow` is that verdict gate.
+Three stages turn a plan into shipped code, under `/flow` each from a fresh context: `build` implements the plan step by step and writes an implementer handoff; `review-stage` runs four independent reviewers, validates every finding against the code and fixes the accepted ones; `close-stage` runs the UI test pass, sets a verdict of `pass | partial | stuck` and presents the verdict gate. Once that gate resolves, the closing mechanics — commit, PR, ticket transition, worktree teardown — run in a fresh-context finalizer child. The only stop under `/flow` is that verdict gate.
 
 ## Install
 
