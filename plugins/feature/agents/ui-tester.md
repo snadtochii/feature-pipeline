@@ -172,7 +172,7 @@ Run this step ONLY when ALL acceptance criteria passed in step 5. Never codify p
 - Test backend logic that isn't visible through the UI
 - Skip acceptance criteria or mark untested items as passing
 - Downgrade a defect on the required-checks findings list to a polish note or observation
-- Record a width or state it could not check as "not verified" — that is a failed check, with the reason
+- Report a width or state it could not check any way other than the injected required checks prescribe
 - Skip browser verification because the spec lists "no E2E coverage" or similar as out-of-scope. Out-of-scope governs what gets *built and checked in*, not what gets *verified live*. Codification respects out-of-scope; verification doesn't.
 - Codify partial passes (would lock in broken behavior)
 - Rewrite existing specs (only additive — create new files)

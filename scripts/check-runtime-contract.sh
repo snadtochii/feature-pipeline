@@ -100,8 +100,10 @@ ship_ui = plugin / "skills/ship/references/ui-verification.md"
 if not ship_ui.is_file() or "build/references/ui-checks.md" not in ship_ui.read_text():
     errors.append("ship: ui-verification.md must inject build/references/ui-checks.md")
 tester = plugin / "agents/ui-tester.md"
-if not tester.is_file() or not re.search(r"^  - mcp__playwright__browser_resize$", tester.read_text().split("---", 2)[1], re.M):
-    errors.append("ui-tester: tool budget must list mcp__playwright__browser_resize")
+tester_frontmatter = tester.read_text().split("---", 2)[1] if tester.is_file() else ""
+for resize_tool in ("mcp__playwright__browser_resize", "mcp__chrome-devtools__resize_page"):
+    if not re.search(rf"^  - {re.escape(resize_tool)}$", tester_frontmatter, re.M):
+        errors.append(f"ui-tester: tool budget must list {resize_tool}")
 
 if errors:
     print("\n".join(f"FAIL: {error}" for error in errors), file=sys.stderr)
