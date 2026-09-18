@@ -64,8 +64,16 @@ for key in ("`PAUSED:", "`plan: saved`", "`implement: complete`", "`implement: s
         errors.append(f"stage-briefs §1: missing first-line key {key}")
 if "`verdict:" in spawn_text:
     errors.append("stage-briefs §1: `verdict:` is not a stage return key")
-if not re.search(r"^## §11 Stage chain$", briefs, re.M):
+chain = re.search(r"^## §11 Stage chain\n(.*?)(?=^## |\Z)", briefs, re.M | re.S)
+if not chain:
     errors.append("stage-briefs: missing §11 Stage chain")
+else:
+    # Every §1 first-line key needs a chain row, or the sequencer has no next
+    # step for a valid report.
+    chain_keys = " ".join(re.findall(r"^\| ([^|]+) \|", chain.group(1), re.M))
+    for key in ("`PAUSED:", "`plan: saved`", "`implement: complete`", "`implement: stuck`", "`review:", "`close:", "`exit:"):
+        if key not in chain_keys:
+            errors.append(f"stage-briefs §11: no chain row for first-line key {key}")
 for name in ("flow", "build"):
     text = (plugin / "skills" / name / "SKILL.md").read_text()
     if "stage-briefs.md" not in text or "§11" not in text:
