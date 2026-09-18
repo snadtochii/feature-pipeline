@@ -8,7 +8,7 @@ This file captures invariants and conventions. Anything derivable from reading t
 
 ## What this repo is
 
-A Claude Code and Codex plugin that ships an agentic feature-development pipeline: `discover → plan → build`. Each stage is a separate **skill** that can run standalone or be sequenced by the **flow** orchestrator. Build runs implement, review, and test as in-loop checkpoints inside one continuous loop. Stages are backed by specialized **agents** (subagents with focused tool budgets and personas).
+A Claude Code and Codex plugin that ships an agentic feature-development pipeline: `discover → plan → build`. Each stage is a separate **skill** that can run standalone or be sequenced by the **flow** orchestrator. Build runs implement, review, and test as in-loop checkpoints inside one continuous loop, then hands its post-gate mechanics to a fresh-context finalizer child. Stages are backed by specialized **agents** (subagents with focused tool budgets and personas).
 
 The primary audience for edits to this repo is a coding agent working on the plugin's own skills/agents — not end users. End-user docs live in README.md.
 
@@ -55,7 +55,9 @@ discover → ticket(s) → flow → plan → build → completion
                                │  test       │ (ui-tester subagent or skip; --no-ui-testing forces the skip)
                                │      ↓      │
                                │  exit       │ verdict: pass | partial | stuck
-                               └─────────────┘
+                               └──────┬──────┘
+                                      ↓
+                                  finalizer   (subagent: commit, PR, transition, worktree teardown)
 ```
 
 
@@ -159,7 +161,7 @@ Every agent in this plugin uses the body structure: **Triggers / Behavioral Mind
 
 ### No implementer agent
 
-Build's implement checkpoint runs in main context (see "Main-context vs subagent" below); implementation tool access is governed by the `build` skill's `allowed-tools`, not by an agent tool budget. There is intentionally no `implementer.md` in `agents/`.
+This is scoped to the implement checkpoint. That checkpoint runs in main context (see "Main-context vs subagent" below); implementation tool access is governed by the `build` skill's `allowed-tools`, not by an agent tool budget. There is intentionally no `implementer.md` in `agents/`. Build's other mutating child, the post-gate `finalizer`, is a different role: it writes no implementation, and its budget is the minimum for commit/PR/transition/teardown.
 
 ---
 
@@ -172,6 +174,7 @@ Not every stage runs as a subagent. The rule:
 | `flow` (orchestrator) | `code-explorer`, `requirements-analyst` (spawned by `plan` Phase 1) |
 | `discover` (interactive dialogue) | `code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect` (spawned by `build`'s review checkpoint) |
 | `plan` standalone (interactive plan mode, or auto mode's batched no-default / complexity-overflow pauses; spawns subagents in Phase 1) | `ui-tester` (spawned by `build`'s test checkpoint) |
+| | `finalizer` (spawned by `build`'s verdict gate once the decision is resolved; non-interactive — a condition needing a human comes back as a `needs-decision` result build relays) |
 | `build` standalone (long interactive loop with implement/review/test checkpoints) | `plan` and `build` under `flow` — each a stage subagent spawned from `skills/flow/references/stage-briefs.md`; their user-facing stops pause the subagent and flow relays them (`stage-briefs.md` §5) |
 | `debug` (interactive runtime-debugging loop; spawns no subagents) | |
 | `sync` (standalone PR reconciler; reads PR state via `gh`, performs Transition 6; spawns no subagents) | |
@@ -232,7 +235,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 Before committing changes to skills or agents, walk [docs/contributing/validation.md](docs/contributing/validation.md); it also holds the add-a-stage and add-an-agent checklists. Always:
 
 - `scripts/check-tool-parity.sh`, `scripts/check-mode-split.sh`, `scripts/check-md-links.sh`, and `bash scripts/check-runtime-contract.sh` exit 0; `node scripts/check-tidy-checks.mjs` too when the change touches tidy-loop checks.
-- Reviewer agents (`code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect`) list no `Bash` or `Edit`.
+- Reviewer agents (`code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect`) list no `Bash` or `Edit`; `finalizer` keeps `Bash` — `scripts/check-runtime-contract.sh` asserts both directions.
 - An edit to a shared section of a `-fs`/`-server` pair lands in both files.
 - A new validation script gets a step in `.github/workflows/validation.yml`, or it stays manual-only.
 

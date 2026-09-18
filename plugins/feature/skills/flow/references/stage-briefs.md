@@ -6,7 +6,7 @@ This file is mode-neutral. The two values that differ by storage mode — `<TICK
 
 ## §1 Spawn contract
 
-- One fresh generic worker per stage, using the Spawn operation of the runtime selected by [runtime.md](runtime.md). The stage executes its skill through that runtime's Invoke skill operation and spawns its own children (plan's explorer and analyst; build's reviewers and `ui-tester`).
+- One fresh generic worker per stage, using the Spawn operation of the runtime selected by [runtime.md](runtime.md). The stage executes its skill through that runtime's Invoke skill operation and spawns its own children (plan's explorer and analyst; build's reviewers, `ui-tester` and post-gate `finalizer`).
 - Flow spawns plan, waits for its result, then spawns build — never both at once; the handoff between them is `02-plan.md` on disk.
 - Nesting: flow at depth *n* puts the stage at *n+1* and its roles at *n+2*. Under ship that is orchestrator → implementer → stage → role. Apply the selected runtime's Capacity operation; this shape is a requirement, not evidence that a particular session permits it.
 - Flow's own context receives only what the stage returns (the §4 / §6 report formats, or a §5 pause) — the stage's reasoning, edits, reviewer reports, and test output stay in the stage's context.
@@ -77,7 +77,7 @@ Nothing else — no plan prose, no exploration.
 
 ## §5 Pause and resume
 
-A stage has no user. Every user-facing stop inside a stage — plan's two auto-mode stops; build's verdict-gate blocks (the commit question, the `accept-as-partial | continue-with-hint | abort` menu, the hint text), a `pr-creation.md` branch-safety prompt, and (attended only) build's lessons-log promotion proposal — follows one protocol:
+A stage has no user. Every user-facing stop inside a stage — plan's two auto-mode stops; build's verdict-gate blocks (the commit question, the `accept-as-partial | continue-with-hint | abort` menu, the hint text), a `pr-creation.md` branch-safety choice, relayed to build by its finalizer as a `needs-decision` result, and (attended only) build's lessons-log promotion proposal — follows one protocol:
 
 1. **The stage pauses**: it ends its turn with `PAUSED: <stop name>`, the exact skill section and pending operation, which preceding side effects have completed, and the stop's block verbatim. It applies no transition that depends on the answer (already-applied transitions stand — build's Transition 4 precedes the hint-text stop). Flow retains that continuation record for fallback; it relays the question block verbatim.
 2. **Flow relays** — the branch was fixed at SETUP by `<ATTENDED>` and is never re-decided at a stop:
@@ -94,7 +94,7 @@ A stage has no user. Every user-facing stop inside a stage — plan's two auto-m
 - <stop name 2>: "<answer 2>"
 ```
 
-listing **every** stop answered so far for this stage, oldest first, followed by the retained continuation record. Plan re-runs Phase 1 and applies the recorded answers. Build reloads its skill and available artifacts, bypasses the normal auto-resumption router, and resumes the **recorded pending operation**, preserving completed side effects. Only a stop at the verdict-choice/commit gate with an existing `06-summary.md` re-enters 4c/4d from that verdict; an earlier stop (for example branch safety or lesson promotion) resumes its own recorded section without assuming a summary exists or replaying commits/transitions. If the continuation cannot be reconstructed, report a stage failure instead of guessing. State the cost: skill/artifact reloads, and plan's repeated exploration. At most **one** fallback re-spawn per stop — another pause on an already-answered stop is a stage failure (§8).
+listing **every** stop answered so far for this stage, oldest first, followed by the retained continuation record. Plan re-runs Phase 1 and applies the recorded answers. Build reloads its skill and available artifacts, bypasses the normal auto-resumption router, and resumes the **recorded pending operation**, preserving completed side effects — for a stop the finalizer raised, that means re-spawning it with the answer and the cumulative side-effect list rather than re-running the tail from the start. Only a stop at the verdict-choice/commit gate with an existing `06-summary.md` re-enters 4c/4d from that verdict; an earlier stop (for example branch safety or lesson promotion) resumes its own recorded section without assuming a summary exists or replaying commits/transitions. If the continuation cannot be reconstructed, report a stage failure instead of guessing. State the cost: skill/artifact reloads, and plan's repeated exploration. At most **one** fallback re-spawn per stop — another pause on an already-answered stop is a stage failure (§8).
 
 ## §6 Build brief
 
@@ -120,7 +120,8 @@ to spawn. `02-plan.md` is already on disk; build resumes from whatever artifacts
 
 Pausing for a decision. Build's verdict gate and its PR path print blocks that need a human:
 the commit question, the `accept-as-partial | continue-with-hint | abort` menu, the hint text,
-pr-creation's branch-safety prompts, and — when attended — the lessons-log promotion proposal.
+pr-creation's branch-safety choice that the finalizer hands back, and — when attended — the
+lessons-log promotion proposal.
 You cannot ask anyone. When such a block is reached: end your turn with a report whose FIRST
 LINE is `PAUSED: <stop name>`, then the skill section, pending operation and completed side
 effects needed to resume, followed by the block VERBATIM. Apply no transition that depends
@@ -131,8 +132,8 @@ looping here, in this same context.
 When build finishes (after its 4e message), your final report is, in this order:
 1. `verdict: pass | partial | stuck` — one line, FIRST
 2. the `06-summary.md` summary as the skill presented it at the gate
-3. the transition applied (which state the ticket is in now) and the 4e line
-4. the PR URL and branch when a PR was opened; the worktree path when one was left in place
+3. the transition applied (which state the ticket is in now) and the 4e line — both from the finalizer's result
+4. the PR URL and branch when a PR was opened; the worktree path when one was left in place — same source
 5. for `partial` / `stuck`: the reason (failed criteria, deferred conflicts, or the stuck pattern)
 6. only when the Stage overrides above asked for them: the lesson candidates, one per line
 When build exits before its loop — the open-PR pass-through on a ticket under review, a

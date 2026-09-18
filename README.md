@@ -6,7 +6,7 @@ A Claude Code & Codex plugin that runs an agentic feature-development pipeline f
 /discover → ticket(s) → /flow → plan → build → done
 ```
 
-`build` is one continuous loop — **implement → review → test** run as internal checkpoints, with fixes applied in context, exiting on a verdict of `pass | partial | stuck`. The only stop under `/flow` is that verdict gate.
+`build` is one continuous loop — **implement → review → test** run as internal checkpoints, with fixes applied in context, exiting on a verdict of `pass | partial | stuck`. Once that gate resolves, its closing mechanics — commit, PR, ticket transition, worktree teardown — run in a fresh-context finalizer child. The only stop under `/flow` is that verdict gate.
 
 ## Install
 
@@ -85,7 +85,7 @@ The validation hook uses Codex's hook system — enable `codex_hooks` and `plugi
 | `/feature:discover <idea>` | Socratic intake → one ticket, or an epic with child tickets when the scope splits. Add `--explore` to challenge an idea before committing. |
 | `/feature:flow <id>` | Runs `plan → build` with a single verdict gate; each stage runs in its own subagent, so build starts from a fresh context with the spec and saved plan as inputs. Walks an epic's children in dependency order. Flags: `--pr`, `--no-commit`, `--no-ui-testing`, `--worktree`, `--hint`, `--plan-model`, `--build-model`. |
 | `/feature:plan <id>` | Plan stage alone — pre-plan synthesis (codebase patterns + open questions), then interactive plan mode. |
-| `/feature:build <id>` | Build loop alone — implement → review (4 reviewer roles, batched to available capacity) → test (real-browser UI). Auto-resumes from the ticket's existing artifacts. |
+| `/feature:build <id>` | Build loop alone — implement → review (4 reviewer roles, batched to available capacity) → test (real-browser UI), then a finalizer child for the post-gate commit/PR/transition work. Auto-resumes from the ticket's existing artifacts. |
 
 `flow`, `plan`, `build`, and `ship` select the active Claude or Codex runtime from the available tools. Claude keeps native skill and agent invocation; Codex loads the same skill and role instructions into fresh children and resumes paused stages with your answers. Nested agent support is required, and reviewer batches and ship worker counts respect the active runtime's limits. See [runtime behavior and stage models](plugins/feature/docs/advanced.md#stage-subagents-and-per-stage-models---plan-model---build-model).
 

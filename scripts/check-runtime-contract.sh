@@ -68,8 +68,28 @@ for role in expected:
     if re.search(r"^  - (?:Bash|Write|Edit|Agent|Task)$", frontmatter, re.M):
         errors.append(f"{role}: read-only role has a mutating/delegating tool")
 
+# The post-gate finalizer is the mirror image of the reviewer block above: build
+# must name it, its definition must exist, and it must KEEP the mutating tool the
+# reviewers must not have — the tail is git work, and a budget that lost `Bash`
+# would leave the child unable to commit while still reporting success.
+if "feature:finalizer" not in build:
+    errors.append("build: verdict gate must spawn feature:finalizer")
+finalizer = plugin / "agents/finalizer.md"
+if not finalizer.is_file():
+    errors.append("missing shared role definition: finalizer")
+else:
+    frontmatter = finalizer.read_text().split("---", 2)[1]
+    if not re.search(r"^  - Bash$", frontmatter, re.M):
+        errors.append("finalizer: mutating role must keep Bash in its tool budget")
+    # Upper bound as well as lower: the unchanged `flow -> stage -> role` depth
+    # count in runtime-claude.md holds only while this stays a leaf that never
+    # delegates, and the role decides nothing and looks nothing up.
+    forbidden = re.findall(r"^  - (Agent|Task|TodoWrite|WebFetch|WebSearch)$", frontmatter, re.M)
+    if forbidden:
+        errors.append(f"finalizer: leaf role must not hold {sorted(set(forbidden))}")
+
 if errors:
     print("\n".join(f"FAIL: {error}" for error in errors), file=sys.stderr)
     sys.exit(1)
-print("OK: 4 runtime consumers, 2 runtime implementations, 2 neutral stage templates, 4 read-only reviewer roles")
+print("OK: 4 runtime consumers, 2 runtime implementations, 2 neutral stage templates, 4 read-only reviewer roles, 1 mutating finalizer role")
 PY

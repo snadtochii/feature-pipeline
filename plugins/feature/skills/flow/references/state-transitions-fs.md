@@ -47,7 +47,7 @@ The single definition of "is this epic finished?" Both end-state transitions (Tr
 
 **Inputs**: the epic's handle — `<epic-folder>` (the epic's current location, under `in-progress/` or `review/`) and its `prd.md`.
 
-**Output**: a decision — `promote` or `stay` — plus zero or more warnings. The predicate reads only: it never moves folders or writes frontmatter. The invoking transition performs the promotion (the move, always from the epic's **current** folder, never a hardcoded source, plus the `prd.md` status edit); the invoking caller renders the warnings in its own channel (`build` inline at the verdict gate, `sync` as `⚠` report lines).
+**Output**: a decision — `promote` or `stay` — plus zero or more warnings. The predicate reads only: it never moves folders or writes frontmatter. The invoking transition performs the promotion (the move, always from the epic's **current** folder, never a hardcoded source, plus the `prd.md` status edit); the invoking caller renders the warnings in its own channel (under `build`, the finalizer child returns them in its result `notes` and build prints them with its closing message; `sync` as `⚠` report lines).
 
 **Definitions**:
 - `declared` = the epic's child roster: the set of child IDs in `prd.md`'s `children:` field — an upfront declaration that may name children whose specs are not yet written. This is the authoritative roster contract for the epic.
@@ -138,7 +138,7 @@ If the ticket is already in progress with the expected status — folder in `in-
 3. **Epic-completion check** (load-bearing for epic-mode): apply the **Epic-completion predicate** (above).
    - On `promote`: move the **entire epic subtree** from `claudedocs/tickets/in-progress/<EPIC>/` to `claudedocs/tickets/done/<EPIC>/`, and set `prd.md` frontmatter `status` to `done`.
    - On `stay`: the epic stays out of `done/` — its location follows the precedence `in-progress` ⊐ `review` ⊐ `done` (any sibling still `in-progress` → `in-progress/`; else any `in-review` → `review/`). The subtree only moves to `done/` once the predicate returns `promote` — i.e. the full declared `children:` roster is materialized and every materialized child is terminal.
-   - Surface any predicate warnings (roster-unknown, roster-drift) inline at build's verdict gate.
+   - Surface any predicate warnings (roster-unknown, roster-drift): under `build` they travel out in the finalizer's result `notes`, which build prints with its closing message.
 
 ### Folder-move-then-frontmatter atomicity
 
@@ -194,7 +194,7 @@ A repeat `continue-with-hint` round overwrites `partial-completion` with itself 
 ## Transition 5 — Open-PR (in-progress → review)
 
 **Invoked by**:
-- `build` at the verdict gate on verdict `pass` with `--pr`, after a pull request has been opened for the work (the branch/push and the `gh pr create` call live in build's `pr-creation.md` reference). This transition owns the folder move + status flag.
+- `build` at the verdict gate on verdict `pass` with `--pr`, after a pull request has been opened for the work — build resolves it at the gate and its finalizer child performs it, alongside the branch/push and the `gh pr create` call in build's `pr-creation.md` reference. This transition owns the folder move + status flag.
 
 Ticket lands here when its PR is open but not yet merged — a **non-terminal** state. The work is finished from the build loop's perspective, but "done" would misrepresent it: an open PR can be reworked or closed.
 

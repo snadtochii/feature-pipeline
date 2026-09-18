@@ -2,7 +2,7 @@
 
 The shared provision → work → remove procedure for every surface that isolates a ticket's code work in a git worktree. Two consumers today:
 
-- **`build`** — via the `--worktree` flag (SKILL.md's State setup binds the inputs and runs §2; the checkpoints consume §3; the verdict gate runs §4; §5 is the manual cleanup path).
+- **`build`** — via the `--worktree` flag (SKILL.md's State setup binds the inputs and runs §2; the checkpoints consume §3; the `feature:finalizer` child the verdict gate spawns runs §4; §5 is the manual cleanup path).
 - **`ship --parallel`** — via [`../../ship/references/parallel-walk.md`](../../ship/references/parallel-walk.md) §3, per dispatched ticket.
 
 Born in build and reused by ship, following the same precedent as [`pr-creation.md`](pr-creation.md) (born in build, reused by `sync`): the producing skill owns the rules, the consumers link them. Everything caller-specific — *when* a worktree is provisioned, *what* triggers removal, *what* a setup failure means — is a §0 input, so neither consumer forks the mechanics.
@@ -23,7 +23,7 @@ All git work runs inline via `Bash`. Every command below is **explicitly path-bo
 | `<branch>` | `<type>/<TICKET-ID>-<slug>` per [`pr-creation.md`](pr-creation.md) §2 — including its mandatory slug sanitization, since the value is interpolated into shell commands. |
 | `<ticket-folder>` | **Absolute** path to the ticket's artifact location — what it denotes: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §3, for the detected storage mode. Never a relative path and never a path inside the worktree — see §3. |
 | **setup-failure policy** | What a failed `worktree.setup` means to this caller — §2 step 5 reports the failure and defers the decision. build: notice and continue in the worktree. ship: parallel-walk §1 degradation. |
-| **removal trigger** | When §4 is allowed to run — §4 owns the safety predicate, the caller owns the trigger. build: the verdict gate's endings. ship: parallel-walk §5 (merged + revalidated) or §6 (branch pushed). |
+| **removal trigger** | When §4 is allowed to run — §4 owns the safety predicate, the caller owns the trigger. build: the verdict gate's endings, named in the instruction set its finalizer receives. ship: parallel-walk §5 (merged + revalidated) or §6 (branch pushed). |
 
 `<wt-path>` is **derived**, not supplied: `<repo-root>/../<repo-dirname>-worktrees/<TICKET-ID>`, where `<repo-dirname>` is `<repo-root>`'s own directory name. A sibling of the repo, never inside it.
 
@@ -174,6 +174,8 @@ The two subagent rows are the ones a `Bash`-only audit misses. A reviewer handed
 
 `git add -A` deserves particular care: it stages from the **repository root** regardless of the working directory, so `-C` is what selects the repository, not a cosmetic prefix. Without it the main checkout's tree is staged.
 
+The [`commit.md`](commit.md) and [`pr-creation.md`](pr-creation.md) rows, and §4 itself, are executed by build's `feature:finalizer` child, which receives `<wt-path>`, `<branch>`, `<repo-root>` and every main-checkout path as absolute values in its spawn prompt. For those sites the binding is a prompt-composition obligation on the caller: a value left out is not something the child can raise, it is a command aimed at the wrong tree.
+
 ### Stays in the main checkout — absolute paths
 
 | Site | Why |
@@ -194,7 +196,7 @@ The PostToolUse validation hook. It derives its working directory by walking up 
 
 ## §4 Teardown
 
-The caller supplies the **trigger** (§0); this section owns the **safety predicate** and the mechanics. The rule is that commits are repository-level: once the work is committed on `<branch>`, the worktree holds nothing the repository does not, so it is disposable. Uncommitted work is never silently orphaned.
+The caller supplies the **trigger** (§0); this section owns the **safety predicate** and the mechanics. Under build, the finalizer performs them against the paths its prompt carries. The rule is that commits are repository-level: once the work is committed on `<branch>`, the worktree holds nothing the repository does not, so it is disposable. Uncommitted work is never silently orphaned.
 
 **Predicate — remove only when both hold:**
 
