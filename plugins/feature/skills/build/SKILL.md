@@ -78,7 +78,7 @@ A ticket in `review/` (status `in-review`) has an open PR, and checking it is th
 
 ## Closed-ticket check
 
-Without a bound hint (Required Input), a ticket whose gate decision was already applied is not reopened. Checked before State setup, so Transition 1 never resets its status: when `06-summary.md` exists with verdict `partial` or `stuck`, is not older than any of `03-implementation.md`, `04-review.md` and `05-tests.md`, and the ticket's own status is neither `in-progress` nor `in-review`, stop with one line — `<ticket-id> already closed (<status>, verdict <v>). Re-run with --hint to continue, or delete 03-implementation.md onward to rebuild.` These are flow's routing signals, read per [`keying-fs.md`](../flow/references/keying-fs.md) / [`keying-server.md`](../flow/references/keying-server.md) §1, for the mode detected at Ticket Resolution.
+Without a bound hint (Required Input), a ticket whose gate decision was already applied is not reopened. Checked before State setup, so Transition 1 never resets its status: when `06-summary.md` exists with verdict `partial` or `stuck`, is not older than any of `02-plan.md`, `03-implementation.md`, `04-review.md` and `05-tests.md`, and the ticket's own status is neither `in-progress` nor `in-review`, stop with one line — `<ticket-id> already closed (<status>, verdict <v>). Re-run with --hint to continue, or delete 03-implementation.md onward to rebuild.` These are flow's routing signals, read per [`keying-fs.md`](../flow/references/keying-fs.md) / [`keying-server.md`](../flow/references/keying-server.md) §1, for the mode detected at Ticket Resolution.
 
 ## Blocker validation
 

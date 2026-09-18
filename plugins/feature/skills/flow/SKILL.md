@@ -116,7 +116,7 @@ It does NOT own:
 
 Flow inspects the ticket's existing artifacts at start and picks the **entry stage** automatically; from there the §11 stage chain in `references/stage-briefs.md` advances on each stage's report. Users who want to start fresh against a partially-run ticket delete the relevant artifacts manually.
 
-**Routing table** (checked in order, first match wins). "Current" below means `06-summary.md` is not older than any of `03-implementation.md`, `04-review.md` and `05-tests.md`; "the current pass" is the newest pass of `03-implementation.md`.
+**Routing table** (checked in order, first match wins). "Current" below means `06-summary.md` is not older than any of `02-plan.md`, `03-implementation.md`, `04-review.md` and `05-tests.md` — a re-plan makes the summary non-current, so its old gate is never re-presented; "the current pass" is the newest pass of `03-implementation.md`.
 
 | On disk | Routing |
 |---|---|
