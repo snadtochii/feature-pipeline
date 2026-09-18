@@ -1,11 +1,12 @@
 # Worktree Lifecycle
 
-The shared provision → work → remove procedure for every surface that isolates a ticket's code work in a git worktree. Two consumers today:
+The shared provision → work → remove procedure for every surface that isolates a ticket's code work in a git worktree. Three consumers today:
 
 - **`build`** — via the `--worktree` flag (SKILL.md's State setup binds the inputs and runs §2; the checkpoints consume §3; the `feature:finalizer` child the verdict gate spawns runs §4; §5 is the manual cleanup path).
 - **`ship --parallel`** — via [`../../ship/references/parallel-walk.md`](../../ship/references/parallel-walk.md) §3, per dispatched ticket.
+- **`review-stage`** — re-binds a worktree recorded in `03-implementation.md` at Entry (never provisions), re-derives §2 step 4's exclusion list, and consumes §3.
 
-Born in build and reused by ship, following the same precedent as [`pr-creation.md`](pr-creation.md) (born in build, reused by `sync`): the producing skill owns the rules, the consumers link them. Everything caller-specific — *when* a worktree is provisioned, *what* triggers removal, *what* a setup failure means — is a §0 input, so neither consumer forks the mechanics.
+Born in build and reused by ship, following the same precedent as [`pr-creation.md`](pr-creation.md) (born in build, reused by `sync`): the producing skill owns the rules, the consumers link them. Everything caller-specific — *when* a worktree is provisioned, *what* triggers removal, *what* a setup failure means — is a §0 input, so no consumer forks the mechanics.
 
 The `worktree:` config block and the `.worktreeinclude` file this procedure consumes are defined in [`../../../docs/advanced.md`](../../../docs/advanced.md) §Worktree setup. Consume that contract as written there; never restate or redefine it here.
 
@@ -129,7 +130,7 @@ cd "<wt-path>" && bash "/tmp/fp-worktree-setup-<TICKET-ID>.sh"
 Never substitute the command into a shell command line; never let ticket-derived text (spec title, AC text, branch slug) near this file. `worktree.setup` is the user's own declared command — the same trust tier as `validate.lint` and `test.start`.
 
 - **Missing `worktree:` block or missing `setup` key** → skip with one line: `--worktree: no worktree.setup declared; skipping dependency setup (install manually in <wt-path> if the build needs it).`
-- **Failure** → report the exit code and the last lines of output, then apply the caller's **setup-failure policy** (§0). This is the one place the two consumers legitimately diverge, which is why it is an input rather than forked mechanics.
+- **Failure** → report the exit code and the last lines of output, then apply the caller's **setup-failure policy** (§0). This is the one place the two provisioning consumers legitimately diverge, which is why it is an input rather than forked mechanics.
 
 The `/tmp` path is fixed and ticket-keyed rather than `mktemp` for the same reason [`test-preflight.md`](test-preflight.md) §3 gives: shell variables do not survive across `Bash` tool calls, so a random path could not be reconstructed. Residue from a prior same-ticket run is overwritten by this step's write — the crash-resume rule, not a new keying scheme.
 
@@ -155,9 +156,9 @@ Once a worktree is bound, every command must be aimed explicitly. A missed site 
 
 | Site | Where |
 |---|---|
-| Lint / typecheck after each change | build SKILL.md, implement checkpoint |
-| Triviality short-circuit `git diff --shortstat <base>...HEAD` | build SKILL.md, review checkpoint pre-check |
-| Base detection + branch-scope `git diff` + unstaged `git diff` | build SKILL.md, review checkpoint step a |
+| Lint / typecheck after each change | build SKILL.md, implement checkpoint; review-stage SKILL.md, fix step |
+| Triviality short-circuit `git diff --shortstat` | review-stage SKILL.md, triviality short-circuit |
+| Base resolution + merge-base `git diff` + untracked-file listing | review-stage SKILL.md, Entry base step and diff collection |
 | `git check-ignore -q claudedocs`, `git add -A`, `git reset -q -- claudedocs/` | [`commit.md`](commit.md) §1 |
 | `git check-ignore -q <test.auth.storage_state>` session-state backstop | [`commit.md`](commit.md) §1 |
 | `git commit -F <message-file>` — the **git half only**; the message file itself is a `/tmp` or scratchpad path | [`commit.md`](commit.md) §2, [`pr-creation.md`](pr-creation.md) §3 |
@@ -167,7 +168,7 @@ Once a worktree is bound, every command must be aimed explicitly. A missed site 
 | `gh pr view` / `gh pr list` / `git fetch` / `git symbolic-ref` / `git merge-base --is-ancestor` | [`pr-creation.md`](pr-creation.md) Merge predicate |
 | `test.start` boot — so the server runs against the worktree's own dependencies | [`test-preflight.md`](test-preflight.md) §3 |
 | `worktree.setup` | §2 step 5 above |
-| **Reviewer subagent prompts** — the shared base's "Project root path" | build SKILL.md, review checkpoint step b |
+| **Reviewer subagent prompts** — the shared base's "Project root path" | review-stage SKILL.md, shared base |
 | **`ui-tester` spawn prompt** — its working directory, and the target directory for any codified spec file | build SKILL.md, test checkpoint step b |
 
 The two subagent rows are the ones a `Bash`-only audit misses. A reviewer handed the right diff and a main-checkout root reads files that do not contain the change and reports confident false findings; `ui-tester` is the one *mutating* agent, so an unbound working directory writes its codified spec outside the branch — into a tree the commit never stages, while teardown removes the tree that mattered. `parallel-walk.md` §4 solves the same problem with an explicit Workdir line per code-touching hop.

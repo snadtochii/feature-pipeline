@@ -1,6 +1,6 @@
 # Confidence Scale
 
-This rubric is injected into each reviewer subagent's prompt by `build/SKILL.md` at spawn time — reviewer agent bodies must not duplicate it. Build composes its review-checkpoint prompt with this file's contents under a `## Confidence scale (use this exactly)` header, plus the per-reviewer suffix.
+This rubric is injected into each reviewer subagent's prompt by `review-stage/SKILL.md` at spawn time — reviewer agent bodies must not duplicate it. The review stage composes its shared base with this file's contents under a `## Confidence scale (use this exactly)` header, plus the per-reviewer suffix.
 
 Every potential issue gets a score from 0–100:
 

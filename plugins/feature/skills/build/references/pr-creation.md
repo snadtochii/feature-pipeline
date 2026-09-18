@@ -1,6 +1,6 @@
 # PR Creation
 
-Build hands this to its `feature:finalizer` child at the verdict gate (SKILL.md sub-step 4d) on verdict `pass` when `--pr` is present, after the implement → review → test checkpoints pass. The child runs the branch → commit → push → open-PR sequence non-interactively (the `--pr` flag is the user's authorization for the outward-facing push), finalizes the ticket into `review/` via Transition 5 on success, and degrades to a local commit + `done/` (Transition 2) when GitHub tooling is unavailable — never crashing the verdict gate.
+Build hands this to its `feature:finalizer` child at the verdict gate (SKILL.md sub-step 4d) on verdict `pass` when `--pr` is present, after the implement → test checkpoints pass. The child runs the branch → commit → push → open-PR sequence non-interactively (the `--pr` flag is the user's authorization for the outward-facing push), finalizes the ticket into `review/` via Transition 5 on success, and degrades to a local commit + `done/` (Transition 2) when GitHub tooling is unavailable — never crashing the verdict gate.
 
 Neither build nor its finalizer has a `Skill` tool, so the branch conventions are inlined here rather than borrowed from a separate skill; the commit mechanics (staging + message) live in the shared [`commit.md`](commit.md). All git/gh work runs inline via `Bash`.
 
@@ -22,7 +22,7 @@ On any failure: still create the branch + local commit (§1–§3, skipping push
 git fetch origin --quiet
 ```
 
-Base branch — mirror the review-checkpoint helper, but resolve to the **short** branch name (the matrix below uses `<base>` as a local branch name, so `origin/main` would break `git checkout`/`gh --base`):
+Base branch — resolve to the **short** branch name (the matrix below uses `<base>` as a local branch name, so `origin/main` would break `git checkout`/`gh --base`):
 ```bash
 base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)
 ```

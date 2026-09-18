@@ -1,6 +1,6 @@
 ---
 name: build
-description: "Build a ticket through one loop — implement → review → test — with a verdict-based exit."
+description: "Build a ticket through one loop — implement → test — with a verdict-based exit."
 allowed-tools:
   - Read
   - Write
@@ -38,9 +38,9 @@ argument-hint: "[ticket-id] [--pr] [--no-commit] [--no-ui-testing] [--worktree] 
 
 # Build Stage
 
-Build the ticket through one continuous loop with internal checkpoints (implement → review → test). All fixes happen in-context — no rewinds to earlier stages. Exit with verdict `pass`, `partial`, or `stuck`.
+Build the ticket through one continuous loop with internal checkpoints (implement → test). All fixes happen in-context — no rewinds to earlier stages. Exit with verdict `pass`, `partial`, or `stuck`.
 
-**Invoked standalone, this stage runs in the main conversation; under `flow` it runs as a stage subagent with a self-contained brief.** Either way, the four reviewer subagents in the review checkpoint, the `ui-tester` subagent in the test checkpoint, and the `finalizer` subagent that runs the post-gate mechanics are all spawned from within this stage.
+**Invoked standalone, this stage runs in the main conversation; under `flow` it runs as a stage subagent with a self-contained brief.** Either way, the `ui-tester` subagent in the test checkpoint and the `finalizer` subagent that runs the post-gate mechanics are both spawned from within this stage. Review runs as its own stage — the `review-stage` skill — from a fresh context.
 
 ## Arguments
 
@@ -54,7 +54,7 @@ Resumption is auto-detected from the ticket's existing artifacts — see step 5 
 
 ## Ticket Resolution & Artifacts Setup
 
-**Runtime.** Bind the runtime and plugin root per [../flow/references/runtime.md](../flow/references/runtime.md) before work. Use its operations for every skill call and role spawn, including the arbiter, all four reviewers, the UI tester and the finalizer. Prefix their complete prompts with the runtime block and honor its capacity policy and role boundaries.
+**Runtime.** Bind the runtime and plugin root per [../flow/references/runtime.md](../flow/references/runtime.md) before work. Use its operations for every skill call and role spawn, including the arbiter, the UI tester and the finalizer. Prefix their complete prompts with the runtime block and honor its capacity policy and role boundaries.
 
 **Storage mode.** Detect it once per run per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection; every per-mode reference cited in this skill (`-fs` / `-server`) is the file for that mode.
 
@@ -68,7 +68,7 @@ Use the canonical logic in [`ticket-resolution-fs.md`](../flow/references/ticket
 
 For auto-resumption, also read whichever of these exist to reconstruct state (see step 5 below for resumption logic):
 - `03-implementation.md` — the implementer handoff from a prior build invocation; its `## Steps` entries mark the completed plan steps (format: [`references/implementation-handoff.md`](references/implementation-handoff.md))
-- `04-review.md` — review state from a prior build invocation
+- `04-review.md` — written by the review stage; read by the verdict summary and the incomplete-tail disambiguation row
 - `05-tests.md` — test state from a prior build invocation
 
 Storage mechanics for these inputs: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §1, for the mode detected above.
@@ -80,8 +80,6 @@ Validate `kind` per [`ticket-resolution-fs.md`](../flow/references/ticket-resolu
 ## Blocker validation
 
 Validate blockers per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) Step 6. If any entry in `blocked_by` is not yet done (status `done` or `cancelled` per Step 6's completion test), abort with the message in Step 6 listing the unblocked blockers. If a `blocked_by` entry is wrong, edit this ticket's `blocked_by` frontmatter.
-
-When `blocked_by` is non-empty, build composes a **blocker context block** and prepends it to the review-checkpoint reviewer prompts. The block's artifact sources and missing-artifact fallback chain are defined where the composition happens — Process step 2b.
 
 ## Flag validation
 
@@ -97,7 +95,7 @@ Before the implement checkpoint, perform the start-of-pipeline transition per [`
 
 `<ticket-folder>` is rebound for the rest of this run (what it denotes: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §3, for the detected mode). When the worktree binding below is on, bind it as an **absolute path into the main checkout** and keep it bound across every later transition that moves the folder — a relative path would resolve against the worktree, where `claudedocs/` is absent or a stale fork-point copy ([`references/worktree.md`](references/worktree.md) §3).
 
-**Bind ticket metadata — before the step-5 resumption routing.** Values read only inside a checkpoint are unbound on resumed runs that re-enter downstream of it, so build binds them here, upstream of the router: read `status`, `complexity` (used by the review checkpoint's triviality short-circuit), `kind`, `blocked_by`, and the mode-specific fields once via the Read ticket metadata operation — never parsed out of artifact bodies. Which fields exist and where they are read: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §2, for the detected mode.
+**Bind ticket metadata — before the step-5 resumption routing.** Values read only inside a checkpoint are unbound on resumed runs that re-enter downstream of it, so build binds them here, upstream of the router: read `status`, `kind`, `blocked_by`, and the mode-specific fields once via the Read ticket metadata operation — never parsed out of artifact bodies. Which fields exist and where they are read: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §2, for the detected mode.
 
 **Bind the commit mode — same placement rule.** Bind `commit_mode` from the `git.commit` key of the optional `git:` block in `claudedocs/tickets/config.yaml` — from the config content already model-read for storage-mode detection above; no second `Read`, and never `yq`/`jq` (the file is a local repo file whatever the storage mode). Values: `prompt`, `always`, or `never`. Missing file, missing block, missing key, or `prompt` → `prompt`. Any other value → `prompt`, plus a one-line notice printed now — `git.commit: <value> is not a recognized mode (prompt | always | never) — treating as prompt.` — a config error never blocks a build. Then apply the per-run flags (the `--pr`+`--no-commit` pair was already rejected by Flag validation):
 - `--no-commit` → the effective `commit_mode` is `never` for this run, beating any config value.
@@ -113,7 +111,7 @@ The lifecycle itself is [`references/worktree.md`](references/worktree.md); this
 
 1. **Re-bind an existing worktree — unconditional, flag or no flag.** Only when the artifact listing already gathered above shows `03-implementation.md` exists (never an unguarded read — the storage file's §5): if its `## Worktree` section (the worktree view, [`references/implementation-handoff.md`](references/implementation-handoff.md) §6 — nothing else in the file is read here) names a `<wt-path>` that still exists on disk, bind `<wt-path>`, `<branch>`, `<repo-root>`, and the `excluded:` list from it and print one line — `Resuming in worktree <wt-path> (branch <branch>).` `<repo-root>` matters because the verdict gate's teardown and [`references/worktree.md`](references/worktree.md) §5 run their `git -C` commands against it, and a resumed run is exactly when teardown fires. The `excluded:` list matters because [`commit.md`](references/commit.md) §1 applies it at every commit; **re-derive it** by re-running [`references/worktree.md`](references/worktree.md) §2 step 4's verification over the `.worktreeinclude` matches rather than trusting the record — the recorded list can be stale or absent, and an empty one silently disables the guard that keeps a copied secrets file out of `git add -A`. A record written before `<repo-root>` was included → derive it with `git -C "<wt-path>" rev-parse --path-format=absolute --git-common-dir` and strip the trailing `/.git`.
 
-   A prior run's code lives in that worktree and nowhere else, so a resumed run that ignored it would review an empty diff in the main checkout while `03-implementation.md` claims the steps are done. This is why the check does not depend on `--worktree` being passed again: the flag selects where a *new* run works; the record is what makes a *resumed* one correct. Recorded path gone from disk (removed by hand, or torn down after a prior push) → print one line saying so and continue in the main checkout.
+   A prior run's code lives in that worktree and nowhere else, so a resumed run that ignored it would test and validate a main checkout holding none of the work while `03-implementation.md` claims the steps are done. This is why the check does not depend on `--worktree` being passed again: the flag selects where a *new* run works; the record is what makes a *resumed* one correct. Recorded path gone from disk (removed by hand, or torn down after a prior push) → print one line saying so and continue in the main checkout.
 
 2. **Provision — only when `--worktree` was passed and part 1 found nothing.** In order, cheapest first:
    - **Skip entirely when this run will not build** — the ticket is in `review/` / status `in-review` (the interception above already read that signal), or `06-summary.md` exists with verdict `pass`. Both are step-5 rows that exit without touching code. This is checked **first**, before anything below: the two signals are already in hand, while the steps below cost two reference loads, a git call and an artifact read per blocker, and a spec-plus-plan read — all of it discarded on a run that builds nothing, and the eligibility notice would announce a decision about a build that never happens.
@@ -129,13 +127,13 @@ Once bound, **every** git and project command in this loop is explicitly path-bo
 
 ## Behavioral Mindset
 
-Ship working code in one continuous loop. Implement plan steps incrementally, edit small, verify often. When validation fails, fix in-context — never queue failures for later. When reviewers find issues, apply the high-confidence fixes in the same conversation; don't punt to a separate stage. When tests fail un-fixably, exit with `verdict: partial` — don't fake completion. Build only what `02-plan.md` specifies — no features beyond it. The loop is forward-only: never re-invoke `/feature:plan` or any other skill mid-loop — rewinding to earlier stages would discard the context the loop was just operating in. Emit `Turn N/25` at every iteration boundary so the count is recoverable from the transcript; on a stuck pattern or the turn cap, exit with `verdict: stuck` — surface the human gate, don't keep spinning.
+Ship working code in one continuous loop. Implement plan steps incrementally, edit small, verify often. When validation fails, fix in-context — never queue failures for later. When tests fail un-fixably, exit with `verdict: partial` — don't fake completion. Build only what `02-plan.md` specifies — no features beyond it. The loop is forward-only: never re-invoke `/feature:plan` or any other skill mid-loop — rewinding to earlier stages would discard the context the loop was just operating in. Emit `Turn N/25` at every iteration boundary so the count is recoverable from the transcript; on a stuck pattern or the turn cap, exit with `verdict: stuck` — surface the human gate, don't keep spinning.
 
 ---
 
 ## Process
 
-The build loop runs three checkpoints in sequence: **implement** → **review** → **test** → exit verdict. All three checkpoints are part of the same main-context conversation.
+The build loop runs two checkpoints in sequence: **implement** → **test** → exit verdict. Both checkpoints are part of the same main-context conversation.
 
 ### 1. Implement checkpoint
 
@@ -156,85 +154,7 @@ c. **For each step in `02-plan.md`'s Build Sequence, in order:**
    6. **Outer-loop arbiter check** (per `references/stuck-detection.md` pattern 6). When the current checkpoint has accumulated 4+ turns without exiting, fire the arbiter once via a `Task` call with the prompt in stuck-detection.md §6. Cache the verdict for the rest of the checkpoint. On `status: stuck`, exit with `verdict: stuck` (skip to step 4 — Exit verdict); include the arbiter's `reason` in `06-summary.md`.
    7. **On hitting `Turn 26`**, exit with `verdict: stuck` regardless of semantic-pattern detection. The hybrid stop rule: either trigger fires the verdict.
 
-d. **After all plan steps are implemented**, run final validation across all changes. Fix any cross-cutting failures in-context. Then, as the last action of the implement phase and chained onto the final validation command in the same call, complete `03-implementation.md` in one append: a `(revisit)` `## Steps` entry for any step the cross-cutting fixes changed, followed by the `## Rationale` section — one entry per step, why this shape and what was rejected (§3 and §5 of the handoff reference). Proceed to the review checkpoint.
-
-### 2. Review checkpoint
-
-**Pre-check — Triviality short-circuit.** Before spawning reviewer subagents, check whether the diff is small enough that the four-subagent review is overkill (token cost > expected signal):
-
-1. Take the `complexity` value bound at State setup (ticket metadata — never re-parsed from an artifact body).
-2. Run `git diff --shortstat <base>...HEAD` (and add unstaged) to count lines and files changed — prefixed `git -C "<wt-path>"` when a worktree is bound ([`references/worktree.md`](references/worktree.md) §3), which is where the changes actually are.
-3. If **all three** conditions hold — `complexity: S`, lines changed < 50, files changed < 3 — short-circuit:
-   - Write `<ticket-folder>/04-review.md`:
-     ```
-     verdict: skipped (trivial diff)
-
-     ## Reason
-     Ticket complexity is S; diff is <X> lines across <Y> files (threshold: < 50 lines, < 3 files). Skipping the parallel reviewer subagents — token cost outweighs expected signal on small changes.
-     ```
-     Artifact verdict for this write: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §6.
-   - Proceed directly to the test checkpoint (step 3 of this Process).
-4. Otherwise, proceed to step a below.
-
-a. **Collect the diff.**
-
-   ```bash
-   # Detect the base branch — prefer origin's HEAD, fall back to main
-   base=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/@@' || echo main)
-
-   # Branch-scope diff: everything committed on this branch since diverging from base
-   git diff "$base"...HEAD
-
-   # Unstaged changes on top of HEAD
-   git diff
-   ```
-
-   With a worktree bound, prefix all three commands `git -C "<wt-path>"` ([`references/worktree.md`](references/worktree.md) §3) — run against the main checkout they would diff a tree that has none of this run's changes and report a clean review of nothing.
-
-   If `origin/HEAD` isn't configured, default to `main`. If neither exists, ask the user which base branch to diff against. Concatenate the branch-scope diff and unstaged diff. Empty diff → record "No code changes to review" in `04-review.md` and proceed to the test checkpoint.
-
-b. **Compose the shared base for reviewer prompts** (single composition, used by all four reviewers):
-
-   1. **Ticket context**: contents of `01-spec.md` and `02-plan.md`, plus the neutral view of `03-implementation.md` — the file minus its `## Rationale` section, per [`references/implementation-handoff.md`](references/implementation-handoff.md) §6. Inline the resolved text; reviewers judge the change without the implementer's reasons.
-   2. **Diff**: output from step a.
-   3. **Project root path** — `<wt-path>` when a worktree is bound ([`references/worktree.md`](references/worktree.md) §3), else the main checkout. A reviewer given the right diff and a root pointing at a tree without the change reads files that contradict the hunks and reports confident false findings.
-   4. **Blocker context** (only when `blocked_by` is non-empty per the Blocker validation section above): a `## Blocker context (from completed siblings)` block. For each blocker: include verbatim `01-spec.md` + `06-summary.md`. **Fallback when `06-summary.md` is missing** (e.g. a `cancelled` blocker): use the blocker's `02-plan.md`; when `02-plan.md` is also missing, use `01-spec.md` alone. Note in the block which artifact was used per blocker. Omit the entire block when `blocked_by` is empty. Blocker artifact retrieval and what "missing" means: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §7 — the block inlines the artifact text, never a reference.
-   5. **Confidence scale**: the verbatim contents of `references/confidence-scale.md` under a `## Confidence scale (use this exactly)` header. (The rubric lives in the reference and build injects it here — reviewer agent bodies stay rubric-free.)
-
-c. **Spawn all four independent reviewer roles.** Use the selected runtime’s Spawn and Capacity operations: run concurrently when slots permit, otherwise in bounded batches. Every role receives the same shared base from step b plus its own suffix; another reviewer’s findings never enter that prompt. Collect all four results before step d; capacity-queued roles remain pending, not skipped or failed. Each prompt includes its runtime block and the role instructions required by that runtime:
-
-   **a. `feature:code-reviewer`** (correctness + quality):
-   > Review these code changes for correctness, bugs, logic errors, and adherence to project conventions. Use the confidence scale above — only report issues with confidence ≥ 80.
-
-   **b. `feature:security-engineer`** (security):
-   > Review these code changes for security vulnerabilities. Check for: input validation, auth issues, injection risks, data exposure, OWASP Top 10. Use the confidence scale above — only report issues with confidence ≥ 80.
-
-   **c. `feature:performance-engineer`** (performance):
-   > Review these code changes for performance issues. Check for: N+1 queries, unnecessary re-renders, memory leaks, bundle size impact, algorithm complexity. Use the confidence scale above — only report issues with confidence ≥ 80.
-
-   **d. `feature:code-architect`** (architectural fit):
-   > Review these code changes for architectural fit. Check for:
-   > - Does this change match existing patterns and conventions in the codebase?
-   > - Does it respect existing layer boundaries and abstractions?
-   > - Does it introduce unnecessary duplication or reinvent existing utilities?
-   > - Does the API/component design match the style of sibling code?
-   > - Are there coupling or cohesion concerns?
-   >
-   > Reference specific files and patterns with file:line. Use the confidence scale above — only report issues with confidence ≥ 80.
-
-d. **Merge findings into `<ticket-folder>/04-review.md`**:
-   - **Group by severity**: CRITICAL → IMPORTANT → SUGGESTION
-   - **De-duplicate** overlapping findings (e.g., if both code-reviewer and code-architect flag the same issue)
-   - **Tag each finding** with `[correctness]` / `[security]` / `[performance]` / `[architecture]`
-   - **Top-of-file summary** with counts per severity + per reviewer
-   - **Reviewer failure handling**: if a reviewer subagent fails, report it inside the merged artifact and continue with results from the other reviewers (graceful partial-merge). All four failing → write a single error entry in `04-review.md` and exit with `verdict: stuck`.
-   - **Artifact verdict for this write**: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §6.
-
-e. **Apply applicable fixes in-context.** The model uses judgment to apply fixes from the merged findings, reading the full view of `03-implementation.md` — `## Rationale` included (handoff reference §6) — so that a finding is accepted or dismissed the way the implementer would, with its reasons and discovered constraints in hand. **Tiebreak when fixes are mutually exclusive**: `security > correctness > architecture > performance` — security has the largest blast radius, correctness is the AC contract, architecture can be repaired later, performance is the most local and most easily revisited.
-
-   Unresolvable conflicts go into `04-review.md` as `status: deferred (conflict)` with both reviewers' findings preserved. Deferred conflicts surface only via downstream `verdict: partial` if they end up causing AC failures.
-
-f. **After fixes are applied**, run validation again (lint/typecheck) and append a `## Post-review` section to `03-implementation.md` naming each finding addressed and what changed, where and why (handoff reference §4) — chained onto the validation call, as in the implement checkpoint. No code changed → no section. Emit `Turn N/25` at the next iteration boundary; continue to monitor for stuck patterns. Proceed to the test checkpoint.
+d. **After all plan steps are implemented**, run final validation across all changes. Fix any cross-cutting failures in-context. Then, as the last action of the implement phase and chained onto the final validation command in the same call, complete `03-implementation.md` in one append: a `(revisit)` `## Steps` entry for any step the cross-cutting fixes changed, followed by the `## Rationale` section — one entry per step, why this shape and what was rejected (§3 and §5 of the handoff reference). Proceed to the test checkpoint.
 
 ### 3. Test checkpoint
 
@@ -266,7 +186,7 @@ b. **Spawn `feature:ui-tester`** (when reachable). Read the project's `CLAUDE.md
 
    Save subagent output to `<ticket-folder>/05-tests.md`. Failed criteria become a `## Failed Criteria` section inside `05-tests.md`; the injected block's §5 decides how required-check findings and failed checks are listed there, so a layout failure affects the verdict like any other failed criterion. If specs were codified, list their paths under a `## Codified specs` section. Artifact verdict for this write: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §6.
 
-c. **Skip artifact** (when the skip-detection scan matched no UI signals, when `--no-ui-testing` forced the skip, OR when the reachability pre-flight found the app unreachable and un-bootable). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth build verdict. The build verdict set is `pass | partial | stuck`. When the test checkpoint is skipped, build can still exit with `verdict: pass` if the implement and review checkpoints completed cleanly. Write `<ticket-folder>/05-tests.md` with the variant matching the skip cause — when writing one, read [`references/skip-artifacts.md`](references/skip-artifacts.md) for the verbatim template bodies (the app-unreachable body lives in [`references/test-preflight.md`](references/test-preflight.md) §6, beside the pre-flight that produces it):
+c. **Skip artifact** (when the skip-detection scan matched no UI signals, when `--no-ui-testing` forced the skip, OR when the reachability pre-flight found the app unreachable and un-bootable). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth build verdict. The build verdict set is `pass | partial | stuck`. When the test checkpoint is skipped, build can still exit with `verdict: pass` if the implement checkpoint completed cleanly. Write `<ticket-folder>/05-tests.md` with the variant matching the skip cause — when writing one, read [`references/skip-artifacts.md`](references/skip-artifacts.md) for the verbatim template bodies (the app-unreachable body lives in [`references/test-preflight.md`](references/test-preflight.md) §6, beside the pre-flight that produces it):
 
    - **No UI signals in the plan** — the skip-detection scan found nothing.
    - **Forced by `--no-ui-testing`** — the plan may well have UI work; browser verification is deferred, not absent.
@@ -274,7 +194,7 @@ c. **Skip artifact** (when the skip-detection scan matched no UI signals, when `
 
    Artifact verdict for this write: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §6.
 
-d. **Apply test fixes in-context.** Test failures are observations the loop consumes — fix them inline using the same pattern as the review checkpoint. If fixes succeed, re-run the failing tests. If failures are un-fixable in this run, write the `## Failed Criteria` section to `05-tests.md` and prepare to exit with `verdict: partial`.
+d. **Apply test fixes in-context.** Test failures are observations the loop consumes — fix them inline, validating each edit. If fixes succeed, re-run the failing tests. If failures are un-fixable in this run, write the `## Failed Criteria` section to `05-tests.md` and prepare to exit with `verdict: partial`.
 
 e. **Teardown of a pre-flight-started server.** If the reachability pre-flight booted a `test.start` server (a PID was captured), tear it down (best-effort `kill`) after the test checkpoint — **even if the checkpoint errored**, and including the boot-then-timeout path — per [`references/test-preflight.md`](references/test-preflight.md) §4. A server that was already running when the pre-flight first probed is left untouched. Unreachability is not an interactive stop: the pre-flight converts an unreachable, un-bootable app into the *app unreachable* skip (step c) without prompting or hard-pausing.
 
@@ -445,15 +365,13 @@ At build start, before the implement checkpoint, inspect the ticket's existing a
 | `06-summary.md` exists **and** the ticket's own `status` is still `in-progress` or `partial-completion` | The post-gate tail never completed — the finalizer never ran, or it returned an `error`. Keyed on the ticket's own status rather than its folder, because a finished epic child never leaves its epic's `tasks/`, an aborted ticket's summary survives in `backlog/` until State setup moves it back, and `accept-as-partial` flips the status before the folder moves; folder location distinguishes none of those. The gate's decisions are conversational state and were not persisted, so re-enter at **4c**: re-present the verdict gate, re-collect the decision, then spawn the finalizer at 4d. The finalizer is idempotent, so an already-made commit, an already-pushed branch, an already-open PR or an already-fired transition is detected and reported rather than repeated. **Disambiguate first**: this row and an interrupted `continue-with-hint` loop share that status, so when `05-tests.md`, `04-review.md` or `03-implementation.md` is newer than `06-summary.md`, the loop was still running — fall through to the checkpoint rows below instead of matching here. |
 | `06-summary.md` exists with verdict `pass` | Print "Build already complete for `<ticket-id>` (verdict: pass). Delete `03-implementation.md` onward to re-run, or run `/feature:plan` first if you want to revise the plan." Exit. |
 | `05-tests.md` exists with failed criteria (a `## Failed Criteria` section is present) | Re-enter at the test checkpoint with the existing failed criteria as context; attempt fixes in-loop. |
-| `04-review.md` exists, latest implement edit is older than `04-review.md`'s mtime | Review fixes never finished applying. Read `04-review.md`, apply pending fixes in-context, then proceed to the test checkpoint. |
-| `04-review.md` exists, implement files were edited after `04-review.md` was written | Implementation diverged after review. Re-enter at the review checkpoint — re-run the 4 reviewers against the current diff. |
 | `03-implementation.md` lacks a `## Steps` entry for some Build Sequence step, or has no `## Rationale` section | Continue from the first Build Sequence step without an entry, per the done signal in [`references/implementation-handoff.md`](references/implementation-handoff.md) §8; all steps present but no `## Rationale` → the final validation and phase-end write (1d). |
-| `03-implementation.md`'s current pass has a `## Rationale` section and no `04-review.md` exists | The implement phase completed (handoff reference §8). Enter the review checkpoint. |
+| `03-implementation.md`'s current pass has a `## Rationale` section | The implement phase completed (handoff reference §8). Enter the test checkpoint. |
 | Nothing relevant exists | Fresh start: implement step 1, Turn 1/25. |
 
-**Signal keying.** How each routing signal above is read — the first row's state signal, artifact presence, verdict, and the two recency comparisons: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §10, for the mode detected at Ticket Resolution, read after State setup's metadata binding and working-copy step.
+**Signal keying.** How each routing signal above is read — the first row's state signal, artifact presence, verdict, and the incomplete-tail recency comparison: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §10, for the mode detected at Ticket Resolution, read after State setup's metadata binding and working-copy step.
 
-**Worktree re-binding happens upstream.** State setup re-binds a recorded `<wt-path>` before this router runs, and does so whether or not `--worktree` was passed again — so every row below already operates on the right tree. Without that ordering, the rows that re-enter at the review or test checkpoint would inspect a main checkout holding none of the prior run's code.
+**Worktree re-binding happens upstream.** State setup re-binds a recorded `<wt-path>` before this router runs, and does so whether or not `--worktree` was passed again — so every row below already operates on the right tree. Without that ordering, the rows that re-enter at the test checkpoint would inspect a main checkout holding none of the prior run's code.
 
 **Turn-counter reset on resume**. Resumed sessions start at `Turn 1/25` — the prior budget is forfeited.
 
@@ -465,8 +383,7 @@ At build start, before the implement checkpoint, inspect the ticket's existing a
 
 The build skill writes these artifacts to `<ticket-folder>/` over the course of the loop (write mechanics: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §4, for the detected mode; the verdict rule per write site is §6):
 
-- **`03-implementation.md`** — the implementer handoff, structured per [`references/implementation-handoff.md`](references/implementation-handoff.md): a `## Steps` entry appended with each plan step's validation (the live progress log), `## Rationale` at the end of the implement phase, and `## Post-review` / `## Post-test` sections when those checkpoints change code
-- **`04-review.md`** — written once at the end of the review checkpoint (merged from 4 reviewer subagents)
+- **`03-implementation.md`** — the implementer handoff, structured per [`references/implementation-handoff.md`](references/implementation-handoff.md): a `## Steps` entry appended with each plan step's validation (the live progress log), `## Rationale` at the end of the implement phase, and a `## Post-test` section when the test checkpoint changes code (the `## Post-review` sections are written by the review stage)
 - **`05-tests.md`** — written once at the end of the test checkpoint (test results, or the skip artifact, or a `## Failed Criteria` section on partial)
 - **`06-summary.md`** — written once at build exit, regardless of verdict (pass / partial / stuck content varies per the Verdict section above); the finalizer appends the PR URL + branch to it when a PR is opened, and the degradation reason when the PR path degrades
 
@@ -478,9 +395,8 @@ The user-facing exit presentation is the verdict-gate blocks in Process step 4c,
 
 - **Plan missing**: `02-plan.md` not found → refuse with: "Plan stage hasn't run. Run `/feature:plan $1` first."
 - **Project path unknown**: ask the user.
-- **`origin/HEAD` not configured and `main` doesn't exist**: ask the user for the base branch.
 - **Application unreachable at the test checkpoint**: handled by the reachability pre-flight (`references/test-preflight.md`), not an interactive error — the app is reached, a declared `test.start` is booted, or the *app unreachable* skip artifact is written and the loop proceeds to the verdict without prompting. A pre-flight-started server is torn down afterward.
-- **Subagent failure** (reviewer or `ui-tester` crashes/timeouts): report inside the merged artifact and continue with results from the others. All four reviewers failing simultaneously → write degraded `04-review.md` and exit `verdict: stuck`.
+- **`ui-tester` failure** (crash or timeout): record it in `05-tests.md` and proceed to the verdict.
 - **Finalizer `error` result, or the finalizer child itself failing**: report the named failed step (or the spawn failure) and stop — never claim the transition fired. The ticket is left in `in-progress/` with `06-summary.md` written, which is the resumption row that re-enters at the gate.
 - **Validation commands not documented in project `CLAUDE.md`**: log warning, proceed without skill-body validation. Graceful degradation; the loop continues.
 - **Storage operation fails mid-loop**: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §12, for the mode detected at Ticket Resolution.
