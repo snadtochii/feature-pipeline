@@ -280,3 +280,48 @@ A change that can affect **what reviewers find** cannot be evaluated by the pair
 - Identified candidate: **podushka `PD-23`**.
 
 Deferred for this epic with the epic's own reason: the finalizer runs **after** the review checkpoint has completed and its artifact is written, so it cannot change what reviewers find. The replay's extra strength buys nothing for this change, at several times the cost. Executing the replay is out of scope for FP-92 entirely.
+
+## 6. Arm 2 — result (added 2026-09-18)
+
+Arm 2 ran on 2026-09-18 with `feature` 3.8.0 obtained by marketplace update, in the hand-made worktree, after the §1.6 pre-flight and the §2 seeding (all seven copied paths passed the `check-ignore` gate; dependencies installed before the session). Report: [`2026-09-17-paired-run-benchmark-evidence/after-feature-3.8.0-opus-5.json`](2026-09-17-paired-run-benchmark-evidence/after-feature-3.8.0-opus-5.json); compare output: [`compare-before-after.txt`](2026-09-17-paired-run-benchmark-evidence/compare-before-after.txt). Every figure below is `exact` unless marked.
+
+### 6.1 The post-gate phase
+
+| | Arm 1 (3.6.1) | Arm 2 (3.8.0) |
+|---|---|---|
+| Root turns in post-gate | 18 | 5 |
+| Root window during post-gate | 260,833 → 281,817 | 289,888 → 300,664 |
+| Root re-read, post-gate | 4,959,761 | 1,475,682 |
+| Finalizer children | — | 2 (17 turns and 11 turns) |
+| Finalizer first-turn floor / peak | — | 26,098 / 50,602 and 25,909 / 56,569 |
+| Children re-read | — | 1,239,022 |
+| **Post-gate re-read, self + children** | **4,959,761** | **2,714,704 (−45%)** |
+| Post-gate share of build, self + children | 12.0% | 11.7% |
+
+The post-gate mechanics moved out of the ~290k root window into children that start at about 26k and peak at 51k–57k. The child floor is well below the protocol's `unverified` 85–95k guess in §1: the finalizer is a registered, restricted-tool agent, not a `general-purpose` child, and this consuming project's instruction files are small.
+
+The absolute re-read fell by 45% even though arm 2 spent **two** finalizer spawns (§6.3). Excluding the first spawn and the two root turns that relayed its result, the post-gate re-read would be about 1.4M — roughly −72% (*inference*: the second spawn's 497,696 plus the three remaining root turns at ~295k each).
+
+The **share** barely moved (12.0% → 11.7%) because the denominator moved too: arm 2's whole build was shorter (95 root turns against 182; implement 77 turns against 122). That is run-to-run variance in the implement phase, not an effect of the finalizer, and it is exactly why §3.1 names the denominator-independent figures — turns, windows and absolute re-read of the post-gate phase — as the primary reading.
+
+### 6.2 Parity
+
+| | Arm 1 | Arm 2 |
+|---|---|---|
+| Verdict | pass | pass |
+| PR opened | yes (#192) | yes (#193) |
+| Ticket state | `review/`, `in-review` | `review/`, `in-review` |
+| Findings (C / I / S) | 0 / 1 / 2 | 0 / 0 / 1 |
+| Check runs (estimate) | 44 | 23 |
+
+Verdict, PR and ticket state match. The findings differ; the review checkpoint runs before the finalizer and is untouched by the change, so this is reviewer variance on a different implementation of the same plan, not a parity failure. The commit was verified by hand: 36 files, all under `apps/web/`.
+
+### 6.3 Protocol finding — the second run saw the first
+
+The first finalizer spawn returned a `needs-decision` result without changing anything: its branch-decision step ran `gh pr list --search "PS-153 in:title"` and found arm 1's open PR #192 for the same ticket, a case its instruction set did not cover. Build relayed the result to the operator, who chose to proceed on the new branch; the second spawn committed, pushed, opened PR #193 and applied Transition 5.
+
+The finalizer behaved as specified (FP-95 AC 4: never asks, returns a structured result). The gap is in this protocol: §1.6 frees the local branch name and parks the main checkout, but arm 1's PR stays visible on `origin` under the ticket's title, and §2.2's "the second run must not see the first" did not cover it. A future paired run should close arm 1's PR (or retitle it without the ticket ID) before arm 2 starts, and reopen it afterwards. The cost here was one extra child spawn, two root turns, and one operator pause inside the measured window — all counted in §6.1's arm-2 figures.
+
+### 6.4 Conclusion
+
+The finalizer child does what epic FP-92 predicted: the closing mechanics run in a fresh window near the child floor instead of at the build's largest window. On this ticket that is 2.2M fewer tokens re-read (−45% of the post-gate phase, −72% *inference* without the protocol-induced retry), with verdict, PR and ticket state at parity. Measured on one pair; the share figure is not the reading to quote.

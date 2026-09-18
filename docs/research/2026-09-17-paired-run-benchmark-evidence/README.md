@@ -9,3 +9,8 @@ Produced by `scripts/measure-session.py` from the session transcript preserved o
 No credentials are included, and no absolute path, home directory, username, message text or URL appears in it. Its only free-text strings are four `<Role> review PS-153` agent descriptions, the root session's empty description, the ticket ID `PS-153`, and one `notes` entry recording a transcript record type the script does not classify. The transcript itself is private and is not committed — see the protocol's §2.4.
 
 The three FP-84 builds that this arm is compared against are **not** in this directory. They are `builds[0..2]` of `scripts/measure-session.expected.json`, the script's committed regression anchor, referenced in place rather than duplicated so the anchor stays single-valued; the protocol's §4.1 records the `compare … --assert` run that re-verified it on the same date.
+
+## Arm 2 — added 2026-09-18
+
+- `after-feature-3.8.0-opus-5.json`: the `--json` report of the paired run's **"after" arm** — one standalone `/feature:build PS-153 --pr --no-ui-testing` session in a hand-made worktree cut from `bench/ps-153-base`, plugin `feature` 3.8.0 (the finalizer child), model `claude-opus-5`. Same generator, same audit: no absolute path, home directory, username, message text or URL; its free-text strings are the four review descriptions, `Finalize PS-153` (twice — see the protocol's §6), the root session's empty description, the ticket ID and the same single `notes` entry.
+- `compare-before-after.txt`: the script's `compare` output for the two arms, as printed.

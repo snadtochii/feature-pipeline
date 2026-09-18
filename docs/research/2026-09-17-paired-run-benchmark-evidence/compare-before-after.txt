@@ -1,0 +1,28 @@
+# Compare
+baseline: 1 report(s) - e32477dc-da6e-4913-963d-e40bd84842b3
+candidate: 1 report(s) - 468e760d-041b-4bc6-838c-8e7df7359c14
+
+## Role deltas (weighted units; min/median/max when an arm holds several reports)
+role                          baseline  candidate  delta      base share  cand share  delta
+----------------------------  --------  ---------  ---------  ----------  ----------  ------
+feature:code-architect        412.7k    186.1k     -226.6k    7.1%        5.1%        -2.0pp
+feature:code-reviewer         656.8k    264.3k     -392.5k    11.3%       7.2%        -4.1pp
+feature:finalizer             n/a       309.1k     n/a        n/a         8.4%        n/a
+feature:performance-engineer  178.3k    102.4k     -75.9k     3.1%        2.8%        -0.3pp
+feature:security-engineer     406.2k    162.9k     -243.3k    7.0%        4.4%        -2.6pp
+root-session                  4,150.9k  2,650.3k   -1,500.6k  71.5%       72.1%       +0.6pp
+roles present in only one arm: feature:finalizer
+
+## Phase deltas (re-read sum, self column)
+ticket:phase        baseline   candidate  delta      base share  cand share  delta
+------------------  ---------  ---------  ---------  ----------  ----------  -------
+PS-153:implement    19,497.2k  14,740.5k  -4,756.7k  56.9%       74.6%       +17.7pp
+PS-153:post-gate    4,959.8k   1,475.7k   -3,484.1k  14.5%       7.5%        -7.0pp
+PS-153:post-review  1,288.2k   568.5k     -719.7k    3.8%        2.9%        -0.9pp
+PS-153:review       8,525.1k   2,974.5k   -5,550.7k  24.9%       15.1%       -9.8pp
+
+## Parity (no saving is readable without its parity evidence)
+ticket  baseline                                                         candidate
+------  ---------------------------------------------------------------  ---------------------------------------------------------------
+PS-153  verdict=pass C0 I1 S2 checks=44 commit=True pushed=True pr=True  verdict=pass C0 I0 S1 checks=23 commit=True pushed=True pr=True
+
