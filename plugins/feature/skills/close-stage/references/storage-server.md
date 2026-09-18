@@ -19,7 +19,7 @@ Every artifact write named in the skill is upserted to the server via the Write 
 The Write artifact operation accepts `verdict` ∈ `pass | fail | partial`. Per write site:
 
 - **`05-tests.md`, ui-tester output** — `pass` when every acceptance criterion passed; `partial` when a `## Failed Criteria` section is present.
-- **`05-tests.md`, skip artifact** — skip labels are outside the enum: write **without** `verdict`; the skip variant stays in the body, per [`skip-artifacts.md`](skip-artifacts.md).
+- **`05-tests.md`, skip artifact** — skip labels are outside the enum: write **without** `verdict`; the skip variant stays in the body, as the skill's test checkpoint (step c) inlines it.
 - **`06-summary.md`** — `pass` → `pass`, `partial` → `partial`; `stuck` is outside the enum — omit `verdict` and keep the token in the body.
 
 ## §5 Lessons

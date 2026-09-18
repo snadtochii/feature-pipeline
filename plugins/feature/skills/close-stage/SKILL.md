@@ -60,26 +60,30 @@ Storage mechanics for these inputs: §1 of the stage's storage file (loaded at E
 
 ## Entry
 
-**Runtime.** Bind the runtime and plugin root per [../flow/references/runtime.md](../flow/references/runtime.md) before work. Use its operations for every role spawn — the UI tester and the finalizer. Prefix their complete prompts with the runtime block and honor its capacity policy and role boundaries.
+**Call budget.** Every call in this stage re-reads its whole window, so the stage is written to close a skipped checkpoint in five calls: one preparation read (steps 1–10 below), one artifact write (§1 step c through §3), the finalizer spawn (§5), and the final message (§6) — plus the skill load. Nothing below asks for a reference to be read on its own: a reference the stage needs is fetched inside the preparation read, and a template the stage writes is inlined in this file.
+
+**Runtime.** As a stage subagent, the brief's opening runtime block names the runtime reference, the plugin root and the project or worktree root: bind all three from it and read no runtime file. Only a standalone invocation (`/feature:close-stage` in the main conversation, no brief) binds them per [../flow/references/runtime.md](../flow/references/runtime.md). Use the bound runtime's operations for every role spawn — the UI tester and the finalizer. Prefix their complete prompts with the runtime block and honor its capacity policy and role boundaries.
 
 Then run these in order. Any `error` below ends the stage with the Result line.
 
-1. **Storage mode.** Detect it once per run per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection.
-2. **Load the stage's storage file** for that mode — [`references/storage-fs.md`](references/storage-fs.md) / [`references/storage-server.md`](references/storage-server.md) — **once, in full**. Every later `§N` cite in this skill refers to that file.
+1. **Storage mode.** The brief's `Storage mode:` line is the mode — bind it and skip detection. Standalone, detect it once per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection.
+2. **Load the stage's storage file** for that mode — [`references/storage-fs.md`](references/storage-fs.md) / [`references/storage-server.md`](references/storage-server.md) — **once, in full**, in the same call as steps 6–10's reads (the preparation read). Every later `§N` cite in this skill refers to that file.
 3. **Resolve the ticket** per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the detected mode), Steps 1–3. The stage is interactive, so that reference's ask-the-user points stand; a ticket that cannot be resolved → `error`, `failed-step: ticket`.
 4. **Epic refusal.** Step 4 of the same reference: `kind: epic` → `error`, `failed-step: ticket`, instructing the user to close a child ticket instead — epics are non-pipelineable. Blockers are not re-checked: build validated them before any code was written.
 5. **Flag validation.** `--pr` and `--no-commit` together contradict — `--pr` must commit and push. This check runs before any state mutation: stop with one line — `--pr and --no-commit contradict — --pr must commit and push. Drop one and re-run.` No work happens, no artifacts are written, no transition fires. Flow performs the same rejection in its SETUP, so a flow run never reaches the stage with the pair; this check guards direct invocation.
 6. **Bind ticket metadata** — `status`, `kind`, `epic`, `parent`, and the mode-specific fields — once, per §2, upstream of the Router. Values read only inside a later step are unbound on routes that enter downstream of it.
-7. **Bind the commit mode — same placement rule.** Bind `commit_mode` from the `git.commit` key of the optional `git:` block in `claudedocs/tickets/config.yaml` — from the config content already model-read for storage-mode detection above; no second `Read`, and never `yq`/`jq` (the file is a local repo file whatever the storage mode). Values: `prompt`, `always`, or `never`. Missing file, missing block, missing key, or `prompt` → `prompt`. Any other value → `prompt`, plus a one-line notice printed now — `git.commit: <value> is not a recognized mode (prompt | always | never) — treating as prompt.` — a config error never blocks a close. Then apply the per-run flags (the `--pr`+`--no-commit` pair was already rejected at step 5):
+7. **Bind the commit mode — same placement rule.** Bind `commit_mode` from the `git.commit` key of the optional `git:` block in `claudedocs/tickets/config.yaml` — from the preparation read's copy of the config; no second `Read`, and never `yq`/`jq` (the file is a local repo file whatever the storage mode). Values: `prompt`, `always`, or `never`. Missing file, missing block, missing key, or `prompt` → `prompt`. Any other value → `prompt`, plus a one-line notice printed now — `git.commit: <value> is not a recognized mode (prompt | always | never) — treating as prompt.` — a config error never blocks a close. Then apply the per-run flags (the `--pr`+`--no-commit` pair was already rejected at step 5):
    - `--no-commit` → the effective `commit_mode` is `never` for this run, beating any config value.
    - `--pr` → the `--pr` path commits and pushes as ever ([`../build/references/pr-creation.md`](../build/references/pr-creation.md)); when the config says `never`, remember the override so the verdict gate prints its one-line notice (§4).
 
    The bound `commit_mode` is consumed only at the verdict gate (§4/§5); binding it here keeps it defined on every Router row that funnels there.
 8. **Working copy** per §1. `<ticket-folder>` is absolute and stays in the main checkout.
 
+**The preparation read — one call.** Steps 2 and 6–10 read files; issue them as a single call that prints, in order: the storage file; `claudedocs/tickets/config.yaml`; the frontmatter of `01-spec.md`; `03-implementation.md` in full; `04-review.md`; the presence and mtimes of `02-plan.md`, `05-tests.md` and `06-summary.md` (`ls -l`); `git status --short` and `git diff --stat` at `<root>`; and the lessons contract the §3 capture follows — [`lessons-log-fs.md`](../flow/references/lessons-log-fs.md) / [`lessons-log-server.md`](../flow/references/lessons-log-server.md), for the bound mode — followed by the lessons store's headings (fs-native: `grep '^## ' claudedocs/tickets/_lessons.md`). `01-spec.md`'s body and `02-plan.md` are not part of it: the spec body is read only when a tester spawn needs it, the plan only for the skip-detection scan. Nothing in this list is read a second time later in the stage.
+
 The Router's merge-check and already-complete rows run straight after Entry. Every other row first runs the two preparation steps below, because they touch the working tree and the handoff:
 
-9. **Readiness.** Read `03-implementation.md` once, in full; every view this stage uses is derived from that one read, never re-read. Its current pass must carry a `## Rationale` or a `## Stuck` section ([`../build/references/implementation-handoff.md`](../build/references/implementation-handoff.md) §8). Without `## Stuck`, `04-review.md` must exist with `fix-step: complete` on its second line, and must belong to the current pass: newer than `03-implementation.md` (§7), unless the current pass already carries this stage's own `## Post-test` section, which is written after the review. A review older than the handoff with no `## Post-test` in the current pass reviewed an earlier pass. Any condition unmet → `error`, `failed-step: not-ready`.
+9. **Readiness.** From the preparation read's copy of `03-implementation.md` — every view this stage uses is derived from that one read, never re-read. Its current pass must carry a `## Rationale` or a `## Stuck` section ([`../build/references/implementation-handoff.md`](../build/references/implementation-handoff.md) §8). Without `## Stuck`, `04-review.md` must exist with `fix-step: complete` on its second line, and must belong to the current pass: newer than `03-implementation.md` (§7), unless the current pass already carries this stage's own `## Post-test` section, which is written after the review. A review older than the handoff with no `## Post-test` in the current pass reviewed an earlier pass. Any condition unmet → `error`, `failed-step: not-ready`.
 10. **Worktree re-bind.** From the worktree view (handoff §6): a `## Worktree` section whose `wt-path` exists on disk → bind `<wt-path>`, `<branch>` and `<repo-root>`, and print `Resuming in worktree <wt-path> (branch <branch>).` A recorded path that is gone → `error`, `failed-step: worktree`; the stage cannot redo the work, so it never falls back to the main checkout, which would test and commit a tree that does not contain it. The recorded `excluded:` field is not bound: the stage stages nothing, and the finalizer re-derives the list itself before any commit. Bind `<root>` to `<wt-path>` when bound, else the project root from step 3. Every git and project command below, and the tester's working directory, are path-bound per [`../build/references/worktree.md`](../build/references/worktree.md) §3.
 
 ## Router
@@ -132,13 +136,35 @@ b. **Spawn `feature:ui-tester`** (when reachable). Read the project's `CLAUDE.md
 
    Save subagent output to `<ticket-folder>/05-tests.md` **as soon as the tester returns**, before any fix, so a re-run finds the failed criteria on disk. Failed criteria become a `## Failed Criteria` section inside `05-tests.md`; the injected block's §5 decides how required-check findings and failed checks are listed there, so a layout failure affects the verdict like any other failed criterion. If specs were codified, list their paths under a `## Codified specs` section. A tester crash or timeout is recorded in `05-tests.md` under `## Failed Criteria` — the crash or timeout named, and every acceptance criterion it left unverified listed — and the stage proceeds to the verdict without entering the fix loop, so the verdict is `partial`. Artifact verdict for this write: §4.
 
-c. **Skip artifact** (when the skip-detection scan matched no UI signals, when `--no-ui-testing` forced the skip, OR when the reachability pre-flight found the app unreachable and un-bootable). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth verdict. The verdict set is `pass | partial | stuck`. When the test checkpoint is skipped, the stage can still reach `verdict: pass` if the implement phase and the review round completed cleanly. Write `<ticket-folder>/05-tests.md` with the variant matching the skip cause — when writing one, read [`references/skip-artifacts.md`](references/skip-artifacts.md) for the verbatim template bodies (the app-unreachable body lives in [`references/test-preflight.md`](references/test-preflight.md) §6, beside the pre-flight that produces it):
+c. **Skip artifact** (when the skip-detection scan matched no UI signals, when `--no-ui-testing` forced the skip, OR when the reachability pre-flight found the app unreachable and un-bootable). **Important**: `skipped` is a **test-checkpoint label written into `05-tests.md`**, NOT a fourth verdict. The verdict set is `pass | partial | stuck`. When the test checkpoint is skipped, the stage can still reach `verdict: pass` if the implement phase and the review round completed cleanly. Write `<ticket-folder>/05-tests.md` with the variant matching the skip cause, one `- [ ] AC <n> — …` line per acceptance criterion in the spec. The two bodies below are verbatim; the app-unreachable body lives in [`references/test-preflight.md`](references/test-preflight.md) §6, beside the pre-flight that produces it.
 
-   - **No UI signals in the plan** — the skip-detection scan found nothing.
-   - **Forced by `--no-ui-testing`** — the plan may well have UI work; browser verification is deferred, not absent.
+   - **No UI signals in the plan** — the skip-detection scan found nothing:
+
+     ```
+     verdict: skipped (no UI work in plan)
+
+     ## Reason
+     Keyword scan of 02-plan.md found none of the UI signal keywords in the close stage's test checkpoint (step a).
+
+     ## Acceptance Criteria
+     - [ ] AC 1 — not-tested (no UI)
+     ```
+
+   - **Forced by `--no-ui-testing`** — the plan may well have UI work; browser verification is deferred, not absent:
+
+     ```
+     verdict: skipped (UI testing disabled by --no-ui-testing)
+
+     ## Reason
+     Browser/UI verification skipped by the --no-ui-testing flag. Non-browser checks (lint/typecheck) still ran in the implement phase and still gated this verdict. Browser-level acceptance-criteria verification is deferred to human review of the PR.
+
+     ## Acceptance Criteria
+     - [ ] AC 1 — not-verified (browser testing skipped by flag)
+     ```
+
    - **App unreachable** — the reachability pre-flight could not reach or boot the app.
 
-   Artifact verdict for this write: §4.
+   Artifact verdict for this write: §4. **On a skip, this write is chained with §3's**: the verdict is already decidable (§2), so `05-tests.md`, `06-summary.md` and the lesson entry go out in one call, each file written whole (§3 of the storage file).
 
 d. **Fix loop — at most 2 iterations.** Failed criteria are observations the stage consumes inline, within a budget. The fix-loop budget is 2 iterations per invocation, never persisted; a re-entry through the Router starts a fresh one. One iteration:
    1. Fix every failed criterion inline, smallest change first, building nothing beyond `02-plan.md` and the failed criteria.
@@ -176,7 +202,7 @@ The uniform always-write contract means downstream readers (and reopened-ticket 
 
 Artifact verdict for this write: §4.
 
-**Capture a lesson in the cross-ticket lessons log** at the same time (which store: §5), following the shared contract in [`lessons-log-fs.md`](../flow/references/lessons-log-fs.md) / [`lessons-log-server.md`](../flow/references/lessons-log-server.md) end-to-end: store creation (§1), entry format (§2), what to capture vs skip (§3), the write-time supersession check (§4), prefer-newest on conflict (§5), promotion on recurrence (§6), and format overflow (§7). Close-specific wiring:
+**Capture a lesson in the cross-ticket lessons log** in the same call as the summary write (which store: §5), following the shared contract already fetched by the preparation read — [`lessons-log-fs.md`](../flow/references/lessons-log-fs.md) / [`lessons-log-server.md`](../flow/references/lessons-log-server.md) — end-to-end: store creation (§1), entry format (§2), what to capture vs skip (§3), the write-time supersession check (§4), prefer-newest on conflict (§5), promotion on recurrence (§6), and format overflow (§7). Close-specific wiring:
 
 - The primary source of what bit this ticket is the handoff's `constraints` and `rough edges` fields across its `## Steps` entries, then the `## Post-review` / `## Post-test` bullets and this run's failed criteria.
 - The header's `<verdict>` token is this run's verdict: `pass` | `partial` | `stuck`.
@@ -302,7 +328,7 @@ The §4 predicate is authoritative over this table: an ending listed as "remove"
 Composed from the finalizer's `ok` result — its `transition`, `commit`, `pr`, `branch`, `worktree` and `notes` fields — and printed once the child returns. Print every `notes` line beneath the transition line: staging exclusions, Epic-completion warnings, degradations and already-done steps reach the user through no other channel, and a silent exclusion is indistinguishable from a guard that never fired.
 - On `done/` transition with a commit: "Ticket moved to `done/`. Run `git log -1` to see the commit."
 - On `done/` transition without a commit (declined, `git.commit: never`, or `--no-commit`): "Ticket moved to `done/`. Changes left uncommitted — run `git status` to review them."
-- Whenever the result carries a `pr` URL: [`../build/references/pr-creation.md`](../build/references/pr-creation.md) §5's PR line, filled from the result's `pr` and `branch` fields. Keyed on the field rather than on the `review/` transition, so a caller whose overrides suppressed the transition still gets the PR reported.
+- Whenever the result carries a `pr` URL, this line, filled from the result's `pr`, `branch` and base fields — nothing is re-read to compose it: `✅ PR opened: <url>  (branch <branch> → <base>). Ticket → review/. Merge the PR, then re-run to finalize to done/.` Keyed on the field rather than on the `review/` transition, so a caller whose overrides suppressed the transition still gets the PR reported.
 - On `backlog/` revert: "Ticket reverted to `backlog/`. Artifacts preserved in the folder."
 - On `continue-with-hint`: no additional message — no child ran, and the result carries the hint back to the caller.
 

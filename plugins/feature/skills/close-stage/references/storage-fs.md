@@ -16,7 +16,7 @@ Read ticket metadata reads the frontmatter of `01-spec.md`: bind `status`, `kind
 
 ## §4 Artifact verdicts
 
-The verdict or skip label is the first line of the artifact body — `06-summary.md` and `05-tests.md`'s skip variants per [`skip-artifacts.md`](skip-artifacts.md); `## Failed Criteria` is a body section of `05-tests.md`. No artifact carries a field outside its body.
+The verdict or skip label is the first line of the artifact body — `06-summary.md` and `05-tests.md`'s skip variants, whose bodies the skill's test checkpoint (step c) inlines; `## Failed Criteria` is a body section of `05-tests.md`. No artifact carries a field outside its body.
 
 ## §5 Lessons
 

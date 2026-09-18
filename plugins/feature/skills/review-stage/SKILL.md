@@ -50,11 +50,11 @@ Storage mechanics for these inputs: §1 and §5 of the stage's storage file (loa
 
 ## Entry
 
-**Runtime.** Bind the runtime and plugin root per [../flow/references/runtime.md](../flow/references/runtime.md) before work. Use its Spawn and Capacity operations for the four reviewers, and prefix each reviewer's complete prompt with the runtime block.
+**Runtime.** As a stage subagent, the brief's opening runtime block names the runtime reference, the plugin root and the project or worktree root: bind all three from it and read no runtime file. Only a standalone invocation (`/feature:review-stage` in the main conversation, no brief) binds them per [../flow/references/runtime.md](../flow/references/runtime.md). Use the bound runtime's Spawn and Capacity operations for the four reviewers, and prefix each reviewer's complete prompt with the runtime block. Every call in this stage re-reads its whole window: steps 1–7 below are one preparation read — a single call that prints the storage file, `claudedocs/tickets/config.yaml`, the frontmatter of `01-spec.md`, `03-implementation.md` in full, and `git status --short` at the working copy — and nothing in it is read a second time later in the stage.
 
 Then run these in order. Any `error` below ends the stage with the Result line and writes nothing.
 
-1. **Storage mode.** Detect it once per run per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection, then read the stage's own storage file for that mode — [`references/storage-fs.md`](references/storage-fs.md) / [`references/storage-server.md`](references/storage-server.md) — **once, in full**. Every later `§N` cite in this skill refers to that file.
+1. **Storage mode.** The brief's `Storage mode:` line is the mode — bind it and skip detection; standalone, detect it once per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection. Then read the stage's own storage file for that mode — [`references/storage-fs.md`](references/storage-fs.md) / [`references/storage-server.md`](references/storage-server.md) — **once, in full**. Every later `§N` cite in this skill refers to that file.
 2. **Resolve the ticket** per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the detected mode), Steps 1–3. Wherever that reference would ask the user — ticket not found, spec missing, an ambiguous project root — return `error` with `failed-step: ticket` instead.
 3. **Epic refusal.** Step 4 of the same reference: `kind: epic` → `error`, `failed-step: ticket`, naming the epic's children.
 4. **Bind ticket metadata** — `complexity`, `kind`, `blocked_by` — once, per §2, upstream of the router below.
