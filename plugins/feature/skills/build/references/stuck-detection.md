@@ -16,6 +16,8 @@ One full assistant response (one model turn) inside a stage. Not one tool call (
 
 Each maximum counts within one invocation of its stage and is never persisted: a later invocation of the same stage starts its own.
 
+**Scope decision — review and close.** Review's maximum is stated per accepted finding, so its stage total scales with the finding count; that count is itself fixed when the round's decisions are written, before any fix starts, so the stage stays bounded. Pattern 6 runs in implement only. Review and close fix loops apply one bounded fix at a time against a fixed finding or failed-criterion list, and cycling between two fixes there surfaces as pattern 4 (ping-pong) or as the per-finding cap reverting the fix; an arbiter spawn per fix would cost a child at the per-agent context floor to catch what those already stop.
+
 **Compaction caveat.** If Claude Code summarizes/compacts the conversation mid-implement, older `Turn N/25` lines drop out of the working transcript. Defer to the most recent visible `Turn N/25` line; if compaction happened, the budget effectively renews. This is acceptable: compaction means the phase has produced enough work to fill the context window, and continuing from what `03-implementation.md` already records is the right posture.
 
 ## Semantic patterns
