@@ -297,7 +297,7 @@ Choose one based on loop state:
 **Always write `06-summary.md`** regardless of verdict. Content varies:
 - `pass`: completed work summary, files changed, validation passed, reviewer findings count, test results — plus the commit outcome: when the run leaves changes uncommitted (`git.commit: never` or `--no-commit`), say so explicitly and point at `git status`.
 - `partial`: references the `## Failed Criteria` section in `05-tests.md`, lists deferred conflicts from `04-review.md`, lists what was completed.
-- `stuck`: describes loop state at escalation — the detected stuck pattern (or "turn cap exceeded"), the last 3-5 iterations' actions drawn from `03-implementation.md`'s `## Steps` entries, a suggested next-move for the user.
+- `stuck`: describes loop state at escalation — the detected stuck pattern (or "turn cap exceeded"), the last 3-5 iterations' actions drawn from `03-implementation.md`'s `## Steps` entries (for a stuck exit in the review or test checkpoint, drawn from that checkpoint's own turns and its `## Post-review` / `## Post-test` bullets instead), a suggested next-move for the user.
 
 **`06-summary.md` never carries `## Rationale` content**, whatever the verdict — no reasons, no rejected alternatives, from `03-implementation.md` or from the conversation. The summary becomes the PR body and the commit body, and is inlined as blocker context into a sibling's reviewer prompts, so the implementer's justification would reach every reviewer the handoff keeps it from.
 
