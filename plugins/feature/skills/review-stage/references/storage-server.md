@@ -6,6 +6,8 @@ Canonical logic for the review stage's storage-touching steps in server-native s
 
 Pull `01-spec.md`, `02-plan.md`, `03-implementation.md` and `04-review.md` — whichever exist, per the List artifacts operation — into a session-scratchpad directory outside the repository. `<ticket-folder>` denotes that working copy: every `<ticket-folder>/0N-*.md` read and write site in the skill operates on the copies, with writes pushed per §3. Reviewer spawn prompts inline the resolved text; reviewers never touch the ticket store. The copies are disposable: every run re-pulls from the server, and a scratchpad tree left by a prior run is never trusted or reused.
 
+**The preparation read** (the skill's Entry step 3) is one message carrying every call in parallel: Read ticket metadata; List artifacts (the rows' `updated_at` — §6's signals); Read artifact for each of `01-spec.md`, `02-plan.md`, `03-implementation.md` and `04-review.md` — a read of an artifact the ticket does not have fails, and that failure is its absence, not a §7 error; and one Bash call printing this file. Blocker artifacts (§5) are a second message, issued only when `blocked_by` is non-empty. The pulled bodies are the working copies: each lands in the scratchpad with the first §3 write that touches it, and a body the stage never modifies is never materialized.
+
 ## §2 Ticket metadata
 
 Read ticket metadata reads the ticket row: bind `complexity`, `kind` and `blocked_by`.

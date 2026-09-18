@@ -4,7 +4,9 @@ Canonical logic for the review stage's storage-touching steps in fs-native stora
 
 ## §1 Inputs and working copy
 
-`<ticket-folder>` is the resolved ticket folder in the main checkout, bound as an absolute path. With a worktree bound it still resolves there, never inside `<wt-path>`. Every input — `01-spec.md`, `02-plan.md`, `03-implementation.md`, and `04-review.md` when present — is a file under it, read with `Read` after a presence check (`Glob`). Reviewer spawn prompts inline the resolved text; reviewers never read the ticket folder.
+`<ticket-folder>` is the resolved ticket folder in the main checkout, bound as an absolute path. With a worktree bound it still resolves there, never inside `<wt-path>`. Every input — `01-spec.md`, `02-plan.md`, `03-implementation.md`, and `04-review.md` when present — is a file under it. Reviewer spawn prompts inline the resolved text; reviewers never read the ticket folder.
+
+**The preparation read** (the skill's Entry step 3) is one Bash call that prints, in order: this file; `01-spec.md`, `02-plan.md` and `03-implementation.md` in full (the reviewers' shared base and the handoff's three views come from these copies); and `ls -l` over `03-implementation.md` and `04-review.md` (presence and mtimes — §6's signals), followed by the first two lines of `04-review.md` (its label and `fix-step:` marker). A file that does not exist prints nothing, and that is its absence — not a §7 error. Each command is separated by `;`, never `&&`, so a missing file cannot stop the rest of the read. Blocker artifacts (§5) are a second call, issued only when `blocked_by` is non-empty.
 
 ## §2 Ticket metadata
 
