@@ -47,6 +47,10 @@ When a stage returns `PAUSED:`, keep its ID. After the caller answers, use **`fo
 
 Use stage-briefs §5's artifact fallback only when no available operation can resume the child. Do not re-spawn merely because a child returned a final `PAUSED:` message.
 
+## Tool results
+
+The active surface truncates or offloads an oversized shell result by its own rule; inspect that rule rather than assume Claude's 20KB persistence. The operation is the same either way: fetch a file through the surface's read tool, which returns its content inline, and keep a shell print to small items — a config, a frontmatter, a listing, a grep. Independent tool calls issued together in one turn re-read the window once.
+
 ## Capacity
 
 Read the active surface's concurrency/depth limits and agent status before scheduling. Count ancestors and other agents exactly as that surface counts them; do not assume Claude's limits or that idle/completed children release capacity. Release only this run's completed children whose reports have been collected, and only through a supported close/release operation. Preserve paused stages. If the runtime counts only running agents, completed children need no release.
