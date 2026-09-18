@@ -1,0 +1,377 @@
+{
+  "schema_version": 1,
+  "generator": "measure-session.py",
+  "session_id": "468e760d-041b-4bc6-838c-8e7df7359c14",
+  "unit": "weighted input-token equivalents - not a price and not a plan-limit multiplier",
+  "weights": {
+    "i": 1.0,
+    "cw": 1.25,
+    "cr": 0.1,
+    "o": 5.0
+  },
+  "weights_expression": "1*input + 1.25*cache_write + 0.1*cache_read + 5*output",
+  "role_map": {
+    "build-stage": "^Build stage for ",
+    "plan-stage": "^Plan stage for ",
+    "finalize-child": "^Finalize ",
+    "ship-implementer": " implementer via flow$",
+    "ship-review": "^Independent review of ",
+    "ship-address": "^Address review on "
+  },
+  "check_pattern": "check-[a-z-]+\\.(?:sh|mjs)|bash scripts/|vitest|pytest|npm (?:run|test|ci)\\b|node |tsc\\b|pyright",
+  "labels": {
+    "exact": "token counts (input / cache-write / cache-read / output), turn counts, windows, first-turn floors, peak windows, re-read sums, weighted units, and every share derived from them - all taken from the API `usage` field",
+    "estimate": "the check/test-run count, the commit / pushed / PR booleans (all three read command text, so a command that names an action it did not perform can move them), and any reviewer finding count recovered by scanning a review body rather than reading its documented count block"
+  },
+  "totals": {
+    "agents": 7,
+    "turns": 154,
+    "input_tokens": 308,
+    "cache_write_tokens": 686303,
+    "cache_read_tokens": 22474409,
+    "output_tokens": 113887,
+    "weighted_units": 3675062.65
+  },
+  "agents": [
+    {
+      "agent_id": "root",
+      "role": "root-session",
+      "agent_type": "root-session",
+      "description": "",
+      "spawn_depth": 0,
+      "parent": null,
+      "ticket": "PS-153",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 95,
+      "turns_without_usage": 0,
+      "input_tokens": 190,
+      "cache_write_tokens": 256772,
+      "cache_read_tokens": 19502155,
+      "output_tokens": 75782,
+      "first_turn_floor": 98595,
+      "peak_window": 300664,
+      "reread_sum": 19759117,
+      "weighted_units": 2650280.5
+    },
+    {
+      "agent_id": "a627c7300e0a2cc02",
+      "role": "feature:security-engineer",
+      "agent_type": "feature:security-engineer",
+      "description": "Security review PS-153",
+      "spawn_depth": 1,
+      "parent": "root",
+      "ticket": "PS-153",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 7,
+      "turns_without_usage": 0,
+      "input_tokens": 14,
+      "cache_write_tokens": 79309,
+      "cache_read_tokens": 393947,
+      "output_tokens": 4862,
+      "first_turn_floor": 21810,
+      "peak_window": 82369,
+      "reread_sum": 473270,
+      "weighted_units": 162854.95
+    },
+    {
+      "agent_id": "a4261dd37b8f96a14",
+      "role": "feature:finalizer",
+      "agent_type": "feature:finalizer",
+      "description": "Finalize PS-153",
+      "spawn_depth": 1,
+      "parent": "root",
+      "ticket": "PS-153",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 11,
+      "turns_without_usage": 0,
+      "input_tokens": 22,
+      "cache_write_tokens": 56567,
+      "cache_read_tokens": 441107,
+      "output_tokens": 6326,
+      "first_turn_floor": 25909,
+      "peak_window": 56569,
+      "reread_sum": 497696,
+      "weighted_units": 146471.45
+    },
+    {
+      "agent_id": "a94a9b115d74f2574",
+      "role": "feature:code-architect",
+      "agent_type": "feature:code-architect",
+      "description": "Architecture review PS-153",
+      "spawn_depth": 1,
+      "parent": "root",
+      "ticket": "PS-153",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 9,
+      "turns_without_usage": 0,
+      "input_tokens": 18,
+      "cache_write_tokens": 80183,
+      "cache_read_tokens": 552293,
+      "output_tokens": 6134,
+      "first_turn_floor": 22028,
+      "peak_window": 83243,
+      "reread_sum": 632494,
+      "weighted_units": 186146.05
+    },
+    {
+      "agent_id": "a2e2f54a11aa8587f",
+      "role": "feature:performance-engineer",
+      "agent_type": "feature:performance-engineer",
+      "description": "Performance review PS-153",
+      "spawn_depth": 1,
+      "parent": "root",
+      "ticket": "PS-153",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 3,
+      "turns_without_usage": 0,
+      "input_tokens": 6,
+      "cache_write_tokens": 67297,
+      "cache_read_tokens": 83741,
+      "output_tokens": 1971,
+      "first_turn_floor": 21752,
+      "peak_window": 70357,
+      "reread_sum": 151044,
+      "weighted_units": 102356.35
+    },
+    {
+      "agent_id": "af9f60dee709420cf",
+      "role": "feature:finalizer",
+      "agent_type": "feature:finalizer",
+      "description": "Finalize PS-153",
+      "spawn_depth": 1,
+      "parent": "root",
+      "ticket": "PS-153",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 17,
+      "turns_without_usage": 0,
+      "input_tokens": 34,
+      "cache_write_tokens": 50600,
+      "cache_read_tokens": 690692,
+      "output_tokens": 6061,
+      "first_turn_floor": 26098,
+      "peak_window": 50602,
+      "reread_sum": 741326,
+      "weighted_units": 162658.2
+    },
+    {
+      "agent_id": "a1b143be21d9c4240",
+      "role": "feature:code-reviewer",
+      "agent_type": "feature:code-reviewer",
+      "description": "Correctness review PS-153",
+      "spawn_depth": 1,
+      "parent": "root",
+      "ticket": "PS-153",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 12,
+      "turns_without_usage": 0,
+      "input_tokens": 24,
+      "cache_write_tokens": 95575,
+      "cache_read_tokens": 810474,
+      "output_tokens": 12751,
+      "first_turn_floor": 21855,
+      "peak_window": 95577,
+      "reread_sum": 906073,
+      "weighted_units": 264295.15
+    }
+  ],
+  "roles": [
+    {
+      "role": "root-session",
+      "count": 1,
+      "turns": 95,
+      "input_tokens": 190,
+      "cache_write_tokens": 256772,
+      "cache_read_tokens": 19502155,
+      "output_tokens": 75782,
+      "weighted_units": 2650280.5,
+      "share_pct": 72.115
+    },
+    {
+      "role": "feature:finalizer",
+      "count": 2,
+      "turns": 28,
+      "input_tokens": 56,
+      "cache_write_tokens": 107167,
+      "cache_read_tokens": 1131799,
+      "output_tokens": 12387,
+      "weighted_units": 309129.65,
+      "share_pct": 8.412
+    },
+    {
+      "role": "feature:code-reviewer",
+      "count": 1,
+      "turns": 12,
+      "input_tokens": 24,
+      "cache_write_tokens": 95575,
+      "cache_read_tokens": 810474,
+      "output_tokens": 12751,
+      "weighted_units": 264295.15,
+      "share_pct": 7.192
+    },
+    {
+      "role": "feature:code-architect",
+      "count": 1,
+      "turns": 9,
+      "input_tokens": 18,
+      "cache_write_tokens": 80183,
+      "cache_read_tokens": 552293,
+      "output_tokens": 6134,
+      "weighted_units": 186146.05,
+      "share_pct": 5.065
+    },
+    {
+      "role": "feature:security-engineer",
+      "count": 1,
+      "turns": 7,
+      "input_tokens": 14,
+      "cache_write_tokens": 79309,
+      "cache_read_tokens": 393947,
+      "output_tokens": 4862,
+      "weighted_units": 162854.95,
+      "share_pct": 4.431
+    },
+    {
+      "role": "feature:performance-engineer",
+      "count": 1,
+      "turns": 3,
+      "input_tokens": 6,
+      "cache_write_tokens": 67297,
+      "cache_read_tokens": 83741,
+      "output_tokens": 1971,
+      "weighted_units": 102356.35,
+      "share_pct": 2.785
+    }
+  ],
+  "tickets": [
+    {
+      "ticket": "PS-153",
+      "count": 7,
+      "turns": 154,
+      "input_tokens": 308,
+      "cache_write_tokens": 686303,
+      "cache_read_tokens": 22474409,
+      "output_tokens": 113887,
+      "weighted_units": 3675062.65,
+      "share_pct": 100.0
+    }
+  ],
+  "models": [
+    {
+      "model": "claude-opus-5",
+      "turns": 154,
+      "input_tokens": 308,
+      "cache_write_tokens": 686303,
+      "cache_read_tokens": 22474409,
+      "output_tokens": 113887
+    }
+  ],
+  "builds": [
+    {
+      "agent_id": "root",
+      "ticket": "PS-153",
+      "role": "root-session",
+      "site": "root session (standalone /feature:build)",
+      "turns": 95,
+      "reread_self": 19759117,
+      "reread_self_children": 23161020,
+      "phases": [
+        {
+          "name": "implement",
+          "status": "ok",
+          "reason": "",
+          "turns": 77,
+          "start_turn": 1,
+          "end_turn": 77,
+          "start_window": 98595,
+          "end_window": 256897,
+          "reread_self": 14740490,
+          "reread_self_children": 14740490,
+          "share_self_pct": 74.601,
+          "share_self_children_pct": 63.644
+        },
+        {
+          "name": "review",
+          "status": "ok",
+          "reason": "",
+          "turns": 11,
+          "start_turn": 78,
+          "end_turn": 88,
+          "start_window": 258086,
+          "end_window": 278649,
+          "reread_self": 2974454,
+          "reread_self_children": 5137335,
+          "share_self_pct": 15.054,
+          "share_self_children_pct": 22.181
+        },
+        {
+          "name": "post-review",
+          "status": "ok",
+          "reason": "",
+          "turns": 2,
+          "start_turn": 89,
+          "end_turn": 90,
+          "start_window": 280812,
+          "end_window": 287679,
+          "reread_self": 568491,
+          "reread_self_children": 568491,
+          "share_self_pct": 2.877,
+          "share_self_children_pct": 2.455
+        },
+        {
+          "name": "post-gate",
+          "status": "ok",
+          "reason": "",
+          "turns": 5,
+          "start_turn": 91,
+          "end_turn": 95,
+          "start_window": 289888,
+          "end_window": 300664,
+          "reread_self": 1475682,
+          "reread_self_children": 2714704,
+          "share_self_pct": 7.468,
+          "share_self_children_pct": 11.721
+        }
+      ],
+      "parity": {
+        "verdict": "pass",
+        "verdict_label": "exact",
+        "findings": {
+          "CRITICAL": 0,
+          "IMPORTANT": 0,
+          "SUGGESTION": 1
+        },
+        "findings_label": "exact",
+        "check_runs": 23,
+        "bash_calls": 111,
+        "check_runs_label": "estimate",
+        "commit": true,
+        "pushed": true,
+        "pr": true,
+        "commit_pr_label": "estimate",
+        "tail_label": "exact",
+        "notes": []
+      },
+      "finalizer_agent_ids": [
+        "a4261dd37b8f96a14",
+        "af9f60dee709420cf"
+      ]
+    }
+  ],
+  "notes": [
+    "record type(s) this script does not classify were ignored: file-history-delta"
+  ]
+}
