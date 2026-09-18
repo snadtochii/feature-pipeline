@@ -1,6 +1,6 @@
 # Commit Mechanics
 
-The shared stage + commit procedure for every build surface that creates a commit: the verdict gate's commit path (SKILL.md 4d — a confirmed prompt or `git.commit: always`) and the `--pr` sequence ([`pr-creation.md`](pr-creation.md) §3). Build decides which applies at its gate; the `feature:finalizer` child it spawns performs both. Branch selection is the caller's concern — the verdict gate commits onto the current branch; `--pr` runs its own branch-decision matrix first (pr-creation.md §1). Nothing here pushes: pushing is `--pr`-only (pr-creation.md §4).
+The shared stage + commit procedure for every pipeline surface that creates a commit: the verdict gate's commit path (`close-stage/SKILL.md`, finalizer handoff — a confirmed prompt or `git.commit: always`) and the `--pr` sequence ([`pr-creation.md`](pr-creation.md) §3). The close stage decides which applies at its gate; the `feature:finalizer` child it spawns performs both. Branch selection is the caller's concern — the verdict gate commits onto the current branch; `--pr` runs its own branch-decision matrix first (pr-creation.md §1). Nothing here pushes: pushing is `--pr`-only (pr-creation.md §4).
 
 Build has no `Skill` tool, so these conventions are inlined here rather than borrowed from a separate skill. All git work runs inline via `Bash`.
 

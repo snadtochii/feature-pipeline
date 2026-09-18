@@ -1,6 +1,6 @@
 # State Transitions — server-native
 
-Canonical logic for moving tickets through the state machine in server-native storage mode. Read when the storage mode detected per [`storage.md`](storage.md) is server-native — an fs-native run never needs this file. Referenced by `plan`, `build`, `flow`, and the standalone `sync` skill.
+Canonical logic for moving tickets through the state machine in server-native storage mode. Read when the storage mode detected per [`storage.md`](storage.md) is server-native — an fs-native run never needs this file. Referenced by `plan`, `build`, `close-stage`, `flow`, and the standalone `sync` skill.
 
 This file is the single source of truth for the ticket state machine. Stage skills do not duplicate the logic inline — they invoke the relevant transition from this reference.
 
@@ -26,7 +26,7 @@ The single definition of "is this epic finished?" Both end-state transitions (Tr
 
 **Inputs**: the epic's handle — the epic row plus its child listing (List tickets / list children in [`storage-server.md`](storage-server.md)).
 
-**Output**: a decision — `promote` or `stay` — plus zero or more warnings. The predicate reads only: it never writes fields or issues transitions. The invoking transition performs the promotion (the epic row's CAS transition); the invoking caller renders the warnings in its own channel (under `build`, the finalizer child returns them in its result `notes` and build prints them with its closing message; `sync` as `⚠` report lines).
+**Output**: a decision — `promote` or `stay` — plus zero or more warnings. The predicate reads only: it never writes fields or issues transitions. The invoking transition performs the promotion (the epic row's CAS transition); the invoking caller renders the warnings in its own channel (under `close-stage`, the finalizer child returns them in its result `notes` and the close stage prints them with its closing message; `sync` as `⚠` report lines).
 
 **Definitions**:
 - `declared` = the epic's child roster: the set of IDs of the rows whose `parent_id` is the epic's ID (the epic row carries no roster field — the roster is **derived** from the child rows). This is the authoritative roster contract for the epic.
@@ -61,7 +61,7 @@ Why coverage (C) is stated: with the roster derived from child rows, `declared` 
 
 ### Solo ticket
 
-Read the row's status first; already `in-progress` → no-op (no CAS call). Otherwise `pipeline_transition_ticket` with `from: [backlog, in-review, done, partial-completion, cancelled]`, `to: in-progress`. Re-running a completed ticket, or re-planning/re-building a ticket whose PR is open, both arrive here.
+Read the row's status first; already `in-progress` → no-op (no CAS call). Otherwise `pipeline_transition_ticket` with `from: [backlog, in-review, done, partial-completion, cancelled]`, `to: in-progress`. Re-running a completed ticket, or re-planning a ticket whose PR is open, both arrive here.
 
 ### Child of an epic
 
@@ -79,7 +79,7 @@ If the row status is already `in-progress`, this transition is a no-op (no CAS c
 ## Transition 2 — End-of-pipeline (in-progress → done)
 
 **Invoked by**:
-- `build` after the verdict gate, when the user's choice resolves to "finalize as done":
+- `close-stage` after its verdict gate, when the user's choice resolves to "finalize as done":
   - Verdict `pass` + any commit outcome (prompt-confirmed, prompt-declined, `git.commit: always`/`never`, or `--no-commit` — whether or not a commit is made, the ticket still finalizes).
   - Verdict `partial` or `stuck` + user choice `accept-as-partial`.
 
@@ -92,7 +92,7 @@ If the row status is already `in-progress`, this transition is a no-op (no CAS c
 
 1. The same per-verdict CAS for the child row.
 2. **Epic-completion check** (load-bearing for epic-mode): apply the **Epic-completion predicate** (above) over the rows. On `promote`, CAS the epic row `from: [in-progress, in-review]`, `to: done`; on `stay`, the epic row keeps its precedence-derived status (any sibling still `in-progress` → `in-progress`; else any `in-review` → `in-review`). The epic row reaches `done` only once the predicate returns `promote` — i.e. every child row is terminal.
-3. Surface any predicate warnings (roster-unknown, roster-drift): under `build` they travel out in the finalizer's result `notes`, which build prints with its closing message.
+3. Surface any predicate warnings (roster-unknown, roster-drift): under `close-stage` they travel out in the finalizer's result `notes`, which the close stage prints with its closing message.
 
 A CAS failure follows [`storage-server.md`](storage-server.md) §CAS conflict doctrine. The CAS transition is a single atomic call — there is no two-step to order.
 
@@ -101,7 +101,7 @@ A CAS failure follows [`storage-server.md`](storage-server.md) §CAS conflict do
 ## Transition 3 — Abort (in-progress → backlog)
 
 **Invoked by**:
-- `build` after the verdict gate, when the user's choice on a `partial` or `stuck` verdict is `abort`.
+- `close-stage` after its verdict gate, when the user's choice on a `partial` or `stuck` verdict is `abort`.
 
 ### Solo ticket
 
@@ -114,15 +114,15 @@ A CAS failure follows [`storage-server.md`](storage-server.md) §CAS conflict do
 
 A CAS failure follows [`storage-server.md`](storage-server.md) §CAS conflict doctrine.
 
-**`in-review` is not a Transition 3 source.** A ticket whose PR is open sits at `in-review`, and Transition 3 fires only from the `in-progress` verdict gate. To back out an `in-review` ticket, re-build it first (Transition 1 pulls it back to `in-progress`), then abort through the normal gate. Closed-unmerged-PR handling is out of scope here.
+**`in-review` is not a Transition 3 source.** A ticket whose PR is open sits at `in-review`, and Transition 3 fires only from the `in-progress` verdict gate. To back out an `in-review` ticket, re-plan it first (Transition 1 pulls it back to `in-progress`), then abort through the normal gate. Closed-unmerged-PR handling is out of scope here.
 
 ---
 
 ## Transition 4 — Partial-completion (status only)
 
 **Invoked by**:
-- `build` when verdict is `partial` or `stuck` AND user choice is `continue-with-hint`. Build then re-enters the loop in-process; the status captures that the prior attempt didn't fully succeed.
-- `build` immediately before invoking Transition 2 when user choice is `accept-as-partial` (sets `partial-completion` status first; Transition 2 then finalizes preserving that status).
+- `close-stage` when verdict is `partial` or `stuck` AND user choice is `continue-with-hint`. The ticket then re-enters implement with the hint; the status captures that the prior attempt didn't fully succeed.
+- `close-stage` immediately before invoking Transition 2 when user choice is `accept-as-partial` (sets `partial-completion` status first; Transition 2 then finalizes preserving that status).
 
 ### Solo ticket or child of an epic
 
@@ -135,9 +135,9 @@ A CAS failure follows [`storage-server.md`](storage-server.md) §CAS conflict do
 ## Transition 5 — Open-PR (in-progress → in-review)
 
 **Invoked by**:
-- `build` at the verdict gate on verdict `pass` with `--pr`, after a pull request has been opened for the work — build resolves it at the gate and its finalizer child performs it, alongside the branch/push and the `gh pr create` call in build's `pr-creation.md` reference. This transition owns the status flip.
+- `close-stage` at its verdict gate on verdict `pass` with `--pr`, after a pull request has been opened for the work — the close stage resolves it at the gate and its finalizer child performs it, alongside the branch/push and the `gh pr create` call in build's `pr-creation.md` reference. This transition owns the status flip.
 
-Ticket lands here when its PR is open but not yet merged — a **non-terminal** state. The work is finished from the build loop's perspective, but "done" would misrepresent it: an open PR can be reworked or closed.
+Ticket lands here when its PR is open but not yet merged — a **non-terminal** state. The work is finished from the pipeline's perspective, but "done" would misrepresent it: an open PR can be reworked or closed.
 
 ### Solo ticket
 
@@ -145,7 +145,7 @@ Ticket lands here when its PR is open but not yet merged — a **non-terminal** 
 
 ### Child of an epic
 
-1. The same CAS for the child row. An epic child's `in-review` is a plain row status — the child row is the signal, and consumers that key on `in-review` (flow's and build's resumption routing) read the child row's status directly, whatever the epic row says.
+1. The same CAS for the child row. An epic child's `in-review` is a plain row status — the child row is the signal, and consumers that key on `in-review` (flow's and the close stage's resumption routing) read the child row's status directly, whatever the epic row says.
 2. **Epic status check** (precedence `in-progress` ⊐ `in-review` ⊐ `done`): scan the sibling rows (List tickets / list children in [`storage-server.md`](storage-server.md)). If **no** sibling is `in-progress` and at least one is `in-review` (the rest done/cancelled/partial-completion), CAS the epic row `from: [in-progress]`, `to: in-review`; if any sibling is still `in-progress`, the epic row is untouched — `in-progress` outranks `in-review`.
 
 When the invoking flow has the opened PR's URL, record it on the row via `pipeline_update_ticket` (`pr_url`) — a non-status field, outside the CAS.
@@ -157,11 +157,11 @@ A CAS failure follows [`storage-server.md`](storage-server.md) §CAS conflict do
 ## Transition 6 — Merge (current status → done)
 
 **Invoked by**:
-- `build` (or `flow` delegating to `build`) when re-invoked on an `in-review` ticket, **or** the standalone `sync` skill scanning every non-terminal row (`backlog`, `in-progress`, `in-review`, `partial-completion`) in batch, when the ticket's PR is detected merged **and reachable from `<base>`** via the shared merge predicate in build's `pr-creation.md` reference (`state == MERGED` **and** the PR's merge commit is an ancestor of `origin/<base>` — a merge only into an `integration/<epic-id>` branch does not qualify until it reaches `<base>`; build uses the branch-keyed lookup, sync the ID-keyed one — both prefer the row's `pr_url` when set). Transition 6 is Transition 2's body re-pointed at the ticket's **current** status as the source. For the **build** caller a solo source is always `in-review`. For the **sync** caller a solo source is whichever non-terminal status its scan found the row at — a merged PR can attach to a row parked at `backlog`, `in-progress`, or `partial-completion` after a crash, re-plan, or manual merge — and an epic child that `sync` promotes while a sibling is still mid-build flips `in-review → done` with no epic-level precondition (see the child path below).
+- `close-stage` (or `flow` delegating to it) when invoked on an `in-review` ticket, **or** the standalone `sync` skill scanning every non-terminal row (`backlog`, `in-progress`, `in-review`, `partial-completion`) in batch, when the ticket's PR is detected merged **and reachable from `<base>`** via the shared merge predicate in build's `pr-creation.md` reference (`state == MERGED` **and** the PR's merge commit is an ancestor of `origin/<base>` — a merge only into an `integration/<epic-id>` branch does not qualify until it reaches `<base>`; the close stage uses the branch-keyed lookup, sync the ID-keyed one — both prefer the row's `pr_url` when set). Transition 6 is Transition 2's body re-pointed at the ticket's **current** status as the source. For the **close-stage** caller a solo source is always `in-review`. For the **sync** caller a solo source is whichever non-terminal status its scan found the row at — a merged PR can attach to a row parked at `backlog`, `in-progress`, or `partial-completion` after a crash, re-plan, or manual merge — and an epic child that `sync` promotes while a sibling is still mid-build flips `in-review → done` with no epic-level precondition (see the child path below).
 
 ### Solo ticket
 
-`pipeline_transition_ticket` with `from: [backlog, in-progress, in-review, partial-completion]`, `to: done` — the caller-dependent breadth above: build arrives from `in-review`; `sync`'s scan can find a merged PR on a row parked at `backlog`, `in-progress`, or `partial-completion` (`sync` PR-checks every non-`done`/`cancelled` status). Keep this solo path distinct from the epic-child path below — do not unify them (a child flips while its epic row can still be `in-progress`).
+`pipeline_transition_ticket` with `from: [backlog, in-progress, in-review, partial-completion]`, `to: done` — the caller-dependent breadth above: the close stage arrives from `in-review`; `sync`'s scan can find a merged PR on a row parked at `backlog`, `in-progress`, or `partial-completion` (`sync` PR-checks every non-`done`/`cancelled` status). Keep this solo path distinct from the epic-child path below — do not unify them (a child flips while its epic row can still be `in-progress`).
 
 ### Child of an epic
 
@@ -174,16 +174,16 @@ A CAS failure follows [`storage-server.md`](storage-server.md) §CAS conflict do
 
 ## Decision table — verdict + user choice → transition(s)
 
-This is the canonical mapping build uses at the verdict gate. The decision table is the load-bearing contract for future epic-walker work: an epic-walker reads the verdict from each child's `06-summary.md` and predicts which transitions fired based on this table.
+This is the canonical mapping the close stage uses at its verdict gate. The decision table is the load-bearing contract for future epic-walker work: an epic-walker reads the verdict from each child's `06-summary.md` and predicts which transitions fired based on this table.
 
 | Verdict | User choice            | Transitions               | Effect                                                                  |
 |---------|------------------------|---------------------------|-------------------------------------------------------------------------|
 | `pass` (no `--pr`) | commit made (prompt confirmed, or `git.commit: always`) | T2               | Status → `done`; the commit runs per build's `commit.md` reference.     |
 | `pass` (no `--pr`) | no commit (prompt declined, `git.commit: never`, or `--no-commit`)  | T2               | Status → `done`; no git commit. Same row result as above. |
 | `pass` + `--pr` | non-interactive ship | T5             | Status → `in-review`; branch pushed + PR opened; `pr_url` recorded on the row. The `--pr` flag and the push/`gh pr create` live in build's `pr-creation.md` reference; T5 owns the status flip. |
-| at `in-review` | re-invocation, PR merged + reachable | T6 | Status → `done`. Merge detection (`gh pr view`) runs in build's `in-review` resumption check; a `MERGED` result **reachable from `<base>`** fires T6 (a merge only into an integration branch does not). |
+| at `in-review` | re-invocation, PR merged + reachable | T6 | Status → `done`. Merge detection (`gh pr view`) runs in the close stage's `in-review` merge-check row; a `MERGED` result **reachable from `<base>`** fires T6 (a merge only into an integration branch does not). |
 | `partial` | `accept-as-partial`  | T4, then T2               | Status flips to `partial-completion` (terminal); T2 then has nothing further to write. |
-| `partial` | `continue-with-hint` | T4                        | Status flips to `partial-completion`; build loop continues with hint in context. |
+| `partial` | `continue-with-hint` | T4                        | Status flips to `partial-completion`; the ticket re-enters implement with the hint. |
 | `partial` | `abort`              | T3                        | Status → `backlog`. Epic row may revert (inverse all-children check). |
 | `stuck`   | `accept-as-partial`  | T4, then T2               | Same as `partial → accept-as-partial`.                                  |
 | `stuck`   | `continue-with-hint` | T4                        | Same as `partial → continue-with-hint`.                                 |
@@ -200,7 +200,7 @@ Used by future tooling (notably the epic-mode flow walker) to inspect aggregate 
 Read the ticket's `status` — the row field via `pipeline_get_ticket`. Possible values:
 - `backlog` — not yet started.
 - `in-progress` — currently in the pipeline.
-- `in-review` — build passed with `--pr`; PR open, awaiting merge. An **epic child** can be `in-review` while its epic row is still `in-progress` (a sibling is mid-build, so the precedence rule keeps the epic row at `in-progress`) — the child row's status is the signal. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking), but included in every resolution and resumption path.
+- `in-review` — the verdict was `pass` with `--pr`; PR open, awaiting merge. An **epic child** can be `in-review` while its epic row is still `in-progress` (a sibling is mid-build, so the precedence rule keeps the epic row at `in-progress`) — the child row's status is the signal. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking), but included in every resolution and resumption path.
 - `done` — completed cleanly.
 - `partial-completion` — finalized but with un-fixable failures (treated as terminal for aggregate calculations).
 - `cancelled` — abandoned (treated as terminal).

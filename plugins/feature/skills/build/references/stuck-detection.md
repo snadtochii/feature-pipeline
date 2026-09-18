@@ -66,7 +66,7 @@ The per-turn lines come from build's own context, because the checkpoint's secti
 
 The arbiter runs at most once per checkpoint per build invocation; cache the verdict for the rest of that checkpoint's turns.
 
-**On `status: stuck` from the arbiter.** Treat as a stuck-pattern detection — exit the build loop with `verdict: stuck`. Include the arbiter's `reason` field verbatim in `06-summary.md` under "Detected pattern."
+**On `status: stuck` from the arbiter.** Treat as a stuck-pattern detection — take the stuck exit below. Record the arbiter's `reason` field verbatim in the `## Stuck` record's `reason` line; the close stage carries it into `06-summary.md` under "Detected pattern."
 
 **On `status: progress`.** Continue normally. The arbiter will re-fire if the next checkpoint also accumulates 4+ turns.
 
@@ -74,9 +74,9 @@ Cost: one short model response per fired arbiter call. The 4-turn gate keeps it 
 
 ## On detection
 
-Exit the build loop with `verdict: stuck`. Write `06-summary.md` describing:
+End the implement phase stuck: as build's last action, append the `## Stuck` record to `03-implementation.md` per [`implementation-handoff.md`](implementation-handoff.md) §9, naming:
 - The detected pattern (which of the six above, or "turn cap exceeded")
 - The last 3-5 iterations' actions, briefly
-- A suggested next move for the user (e.g., "fix the import path manually then re-run `/feature:build <id>` (auto-resumes from the ticket's existing artifacts)", or "the plan's step N may need a smaller break-down")
+- A suggested next move for the user (e.g., "fix the import path manually then re-run `/feature:build <id> --hint \"<note>\"` (auto-resumes from the ticket's existing artifacts)", or "the plan's step N may need a smaller break-down")
 
-Surface the human gate per `build/SKILL.md` §4 (Exit verdict and gate routing). The user picks: accept-as-partial, continue-with-hint (re-enter the loop with a user note, fresh 25-turn budget), or abort.
+The close stage then writes `06-summary.md` from that record and surfaces the human gate (`close-stage/SKILL.md`, verdict gate). The user picks: accept-as-partial, continue-with-hint (re-enter implement with a user note), or abort.

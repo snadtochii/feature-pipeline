@@ -1,6 +1,6 @@
-# Build — skip-artifact templates (`05-tests.md`)
+# Close stage — skip-artifact templates (`05-tests.md`)
 
-Read this file only when the test checkpoint is writing a skip artifact (SKILL.md §3 step c) — a run reaches at most one of these variants, most reach none. Each variant's body is written verbatim to `<ticket-folder>/05-tests.md`, with one `- [ ] AC <n> — …` line per acceptance criterion in the ticket's spec.
+Read this file only when the test checkpoint is writing a skip artifact (the close stage's `SKILL.md`, test checkpoint step c) — a run reaches at most one of these variants, most reach none. Each variant's body is written verbatim to `<ticket-folder>/05-tests.md`, with one `- [ ] AC <n> — …` line per acceptance criterion in the ticket's spec.
 
 ## No UI signals in the plan (skip-detection scan found nothing)
 
@@ -8,7 +8,7 @@ Read this file only when the test checkpoint is writing a skip artifact (SKILL.m
 verdict: skipped (no UI work in plan)
 
 ## Reason
-Keyword scan of 02-plan.md found none of the UI signal keywords in the build skill's test checkpoint (step a).
+Keyword scan of 02-plan.md found none of the UI signal keywords in the close stage's test checkpoint (step a).
 
 ## Acceptance Criteria
 - [ ] AC 1 — not-tested (no UI)
@@ -22,7 +22,7 @@ Keyword scan of 02-plan.md found none of the UI signal keywords in the build ski
 verdict: skipped (UI testing disabled by --no-ui-testing)
 
 ## Reason
-Browser/UI verification skipped by the --no-ui-testing flag. Non-browser checks (lint/typecheck) still ran in the implement checkpoint and still gated this verdict. Browser-level acceptance-criteria verification is deferred to human review of the PR.
+Browser/UI verification skipped by the --no-ui-testing flag. Non-browser checks (lint/typecheck) still ran in the implement phase and still gated this verdict. Browser-level acceptance-criteria verification is deferred to human review of the PR.
 
 ## Acceptance Criteria
 - [ ] AC 1 — not-verified (browser testing skipped by flag)

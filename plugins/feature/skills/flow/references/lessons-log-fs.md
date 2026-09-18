@@ -1,10 +1,10 @@
 # Cross-ticket lessons log — fs-native
 
-Canonical logic for the cross-ticket lessons store in fs-native storage mode: the atomic entry format, what belongs in the log, the write-time supersession check, prefer-newest on conflict, the promotion-on-recurrence trigger, format overflow, and grep-scoped consumption. Read when the storage mode detected per [`storage.md`](storage.md) is fs-native — a run in the other storage mode never needs this file. Referenced by `build`, `debug`, `plan`, `ship`, and `lessons-consolidate`.
+Canonical logic for the cross-ticket lessons store in fs-native storage mode: the atomic entry format, what belongs in the log, the write-time supersession check, prefer-newest on conflict, the promotion-on-recurrence trigger, format overflow, and grep-scoped consumption. Read when the storage mode detected per [`storage.md`](storage.md) is fs-native — a run in the other storage mode never needs this file. Referenced by `close-stage`, `debug`, `plan`, `ship`, and `lessons-consolidate`.
 
 This file is standalone — a producer or consumer reads just it and can comply. Lessons are lines in `claudedocs/tickets/_lessons.md`, exactly as §1–§8 describe.
 
-**Producers:** `build` captures at its verdict gate and runs the full write path (§2–§7). The standalone `debug` skill is a second producer — it appends entries in the same `^## `-matching format but with its own ID forms and without the supersession check; those deltas live in `debug`'s Output section. **Consumers:** `plan`'s Phase 1 and `ship` read the log per §8. The standalone `lessons-consolidate` skill normalizes an existing file back to this contract via a human-approved diff (it operates on `_lessons.md` only).
+**Producers:** `close-stage` captures at its verdict gate and runs the full write path (§2–§7). The standalone `debug` skill is a second producer — it appends entries in the same `^## `-matching format but with its own ID forms and without the supersession check; those deltas live in `debug`'s Output section. **Consumers:** `plan`'s Phase 1 and `ship` read the log per §8. The standalone `lessons-consolidate` skill normalizes an existing file back to this contract via a human-approved diff (it operates on `_lessons.md` only).
 
 ## §1 The file
 

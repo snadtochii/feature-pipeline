@@ -1,16 +1,17 @@
 # Worktree Lifecycle
 
-The shared provision → work → remove procedure for every surface that isolates a ticket's code work in a git worktree. Three consumers today:
+The shared provision → work → remove procedure for every surface that isolates a ticket's code work in a git worktree. Four consumers today:
 
-- **`build`** — via the `--worktree` flag (SKILL.md's State setup binds the inputs and runs §2; the checkpoints consume §3; the `feature:finalizer` child the verdict gate spawns runs §4; §5 is the manual cleanup path).
+- **`build`** — via the `--worktree` flag (SKILL.md's State setup binds the inputs and runs §2; the implement phase consumes §3; §5 is the manual cleanup path).
 - **`ship --parallel`** — via [`../../ship/references/parallel-walk.md`](../../ship/references/parallel-walk.md) §3, per dispatched ticket.
 - **`review-stage`** — re-binds a worktree recorded in `03-implementation.md` at Entry (never provisions), re-derives §2 step 4's exclusion list, and consumes §3.
+- **`close-stage`** — re-binds the same record at Entry (never provisions), consumes §3, and names the §4 teardown row in the instruction set its `feature:finalizer` child runs, which re-derives §2 step 4's exclusion list before staging.
 
 Born in build and reused by ship, following the same precedent as [`pr-creation.md`](pr-creation.md) (born in build, reused by `sync`): the producing skill owns the rules, the consumers link them. Everything caller-specific — *when* a worktree is provisioned, *what* triggers removal, *what* a setup failure means — is a §0 input, so no consumer forks the mechanics.
 
 The `worktree:` config block and the `.worktreeinclude` file this procedure consumes are defined in [`../../../docs/advanced.md`](../../../docs/advanced.md) §Worktree setup. Consume that contract as written there; never restate or redefine it here.
 
-All git work runs inline via `Bash`. Every command below is **explicitly path-bound** — `git -C …` or `cd "<wt-path>" && …` — because shell state does not persist between `Bash` tool calls (the same constraint [`test-preflight.md`](test-preflight.md) §3 documents for its fixed `/tmp` paths). There is no "cd once and stay there" mode.
+All git work runs inline via `Bash`. Every command below is **explicitly path-bound** — `git -C …` or `cd "<wt-path>" && …` — because shell state does not persist between `Bash` tool calls (the same constraint [`test-preflight.md`](../../close-stage/references/test-preflight.md) §3 documents for its fixed `/tmp` paths). There is no "cd once and stay there" mode.
 
 ---
 
@@ -24,7 +25,7 @@ All git work runs inline via `Bash`. Every command below is **explicitly path-bo
 | `<branch>` | `<type>/<TICKET-ID>-<slug>` per [`pr-creation.md`](pr-creation.md) §2 — including its mandatory slug sanitization, since the value is interpolated into shell commands. |
 | `<ticket-folder>` | **Absolute** path to the ticket's artifact location — what it denotes: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §3, for the detected storage mode. Never a relative path and never a path inside the worktree — see §3. |
 | **setup-failure policy** | What a failed `worktree.setup` means to this caller — §2 step 5 reports the failure and defers the decision. build: notice and continue in the worktree. ship: parallel-walk §1 degradation. |
-| **removal trigger** | When §4 is allowed to run — §4 owns the safety predicate, the caller owns the trigger. build: the verdict gate's endings, named in the instruction set its finalizer receives. ship: parallel-walk §5 (merged + revalidated) or §6 (branch pushed). |
+| **removal trigger** | When §4 is allowed to run — §4 owns the safety predicate, the caller owns the trigger. close-stage: the verdict gate's endings, named in the instruction set its finalizer receives. ship: parallel-walk §5 (merged + revalidated) or §6 (branch pushed). |
 
 `<wt-path>` is **derived**, not supplied: `<repo-root>/../<repo-dirname>-worktrees/<TICKET-ID>`, where `<repo-dirname>` is `<repo-root>`'s own directory name. A sibling of the repo, never inside it.
 
@@ -121,7 +122,7 @@ Write the list to the caller's worktree record too (build: the `## Worktree` blo
 
 ### Step 5 — Setup
 
-Run `worktree.setup` inside the worktree under the declared-command trust discipline ([`test-preflight.md`](test-preflight.md) §3): write the command **verbatim** into a fixed, ticket-keyed script file, then run it. Prefer the `Write` tool; on a Bash-only surface use a single-quoted heredoc whose delimiter is a verified-unique nonce ([`../../review/references/pr-comments.md`](../../review/references/pr-comments.md) §4).
+Run `worktree.setup` inside the worktree under the declared-command trust discipline ([`test-preflight.md`](../../close-stage/references/test-preflight.md) §3): write the command **verbatim** into a fixed, ticket-keyed script file, then run it. Prefer the `Write` tool; on a Bash-only surface use a single-quoted heredoc whose delimiter is a verified-unique nonce ([`../../review/references/pr-comments.md`](../../review/references/pr-comments.md) §4).
 
 ```bash
 cd "<wt-path>" && bash "/tmp/fp-worktree-setup-<TICKET-ID>.sh"
@@ -132,7 +133,7 @@ Never substitute the command into a shell command line; never let ticket-derived
 - **Missing `worktree:` block or missing `setup` key** → skip with one line: `--worktree: no worktree.setup declared; skipping dependency setup (install manually in <wt-path> if the build needs it).`
 - **Failure** → report the exit code and the last lines of output, then apply the caller's **setup-failure policy** (§0). This is the one place the two provisioning consumers legitimately diverge, which is why it is an input rather than forked mechanics.
 
-The `/tmp` path is fixed and ticket-keyed rather than `mktemp` for the same reason [`test-preflight.md`](test-preflight.md) §3 gives: shell variables do not survive across `Bash` tool calls, so a random path could not be reconstructed. Residue from a prior same-ticket run is overwritten by this step's write — the crash-resume rule, not a new keying scheme.
+The `/tmp` path is fixed and ticket-keyed rather than `mktemp` for the same reason [`test-preflight.md`](../../close-stage/references/test-preflight.md) §3 gives: shell variables do not survive across `Bash` tool calls, so a random path could not be reconstructed. Residue from a prior same-ticket run is overwritten by this step's write — the crash-resume rule, not a new keying scheme.
 
 ### Step 6 — Config presence
 
@@ -156,7 +157,7 @@ Once a worktree is bound, every command must be aimed explicitly. A missed site 
 
 | Site | Where |
 |---|---|
-| Lint / typecheck after each change | build SKILL.md, implement checkpoint; review-stage SKILL.md, fix step |
+| Lint / typecheck after each change | build SKILL.md, implement checkpoint; review-stage SKILL.md, fix step; close-stage SKILL.md, fix loop |
 | Triviality short-circuit `git diff --shortstat` | review-stage SKILL.md, triviality short-circuit |
 | Base resolution + merge-base `git diff` + untracked-file listing | review-stage SKILL.md, Entry base step and diff collection |
 | `git check-ignore -q claudedocs`, `git add -A`, `git reset -q -- claudedocs/` | [`commit.md`](commit.md) §1 |
@@ -166,16 +167,16 @@ Once a worktree is bound, every command must be aimed explicitly. A missed site 
 | `git push -u origin "<branch>"` | [`pr-creation.md`](pr-creation.md) §4 |
 | `gh pr create` — `gh` infers the repository from the working directory | [`pr-creation.md`](pr-creation.md) §4 |
 | `gh pr view` / `gh pr list` / `git fetch` / `git symbolic-ref` / `git merge-base --is-ancestor` | [`pr-creation.md`](pr-creation.md) Merge predicate |
-| `test.start` boot — so the server runs against the worktree's own dependencies | [`test-preflight.md`](test-preflight.md) §3 |
+| `test.start` boot — so the server runs against the worktree's own dependencies | [`test-preflight.md`](../../close-stage/references/test-preflight.md) §3 |
 | `worktree.setup` | §2 step 5 above |
 | **Reviewer subagent prompts** — the shared base's "Project root path" | review-stage SKILL.md, shared base |
-| **`ui-tester` spawn prompt** — its working directory, and the target directory for any codified spec file | build SKILL.md, test checkpoint step b |
+| **`ui-tester` spawn prompt** — its working directory, and the target directory for any codified spec file | close-stage SKILL.md, test checkpoint step b |
 
 The two subagent rows are the ones a `Bash`-only audit misses. A reviewer handed the right diff and a main-checkout root reads files that do not contain the change and reports confident false findings; `ui-tester` is the one *mutating* agent, so an unbound working directory writes its codified spec outside the branch — into a tree the commit never stages, while teardown removes the tree that mattered. `parallel-walk.md` §4 solves the same problem with an explicit Workdir line per code-touching hop.
 
 `git add -A` deserves particular care: it stages from the **repository root** regardless of the working directory, so `-C` is what selects the repository, not a cosmetic prefix. Without it the main checkout's tree is staged.
 
-The [`commit.md`](commit.md) and [`pr-creation.md`](pr-creation.md) rows, and §4 itself, are executed by build's `feature:finalizer` child, which receives `<wt-path>`, `<branch>`, `<repo-root>` and every main-checkout path as absolute values in its spawn prompt. For those sites the binding is a prompt-composition obligation on the caller: a value left out is not something the child can raise, it is a command aimed at the wrong tree.
+The [`commit.md`](commit.md) and [`pr-creation.md`](pr-creation.md) rows, and §4 itself, are executed by the close stage's `feature:finalizer` child, which receives `<wt-path>`, `<branch>`, `<repo-root>` and every main-checkout path as absolute values in its spawn prompt. For those sites the binding is a prompt-composition obligation on the caller: a value left out is not something the child can raise, it is a command aimed at the wrong tree.
 
 ### Stays in the main checkout — absolute paths
 
@@ -197,7 +198,7 @@ The PostToolUse validation hook. It derives its working directory by walking up 
 
 ## §4 Teardown
 
-The caller supplies the **trigger** (§0); this section owns the **safety predicate** and the mechanics. Under build, the finalizer performs them against the paths its prompt carries. The rule is that commits are repository-level: once the work is committed on `<branch>`, the worktree holds nothing the repository does not, so it is disposable. Uncommitted work is never silently orphaned.
+The caller supplies the **trigger** (§0); this section owns the **safety predicate** and the mechanics. Under the close stage, the finalizer performs them against the paths its prompt carries. The rule is that commits are repository-level: once the work is committed on `<branch>`, the worktree holds nothing the repository does not, so it is disposable. Uncommitted work is never silently orphaned.
 
 **Predicate — remove only when both hold:**
 
@@ -215,7 +216,7 @@ git -C "<repo-root>" worktree remove "<wt-path>"
 git -C "<repo-root>" worktree prune
 ```
 
-`--force` is permitted **only** to clear untracked leftovers the predicate already accounted for (dependency directories installed by `worktree.setup`), never to discard unpushed commits. Remove the provisioning script too — `rm -f "/tmp/fp-worktree-setup-<TICKET-ID>.sh"` — mirroring [`test-preflight.md`](test-preflight.md) §4's cleanup of its own launcher.
+`--force` is permitted **only** to clear untracked leftovers the predicate already accounted for (dependency directories installed by `worktree.setup`), never to discard unpushed commits. Remove the provisioning script too — `rm -f "/tmp/fp-worktree-setup-<TICKET-ID>.sh"` — mirroring [`test-preflight.md`](../../close-stage/references/test-preflight.md) §4's cleanup of its own launcher.
 
 **Predicate fails** → leave the worktree in place and print its path, so the work is reachable: `Work left in <wt-path> on branch <branch> — commit or push it, then remove the worktree with 'git -C <repo-root> worktree remove <wt-path>'.`
 

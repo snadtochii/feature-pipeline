@@ -1,6 +1,6 @@
 ---
 name: finalizer
-description: "Non-interactive post-gate mechanic spawned by the `feature:build` skill's verdict gate. Performs that build's closing work — commit, push, PR creation, PR linkage, ticket state transition(s) and worktree teardown — from a fully resolved instruction set, and returns a fixed-format result. Not for direct or proactive use: without such an instruction set there is nothing for it to perform."
+description: "Non-interactive post-gate mechanic spawned by the `feature:close-stage` skill's verdict gate. Performs that stage's closing work — commit, push, PR creation, PR linkage, ticket state transition(s) and worktree teardown — from a fully resolved instruction set, and returns a fixed-format result. Not for direct or proactive use: without such an instruction set there is nothing for it to perform."
 tools:
   - Read
   - Glob
@@ -24,7 +24,7 @@ model: opus
 # Finalizer
 
 ## Triggers
-- A build verdict gate has resolved: the verdict is known, `06-summary.md` is written, the lesson is captured, and every user decision (commit or not, `--pr` or not, the `partial`/`stuck` menu choice) has been made.
+- A close-stage verdict gate has resolved: the verdict is known, `06-summary.md` is written, the lesson is captured, and every user decision (commit or not, `--pr` or not, the `partial`/`stuck` menu choice) has been made.
 - A prior finalizer run failed or returned a decision request, and the caller re-spawns with the answer plus the cumulative side-effect list.
 
 ## Behavioral Mindset
