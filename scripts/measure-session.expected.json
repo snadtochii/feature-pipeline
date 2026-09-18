@@ -13,6 +13,8 @@
   "role_map": {
     "build-stage": "^Build stage for ",
     "plan-stage": "^Plan stage for ",
+    "review-stage": "(?i)\\breview stage\\b",
+    "close-stage": "(?i)\\bclose stage\\b",
     "finalize-child": "^Finalize ",
     "ship-implementer": " implementer via flow$",
     "ship-review": "^Independent review of ",
@@ -1001,6 +1003,7 @@
           "end_window": 216875,
           "reread_self": 9249270,
           "reread_self_children": 9249270,
+          "agent_ids": [],
           "share_self_pct": 37.719,
           "share_self_children_pct": 30.805
         },
@@ -1015,6 +1018,7 @@
           "end_window": 283440,
           "reread_self": 8132512,
           "reread_self_children": 13636446,
+          "agent_ids": [],
           "share_self_pct": 33.165,
           "share_self_children_pct": 45.417
         },
@@ -1029,6 +1033,7 @@
           "end_window": 301317,
           "reread_self": 1461816,
           "reread_self_children": 1461816,
+          "agent_ids": [],
           "share_self_pct": 5.961,
           "share_self_children_pct": 4.869
         },
@@ -1043,6 +1048,7 @@
           "end_window": 325209,
           "reread_self": 5677694,
           "reread_self_children": 5677694,
+          "agent_ids": [],
           "share_self_pct": 23.154,
           "share_self_children_pct": 18.91
         }
@@ -1066,7 +1072,8 @@
         "tail_label": "exact",
         "notes": []
       },
-      "finalizer_agent_ids": []
+      "finalizer_agent_ids": [],
+      "stage_agent_ids": {}
     },
     {
       "agent_id": "a8bf5cfe5cb1d5c98",
@@ -1088,6 +1095,7 @@
           "end_window": 193151,
           "reread_self": 3648162,
           "reread_self_children": 3648162,
+          "agent_ids": [],
           "share_self_pct": 25.089,
           "share_self_children_pct": 18.513
         },
@@ -1102,6 +1110,7 @@
           "end_window": 244089,
           "reread_self": 6256539,
           "reread_self_children": 11421402,
+          "agent_ids": [],
           "share_self_pct": 43.028,
           "share_self_children_pct": 57.961
         },
@@ -1116,6 +1125,7 @@
           "end_window": 274542,
           "reread_self": 1823631,
           "reread_self_children": 1823631,
+          "agent_ids": [],
           "share_self_pct": 12.542,
           "share_self_children_pct": 9.254
         },
@@ -1130,6 +1140,7 @@
           "end_window": 287922,
           "reread_self": 2812294,
           "reread_self_children": 2812294,
+          "agent_ids": [],
           "share_self_pct": 19.341,
           "share_self_children_pct": 14.272
         }
@@ -1153,7 +1164,8 @@
         "tail_label": "exact",
         "notes": []
       },
-      "finalizer_agent_ids": []
+      "finalizer_agent_ids": [],
+      "stage_agent_ids": {}
     },
     {
       "agent_id": "a1ce35a10f6124e6d",
@@ -1175,6 +1187,7 @@
           "end_window": 260957,
           "reread_self": 13243726,
           "reread_self_children": 13243726,
+          "agent_ids": [],
           "share_self_pct": 43.416,
           "share_self_children_pct": 34.556
         },
@@ -1189,6 +1202,7 @@
           "end_window": 340798,
           "reread_self": 8240100,
           "reread_self_children": 16061621,
+          "agent_ids": [],
           "share_self_pct": 27.013,
           "share_self_children_pct": 41.908
         },
@@ -1203,6 +1217,7 @@
           "end_window": 367300,
           "reread_self": 2841614,
           "reread_self_children": 2841614,
+          "agent_ids": [],
           "share_self_pct": 9.315,
           "share_self_children_pct": 7.414
         },
@@ -1217,6 +1232,7 @@
           "end_window": 400243,
           "reread_self": 6178872,
           "reread_self_children": 6178872,
+          "agent_ids": [],
           "share_self_pct": 20.256,
           "share_self_children_pct": 16.122
         }
@@ -1240,7 +1256,8 @@
         "tail_label": "exact",
         "notes": []
       },
-      "finalizer_agent_ids": []
+      "finalizer_agent_ids": [],
+      "stage_agent_ids": {}
     }
   ],
   "notes": []

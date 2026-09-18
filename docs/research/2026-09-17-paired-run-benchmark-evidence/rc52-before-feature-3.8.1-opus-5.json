@@ -13,6 +13,8 @@
   "role_map": {
     "build-stage": "^Build stage for ",
     "plan-stage": "^Plan stage for ",
+    "review-stage": "(?i)\\breview stage\\b",
+    "close-stage": "(?i)\\bclose stage\\b",
     "finalize-child": "^Finalize ",
     "ship-implementer": " implementer via flow$",
     "ship-review": "^Independent review of ",
@@ -278,6 +280,7 @@
           "end_window": 185129,
           "reread_self": 4446907,
           "reread_self_children": 4446907,
+          "agent_ids": [],
           "share_self_pct": 56.967,
           "share_self_children_pct": 48.834
         },
@@ -292,6 +295,7 @@
           "end_window": 207916,
           "reread_self": 1373659,
           "reread_self_children": 2362538,
+          "agent_ids": [],
           "share_self_pct": 17.597,
           "share_self_children_pct": 25.944
         },
@@ -306,6 +310,7 @@
           "end_window": 222295,
           "reread_self": 1308397,
           "reread_self_children": 1308397,
+          "agent_ids": [],
           "share_self_pct": 16.761,
           "share_self_children_pct": 14.368
         },
@@ -320,6 +325,7 @@
           "end_window": 228417,
           "reread_self": 677149,
           "reread_self_children": 988368,
+          "agent_ids": [],
           "share_self_pct": 8.675,
           "share_self_children_pct": 10.854
         }
@@ -345,7 +351,8 @@
       },
       "finalizer_agent_ids": [
         "a036710b23010011d"
-      ]
+      ],
+      "stage_agent_ids": {}
     }
   ],
   "notes": [
