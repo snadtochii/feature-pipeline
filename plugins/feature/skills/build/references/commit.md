@@ -21,6 +21,8 @@ Never assume `claudedocs/` is gitignored in the consumer repo — gate on the ac
 
 **Session-state backstop.** `git add -A` honors `.gitignore` but sweeps every other untracked file — including a secrets file whose gitignore entry was forgotten. When the project's `config.yaml` `test:` block declares `test.auth.storage_state`, check it before committing: if `git check-ignore -q <that path>` fails (the file is NOT ignored), exclude it (`git reset -q -- <path>`) and print one line naming it — live session cookies never enter a commit. This is the staging-side backstop to the `ui-tester`'s write-time guard, which is unenforced agent prose; on unattended paths (`git.commit: always`, `--pr`) nothing else stands between that file and the commit.
 
+**Browser-output backstop.** The Playwright MCP writes to `.playwright-mcp/` in the workspace root whenever a capture is not given an explicit `filename`. [`ui-checks.md`](ui-checks.md) §3 routes every capture into the evidence home instead, but a stray default write would otherwise be swept by `git add -A`. When `.playwright-mcp/` exists and `git check-ignore -q .playwright-mcp` fails, exclude it (`git reset -q -- .playwright-mcp/`) and print one line naming it — screenshots can show app data and never enter a commit this way.
+
 ## §2 Commit message
 
 - **Subject format**: `<TICKET-ID>: <imperative subject>`. When no ticket ID is resolvable, omit the prefix entirely and start the subject with the imperative verb.

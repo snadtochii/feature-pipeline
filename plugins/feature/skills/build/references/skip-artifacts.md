@@ -8,7 +8,7 @@ Read this file only when the test checkpoint is writing a skip artifact (SKILL.m
 verdict: skipped (no UI work in plan)
 
 ## Reason
-Keyword scan of 02-plan.md found no UI signals (component, page, route, screen, form, tsx, jsx, html, view, widget, composable, layout, template, partial).
+Keyword scan of 02-plan.md found no UI signals (component, page, route, screen, form, dialog, modal, sheet, tsx, jsx, html, view, widget, composable, layout, template, partial).
 
 ## Acceptance Criteria
 - [ ] AC 1 — not-tested (no UI)

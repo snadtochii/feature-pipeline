@@ -140,6 +140,12 @@ Focus on the user journey:
 - Any specific design preferences or references?
 - Mobile/responsive requirements?
 
+The questions stay a guide, but the UI-states criterion does not. When this theme applies — the change has a rendered surface — the ticket is **UI-facing**, and discover writes this acceptance criterion into its spec word for word:
+
+> Error, empty and disabled states render without layout shift at desktop and mobile width.
+
+It is the criterion the `ui-tester`'s required UI checks fail against. The answers to "What happens on error? Empty state?" shape the ticket's other criteria. A ticket with no rendered surface gets no UI-states criterion. In an epic, the criterion replicates to every UI-facing child — see [`references/multi-sibling.md`](references/multi-sibling.md).
+
 #### Theme: Technical Considerations (informed by codebase exploration)
 Use the code explorer results to ask informed questions:
 - "I see you're using [pattern X] for similar features — should this follow the same pattern?"

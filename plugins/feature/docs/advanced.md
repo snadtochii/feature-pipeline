@@ -30,6 +30,18 @@ Once the PR merges, re-run `/feature:flow <id>` (or `/feature:build <id>`) — b
 
 `--pr` needs the GitHub CLI (`gh`) installed and authenticated and a GitHub `origin` remote. If any is missing, build degrades gracefully — it commits locally, finalizes to `done/`, and prints one line explaining why the PR step was skipped. It never blocks the verdict gate.
 
+## Required UI checks
+
+Every browser pass — build's test checkpoint and ship's `--ui-test` pass — runs the acceptance criteria plus a fixed set of required checks, defined once in `skills/build/references/ui-checks.md` and injected into the `ui-tester`'s brief:
+
+- **States** — for every form and dialog exercised, the validation-error state (invalid and empty submit), the submitting/disabled state, and the empty state where the screen has one.
+- **Widths** — every acceptance-criterion and state screenshot is captured at desktop (1280 wide) and mobile (390 wide), using the Playwright MCP's `browser_resize` tool (or DevTools' `resize_page` in an `attach_tab` session). A session that cannot resize reports a failed check, not an unverified note.
+- **Findings, not polish** — overflow or horizontal scroll, overlapping or clipped controls, an unreadable or truncated label, and layout shift when an error appears are failures of the UI-states criterion. They land under `## Failed Criteria` in `05-tests.md` and affect build's verdict like any other failed criterion. A wrapped heading or a spacing preference stays an observation.
+
+`discover` writes the matching criterion — "Error, empty and disabled states render without layout shift at desktop and mobile width." — into every UI-facing ticket, and into every UI-facing child of an epic. A ticket without it is checked against an implicit "UI states (required check)" criterion. Build's skip-detection treats `dialog`, `modal` and `sheet` as UI signals, so a dialog-only ticket still gets the browser pass.
+
+Screenshots go to one evidence home per storage mode: `<ticket-folder>/screenshots/` in fs-native mode, `claudedocs/ui-evidence/<id>/` in server-native mode. Both sit under `claudedocs/`, which build's commits exclude; a stray write to the Playwright MCP's default `.playwright-mcp/` directory is held back from build's commits unless the project ignores it, and ship's screenshot commit stages only the evidence home.
+
 ## Skip browser testing (`--no-ui-testing`)
 
 Build's test checkpoint verifies UI tickets in a real browser via the `ui-tester` subagent (Playwright/Chrome MCP), which needs interactive MCP permission. That permission isn't available in a non-interactive/headless run (e.g. `claude -p`), so a UI ticket can stall at the browser checkpoint.
@@ -95,7 +107,7 @@ Run an epic with `/feature:flow <EPIC-ID>` — it walks the children in `blocked
 
 - **`--base <branch>`** — the trunk of the run (default `main`): the branch feature/integration branches are cut from and the branch the resulting PR(s) target. It doesn't change the branch strategy — an epic still gets an `integration/<epic-id>` branch; solo and multi-solo tickets still ship on per-ticket feature branches.
 - **`--merge`** — merge the resulting PR(s) into `<base>` at the end of the run instead of leaving them open (solo/multi-solo: squash each; an epic's integration PR: a merge commit, preserving the per-ticket squashed commits). In an epic run, per-ticket merges into the integration branch happen regardless — the chain needs them. If branch protection blocks a merge, ship stops and reports.
-- **`--ui-test`** — opt-in end-of-run browser pass (default off). After the resulting PR(s) are open, one `ui-tester` subagent verifies the acceptance criteria's behavioral checks against the assembled branch and posts the evidence to the PR(s). Per-ticket builds always run headless regardless of this flag.
+- **`--ui-test`** — opt-in end-of-run browser pass (default off). After the resulting PR(s) are open, one `ui-tester` subagent verifies the acceptance criteria plus the [required UI checks](#required-ui-checks) against the assembled branch and posts the evidence — acceptance-criterion and state screenshots alike — to the PR(s). Per-ticket builds always run headless regardless of this flag.
 - **`--parallel [N]`** — opt-in concurrent walk (default off — the walk is serial). Ship computes the **ready set** — tickets whose `blocked_by` dependencies are all terminal — and builds each ready ticket concurrently in its own isolated git worktree, up to N in flight (default 3), greedily dispatching newly-unblocked tickets as workers finish. It applies to epic runs and multi-solo runs; a pure dependency chain walks one ticket at a time either way. In a [multi-repo workspace](#multi-repo-workspaces) the run is partitioned into **per-repo lanes** from the tickets' `repos:` frontmatter: lanes run concurrently against their own repo checkouts (cross-repo parallelism needs no worktrees), worktrees are provisioned only for a lane running two or more of its tickets at once, and N stays one global cap across lanes. Integration merges (one at a time, revalidated per merge), ticket state transitions, and lessons-log writes stay serialized in the orchestrator, and a failed worker doesn't abort its siblings — the end-of-run report names what needs a serial resume. Parallel mode requires the [worktree setup contract](#worktree-setup) (`worktree:` block + optional `.worktreeinclude`) — in a multi-repo workspace only for lanes doing intra-repo concurrency; when the contract is absent or a worktree setup fails, ship logs why and falls back to the serial walk (per lane, in a lane run). Each worker's state clause, workdir, and base branch sit under a `## Stage overrides` heading in its brief, which `flow` copies verbatim into the plan and build stage briefs it spawns ([stage subagents](#stage-subagents-and-per-stage-models---plan-model---build-model)).
 - **`--worktree`** — isolate each ticket's build in its own git worktree on the **serial** walk, by forwarding [`--worktree`](#worktree-isolation---worktree) down to `build`. Redundant with `--parallel` (which provisions worktrees already) and unusable on an epic chain (whose base is the integration branch, which `flow` cannot convey to build's provisioning) — dropped with a one-line notice in both cases.
 
@@ -253,7 +265,7 @@ The command runs inside whichever repo's worktree is being provisioned and sniff
 
 Recommended for full functionality, but optional:
 
-- **Playwright** — required for build's test checkpoint (UI testing).
+- **Playwright** — required for build's test checkpoint (UI testing), including the `browser_resize` tool the required UI checks use for desktop and mobile width.
 - **Chrome DevTools** — enhanced browser testing.
 - **Serena** — semantic code navigation; used by the `code-explorer` and `code-architect` agents when available, falling back to Grep/Glob/Read otherwise.
 - **Personal server** — required only in server-native storage mode, where it *is* the ticket store. Shipped as a separate `server-native` plugin you install alongside `feature`; setup for both platforms is below.

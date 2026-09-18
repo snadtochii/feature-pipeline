@@ -85,7 +85,7 @@ The validation hook uses Codex's hook system — enable `codex_hooks` and `plugi
 | `/feature:discover <idea>` | Socratic intake → one ticket, or an epic with child tickets when the scope splits. Add `--explore` to challenge an idea before committing. |
 | `/feature:flow <id>` | Runs `plan → build` with a single verdict gate; each stage runs in its own subagent, so build starts from a fresh context with the spec and saved plan as inputs. Walks an epic's children in dependency order. Flags: `--pr`, `--no-commit`, `--no-ui-testing`, `--worktree`, `--hint`, `--plan-model`, `--build-model`. |
 | `/feature:plan <id>` | Plan stage alone — pre-plan synthesis (codebase patterns + open questions), then interactive plan mode. |
-| `/feature:build <id>` | Build loop alone — implement → review (4 reviewer roles, batched to available capacity) → test (real-browser UI), then a finalizer child for the post-gate commit/PR/transition work. Auto-resumes from the ticket's existing artifacts. |
+| `/feature:build <id>` | Build loop alone — implement → review (4 reviewer roles, batched to available capacity) → test (real-browser UI — acceptance criteria plus required error-state and layout checks at desktop and mobile width), then a finalizer child for the post-gate commit/PR/transition work. Auto-resumes from the ticket's existing artifacts. |
 
 `flow`, `plan`, `build`, and `ship` select the active Claude or Codex runtime from the available tools. Claude keeps native skill and agent invocation; Codex loads the same skill and role instructions into fresh children and resumes paused stages with your answers. Nested agent support is required, and reviewer batches and ship worker counts respect the active runtime's limits. See [runtime behavior and stage models](plugins/feature/docs/advanced.md#stage-subagents-and-per-stage-models---plan-model---build-model).
 
@@ -173,7 +173,7 @@ The pipeline also reads your project's `CLAUDE.md` for conventions. Full referen
 
 - Claude Code CLI or Codex CLI
 - Git — for build's review-checkpoint diff
-- Playwright MCP — for build's UI test checkpoint (optional; skip with `--no-ui-testing`)
+- Playwright MCP — for build's UI test checkpoint, including its `browser_resize` tool for the desktop and mobile checks (optional; skip with `--no-ui-testing`)
 - A personal MCP server — only for `mode: server-native`, where it *is* the ticket store (optional; the default `fs-native` mode needs no server). Its tool surface spans several domains; the `feature` skills use only its `pipeline_*` tools. On Claude Code install the separate `server-native` plugin alongside `feature` and it prompts for a URL and token; on Codex add the server to `config.toml`. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#storage-mode-and-the-personal-server)
 - GitHub CLI (`gh`), authenticated, with a GitHub `origin` — for `--pr` and the `ship`/`review`/`address-review`/`sync` helpers; the pipeline degrades to local commits without it, and the PR helpers fail closed (change nothing) without it
 

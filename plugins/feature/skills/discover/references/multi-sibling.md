@@ -30,6 +30,7 @@ The `Repos` column appears only in a multi-repo workspace (per the Phase 1 detec
 - [x] AC 2 → <CHILD-1-ID>
 - [x] AC 3 → <CHILD-2-ID>
 ...
+- [x] UI states → replicated to every UI-facing child (<CHILD-1-ID>, <CHILD-3-ID>)
 
 ### Ordering Rationale
 <Why this dependency chain — what foundational work each early child unlocks for later siblings>
@@ -43,10 +44,10 @@ The `Repos` column appears only in a multi-repo workspace (per the Phase 1 detec
 ```
 
 **Validation before proposing**:
-- Every gathered acceptance criterion is assigned to at least one child
+- Every gathered acceptance criterion is assigned to at least one child — except the UI-states criterion (SKILL.md, User Experience theme), which appears in **every** UI-facing child and in no child without a rendered surface
 - No child is complexity L or XL (would defeat the split)
 - First child has no `blocked_by` dependencies on siblings
-- Each child has at least 2 acceptance criteria (otherwise fold into adjacent child)
+- Each child has at least 2 acceptance criteria (otherwise fold into adjacent child); the replicated UI-states criterion does not count toward the two
 - Total children: 2-7. If the natural split exceeds 7, present that to the user and offer to group related children.
 
 Iterate with the user until they approve, adjust, or collapse to single-ticket. On "collapse", proceed to Phase 4 single-mode (SKILL.md) using the gathered material.

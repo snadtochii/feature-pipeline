@@ -1,6 +1,6 @@
 # Build — fs-native Storage Mechanics
 
-Canonical logic for build's storage-touching steps in fs-native storage mode. Read when the storage mode detected at the caller's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is fs-native — a run in the other storage mode never needs this file. Referenced by `build`, and by [`worktree.md`](worktree.md) / [`pr-creation.md`](pr-creation.md) on behalf of whichever skill runs them. Operations named below are defined in [`../../flow/references/storage-fs.md`](../../flow/references/storage-fs.md); sections are numbered so the skill body cites `§N`.
+Canonical logic for build's storage-touching steps in fs-native storage mode. Read when the storage mode detected at the caller's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is fs-native — a run in the other storage mode never needs this file. Referenced by `build`, and by [`worktree.md`](worktree.md) / [`pr-creation.md`](pr-creation.md) on behalf of whichever skill runs them. Ship's same-mode storage file points at §13 for the UI evidence home. Operations named below are defined in [`../../flow/references/storage-fs.md`](../../flow/references/storage-fs.md); sections are numbered so the skill body cites `§N`.
 
 ## §1 Inputs
 
@@ -49,3 +49,14 @@ A missing `config.yaml` is valid — the file is optional, and its absence means
 ## §12 Error handling
 
 A failed write or folder move is an ordinary tool error; stop and report the last artifact written. The move-then-frontmatter ordering in [`../../flow/references/state-transitions-fs.md`](../../flow/references/state-transitions-fs.md) keeps the prior state recoverable.
+
+## §13 UI evidence home
+
+Every `ui-tester` capture — build's test checkpoint and ship's end-of-run pass alike — is written to one declared directory, named per [`ui-checks.md`](ui-checks.md) §3:
+
+- **Ticket pass**: `<ticket-folder>/screenshots/`, the absolute path in the main checkout — with a worktree bound it still resolves there, never inside `<wt-path>`, so the evidence stays with the ticket's other artifacts.
+- **A pass covering an epic**: `<epic-folder>/screenshots/`.
+
+The spawn prompt carries the resolved absolute path, never a link to this section. Fixed filenames overwrite a prior run's captures.
+
+**Gitignore expectation — stated once, here.** The evidence home lives inside the ticket store, so screenshots enter version control only when the project tracks `claudedocs/tickets/` by its own choice. [`commit.md`](commit.md) §1 excludes `claudedocs/` from build's own commits either way.
