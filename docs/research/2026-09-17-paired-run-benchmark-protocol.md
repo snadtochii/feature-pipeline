@@ -325,3 +325,39 @@ The finalizer behaved as specified (FP-95 AC 4: never asks, returns a structured
 ### 6.4 Conclusion
 
 The finalizer child does what epic FP-92 predicted: the closing mechanics run in a fresh window near the child floor instead of at the build's largest window. On this ticket that is 2.2M fewer tokens re-read (−45% of the post-gate phase, −72% *inference* without the protocol-induced retry), with verdict, PR and ticket state at parity. Measured on one pair; the share figure is not the reading to quote.
+
+## 7. Second pair — the implement / review / close split (added 2026-09-18)
+
+Ticket: recipio-app `RC-52` ("/api/chat observability: PII-safe structured logging", complexity M, no UI). Base tag `bench/rc-52-base`; plan written once on 3.8.1; both arms `/feature:build RC-52 --pr --no-ui-testing`, standalone, `claude-opus-5`. Arm 1 on `feature` 3.8.1, in the main checkout; arm 1's PR retitled without the ticket ID before arm 2 (§6.3). Arm 2 on 3.9.0 (the three-stage build), in a hand-made worktree cut from the tag, seeded per §2 minus the local settings file, which this project does not have. Reports: [`rc52-before-feature-3.8.1-opus-5.json`](2026-09-17-paired-run-benchmark-evidence/rc52-before-feature-3.8.1-opus-5.json), [`rc52-after-feature-3.9.0-opus-5.json`](2026-09-17-paired-run-benchmark-evidence/rc52-after-feature-3.9.0-opus-5.json). Figures are `exact` from API usage unless marked.
+
+### 7.1 Shape of arm 2
+
+Standalone build now implements in the root session and spawns the review stage and the close stage as children; each stage spawns its own leaf roles. Tree: root (implement, 39 turns) → `RC-52 review stage` (14 turns) → four reviewers; root → `RC-52 close stage` (14 turns) → finalizer. The measurement script does not yet recognise this shape: it reports the review-stage child as a build with implement/review phases and finds no post-gate boundary in the root. The per-agent table is correct; the phase table is not, and the figures below were assembled from the per-agent table by hand.
+
+### 7.2 Structural comparison (re-read tokens = per-turn window summed)
+
+| Part | Arm 1 (3.8.1) | Arm 2 (3.9.0) | Delta |
+|---|---|---|---|
+| Review wrapper: spawn, merge, validate, fix | 13 root turns at 186k–222k: **2.68M** | review stage, 14 turns at 56k–134k: **1.46M** | −46% |
+| Four reviewers (children) | 0.99M | 2.24M | +126% (*variance* — the correctness reviewer ran 21 turns against 8) |
+| Close: test skip, verdict, summary, lessons, gate | 3 root turns at 224k–228k: 0.68M | close stage, 14 turns at 56k–122k: 1.42M | +109% |
+| Finalizer child | 0.31M | 0.47M | +52% |
+| Implement | 29 root turns, 93k→185k: 4.45M | 36 root turns, 81k→184k: ~5.1M (*estimate*: root minus its two spawn turns) | *variance* |
+| Root spawn/relay turns | — | 2 turns at ~185k: ~0.37M | new |
+| **Total re-read, all agents** | **9.1M** | **11.3M** | +24% |
+
+Weighted units, all agents: 1,734k → 2,267k (+31%).
+
+### 7.3 Reading
+
+- **The predicted effect is real and the size predicted.** The review wrapper moved from a ~200k window to a stage that starts at 56k and peaks at 134k, and its re-read fell by 46% at the same turn count.
+- **The close stage is a net loss on a ticket this size.** In arm 1 the tail after review was three root turns, because build already held everything. The close stage re-derives it from disk in 14 turns from a fresh window and costs twice as much. Its floor (56k) times its turns is most of that.
+- **On a small ticket the split does not pay.** The review saving (−1.2M) is cancelled by the close overhead (+0.9M) and the two spawn turns. What made the total +24% is variance in implement and in one reviewer, which the split cannot influence; but the structural saving alone is within noise here.
+- **Where it should pay** (*inference* from §4): a build like PS-153, whose review wrapper ran 37 turns at 210k–254k (8.5M), would save roughly 4M on review against a close overhead of about 1M. The split's value grows with the implement window; it is negative below roughly 20 review-wrapper turns at 200k.
+- **Parity.** Both arms: verdict pass, PR opened (#89, #90), ticket to `review/`. Findings differ in kind — arm 1 applied 2 important findings; arm 2's review stage recorded 6 suggestions and dismissed several with reasons citing the plan and the handoff's rationale — which is the validate-then-fix behaviour FP-99 asked for, and it is the first evidence that the handoff carries the implementer's reasons across the boundary. Whether the dismissals were right needs a human read of PR #90.
+
+### 7.4 Follow-ups
+
+1. `scripts/measure-session.py` needs the post-split shape: root-as-implement when standalone, `review stage` / `close stage` children as phases of their parent, so the phase table and parity fields work without hand assembly.
+2. The close stage's 14 turns are the next thing to shrink: on a skip it should be a handful of turns. Read its transcript for what it re-derives (it re-read the runtime reference, the plugin root and the storage files before doing anything).
+3. Re-run the pair on a larger ticket before deciding whether the split stays; RC-52 is below the size where it can pay.
