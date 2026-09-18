@@ -19,7 +19,7 @@ claudedocs/tickets/<state>/<id>/
 ├── 01-spec.md            ← THE spec (frontmatter + body — this IS the ticket)
 ├── exploration.md        ← discover output, optional
 ├── 02-plan.md            ← plan (includes Phase 1 synthesis: Codebase Context + Open Questions Resolved sections)
-├── 03-implementation.md  ← build (live, updated per plan step)
+├── 03-implementation.md  ← build (live, appended per plan step)
 ├── 04-review.md          ← build (merged from 4 reviewer subagents)
 ├── 05-tests.md           ← build (UI test results, skip artifact, or Failed Criteria section)
 └── 06-summary.md         ← build exit summary (always written; content varies per verdict)

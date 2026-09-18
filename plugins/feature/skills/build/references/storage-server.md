@@ -16,7 +16,9 @@ Pull `01-spec.md`, `02-plan.md`, and whichever of `03-implementation.md`/`04-rev
 
 ## §4 Artifact writes
 
-Every artifact write named in the skill is upserted to the server via the Write artifact operation the moment the producing step completes — `03-implementation.md` after each update (no `verdict`), `04-review.md`, `05-tests.md`, and `06-summary.md` each with the `verdict` rule in §6. Update the scratchpad copy and push in the same step; a crash then loses at most the in-flight checkpoint's output, and a re-run resumes from exactly what the server holds. The `## Worktree` record written into `03-implementation.md` follows the same rule.
+Every artifact write named in the skill is upserted to the server via the Write artifact operation the moment the producing step completes — `04-review.md`, `05-tests.md`, and `06-summary.md` each with the `verdict` rule in §6. Update the scratchpad copy and push in the same step; a crash then loses at most the in-flight checkpoint's output, and a re-run resumes from exactly what the server holds. The `## Worktree` record written into `03-implementation.md` follows the same rule.
+
+`03-implementation.md` (no `verdict`) is the exception to pushing in the same step. It is appended to the scratchpad copy by the mechanism in [`implementation-handoff.md`](implementation-handoff.md) §5. Its upsert carries the copy's current content and is issued as a parallel call alongside the next tool call, never as a turn of its own — still one upsert per step, so the recency signal in §10 holds. With no validation commands documented, the append itself rides with the next step's first tool call, so its upsert rides with the call after that. The last step's upsert rides with the phase-end write, and the post-checkpoint sections are upserted the same way. A crash between an append and its upsert loses at most the entries not yet pushed, one step's worth.
 
 ## §5 Worktree binding
 

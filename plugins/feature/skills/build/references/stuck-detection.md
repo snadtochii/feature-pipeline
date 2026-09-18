@@ -44,12 +44,14 @@ You are reviewing the recent iteration history of a build loop on ticket <ticket
 Acceptance criteria from 01-spec.md:
 <ACs verbatim>
 
-Last <N> entries from 03-implementation.md (most recent first):
+Last <N> ## Steps entries from 03-implementation.md (most recent first):
 <entries>
 
 Question: is the loop making progress toward the acceptance criteria, or cycling without convergence?
 Respond with strict JSON only: {"status": "progress" | "stuck", "reason": "<one short sentence>"}
 ```
+
+`<entries>` is the newest-steps view of `03-implementation.md` per [`implementation-handoff.md`](implementation-handoff.md) §6: the last `<N>` `### Step` entries under `## Steps`, newest first, or all of them when fewer exist. `## Rationale` and the post-checkpoint sections are not included.
 
 The arbiter runs at most once per checkpoint per build invocation; cache the verdict for the rest of that checkpoint's turns.
 
