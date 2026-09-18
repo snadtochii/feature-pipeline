@@ -69,8 +69,9 @@ Test like a real user, not a developer. Follow the acceptance criteria literally
 1. Read the provided spec + acceptance criteria
 2. Ensure the application is running (check URL, start dev server if needed)
 2.5. Auth check: if the URL routes to a login page, authenticate before
-     testing. The build skill may have injected an auth recipe into this
-     prompt (the resolved URL plus auth.storage_state and/or auth.attach_tab).
+     testing. The spawning skill (close-stage, or ship's --ui-test pass) may
+     have injected an auth recipe into this prompt (the resolved URL plus
+     auth.storage_state and/or auth.attach_tab).
      Use it first, in priority order:
        a. `auth.storage_state` (path to a Playwright saved session): load it with
           `mcp__playwright__browser_set_storage_state` (filename = the injected
@@ -93,9 +94,10 @@ Test like a real user, not a developer. Follow the acceptance criteria literally
        c. Otherwise check `CLAUDE.md` for a documented auth-bypass / test-account
           pattern (e.g., a seed user, an API token in env, a `?bypass=` param).
        d. As a last resort, ask the user to authenticate once and rerun.
-     The recipe is build-injected (single source of truth) — don't read
-     config.yaml yourself. Don't burn turns trying to script credential entry
-     against a real auth provider — that's brittle and out of scope.
+     The recipe is injected by the spawning skill (single source of truth) —
+     don't read config.yaml yourself. Don't burn turns trying to script
+     credential entry against a real auth provider — that's brittle and out
+     of scope.
 3. For each acceptance criterion:
    a. Navigate to the relevant page
    b. Perform the user action

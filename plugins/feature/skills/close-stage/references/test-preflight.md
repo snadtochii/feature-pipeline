@@ -1,10 +1,10 @@
 # Test Pre-flight
 
-Build invokes this at the test checkpoint (SKILL.md §3) on the path where a `ui-tester` spawn was about to happen — i.e. **after** the `--no-ui-testing` short-circuit and **after** the skip-detection scan has decided the plan has UI signals, but **before** the `ui-tester` `Task` call. It runs a cheap reachability gate so the browser subagent is never spawned against an app that can't be reached, and it hands the agent a declared auth recipe instead of letting it guess.
+The close stage invokes this at its test checkpoint on the path where a `ui-tester` spawn was about to happen — i.e. **after** the `--no-ui-testing` short-circuit and **after** the skip-detection scan has decided the plan has UI signals, but **before** the `ui-tester` `Task` call. It runs a cheap reachability gate so the browser subagent is never spawned against an app that can't be reached, and it hands the agent a declared auth recipe instead of letting it guess.
 
 `--no-ui-testing` and the no-UI-signal skip both bypass this reference entirely — neither resolves a URL, curls, nor boots a `start` command. Pre-flight only runs when a spawn was actually going to happen (this is what keeps the cheap gate ahead of the expensive spawn).
 
-Build reads the `test:` block by **model-reading** the flat YAML in `claudedocs/tickets/config.yaml`; it does **not** shell out to `yq`/`jq`, and `hooks/validate.sh` is never involved (the hook reads only the `validate:` block).
+The close stage reads the `test:` block by **model-reading** the flat YAML in `claudedocs/tickets/config.yaml`; it does **not** shell out to `yq`/`jq`, and `hooks/validate.sh` is never involved (the hook reads only the `validate:` block).
 
 ## The `test:` block (all keys optional)
 
@@ -56,7 +56,7 @@ Reachable status set is `200 301 302 401 403` — this reference is its single s
 
 ## §3 Unreachable handling
 
-- **`test.start` is set** → boot it and poll (bounded). With a worktree bound ([`worktree.md`](worktree.md) §3), launch it from `<wt-path>` so the server runs the worktree's own dependencies — note that `test.url` remains a fixed address, so a server already listening there from another checkout answers §2's `curl` and this boot never happens; that caveat is surfaced by build's test checkpoint. Use a **fixed, ticket-keyed** path (not `mktemp`) so the separate §4 teardown `Bash` call can reconstruct it — shell variables do not persist across `Bash` tool calls, so a random `mktemp` path would be lost and teardown would silently no-op (leaking the server). **Write `test.start` verbatim into a launch script with the `Write` tool** (not a shell heredoc): create `/tmp/fp-test-preflight-<ticket-id>.sh` whose entire body is the `test.start` value. Writing it as file content — rather than substituting it into a shell command — means any quotes / `$()` / backticks in the declared command can't break out of quoting or be re-evaluated. `test.start` is the user's own declared command (same trust tier as `validate.lint`); never put untrusted ticket text (spec title, AC text) in this file. Then launch it and capture the PID via `Bash`:
+- **`test.start` is set** → boot it and poll (bounded). With a worktree bound ([`worktree.md`](../../build/references/worktree.md) §3), launch it from `<wt-path>` so the server runs the worktree's own dependencies — note that `test.url` remains a fixed address, so a server already listening there from another checkout answers §2's `curl` and this boot never happens; that caveat is surfaced by the close stage's test checkpoint. Use a **fixed, ticket-keyed** path (not `mktemp`) so the separate §4 teardown `Bash` call can reconstruct it — shell variables do not persist across `Bash` tool calls, so a random `mktemp` path would be lost and teardown would silently no-op (leaking the server). **Write `test.start` verbatim into a launch script with the `Write` tool** (not a shell heredoc): create `/tmp/fp-test-preflight-<ticket-id>.sh` whose entire body is the `test.start` value. Writing it as file content — rather than substituting it into a shell command — means any quotes / `$()` / backticks in the declared command can't break out of quoting or be re-evaluated. `test.start` is the user's own declared command (same trust tier as `validate.lint`); never put untrusted ticket text (spec title, AC text) in this file. Then launch it and capture the PID via `Bash`:
   ```bash
   PIDFILE="/tmp/fp-test-preflight-<ticket-id>.pid"     # fixed path — reconstructable in the §4 teardown call
   nohup bash "/tmp/fp-test-preflight-<ticket-id>.sh" >"/tmp/fp-test-preflight-<ticket-id>.log" 2>&1 &
@@ -94,7 +94,7 @@ A server that was **already running** when pre-flight first probed (no PID captu
 
 ## §5 Compose the auth recipe + resolved URL into the spawn prompt
 
-Build composes the recipe into the `ui-tester` spawn prompt (mirrors how the review checkpoint injects the confidence scale verbatim — single source of truth, the `ui-tester` body stays recipe-schema-free). Inject:
+The close stage composes the recipe into the `ui-tester` spawn prompt (mirrors how the review stage injects the confidence scale verbatim — single source of truth, the `ui-tester` body stays recipe-schema-free). Inject:
 
 - **Resolved URL** — the pre-flight-resolved, reachable URL. The `ui-tester` spawn prompt receives this URL directly; the agent does not re-discover it.
 - **`auth.attach_tab`** (when truthy) — instruct the agent to prefer attaching to an already-authenticated same-origin tab.
@@ -104,7 +104,7 @@ The agent consumes this recipe with priority `storage_state → attach_tab → e
 
 ## §6 Skip artifact (app unreachable)
 
-When unreachable with no `start` (or `start` timed out), write `<ticket-folder>/05-tests.md` and proceed to the verdict **without** spawning `ui-tester`, **without** any mid-loop prompt or hard-pause. What the `skipped` label means for the build verdict is defined at SKILL.md §3 step c. The skip is recorded in `06-summary.md` / the exit summary (surfaced, not hidden):
+When unreachable with no `start` (or `start` timed out), write `<ticket-folder>/05-tests.md` and proceed to the verdict **without** spawning `ui-tester`, **without** any mid-loop prompt or hard-pause. What the `skipped` label means for the verdict is defined at the close stage's `SKILL.md`, test checkpoint step c. The skip is recorded in `06-summary.md` / the exit summary (surfaced, not hidden):
 
 ```
 verdict: skipped (app unreachable)
@@ -115,7 +115,7 @@ The ui-tester subagent was not spawned. Browser-level acceptance-criteria verifi
 
 ## Manual steps to verify
 1. Start the app (e.g. `<test.start, or the project's dev command>`).
-2. Re-run `/feature:build <ticket-id>` once it is reachable, or declare `test.url` / `test.start` in claudedocs/tickets/config.yaml so the pre-flight can reach (or boot) it next time.
+2. Re-run `/feature:close-stage <ticket-id>` once it is reachable, or declare `test.url` / `test.start` in claudedocs/tickets/config.yaml so the pre-flight can reach (or boot) it next time.
 
 ## Acceptance Criteria
 - [ ] AC 1 — not-tested (app unreachable)
@@ -128,5 +128,5 @@ The ui-tester subagent was not spawned. Browser-level acceptance-criteria verifi
 - **Cheap gate, always first** — a `curl` (and at most a bounded `start` poll) is always paid before the `ui-tester` spawn; the agent is never spawned against an unreachable, un-bootable app.
 - **No auth detection** — reachability only; the gate never interprets `401`/`403`/a `200` SPA shell as "auth-gated." Auth-gated-with-no-recipe still spawns the agent (it's reachable), which fails fast and is recorded as a non-blocking skip by the agent's own report.
 - **No literal secrets** — `config.yaml` is committed; `auth.storage_state` is a path to a gitignored session file and `auth.attach_tab` is a bool. Credentials are never read from or written into `config.yaml`.
-- **Model-read, not hook-read** — the `test:` block is consumed by build (this reference + the injected spawn prompt). `hooks/validate.sh` is not modified and never reads it.
+- **Model-read, not hook-read** — the `test:` block is consumed by the close stage (this reference + the injected spawn prompt). `hooks/validate.sh` is not modified and never reads it.
 - **bash-3.2 / macOS-default portable** — `curl`, `nohup`, `$!` PID capture, `kill`, POSIX `while`/`case`; no associative arrays, no `mapfile`, no `setsid` (absent on macOS).

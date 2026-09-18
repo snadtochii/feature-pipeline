@@ -92,7 +92,7 @@ Build a TodoWrite item per surviving thread so the Step 7 summary is recoverable
 
 ### 3. Validate each thread (ACCEPT / DISMISS / ANSWER + one-line reason)
 
-For each thread, read the finding against the **real current code** (use `Read`/`Grep`/`Glob` on the referenced `path:line`, and `git diff "$base"...HEAD` for the change under review where useful — resolve `$base` as the review checkpoint does: `base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)`). Judge it:
+For each thread, read the finding against the **real current code** (use `Read`/`Grep`/`Glob` on the referenced `path:line`, and `git diff "$base"...HEAD` for the change under review where useful — resolve `$base` non-interactively: `base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)`). Judge it:
 
 - **ACCEPT** — the finding is real and applies to the current code (a human ask for a change counts the same as an automated finding). Record a one-line reason and the intended fix.
 - **DISMISS** — the finding is wrong, stale (already fixed / no longer applies), out of scope, or a false positive. Record a one-line reason.

@@ -71,7 +71,7 @@ Per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`
 
 ## State setup
 
-Before Phase 1 synthesis, perform the start-of-pipeline transition per [`state-transitions-fs.md`](../flow/references/state-transitions-fs.md) / [`state-transitions-server.md`](../flow/references/state-transitions-server.md) Transition 1 (Start-of-pipeline: `backlog`/`review`/`done` → `in-progress`), for the detected storage mode. Idempotent: if the ticket is already `in-progress`, only `status` is re-set to `in-progress` (overwriting any stale value). Re-planning a `review/` ticket (its PR is open but the code needs revision) is the intended `review/ → in-progress` revise path — plan pulls it back to `in-progress/` so the build loop rebuilds against the revised plan.
+Before Phase 1 synthesis, perform the start-of-pipeline transition per [`state-transitions-fs.md`](../flow/references/state-transitions-fs.md) / [`state-transitions-server.md`](../flow/references/state-transitions-server.md) Transition 1 (Start-of-pipeline: `backlog`/`review`/`done` → `in-progress`), for the detected storage mode. Idempotent: if the ticket is already `in-progress`, only `status` is re-set to `in-progress` (overwriting any stale value). Re-planning a `review/` ticket (its PR is open but the code needs revision) is the intended `review/ → in-progress` revise path — plan pulls it back to `in-progress/` so the implement stage rebuilds against the revised plan.
 
 This makes plan self-sufficient when invoked standalone — the ticket folder ends up in the correct state regardless of whether flow or the user invoked it. When invoked via flow, build's later State setup is a no-op (Transition 1 is idempotent).
 

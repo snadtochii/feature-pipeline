@@ -1,10 +1,10 @@
 # Cross-ticket lessons log — server-native
 
-Canonical logic for the cross-ticket lessons store in server-native storage mode: the atomic entry format, what belongs in the store, the write-time supersession check, prefer-newest on conflict, the promotion-on-recurrence trigger, format overflow, and keyword-scoped consumption. Read when the storage mode detected per [`storage.md`](storage.md) is server-native — an fs-native run never needs this file. Referenced by `build`, `debug`, `plan`, and `ship`.
+Canonical logic for the cross-ticket lessons store in server-native storage mode: the atomic entry format, what belongs in the store, the write-time supersession check, prefer-newest on conflict, the promotion-on-recurrence trigger, format overflow, and keyword-scoped consumption. Read when the storage mode detected per [`storage.md`](storage.md) is server-native — an fs-native run never needs this file. Referenced by `close-stage`, `debug`, `plan`, and `ship`.
 
 This file is standalone — a producer or consumer reads just it and can comply. Each lesson is a row on the pipeline server, reached through the lesson tools (`pipeline_add_lesson`, `pipeline_list_lessons`, `pipeline_update_lesson`, `pipeline_delete_lesson` — the Lessons operation in [`storage-server.md`](storage-server.md)); §1–§8 map the contract onto that store.
 
-**Producers:** `build` captures at its verdict gate and runs the full write path (§2–§7). The standalone `debug` skill is a second producer — it adds rows in the same atomic format but with its own ID forms and without the supersession check; those deltas live in `debug`'s Output section. **Consumers:** `plan`'s Phase 1 and `ship` read the store per §8.
+**Producers:** `close-stage` captures at its verdict gate and runs the full write path (§2–§7). The standalone `debug` skill is a second producer — it adds rows in the same atomic format but with its own ID forms and without the supersession check; those deltas live in `debug`'s Output section. **Consumers:** `plan`'s Phase 1 and `ship` read the store per §8.
 
 ## §1 The store
 

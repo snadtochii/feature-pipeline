@@ -2,7 +2,7 @@
 
 Canonical logic for flow's epic mode in server-native storage mode. Read when flow's SETUP detects `kind: epic` on the resolved ticket and the storage mode detected per [`storage.md`](storage.md) is server-native — a single-ticket run, or an fs-native run, never needs this file. Referenced by `flow` only.
 
-Flow walks the epic's children in `blocked_by` topological order, invoking `/feature:flow <CHILD-ID>` recursively for each child. Per-child state transitions (and the Epic-completion predicate that flips the epic row to `done` once every child is terminal) fire from each child's build invocation per [`state-transitions-server.md`](state-transitions-server.md) Transition 2 — flow's epic walker doesn't perform any state transitions itself.
+Flow walks the epic's children in `blocked_by` topological order, invoking `/feature:flow <CHILD-ID>` recursively for each child. Per-child state transitions (and the Epic-completion predicate that flips the epic row to `done` once every child is terminal) fire from each child's close-stage invocation per [`state-transitions-server.md`](state-transitions-server.md) Transition 2 — flow's epic walker doesn't perform any state transitions itself.
 
 Every read below is a ticket-row read via the pipeline MCP tools (the operations in [`storage-server.md`](storage-server.md)).
 
@@ -65,19 +65,19 @@ b. **Print the running message**:
    → Running <CHILD-ID>: <title>
    ```
 
-c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs plan + build per the existing logic. Propagate `--pr`, `--no-commit`, `--no-ui-testing`, `--worktree`, `--plan-model`, and `--build-model` if the epic-level invocation had them (a `--pr` epic run opens one PR per child; `--plan-model`/`--build-model` spawn every child's stage subagents with the same override; `--no-commit` leaves every child's passing changes uncommitted; `--no-ui-testing` skips the browser checkpoint for every child; `--worktree` gives every child its own worktree, with build deciding per child whether one is eligible — a child whose `blocked_by` sibling finished without `--pr` has its code on a local branch that the base does not carry, so build degrades that child to an in-place build with a notice). `--hint` is not forwarded — a hint names one ticket's situation; drop it once, at the walk's start, with the notice `--hint ignored in epic mode`.
+c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind: epic` is NOT set on the child, falls into single-ticket mode, and runs its stages per the existing logic. Propagate `--pr`, `--no-commit`, `--no-ui-testing`, `--worktree`, `--plan-model`, and `--build-model` if the epic-level invocation had them (a `--pr` epic run opens one PR per child; `--plan-model`/`--build-model` spawn every child's stage subagents with the same override — plan, and implement, review and close respectively; `--no-commit` leaves every child's passing changes uncommitted; `--no-ui-testing` skips the close stage's browser pass for every child; `--worktree` gives every child its own worktree, with the implement stage deciding per child whether one is eligible — a child whose `blocked_by` sibling finished without `--pr` has its code on a local branch that the base does not carry, so build degrades that child to an in-place build with a notice). `--hint` is not forwarded — a hint names one ticket's situation; drop it once, at the walk's start, with the notice `--hint ignored in epic mode`.
 
-d. **Re-read the child row via `pipeline_get_ticket`** after the recursive flow returns. Build's verdict gate (inside the child's flow run) already applied the state transition per `state-transitions-server.md` (the CAS status write). The new status determines the walker's next move:
+d. **Re-read the child row via `pipeline_get_ticket`** after the recursive flow returns. The close stage's verdict gate (inside the child's flow run) already applied the state transition per `state-transitions-server.md` (the CAS status write). The new status determines the walker's next move:
 
-   - `done` or `partial-completion` → child completed cleanly (build verdict `pass` — with or without a commit, per the gate's commit-mode dispatch — or verdict `partial`/`stuck` + user choice `accept-as-partial`). Continue walker silently.
-   - `in-review` → child's PR was opened (build ran with `--pr`); the PR is open, awaiting merge. Non-terminal but an expected outcome — the child is "advanced enough." Continue the walker; the child finalizes to `done` on a future walk once its PR merges (build's `in-review` pass-through fires Transition 6).
+   - `done` or `partial-completion` → child completed cleanly (close verdict `pass` — with or without a commit, per the gate's commit-mode dispatch — or verdict `partial`/`stuck` + user choice `accept-as-partial`). Continue walker silently.
+   - `in-review` → child's PR was opened (the close stage ran with `--pr`); the PR is open, awaiting merge. Non-terminal but an expected outcome — the child is "advanced enough." Continue the walker; the child finalizes to `done` on a future walk once its PR merges (the close stage's `in-review` pass-through fires Transition 6).
    - `backlog` → user chose `abort` at the child's verdict gate. The child has been reverted. Stop the walker. Print:
      ```
      Child <CHILD-ID> aborted (reverted to backlog). Stopping epic walk.
      Run /feature:flow <EPIC-ID> again to resume.
      ```
      Exit cleanly.
-   - `in-progress` → shouldn't happen (build always finalizes). Treat as anomaly: warn the user, stop the walker. Print:
+   - `in-progress` → shouldn't happen (the close stage always finalizes). Treat as anomaly: warn the user, stop the walker. Print:
      ```
      Child <CHILD-ID> is unexpectedly still in-progress after flow returned. Stopping epic walk for safety. Inspect the child's artifacts and re-run when state is consistent.
      ```
@@ -89,7 +89,7 @@ e. **Print updated aggregate progress** (same format as Step 3, with the just-co
 
 After the loop exits successfully (all children walked, no aborts):
 
-a. The Epic-completion predicate inside the **last child's** build verdict gate (Transition 2's epic variant in [`state-transitions-server.md`](state-transitions-server.md)) already finalized the epic — the epic row's status flipped to `done` via CAS — in epic-mode the walker runs every child row, so by the final child the predicate is satisfied. Flow does NOT repeat this — it has already happened.
+a. The Epic-completion predicate inside the **last child's** close-stage verdict gate (Transition 2's epic variant in [`state-transitions-server.md`](state-transitions-server.md)) already finalized the epic — the epic row's status flipped to `done` via CAS — in epic-mode the walker runs every child row, so by the final child the predicate is satisfied. Flow does NOT repeat this — it has already happened.
 
 b. Print:
    ```

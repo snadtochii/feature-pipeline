@@ -8,7 +8,7 @@ This file captures invariants and conventions. Anything derivable from reading t
 
 ## What this repo is
 
-A Claude Code and Codex plugin that ships an agentic feature-development pipeline: `discover → plan → build`. Each stage is a separate **skill** that can run standalone or be sequenced by the **flow** orchestrator. Build runs implement, review, and test as in-loop checkpoints inside one continuous loop, then hands its post-gate mechanics to a fresh-context finalizer child. Stages are backed by specialized **agents** (subagents with focused tool budgets and personas).
+A Claude Code and Codex plugin that ships an agentic feature-development pipeline: `discover → plan → implement → review → close`. Each stage is a separate **skill** that can run standalone or be sequenced by the **flow** orchestrator. `build` implements the plan and writes the implementer handoff; `review-stage` runs four independent reviewers, validates every finding and fixes the accepted ones; `close-stage` runs the test checkpoint, sets the verdict, presents the verdict gate, and hands the post-gate mechanics to a fresh-context finalizer child. Stages are backed by specialized **agents** (subagents with focused tool budgets and personas).
 
 The primary audience for edits to this repo is a coding agent working on the plugin's own skills/agents — not end users. End-user docs live in README.md.
 
@@ -43,21 +43,17 @@ Path convention: in prose references throughout this file, an unqualified `skill
 ## Pipeline flow (conceptual)
 
 ```
-discover → ticket(s) → flow → plan → build → completion
-                                       ↓
-                               ┌──────┴──────┐
-                               │  build loop │
-                               ├─────────────┤
-                               │  implement  │
-                               │      ↓      │
-                               │  review     │ (4 reviewer roles; capacity-bounded)
-                               │      ↓      │
-                               │  test       │ (ui-tester subagent or skip; --no-ui-testing forces the skip)
-                               │      ↓      │
-                               │  exit       │ verdict: pass | partial | stuck
-                               └──────┬──────┘
-                                      ↓
-                                  finalizer   (subagent: commit, PR, transition, worktree teardown)
+discover → ticket(s) → flow → plan → implement → review → close → completion
+                                        │          │         │
+                                      build   review-stage  close-stage
+                                        │          │         │
+                        step loop + handoff        │         ├─ test       (ui-tester subagent or skip; --no-ui-testing forces the skip)
+                        (03-implementation.md)     │         ├─ verdict    pass | partial | stuck
+                                                   │         ├─ gate       (commit / accept-as-partial | continue-with-hint | abort)
+                                                   │         └─ finalizer  (subagent: commit, PR, transition, worktree teardown)
+                                                   │
+                                   4 reviewer roles (capacity-bounded),
+                                   then validate-then-fix (04-review.md)
 ```
 
 
@@ -65,7 +61,7 @@ discover → ticket(s) → flow → plan → build → completion
 
 **Operational details live in `skills/flow/SKILL.md`**, not here. That file is loaded by the consumer's runtime when a consumer runs the pipeline; this `AGENTS.md` is only loaded when editing the plugin repo itself. If you move operational rules out of the skill and into this file, consumers lose visibility.
 
-**Runtime dispatch.** `flow`, `plan`, `build`, and `ship` load [`runtime.md`](plugins/feature/skills/flow/references/runtime.md) at entry and read its selected `runtime-claude.md` or `runtime-codex.md`. That reference owns skill invocation, fresh child creation, role loading, model mapping, wait/resume, and capacity. Child briefs carry the absolute plugin root and runtime binding independently of storage mode and stage overrides. Keep these operational rules in the runtime references so consumers receive them.
+**Runtime dispatch.** `flow`, `plan`, `build`, `review-stage`, `close-stage`, and `ship` load [`runtime.md`](plugins/feature/skills/flow/references/runtime.md) at entry and read its selected `runtime-claude.md` or `runtime-codex.md`. That reference owns skill invocation, fresh child creation, role loading, model mapping, wait/resume, and capacity. Child briefs carry the absolute plugin root and runtime binding independently of storage mode and stage overrides. Keep these operational rules in the runtime references so consumers receive them.
 
 Canonical sources in `skills/flow/SKILL.md`:
 - **Stage Contract** — reads/writes per stage
@@ -161,7 +157,7 @@ Every agent in this plugin uses the body structure: **Triggers / Behavioral Mind
 
 ### No implementer agent
 
-This is scoped to the implement checkpoint. That checkpoint runs in main context (see "Main-context vs subagent" below); implementation tool access is governed by the `build` skill's `allowed-tools`, not by an agent tool budget. There is intentionally no `implementer.md` in `agents/`. Build's other mutating child, the post-gate `finalizer`, is a different role: it writes no implementation, and its budget is the minimum for commit/PR/transition/teardown.
+This is scoped to the implement stage. That stage runs in the `build` skill's own context — the main conversation when build runs standalone, a stage subagent under `flow` (see "Main-context vs subagent" below); implementation tool access is governed by the `build` skill's `allowed-tools`, not by an agent tool budget. There is intentionally no `implementer.md` in `agents/`. The pipeline's other mutating child, the `finalizer` that `close-stage` spawns after its verdict gate, is a different role: it writes no implementation, and its budget is the minimum for commit/PR/transition/teardown.
 
 ---
 
@@ -172,10 +168,11 @@ Not every stage runs as a subagent. The rule:
 | Runs in main context | Runs as subagent |
 |---|---|
 | `flow` (orchestrator) | `code-explorer`, `requirements-analyst` (spawned by `plan` Phase 1) |
-| `discover` (interactive dialogue) | `code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect` (spawned by `build`'s review checkpoint) |
-| `plan` standalone (interactive plan mode, or auto mode's batched no-default / complexity-overflow pauses; spawns subagents in Phase 1) | `ui-tester` (spawned by `build`'s test checkpoint) |
-| | `finalizer` (spawned by `build`'s verdict gate once the decision is resolved; non-interactive — a condition needing a human comes back as a `needs-decision` result build relays) |
-| `build` standalone (long interactive loop with implement/review/test checkpoints) | `plan` and `build` under `flow` — each a stage subagent spawned from `skills/flow/references/stage-briefs.md`; their user-facing stops pause the subagent and flow relays them (`stage-briefs.md` §5) |
+| `discover` (interactive dialogue) | `code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect` (spawned by the `review-stage` skill) |
+| `plan` standalone (interactive plan mode, or auto mode's batched no-default / complexity-overflow pauses; spawns subagents in Phase 1) | `ui-tester` (spawned by `close-stage`'s test checkpoint) |
+| `review-stage` standalone (non-interactive; spawns the four reviewers) | `finalizer` (spawned by `close-stage`'s verdict gate once the decision is resolved; non-interactive — a condition needing a human comes back as a `needs-decision` result close relays) |
+| `close-stage` standalone (interactive verdict gate; spawns `ui-tester` and `finalizer`) | |
+| `build` standalone (non-interactive implement loop in the main conversation, interactive only through the close stage's relayed stops; sequences `review-stage` and `close-stage` as stage subagents from the same briefs flow uses) | `plan`, `build` (implement), `review-stage` and `close-stage` under `flow` — each a stage subagent spawned from `skills/flow/references/stage-briefs.md`; their user-facing stops pause the subagent and flow relays them (`stage-briefs.md` §5) |
 | `debug` (interactive runtime-debugging loop; spawns no subagents) | |
 | `sync` (standalone PR reconciler; reads PR state via `gh`, performs Transition 6; spawns no subagents) | |
 | `review` (standalone repo-scoped PR reviewer; reads/posts PR state via `gh`; spawns no subagents) | |
@@ -186,13 +183,13 @@ Not every stage runs as a subagent. The rule:
 
 **Rule:** run in main context only when you need *interactivity* or *plan mode* from the user's own session. Otherwise prefer a subagent — it keeps the main context clean. A stage that needs a decision while running as a subagent does not move to main context; it pauses and flow relays the decision (`stage-briefs.md` §5).
 
-The `build` skill folds the implementer mindset directly into the SKILL.md body rather than delegating to a subagent — this is intentional, since the implement checkpoint needs main-context interactivity for iterative coding + validation. See `skills/build/SKILL.md` for the canonical implementer mindset.
+The `build` skill folds the implementer mindset directly into the SKILL.md body rather than delegating to an implementer agent — this is intentional: the implement stage's iterative coding + validation runs in build's own context, and its tool access is build's `allowed-tools`. See `skills/build/SKILL.md` for the canonical implementer mindset.
 
 ---
 
 ## Ticket resolution (shared across skills)
 
-Every stage skill resolves a ticket argument identically. Canonical logic lives in the **`skills/flow/references/ticket-resolution-fs.md`** / **`ticket-resolution-server.md`** pair (one file per storage mode) and is referenced from `flow`, `plan`, and `build`. `discover` handles the intake/creation variant inline (prefix logic and ID allocation live there).
+Every stage skill resolves a ticket argument identically. Canonical logic lives in the **`skills/flow/references/ticket-resolution-fs.md`** / **`ticket-resolution-server.md`** pair (one file per storage mode) and is referenced from `flow`, `plan`, `build`, `review-stage`, and `close-stage`. `discover` handles the intake/creation variant inline (prefix logic and ID allocation live there).
 
 **Do not duplicate the resolution logic inline** in a stage skill — link to the pair. If the resolution rules change, update both files of the pair.
 
@@ -226,7 +223,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 
 ### Cross-ticket lessons log
 
-`claudedocs/tickets/_lessons.md` is a project-local log of gotchas — constraints that bit a prior ticket and would bite the next one, never generic best practices. `build` captures at its verdict gate (atomic one-subject-per-line entries, a write-time supersession check with prefer-newest on conflict, and a promotion-on-recurrence proposal into the project's `CLAUDE.md`); the standalone `debug` skill is a second producer; consumers (`plan`'s Phase 1; `ship`) grep it by subject keywords and never full-load it. The full contract — entry format, date-stamping, supersession, prefer-newest, promotion, format overflow, and grep-scoped consumption — lives in the `skills/flow/references/lessons-log-fs.md` / `lessons-log-server.md` pair (one file per storage mode); every producer and consumer points there.
+`claudedocs/tickets/_lessons.md` is a project-local log of gotchas — constraints that bit a prior ticket and would bite the next one, never generic best practices. `close-stage` captures at its verdict gate (atomic one-subject-per-line entries, a write-time supersession check with prefer-newest on conflict, and a promotion-on-recurrence proposal into the project's `CLAUDE.md`); the standalone `debug` skill is a second producer; consumers (`plan`'s Phase 1; `ship`) grep it by subject keywords and never full-load it. The full contract — entry format, date-stamping, supersession, prefer-newest, promotion, format overflow, and grep-scoped consumption — lives in the `skills/flow/references/lessons-log-fs.md` / `lessons-log-server.md` pair (one file per storage mode); every producer and consumer points there.
 
 ---
 
@@ -246,7 +243,7 @@ Before committing changes to skills or agents, walk [docs/contributing/validatio
 - No marketing language in commit messages ("magnificent", "blazingly fast", etc.).
 - Reference the issue/feature the commit addresses.
 - Keep commits small — one concern per commit.
-- **Bump the plugin version every PR.** For the `feature` plugin, update `version` in BOTH `plugins/feature/.claude-plugin/plugin.json` and `plugins/feature/.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two `feature` manifests must stay in lockstep. `stack-first` and `tidy-loop` version independently, and their versions are not coupled to each other or to `feature`: a change touching `stack-first` bumps its lockstep pair (`plugins/stack-first/.claude-plugin/plugin.json` + `plugins/stack-first/.codex-plugin/plugin.json`), and a change touching `tidy-loop` bumps `plugins/tidy-loop/.claude-plugin/plugin.json` alone. The discover → plan → build pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/build step.
+- **Bump the plugin version every PR.** For the `feature` plugin, update `version` in BOTH `plugins/feature/.claude-plugin/plugin.json` and `plugins/feature/.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two `feature` manifests must stay in lockstep. `stack-first` and `tidy-loop` version independently, and their versions are not coupled to each other or to `feature`: a change touching `stack-first` bumps its lockstep pair (`plugins/stack-first/.claude-plugin/plugin.json` + `plugins/stack-first/.codex-plugin/plugin.json`), and a change touching `tidy-loop` bumps `plugins/tidy-loop/.claude-plugin/plugin.json` alone. The pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/implement step.
 
 ## Editing discipline
 
@@ -265,9 +262,9 @@ This applies to skill files, code comments, README sections, frontmatter comment
 
 Decisions evaluated and explicitly *not* adopted, kept here so future maintenance has context on why the code looks the way it does. Each entry references a real, current piece of the codebase — not removed features.
 
-- **Design-match reviewer as 5th parallel reviewer** in build's review checkpoint. Deferred because it assumes design artifacts (Figma, wireframes) that not every personal-project ticket has. Reconsider when a ticket workflow routinely includes design references.
+- **Design-match reviewer as 5th parallel reviewer** in the review stage. Deferred because it assumes design artifacts (Figma, wireframes) that not every personal-project ticket has. Reconsider when a ticket workflow routinely includes design references.
 - **Step-type routing** in `plan`/`build` (`figma-ui`, `component`, `service`, etc.) — too project-specific to generalize. The `plan` skill annotates step content explicitly instead of routing by step type.
-- **PR auto-review and reviewer-feedback loops *inside the pipeline stages*** (plan/build/flow auto-reviewing GitHub PRs and folding reviewer comments back through the pipeline). The pipeline stages stay review-free and ticket-folder-driven — PR *creation* is the only GitHub coupling they have: the opt-in `--pr` flag opens a PR on a passing build and lands the ticket in `review/`, degrading to a local commit when `gh`/GitHub is absent (see `skills/build/references/pr-creation.md`). The autonomous-review capability itself lives in the **standalone `ship` skill** (`skills/ship/`): on top of `--pr`, `ship` orchestrates an independent reviewer that posts to the PR plus an autonomous address loop over a ticket or dependency chain — merging per-ticket PRs into an integration branch on chains and leaving the resulting PR open for human review by default (`--merge` lands it). Keeping it out of the stages preserves the pipeline as general-purpose; `ship` is the opt-in layer for the full autonomous loop.
-- **Clean-abort routine for `flow`** (`flow --abort`). Small standalone change; the existing verdict gate's `abort` choice covers the common case (revert folder + reset frontmatter). A dedicated flag would standardize multi-step abort behavior across deeper future flow surfaces.
+- **PR auto-review and reviewer-feedback loops *inside the pipeline stages*** (plan/build/flow auto-reviewing GitHub PRs and folding reviewer comments back through the pipeline). The pipeline stages stay PR-review-free and ticket-folder-driven — PR *creation* is the only GitHub coupling they have: the opt-in `--pr` flag opens a PR on a passing build and lands the ticket in `review/`, degrading to a local commit when `gh`/GitHub is absent (see `skills/build/references/pr-creation.md`). The autonomous-review capability itself lives in the **standalone `ship` skill** (`skills/ship/`): on top of `--pr`, `ship` orchestrates an independent reviewer that posts to the PR plus an autonomous address loop over a ticket or dependency chain — merging per-ticket PRs into an integration branch on chains and leaving the resulting PR open for human review by default (`--merge` lands it). Keeping it out of the stages preserves the pipeline as general-purpose; `ship` is the opt-in layer for the full autonomous loop.
+- **Clean-abort routine for `flow`** (`flow --abort`). Small standalone change; the close stage's verdict-gate `abort` choice covers the common case (revert folder + reset frontmatter). A dedicated flag would standardize multi-step abort behavior across deeper future flow surfaces.
 - **Validator auto-detection in `hooks/validate.sh`** (project-type detection, e.g., infer "run pyright" from a `pyproject.toml`). Currently the user explicitly declares `validate.lint` and `validate.typecheck`. Auto-detection is too magic for a plugin that should respect existing project conventions; revisit if explicit-config maintenance becomes a real friction.
 - **Default-on end-of-run UI verification in `ship`** (flip `ship`'s end-of-run browser pass from the opt-in `--ui-test` to default-on, opted out via the shared `--no-ui-testing`). Deferred until the end-of-run pass proves itself on real runs; adopting it would leave `ship` with a single UI-testing switch instead of a positive/negative flag pair, matching the one-axis-one-flag naming convention.

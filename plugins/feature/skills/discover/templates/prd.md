@@ -1,7 +1,7 @@
 ---
 id: XX-1
 title: Epic Title
-kind: epic              # marks this as non-pipelineable — plan/build refuse to run against epics
+kind: epic              # marks this as non-pipelineable — pipeline stages refuse to run against epics
 epic: epic-slug         # human-readable shared identifier across siblings (lowercase, hyphenated)
 children: [XX-2, XX-3, XX-4]   # authoritative roster — epic finalizes to done/ only when every listed child is materialized AND terminal (see Roster contract below)
 priority: medium        # low | medium | high | critical

@@ -1,6 +1,6 @@
 # Ticket Resolution — fs-native
 
-Canonical logic for resolving a ticket argument to a **ticket folder**, ensuring the spec is in place, locating the shared exploration, and validating that the ticket is actually pipelineable — in fs-native storage mode. Read when the storage mode detected per [`storage.md`](storage.md) is fs-native — a run in the other storage mode never needs this file. Referenced by `flow`, `plan`, and `build`.
+Canonical logic for resolving a ticket argument to a **ticket folder**, ensuring the spec is in place, locating the shared exploration, and validating that the ticket is actually pipelineable — in fs-native storage mode. Read when the storage mode detected per [`storage.md`](storage.md) is fs-native — a run in the other storage mode never needs this file. Referenced by `flow`, `plan`, `build`, `review-stage`, and `close-stage`.
 
 The handle is a ticket folder, and the procedures below read the tree directly using the operations in [`storage-fs.md`](storage-fs.md).
 
@@ -19,10 +19,10 @@ claudedocs/tickets/<state>/<id>/
 ├── 01-spec.md            ← THE spec (frontmatter + body — this IS the ticket)
 ├── exploration.md        ← discover output, optional
 ├── 02-plan.md            ← plan (includes Phase 1 synthesis: Codebase Context + Open Questions Resolved sections)
-├── 03-implementation.md  ← build (live, updated per plan step)
-├── 04-review.md          ← build (merged from 4 reviewer subagents)
-├── 05-tests.md           ← build (UI test results, skip artifact, or Failed Criteria section)
-└── 06-summary.md         ← build exit summary (always written; content varies per verdict)
+├── 03-implementation.md  ← build (live, appended per plan step)
+├── 04-review.md          ← review-stage (merged from 4 reviewer subagents)
+├── 05-tests.md           ← close-stage (UI test results, skip artifact, or Failed Criteria section)
+└── 06-summary.md         ← close-stage summary (always written; content varies per verdict)
 ```
 
 ### Epic with children (multi-mode discover)
@@ -98,11 +98,13 @@ Needed for codebase operations during the stage.
    - Otherwise check common paths — ask the user if ambiguous
 3. If the project root can't be determined, ask the user before proceeding.
 
+A non-interactive consumer (`review-stage`) never asks: wherever this reference would ask the user — here or in Steps 1–2 — it returns an error instead.
+
 ## Step 4 — Validate kind (per-consumer behavior)
 
 Check the `kind` frontmatter field (Read ticket metadata in [`storage-fs.md`](storage-fs.md)). Behavior depends on the consumer:
 
-- **`plan` and `build`** — refuse if `kind: epic`. Epics don't go through plan or build themselves; only their children are pipelineable. Abort with this message:
+- **`plan`, `build`, `review-stage` and `close-stage`** — refuse if `kind: epic`. Epics don't go through plan or build themselves; only their children are pipelineable. Abort with this message:
   ```
   <ID> is an epic (kind: epic), not a pipelineable ticket. Epics group siblings — they hold the PRD, the shared exploration, and the decomposition table, but they don't go through plan/build themselves.
 
@@ -158,6 +160,10 @@ The stage's behavior depends on which stage is running:
 
   Either complete the blockers first, or edit this ticket's blocked_by frontmatter if the dependency is wrong.
   ```
+
+- **`review-stage`** — does NOT refuse on unfinished blockers. It locates each blocker to compose the reviewers' blocker context from the blocker's artifacts.
+
+- **`close-stage`** — does NOT check blockers. Build refused on them before any code was written.
 
 This rule is centralized here so stage skills inherit it via reference and don't duplicate the check.
 

@@ -27,7 +27,7 @@ Four placeholders in the brief templates resolve here; the orchestrator fills th
 
 ## §4 PR linkage
 
-An epic run's integration-PR title reads the epic PRD via command substitution: `EPIC_TITLE=$(sed -n 's/^title: *//p' <epic-folder>/prd.md | head -1)`. Per-ticket PR linkage is complete once build has recorded the PR URL and branch in the ticket's `06-summary.md` at PR creation; the post-PR linkage step reads and records nothing further on the ticket.
+An epic run's integration-PR title reads the epic PRD via command substitution: `EPIC_TITLE=$(sed -n 's/^title: *//p' <epic-folder>/prd.md | head -1)`. Per-ticket PR linkage is complete once the close stage's finalizer has recorded the PR URL and branch in the ticket's `06-summary.md` at PR creation; the post-PR linkage step reads and records nothing further on the ticket.
 
 ## §5 In-review evidence and recovery
 
@@ -44,4 +44,4 @@ Every shared mutation in a `--parallel` run is orchestrator-only, in the forms [
 
 ## §7 UI evidence home and hosting
 
-Screenshots go to the evidence home declared in [build's `storage-fs.md`](../../build/references/storage-fs.md) §13 — its location, its epic form and its gitignore expectation live there — with the filenames fixed by [`ui-checks.md`](../../build/references/ui-checks.md) §3. Whether they are hostable is ship's decision: run `git check-ignore "<evidence-home>"` (mirror the pre-write guard in `debug` and build's `--pr` flow) and take the **Tracked** or **Ignored** outcome in `ui-verification.md` step 3 accordingly.
+Screenshots go to the evidence home declared in [the close stage's `storage-fs.md`](../../close-stage/references/storage-fs.md) §8 — its location, its epic form and its gitignore expectation live there — with the filenames fixed by [`ui-checks.md`](../../build/references/ui-checks.md) §3. Whether they are hostable is ship's decision: run `git check-ignore "<evidence-home>"` (mirror the pre-write guard in `debug` and build's `--pr` flow) and take the **Tracked** or **Ignored** outcome in `ui-verification.md` step 3 accordingly.

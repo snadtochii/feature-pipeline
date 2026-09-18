@@ -14,7 +14,7 @@ plugin = root / "plugins/feature"
 refs = plugin / "skills/flow/references"
 errors = []
 
-for name in ("flow", "plan", "build", "ship"):
+for name in ("flow", "plan", "build", "review-stage", "close-stage", "ship"):
     path = plugin / "skills" / name / "SKILL.md"
     text = path.read_text()
     frontmatter = text.split("---", 2)[1]
@@ -36,7 +36,7 @@ for runtime in ("claude", "codex"):
 
 briefs = (refs / "stage-briefs.md").read_text()
 declared = set(re.findall(r"^\| `(<[A-Z_]+>)` \|", briefs, re.M))
-for number, name in ((4, "Plan"), (6, "Build")):
+for number, name in ((4, "Plan"), (6, "Implement"), (9, "Review"), (10, "Close")):
     section = re.search(rf"^## §{number} {name} brief\n(.*?)(?=^## |\Z)", briefs, re.M | re.S)
     blocks = re.findall(r"^```\n(.*?)^```", section.group(1), re.M | re.S) if section else []
     if not blocks:
@@ -54,11 +54,38 @@ for number, name in ((4, "Plan"), (6, "Build")):
     if re.search(r"invoke the [` ]*(Skill|Task|Agent)\b|subagent_type:", template, re.I):
         errors.append(f"{name}: shared template embeds a native invocation")
 
-build = (plugin / "skills/build/SKILL.md").read_text()
-roles = re.findall(r"\*\*[a-d]\. `feature:([^`]+)`", build)
+# Every stage return is keyed on one literal first line (§1); a stage whose key
+# drops out of the list, or a leftover `verdict:` key, would make the sequencer
+# read a valid report as a stage failure.
+spawn_contract = re.search(r"^## §1 Spawn contract\n(.*?)(?=^## )", briefs, re.M | re.S)
+spawn_text = spawn_contract.group(1) if spawn_contract else ""
+for key in ("`PAUSED:", "`plan: saved`", "`implement: complete`", "`implement: stuck`", "`review:", "`close:", "`exit:"):
+    if key not in spawn_text:
+        errors.append(f"stage-briefs §1: missing first-line key {key}")
+if "`verdict:" in spawn_text:
+    errors.append("stage-briefs §1: `verdict:` is not a stage return key")
+chain = re.search(r"^## §11 Stage chain\n(.*?)(?=^## |\Z)", briefs, re.M | re.S)
+if not chain:
+    errors.append("stage-briefs: missing §11 Stage chain")
+else:
+    # Every §1 first-line key needs a chain row, or the sequencer has no next
+    # step for a valid report.
+    chain_keys = " ".join(re.findall(r"^\| ([^|]+) \|", chain.group(1), re.M))
+    for key in ("`PAUSED:", "`plan: saved`", "`implement: complete`", "`implement: stuck`", "`review:", "`close:", "`exit:"):
+        if key not in chain_keys:
+            errors.append(f"stage-briefs §11: no chain row for first-line key {key}")
+for name in ("flow", "build"):
+    text = (plugin / "skills" / name / "SKILL.md").read_text()
+    if "stage-briefs.md" not in text or "§11" not in text:
+        errors.append(f"{name}: must cite stage-briefs.md and its §11 stage chain")
+
+close = (plugin / "skills/close-stage/SKILL.md").read_text()
+review_stage = (plugin / "skills/review-stage/SKILL.md").read_text()
+roles = re.findall(r"\*\*[a-d]\. `feature:([^`]+)`", review_stage)
 expected = {"code-reviewer", "security-engineer", "performance-engineer", "code-architect"}
 if len(roles) != 4 or set(roles) != expected:
-    errors.append("build: independent review roster must contain each of the four roles once")
+    errors.append("review-stage: independent review roster must contain each of the four roles once")
+
 for role in expected:
     path = plugin / "agents" / f"{role}.md"
     if not path.is_file():
@@ -68,12 +95,19 @@ for role in expected:
     if re.search(r"^  - (?:Bash|Write|Edit|Agent|Task)$", frontmatter, re.M):
         errors.append(f"{role}: read-only role has a mutating/delegating tool")
 
-# The post-gate finalizer is the mirror image of the reviewer block above: build
+# The confidence scale is stated once and injected into every reviewer prompt;
+# a stage that stops naming it, or a missing file, silently drops the rubric.
+if not (plugin / "skills/review-stage/references/confidence-scale.md").is_file():
+    errors.append("missing reviewer rubric: skills/review-stage/references/confidence-scale.md")
+if "references/confidence-scale.md" not in review_stage:
+    errors.append("review-stage: shared base must inject references/confidence-scale.md")
+
+# The post-gate finalizer is the mirror image of the reviewer block above: the close stage
 # must name it, its definition must exist, and it must KEEP the mutating tool the
 # reviewers must not have — the tail is git work, and a budget that lost `Bash`
 # would leave the child unable to commit while still reporting success.
-if "feature:finalizer" not in build:
-    errors.append("build: verdict gate must spawn feature:finalizer")
+if "feature:finalizer" not in close:
+    errors.append("close-stage: verdict gate must spawn feature:finalizer")
 finalizer = plugin / "agents/finalizer.md"
 if not finalizer.is_file():
     errors.append("missing shared role definition: finalizer")
@@ -94,8 +128,8 @@ else:
 # would silently drop the checks from every browser pass.
 if not (plugin / "skills/build/references/ui-checks.md").is_file():
     errors.append("missing required UI checks contract: skills/build/references/ui-checks.md")
-if "references/ui-checks.md" not in build:
-    errors.append("build: test checkpoint must inject references/ui-checks.md")
+if "references/ui-checks.md" not in close:
+    errors.append("close-stage: test checkpoint must inject references/ui-checks.md")
 ship_ui = plugin / "skills/ship/references/ui-verification.md"
 if not ship_ui.is_file() or "build/references/ui-checks.md" not in ship_ui.read_text():
     errors.append("ship: ui-verification.md must inject build/references/ui-checks.md")
@@ -108,5 +142,5 @@ for resize_tool in ("mcp__playwright__browser_resize", "mcp__chrome-devtools__re
 if errors:
     print("\n".join(f"FAIL: {error}" for error in errors), file=sys.stderr)
     sys.exit(1)
-print("OK: 4 runtime consumers, 2 runtime implementations, 2 neutral stage templates, 4 read-only reviewer roles, 1 mutating finalizer role, 2 ui-checks injection sites")
+print("OK: 6 runtime consumers, 2 runtime implementations, 4 neutral stage templates, 1 stage chain, 4 read-only reviewer roles, 1 confidence-scale injection site, 1 mutating finalizer role, 2 ui-checks injection sites")
 PY

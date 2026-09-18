@@ -1,13 +1,13 @@
 # PR Creation
 
-Build hands this to its `feature:finalizer` child at the verdict gate (SKILL.md sub-step 4d) on verdict `pass` when `--pr` is present, after the implement → review → test checkpoints pass. The child runs the branch → commit → push → open-PR sequence non-interactively (the `--pr` flag is the user's authorization for the outward-facing push), finalizes the ticket into `review/` via Transition 5 on success, and degrades to a local commit + `done/` (Transition 2) when GitHub tooling is unavailable — never crashing the verdict gate.
+The close stage hands this to its `feature:finalizer` child at the verdict gate (`close-stage/SKILL.md`, finalizer handoff) on verdict `pass` when `--pr` is present, after implement, review and the test checkpoint pass. The child runs the branch → commit → push → open-PR sequence non-interactively (the `--pr` flag is the user's authorization for the outward-facing push), finalizes the ticket into `review/` via Transition 5 on success, and degrades to a local commit + `done/` (Transition 2) when GitHub tooling is unavailable — never crashing the verdict gate.
 
-Neither build nor its finalizer has a `Skill` tool, so the branch conventions are inlined here rather than borrowed from a separate skill; the commit mechanics (staging + message) live in the shared [`commit.md`](commit.md). All git/gh work runs inline via `Bash`.
+Neither the close stage nor its finalizer has a `Skill` tool, so the branch conventions are inlined here rather than borrowed from a separate skill; the commit mechanics (staging + message) live in the shared [`commit.md`](commit.md). All git/gh work runs inline via `Bash`.
 
 ## When it runs
 
-- The full sequence (§0–§5): only on verdict `pass` with `--pr`, and it is the finalizer that runs it. On `partial`/`stuck`, or without `--pr`, this reference is not used — the verdict gate's commit-mode dispatch (SKILL.md 4c/4d, driven by the bound `commit_mode`) applies instead.
-- The **Merge predicate** section only: referenced by build's `review/` resumption row, which runs on every re-invocation of a `review/` ticket regardless of whether `--pr` is on the command line. That row is a resumption check rather than post-gate work, so build runs the predicate itself; the finalizer is not involved.
+- The full sequence (§0–§5): only on verdict `pass` with `--pr`, and it is the finalizer that runs it. On `partial`/`stuck`, or without `--pr`, this reference is not used — the verdict gate's commit-mode dispatch (`close-stage/SKILL.md`, verdict gate and finalizer handoff, driven by the bound `commit_mode`) applies instead.
+- The **Merge predicate** section only: referenced by the close stage's `review/` merge-check row, which runs on every invocation of a `review/` ticket regardless of whether `--pr` is on the command line. That row is a resumption check rather than post-gate work, so the close stage runs the predicate itself; the finalizer is not involved.
 
 ## §0 Preconditions (short-circuit to commit-only)
 
@@ -22,7 +22,7 @@ On any failure: still create the branch + local commit (§1–§3, skipping push
 git fetch origin --quiet
 ```
 
-Base branch — mirror the review-checkpoint helper, but resolve to the **short** branch name (the matrix below uses `<base>` as a local branch name, so `origin/main` would break `git checkout`/`gh --base`):
+Base branch — resolve to the **short** branch name (the matrix below uses `<base>` as a local branch name, so `origin/main` would break `git checkout`/`gh --base`):
 ```bash
 base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)
 ```
@@ -32,7 +32,7 @@ Branch-decision matrix — the first entry is a guard that wins over every row b
 - **A worktree was provisioned for this ticket** ([`worktree.md`](worktree.md) §2, via build's `--worktree` or `ship --parallel`) → **reuse `<branch>`**; it is already created and checked out in `<wt-path>`. Skip every row below: never `git checkout <base>` (the base is checked out in the main checkout, and git refuses one branch in two worktrees — that checkout is exactly what fails here), and never re-create the convention branch (it exists, and this worktree is on it). Proceed straight to §3 with all git work bound to `<wt-path>` per [`worktree.md`](worktree.md) §3.
 - **On `main`/`master`** → `git checkout -b <branch>` carrying the uncommitted changes (clean fork; the trunk stays put).
 - **On a feature branch, no commits ahead of base** (`git rev-list origin/<base>..HEAD` empty) → fork from base: `git stash -u` → `git checkout <base>` → `git pull --ff-only` → `git checkout -b <branch>` → `git stash pop` → commit.
-- **On a feature branch WITH commits ahead of base** (`git rev-list origin/<base>..HEAD` non-empty) → do NOT silently fork; the uncommitted work may depend on those commits. This needs a human: return `result: needs-decision` naming this stop and carrying the choice block verbatim — **reuse current branch** / **fork anyway** / **abort** — for build to relay. Apply nothing further until the answer arrives with the re-spawn.
+- **On a feature branch WITH commits ahead of base** (`git rev-list origin/<base>..HEAD` non-empty) → do NOT silently fork; the uncommitted work may depend on those commits. This needs a human: return `result: needs-decision` naming this stop and carrying the choice block verbatim — **reuse current branch** / **fork anyway** / **abort** — for the close stage to relay. Apply nothing further until the answer arrives with the re-spawn.
 - **Detached HEAD** → can't safely reuse; return `result: needs-decision` the same way, with the choice block **fork anyway** / **abort**.
 - **No local base branch** (only `origin/<base>`) → fork from `origin/<base>` directly (`git checkout -b <branch> origin/<base>`); never assume a local `<base>` exists.
 - **Stash-pop conflict mid-fork** → stop; leave the stash intact; abort the PR step WITHOUT committing. The prescription is fixed, so this is a terminal `result: error` rather than a decision request — there is no answer to relay: report the conflict and `resolve, then `git stash pop`` in the result's `detail`, and exit without crashing the gate.
@@ -83,24 +83,24 @@ gh pr create --base "<base>" --title "$PR_TITLE" --body-file "<06-summary.md pat
 
 **With a worktree bound**, the split runs through the middle of this block — `git push` and `gh pr create` are worktree-bound while the spec and `--body-file` paths stay in the main checkout. [`worktree.md`](worktree.md) §3 enumerates every site in this file, on both sides of that split; follow it there rather than re-deriving the split here.
 
-Where `id`, `title`, and the `--body-file` path come from — the `sed` reads above are the on-disk form; the injection discipline is the same whichever source applies: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §9, for the mode detected at the caller's start.
+Where `id`, `title`, and the `--body-file` path come from — the `sed` reads above are the on-disk form; the injection discipline is the same whichever source applies: the close stage's [`storage-fs.md`](../../close-stage/references/storage-fs.md) / [`storage-server.md`](../../close-stage/references/storage-server.md) §6, for the mode detected at the caller's start.
 
 ## §5 Finalize
 
-- **Success** (PR opened, URL captured) → Transition 5 (`in-progress → review`, status `in-review`). Record the PR URL + branch (PR linkage on the ticket: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §9, for the detected mode). Print:
+- **Success** (PR opened, URL captured) → Transition 5 (`in-progress → review`, status `in-review`). Record the PR URL + branch (PR linkage on the ticket: the close stage's [`storage-fs.md`](../../close-stage/references/storage-fs.md) / [`storage-server.md`](../../close-stage/references/storage-server.md) §6, for the detected mode). Print:
   `✅ PR opened: <url>  (branch <branch> → <base>). Ticket → review/. Merge the PR, then re-run to finalize to done/.`
 - **Degradation** (any precondition/push/PR failure) → Transition 2 (`done/`). Record the reason + branch in `06-summary.md`. Print the specific degradation line.
-- The verdict stays `pass` in both cases — degradation is not a build failure.
+- The verdict stays `pass` in both cases — degradation is not a failed close.
 
-## Merge predicate (single definition — referenced by build's `review/` resumption row and the `sync` skill)
+## Merge predicate (single definition — referenced by the close stage's `review/` merge-check row and the `sync` skill)
 
-Determine whether a ticket's PR has merged. The scan set depends on the caller: **build** applies this to an `in-review` ticket it is resuming (a solo ticket or an at-review epic in `review/`); **sync** applies it to every ticket in its scan set (`sync`'s Step 1 owns the scan set and, in Step 2, the lookup-key precedence and back-fill for its own run). **The rule is shared; the lookup key depends on the caller:**
+Determine whether a ticket's PR has merged. The scan set depends on the caller: **close-stage** applies this to an `in-review` ticket it is checking (a solo ticket or an at-review epic in `review/`); **sync** applies it to every ticket in its scan set (`sync`'s Step 1 owns the scan set and, in Step 2, the lookup-key precedence and back-fill for its own run). **The rule is shared; the lookup key depends on the caller:**
 
-- **Branch-keyed** — build's per-ticket `review/` resumption, which has the current checkout:
+- **Branch-keyed** — the close stage's per-ticket `review/` merge check, which has the current checkout:
   ```bash
   gh pr view "<branch>" --json state,mergeCommit,baseRefName --jq '.state + " " + (.mergeCommit.oid // "") + " " + .baseRefName'
   ```
-  `<branch>` is the ticket's pushed branch (recorded in `06-summary.md`) or the current checkout; how build recovers it, and whether its mode supplies the PR directly instead: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §10. The output is `state`, the merge-commit SHA (`MERGE_SHA`) when merged, and the PR's own base branch (`PR_BASE`), all fed into the reachability gate below.
+  `<branch>` is the ticket's pushed branch (recorded in `06-summary.md`) or the current checkout; how the close stage recovers it, and whether its mode supplies the PR directly instead: the close stage's [`storage-fs.md`](../../close-stage/references/storage-fs.md) / [`storage-server.md`](../../close-stage/references/storage-server.md) §7. The output is `state`, the merge-commit SHA (`MERGE_SHA`) when merged, and the PR's own base branch (`PR_BASE`), all fed into the reachability gate below.
 - **ID-keyed** — the `sync` skill's batch scan, which has no reliable branch (the slug is judgment-distilled and the branch matrix may reuse a non-convention branch). GitHub's title search is tokenized, so anchor on the `<TICKET-ID>:` title convention:
   ```bash
   gh pr list --search "<TICKET-ID> in:title" --state all --json number,state,url,createdAt,title,mergeCommit,baseRefName --jq '[.[] | select(.title | startswith("<TICKET-ID>:"))] | sort_by(.createdAt) | last | .state + " " + (.mergeCommit.oid // "") + " " + .baseRefName'
@@ -109,7 +109,7 @@ Determine whether a ticket's PR has merged. The scan set depends on the caller: 
 
 **Shared rule** (both lookups): a PR promotes to `done/` only when it is `MERGED` **and** its merge commit is **reachable from the base branch** — checking *that* a PR merged is not enough, because an epic child squash-merged only into `integration/<epic-id>` reports `MERGED` identically to a solo PR merged into the base. Gating on reachability keeps `sync` safe to run mid-epic-run: a child stays `in-review` until its code actually lands on `<base>`.
 
-Resolve the ticket's **true trunk from the PR itself** — the branch its code must reach to be "done" — not from the repository default, which would ignore a non-default `ship --base <branch>` (a run targeting a non-default base would merge and then stay `in-review` forever, its merge SHA checked against the wrong branch). This section is referenced **standalone** (build's `review/` resumption and `sync`), so it fetches and resolves the base itself:
+Resolve the ticket's **true trunk from the PR itself** — the branch its code must reach to be "done" — not from the repository default, which would ignore a non-default `ship --base <branch>` (a run targeting a non-default base would merge and then stay `in-review` forever, its merge SHA checked against the wrong branch). This section is referenced **standalone** (the close stage's `review/` merge check and `sync`), so it fetches and resolves the base itself:
 ```bash
 git fetch origin --quiet
 # A direct-to-trunk PR's own base IS the trunk (this respects `--base <branch>`).
@@ -141,6 +141,6 @@ Then, from the lookup's `state` and `MERGE_SHA`:
   - **Reachable** → fire Transition 6 (`review → done`), print `PR merged and reachable from <base>; <ticket-id> finalized to done/.` For an epic child, the finalization also runs the **Epic-completion predicate** (`state-transitions-fs.md` / `state-transitions-server.md`) — promoting the epic subtree only when the full declared roster is materialized-and-terminal.
   - **Not reachable, or `MERGE_SHA`/`base` unresolvable** (offline, or `gh`/`git` can't answer) → reuse the not-merged output path: print `PR still open for <ticket-id>; merge it, then re-run to finalize.` and exit without changes. **Never promote on an unverifiable merge** — an unresolved SHA or base is treated as not-yet-on-`<base>`, not as a pass.
 
-This gate applies to **both** lookups (branch-keyed for build, ID-keyed for `sync`) — the rule lives once here; neither caller forks it.
+This gate applies to **both** lookups (branch-keyed for the close stage, ID-keyed for `sync`) — the rule lives once here; neither caller forks it.
 
 This check runs on every re-invocation of a `review/` ticket (or every `sync` pass) and does NOT require `--pr` on the command line — `--pr` authorizes *opening* a PR; *checking* an already-open one is a pure read.
