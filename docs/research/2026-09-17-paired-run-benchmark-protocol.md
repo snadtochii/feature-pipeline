@@ -361,3 +361,40 @@ Weighted units, all agents: 1,734k → 2,267k (+31%).
 1. `scripts/measure-session.py` parses the post-split shape from feature 3.9.1 on: a standalone root as the implement agent, `review stage` / `close stage` children as its phases, the sequencer's own turns credited to the stage they relay. Re-measured with it, arm 2 reads: implement 36 turns 5.13M; review 15 turns (14 in the stage plus one sequencer turn) 1.64M, the four reviewers adding 2.24M; post-review 10 turns 1.02M; post-gate 6 turns 0.78M plus the finalizer 0.47M — the §7.2 hand assembly within rounding. Phase rows are not like-for-like across the two shapes: in the single-agent shape `review` ends at the first `04-review.md` write and `post-review` runs on to the summary, so compare `review + post-review` between arms (2.68M vs 2.66M here), never row by row. Both RC-52 reports in the evidence folder are regenerated with that parsing.
 2. The close stage's 14 turns are the next thing to shrink: on a skip it should be a handful of turns. Read its transcript for what it re-derives (it re-read the runtime reference, the plugin root and the storage files before doing anything). Feature 3.9.1 binds the runtime and storage mode from the brief and collapses the stage's reads into one preparation read; unmeasured until the next pair.
 3. Re-run the pair on a larger ticket before deciding whether the split stays; RC-52 is below the size where it can pay.
+
+## 8. Third arm — RC-52 on feature 3.9.1 (added 2026-09-18, evening)
+
+Same input as §7 (tag `bench/rc-52-base`, the same ticket snapshot and `_lessons.md`), a fresh hand-made worktree, `/feature:build RC-52 --pr --no-ui-testing`, `claude-opus-5`. Plugin 3.9.1: the close and review stages bind runtime and storage mode from the brief, number Entry as the call sequence, and fetch their inputs in one preparation read. Pre-flight per §1.6 and §6.3, plus one step §6.3 did not name: both arm PRs' *remote branches* were deleted before the run (closing PR #89 and PR #90 unmerged), because build derives the branch name from the same spec and plan in every arm and a colliding remote branch turns the push into a §4 degradation. Report: `2026-09-17-paired-run-benchmark-evidence/rc52-arm3-feature-3.9.1-opus-5.json`.
+
+### 8.1 Per-stage comparison (re-read tokens; both arms parsed by the script's three-stage reading)
+
+| Agent | Arm 2 (3.9.0) | Arm 3 (3.9.1) | Delta |
+|---|---|---|---|
+| Close stage | 14 turns, 56k→122k, **1.42M** | 11 turns, 56k→125k, **1.11M** | −22% |
+| Review stage | 14 turns, 56k→134k, **1.46M** | 11 turns, 56k→105k, **0.99M** | −32% |
+| Four reviewers | 4/6/21/9 turns, 2.24M | 5/7/10/6 turns, 1.29M | *variance* |
+| Finalizer | 13 turns, 0.47M | 12 turns, 0.52M | +11% |
+| Root: implement | 36 turns, 5.13M | 44 turns, 6.29M | *variance* |
+| Root: sequencer turns | 3 (0.55M) | 5 (0.94M) | +2 turns — see 8.2 (4) |
+| **All agents** | **11.28M**, 2,266k units | **11.15M**, 2,204k units | −1% / −3% |
+
+Parity: both pass, PR opened (#90, #91), ticket → `review/`. Arm 3's review round recorded zero findings against arm 2's six suggestions; check runs 14 vs 6.
+
+### 8.2 Reading
+
+The two stages lost three turns each and a quarter to a third of their re-read, and the review stage's peak fell 134k → 105k — the trim's direct effect. The close stage still ran 11 calls against the five its skill budgets, and the transcript names four causes, none of them the skill's numbered steps:
+
+1. **The preparation read overflowed the tool-result cap.** One Bash call printed the config, spec frontmatter, the whole handoff, the review, the listing, the lessons contract and the lessons headings — 47.6KB. Claude Code persists a Bash result that large to a `tool-results/` file and shows a 2KB preview; the stage then `Read` the file back (49KB into the window) and re-read the spec and handoff headings in a further call. Net: +2 calls and the read's tokens paid twice. A reviewer child's 22.9KB `Grep` result was persisted the same way, so the cap sits somewhere below 20KB. `Read` results of the same size arrive inline.
+2. **The runtime block orders a read the skill forbids.** Every stage brief opens with `runtime.md`'s block, whose text says "Read that runtime reference before acting"; both stages read `runtime-claude.md` at turn 1 — at the 56k floor, cheap, but a call the skill's budget did not count.
+3. **The finalizer prompt needs the transition mechanics.** The stage grepped `state-transitions-fs.md` for Transitions 2 and 5 to fill the prompt's "resolved transition" block; the preparation-read list does not include it, so it was a call of its own at 118k.
+4. **The finalizer left a stash.** Its branch decision ran `git stash push -m <tag>` → `checkout main` → `checkout -b` → `stash apply` → drop-by-ref, and the drop failed; it reported the leftover in `notes`, and the root spent two turns at ~190k locating and dropping it — 0.38M, more than the close stage saved.
+
+The totals are again a wash: implement ran 44 turns against 36 (same plan, same spec), and the reviewers' 2.24M → 1.29M swing is one reviewer running 21 turns in arm 2. On a ticket this size the stages are ~20% of the run; a stage-level saving of a third moves the total by single digits, inside run-to-run noise. The per-stage rows are the measurement; the totals are not.
+
+### 8.3 Follow-ups
+
+1. Preparation read as one *message* of parallel tool calls — a small Bash print plus one `Read` per artifact — so no single result crosses the persistence cap; state the cap in the storage files.
+2. Move the transition lookup out of the close stage: name `state-transitions-<mode>.md`'s transition sections in the finalizer's reference list and pass only the transition numbers and the resolved paths the stage already holds.
+3. Decide the runtime block's "Read that runtime reference" line for stage briefs: keep (one ~56k read per stage, and the stage learns the spawn operation) or inline the spawn/wait operations into the block.
+4. Finalizer: `git stash pop`, as pr-creation §1 prescribes, instead of `apply` + drop-by-ref.
+5. A fourth arm after those; then the larger-ticket pair (§7.4 item 3) still stands.
