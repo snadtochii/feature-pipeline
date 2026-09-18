@@ -23,11 +23,8 @@ for line in open(f):
         for x in c:
             if x.get('type')=='tool_result' and x['tool_use_id'] in calls:
                 cc=x.get('content');t=cc if isinstance(cc,str) else ''.join(y.get('text','') for y in cc if isinstance(y,dict))
-                # find the row
-                for r in rows[::-1]:
-                    pass
                 idx=calls[x['tool_use_id']]
-                # locate owning row: last row that has that index and empty status... simpler: search rows for call obj
+                # owning row: the latest row whose call at this index has no result yet
                 for r in rows[::-1]:
                     if idx<len(r['calls']) and r['calls'][idx][2]=='' and r['calls'][idx][3]==0:
                         st='ERR' if x.get('is_error') else ('X'+re.search(r'Exit code (\d+)',t).group(1) if re.search(r'^Exit code (\d+)',t) else 'ok')

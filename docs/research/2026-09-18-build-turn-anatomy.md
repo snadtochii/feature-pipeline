@@ -1,6 +1,6 @@
 # Where a build's API turns go
 
-Measured on the eight build transcripts on disk (2026-09-18). Everything below is counted from transcripts unless marked *estimate*. Scripts in [`2026-09-18-build-turn-anatomy-evidence/`](2026-09-18-build-turn-anatomy-evidence/): `turns.py` (tool, error and retry counts), `timeline.py` (per-turn dump, output composition, check inventory), `checks2.py` (check-run recount with heredoc bodies stripped), `steps.py` (per-plan-step accounting and the batched floor).
+Measured on the eight build transcripts on disk (2026-09-18). Everything below is counted from transcripts unless marked *estimate*. Scripts in [`2026-09-18-build-turn-anatomy-evidence/`](2026-09-18-build-turn-anatomy-evidence/): `turns.py` (tool, error and retry counts), `timeline.py` (per-turn dump, output composition, check inventory), `checks2.py` (check-run recount with heredoc bodies stripped), `steps.py` (per-plan-step accounting and the batched floor). The scripts are a point-in-time snapshot that reproduces this document's numbers, not the reference implementation: the maintained measurement is `scripts/measure-session.py`, and the heredoc-stripped check count moves there with proposal 4.
 
 ## 1. Corpus
 
