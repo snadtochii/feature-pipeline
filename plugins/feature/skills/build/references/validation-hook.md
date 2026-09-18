@@ -1,6 +1,6 @@
 # Validation Hook
 
-Build runs lint and typecheck after every meaningful change. The recommended delivery is a `PostToolUse` hook on `Write|Edit`, with skill-body validation as the always-on companion. The two layers are intentionally redundant — see "Why both layers always run" below.
+Build runs lint and typecheck on its edits. The recommended delivery is a `PostToolUse` hook on `Write|Edit`, which fires on every edit, with skill-body validation — once per plan step — as the always-on companion. The two layers are intentionally redundant — see "Why both layers always run" below.
 
 ## Layer 1 — Hook (recommended in Claude Code and Codex)
 
@@ -89,18 +89,18 @@ Aider doesn't expose `PostToolUse` natively. Its closest equivalent is the `--au
 
 ## Layer 2 — Skill-body fallback (always on)
 
-Build's body always runs lint and typecheck via `Bash` after every meaningful change, regardless of whether a hook is configured. The skill body:
+Build's body always runs lint and typecheck via `Bash` once per plan step, after the step's edit message, regardless of whether a hook is configured. The skill body:
 
 1. Reads project `CLAUDE.md` at build start
 2. Extracts lint/typecheck commands (looks for `## Commands`, `## Validation`, `## Testing`, or inline references like `npm run lint`/`pnpm test`/`cargo check`/`pytest`)
-3. Runs each documented check after every meaningful change in the implement checkpoint
+3. Runs each documented check once per plan step in the implement loop, after the step's edit message
 4. Fixes failures in-context before proceeding
 
 If project `CLAUDE.md` documents no validation commands, build logs a one-line warning and proceeds without validation. Graceful degradation — the skill still works on projects without a documented setup.
 
 ## Why both layers always run
 
-The two layers run simultaneously by design. Trade-off acknowledged: when both fire on the same edit, the lint/typecheck commands execute twice. Acceptable because:
+The two layers run simultaneously by design. Trade-off acknowledged: the hook runs the lint/typecheck commands on every edit, and the skill body runs them once more per step. Acceptable because:
 
 1. **Lint caches make the second run near-free.** ESLint, ruff, mypy, tsc all cache aggressively; a no-op second invocation is typically sub-second.
 2. **"Always run" eliminates a class of false-confidence bugs.** "Did the hook actually fire?" is a real question — hook configuration drift, harness updates, or matcher mismatches can silently disable validation. The skill-body fallback is the floor.

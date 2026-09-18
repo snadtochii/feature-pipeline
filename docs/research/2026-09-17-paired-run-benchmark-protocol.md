@@ -21,12 +21,15 @@ One run per arm gives no spread (§3.3). The three builds of the FP-84 ship sess
 | Base commit | tag `bench/ps-153-base` |
 | Snapshot | `claudedocs/bench/ps-153/` in that project — `ticket/{01-spec.md,02-plan.md,exploration.md}`, `_lessons.md` as it stood before arm 1, and `before/` holding arm 1's preserved transcript |
 | Model | `claude-opus-5`, both arms |
+| Permission mode | `auto`, both arms |
 | Command line | `/feature:build PS-153 --pr --no-ui-testing`, standalone in a fresh session, both arms |
 | Ticket state at invocation | `claudedocs/tickets/in-progress/PS-153/`, both arms |
 
 The snapshot directory is gitignored in the consuming project and is never pushed. It is an input to this protocol, not a deliverable of it.
 
 `in-progress/` is where a planned ticket sits when build is invoked, and it is where arm 1 started. Build's start-of-pipeline transition is idempotent from there, whereas a ticket seeded into `backlog/` would make build perform a folder move at the head of the run — a difference in the first turns of the window being measured.
+
+The permission mode is pinned because its harness instruction shapes which tools a build uses — under `auto`, reads and edits go through Bash ([`2026-09-18-build-turn-anatomy.md`](2026-09-18-build-turn-anatomy.md) §2.6) — so a mode difference between the arms changes the call shape being measured.
 
 ### 1.3 Arm 1 — "before" (recorded)
 
@@ -185,6 +188,7 @@ Any of the following makes the pair uncomparable. The run is discarded rather th
 6. **A `site` value other than `root session (standalone /feature:build)`** in either arm's `builds[]`. A run under `flow` lands the build in a stage subagent with a different window profile — the very axis that separates arm 1 from the FP-84 baseline (§3.3).
 7. **Arm 2's post-gate `reread_self_children` equal to its `reread_self`.** That equality means no child was attributed to the phase, i.e. the finalizer was **not recognised** — its recognition contract is `parentAgentId` = the build agent's id **and** a description matching `^Finalize <TICKET-ID>\b` ([`scripts/measure-session.py:145-162`](../../scripts/measure-session.py)). An unrecognised finalizer reads as a near-total saving rather than as a measurement failure, so this voids the pair instead of being reported.
 8. **A missing post-gate boundary in either arm.** The phase boundaries and every parity field are read from the **build's own** tool calls, so the build must keep authoring its own `06-summary.md` write ([`scripts/measure-session.py:159-166`](../../scripts/measure-session.py)). Were that write to move into the finalizer, `verdict`, `findings`, `commit` and `pr` would all degrade to `unknown` — correctly, but the measurement would stop answering the question.
+9. **A different permission mode** in either arm — anything other than `auto`, per §1.2.
 
 ## 4. The recorded baseline
 
