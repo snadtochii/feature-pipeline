@@ -172,7 +172,7 @@ Not every stage runs as a subagent. The rule:
 | `plan` standalone (interactive plan mode, or auto mode's batched no-default / complexity-overflow pauses; spawns subagents in Phase 1) | `ui-tester` (spawned by `close-stage`'s test checkpoint) |
 | `review-stage` standalone (non-interactive; spawns the four reviewers) | `finalizer` (spawned by `close-stage`'s verdict gate once the decision is resolved; non-interactive — a condition needing a human comes back as a `needs-decision` result close relays) |
 | `close-stage` standalone (interactive verdict gate; spawns `ui-tester` and `finalizer`) | |
-| `build` standalone (interactive implement loop, then sequences `review-stage` and `close-stage` as stage subagents from the same briefs flow uses) | `plan`, `build` (implement), `review-stage` and `close-stage` under `flow` — each a stage subagent spawned from `skills/flow/references/stage-briefs.md`; their user-facing stops pause the subagent and flow relays them (`stage-briefs.md` §5) |
+| `build` standalone (non-interactive implement loop in the main conversation, interactive only through the close stage's relayed stops; sequences `review-stage` and `close-stage` as stage subagents from the same briefs flow uses) | `plan`, `build` (implement), `review-stage` and `close-stage` under `flow` — each a stage subagent spawned from `skills/flow/references/stage-briefs.md`; their user-facing stops pause the subagent and flow relays them (`stage-briefs.md` §5) |
 | `debug` (interactive runtime-debugging loop; spawns no subagents) | |
 | `sync` (standalone PR reconciler; reads PR state via `gh`, performs Transition 6; spawns no subagents) | |
 | `review` (standalone repo-scoped PR reviewer; reads/posts PR state via `gh`; spawns no subagents) | |
