@@ -19,7 +19,7 @@ Cluster the same-subject entries in `claudedocs/tickets/_lessons.md`, propose **
 
 **This skill runs in the main conversation, standalone** — **not a pipeline stage**. It spawns **no subagents** (no `Task`) and does **no** folder/status transitions and no flow wiring. It only reshapes one file, and only after you approve the diff.
 
-The output target is the **atomic entry format** defined in the shared contract at [`../flow/references/lessons-log-fs.md`](../flow/references/lessons-log-fs.md) — what build and debug write and plan/ship grep. This skill normalizes an existing file to that contract; it does not invent a new one.
+The output target is the **atomic entry format** defined in the shared contract at [`../flow/references/lessons-log-fs.md`](../flow/references/lessons-log-fs.md) — what the close stage and debug write and plan/ship grep. This skill normalizes an existing file to that contract; it does not invent a new one.
 
 ## Arguments
 
@@ -36,7 +36,7 @@ The output target is the **atomic entry format** defined in the shared contract 
 
 ## When NOT to run
 
-- To capture a new lesson → that is build's verdict-gate capture or `/feature:debug`, not this skill.
+- To capture a new lesson → that is the close stage's verdict-gate capture or `/feature:debug`, not this skill.
 - To read lessons for a ticket → consumers (plan, ship) grep the log on demand; they never call this skill.
 - Against a file you have uncommitted, unsaved edits to that you are **not** ready to have restructured — commit or stash first, so git's anchor reflects the state you want to fall back to.
 

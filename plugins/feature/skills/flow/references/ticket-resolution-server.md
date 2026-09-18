@@ -1,6 +1,6 @@
 # Ticket Resolution — server-native
 
-Canonical logic for resolving a ticket argument to a **ticket row**, ensuring the spec is in place, locating the shared exploration, and validating that the ticket is actually pipelineable — in server-native storage mode. Read when the storage mode detected per [`storage.md`](storage.md) is server-native — an fs-native run never needs this file. Referenced by `flow`, `plan`, `build`, and `review-stage`.
+Canonical logic for resolving a ticket argument to a **ticket row**, ensuring the spec is in place, locating the shared exploration, and validating that the ticket is actually pipelineable — in server-native storage mode. Read when the storage mode detected per [`storage.md`](storage.md) is server-native — an fs-native run never needs this file. Referenced by `flow`, `plan`, `build`, `review-stage`, and `close-stage`.
 
 The handle is a ticket row, and each step below uses the corresponding operation in [`storage-server.md`](storage-server.md).
 
@@ -46,7 +46,7 @@ A non-interactive consumer (`review-stage`) never asks: wherever this reference 
 
 Check the row's `kind` field (Read ticket metadata in [`storage-server.md`](storage-server.md)). Behavior depends on the consumer:
 
-- **`plan`, `build` and `review-stage`** — refuse if `kind: epic`. Epics don't go through plan or build themselves; only their children are pipelineable. Abort with this message:
+- **`plan`, `build`, `review-stage` and `close-stage`** — refuse if `kind: epic`. Epics don't go through plan or build themselves; only their children are pipelineable. Abort with this message:
   ```
   <ID> is an epic (kind: epic), not a pipelineable ticket. Epics group siblings — they hold the PRD, the shared exploration, and the decomposition table, but they don't go through plan/build themselves.
 
@@ -104,6 +104,8 @@ The stage's behavior depends on which stage is running:
   ```
 
 - **`review-stage`** — does NOT refuse on unfinished blockers. It locates each blocker to compose the reviewers' blocker context from the blocker's artifacts.
+
+- **`close-stage`** — does NOT check blockers. Build refused on them before any code was written.
 
 This rule is centralized here so stage skills inherit it via reference and don't duplicate the check.
 

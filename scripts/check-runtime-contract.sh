@@ -14,7 +14,7 @@ plugin = root / "plugins/feature"
 refs = plugin / "skills/flow/references"
 errors = []
 
-for name in ("flow", "plan", "build", "review-stage", "ship"):
+for name in ("flow", "plan", "build", "review-stage", "close-stage", "ship"):
     path = plugin / "skills" / name / "SKILL.md"
     text = path.read_text()
     frontmatter = text.split("---", 2)[1]
@@ -54,7 +54,7 @@ for number, name in ((4, "Plan"), (6, "Build")):
     if re.search(r"invoke the [` ]*(Skill|Task|Agent)\b|subagent_type:", template, re.I):
         errors.append(f"{name}: shared template embeds a native invocation")
 
-build = (plugin / "skills/build/SKILL.md").read_text()
+close = (plugin / "skills/close-stage/SKILL.md").read_text()
 review_stage = (plugin / "skills/review-stage/SKILL.md").read_text()
 roles = re.findall(r"\*\*[a-d]\. `feature:([^`]+)`", review_stage)
 expected = {"code-reviewer", "security-engineer", "performance-engineer", "code-architect"}
@@ -77,12 +77,12 @@ if not (plugin / "skills/review-stage/references/confidence-scale.md").is_file()
 if "references/confidence-scale.md" not in review_stage:
     errors.append("review-stage: shared base must inject references/confidence-scale.md")
 
-# The post-gate finalizer is the mirror image of the reviewer block above: build
+# The post-gate finalizer is the mirror image of the reviewer block above: the close stage
 # must name it, its definition must exist, and it must KEEP the mutating tool the
 # reviewers must not have — the tail is git work, and a budget that lost `Bash`
 # would leave the child unable to commit while still reporting success.
-if "feature:finalizer" not in build:
-    errors.append("build: verdict gate must spawn feature:finalizer")
+if "feature:finalizer" not in close:
+    errors.append("close-stage: verdict gate must spawn feature:finalizer")
 finalizer = plugin / "agents/finalizer.md"
 if not finalizer.is_file():
     errors.append("missing shared role definition: finalizer")
@@ -103,8 +103,8 @@ else:
 # would silently drop the checks from every browser pass.
 if not (plugin / "skills/build/references/ui-checks.md").is_file():
     errors.append("missing required UI checks contract: skills/build/references/ui-checks.md")
-if "references/ui-checks.md" not in build:
-    errors.append("build: test checkpoint must inject references/ui-checks.md")
+if "references/ui-checks.md" not in close:
+    errors.append("close-stage: test checkpoint must inject references/ui-checks.md")
 ship_ui = plugin / "skills/ship/references/ui-verification.md"
 if not ship_ui.is_file() or "build/references/ui-checks.md" not in ship_ui.read_text():
     errors.append("ship: ui-verification.md must inject build/references/ui-checks.md")
@@ -117,5 +117,5 @@ for resize_tool in ("mcp__playwright__browser_resize", "mcp__chrome-devtools__re
 if errors:
     print("\n".join(f"FAIL: {error}" for error in errors), file=sys.stderr)
     sys.exit(1)
-print("OK: 5 runtime consumers, 2 runtime implementations, 2 neutral stage templates, 4 read-only reviewer roles, 1 confidence-scale injection site, 1 mutating finalizer role, 2 ui-checks injection sites")
+print("OK: 6 runtime consumers, 2 runtime implementations, 2 neutral stage templates, 4 read-only reviewer roles, 1 confidence-scale injection site, 1 mutating finalizer role, 2 ui-checks injection sites")
 PY

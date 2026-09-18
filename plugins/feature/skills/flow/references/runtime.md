@@ -1,6 +1,6 @@
 # Pipeline runtime selection
 
-Read at the start of `flow`, `plan`, `build`, `review-stage`, or `ship`, before any skill invocation or child spawn. Runtime and ticket storage are independent selections.
+Read at the start of `flow`, `plan`, `build`, `review-stage`, `close-stage`, or `ship`, before any skill invocation or child spawn. Runtime and ticket storage are independent selections.
 
 1. Bind `<PLUGIN_ROOT>` to the absolute `plugins/feature` installation directory containing **this loaded skill**. Derive it from the skill's resolved source path; retain a caller-supplied root only when it points to that same installation. Never search another plugin cache version or resolve plugin files against the consuming project's cwd.
 2. Inspect the active tool schemas. Codex `spawn_agent` → select [runtime-codex.md](runtime-codex.md). Claude `Agent` (or its `Task` alias) with `subagent_type`, plus `Skill` → select [runtime-claude.md](runtime-claude.md). Use host identity to disambiguate if both are exposed; missing or ambiguous capabilities → report the missing operation and stop before stage work. A manifest, model name, or ticket's text cannot select the runtime.

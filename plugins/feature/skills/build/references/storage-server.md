@@ -1,6 +1,6 @@
 # Build — server-native Storage Mechanics
 
-Canonical logic for build's storage-touching steps in server-native storage mode. Read when the storage mode detected at the caller's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is server-native — an fs-native run never needs this file. Referenced by `build`, and by [`worktree.md`](worktree.md) / [`pr-creation.md`](pr-creation.md) on behalf of whichever skill runs them. Ship's same-mode storage file points at §13 for the UI evidence home. Operations named below are defined in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md); sections are numbered so the skill body cites `§N`.
+Canonical logic for build's storage-touching steps in server-native storage mode. Read when the storage mode detected at the caller's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is server-native — an fs-native run never needs this file. Referenced by `build`, by [`implementation-handoff.md`](implementation-handoff.md) for §4, and by [`worktree.md`](worktree.md) for §2, §5 and §11 on behalf of whichever skill runs it. Operations named below are defined in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md); sections are numbered so the skill body cites `§N`.
 
 ## §1 Inputs
 
@@ -8,48 +8,28 @@ Every input is an artifact read, pulled into the session working copy at State s
 
 ## §2 Ticket metadata
 
-Read ticket metadata reads the ticket row; bind `pr_url` alongside the shared fields. The row has no `repos` field: the worktree binding's eligibility check treats the ticket as single-repo, and `<repo-root>` is the current checkout.
+Read ticket metadata reads the ticket row. The row has no `repos` field: the worktree binding's eligibility check treats the ticket as single-repo, and `<repo-root>` is the current checkout.
 
 ## §3 Working copy
 
-Pull `01-spec.md`, `02-plan.md`, and whichever of `03-implementation.md`/`04-review.md`/`05-tests.md`/`06-summary.md` exist (per the List artifacts operation) into a session-scratchpad directory — an ephemeral location outside the repository; nothing is ever materialized under `claudedocs/tickets/`, which is not a ticket store in this mode. `<ticket-folder>` denotes this working-copy directory: every `<ticket-folder>/0N-*.md` read/write site in the skill operates on the copies, with writes pushed per §4. All in-loop reading (including the per-step `Read` offset/limit re-read of the plan) works off these copies, and in-loop subagent spawn prompts reference scratchpad paths — the UI tester never touches the ticket store, and the build skill is its only reader/writer through the loop. The post-gate finalizer is the one carve-out: it writes the ticket store directly, and build inlines the parent's absolute scratchpad paths into its prompt so the child pulls nothing of its own. The copies are disposable: every run re-pulls from the server; a scratchpad tree left by a prior run is never trusted or reused.
+Pull `01-spec.md`, `02-plan.md`, and whichever of `03-implementation.md`/`06-summary.md` exist (per the List artifacts operation) into a session-scratchpad directory — an ephemeral location outside the repository; nothing is ever materialized under `claudedocs/tickets/`, which is not a ticket store in this mode. `<ticket-folder>` denotes this working-copy directory: every `<ticket-folder>/0N-*.md` read/write site in the skill operates on the copies, with writes pushed per §4. All in-loop reading (including the per-step `Read` offset/limit re-read of the plan) works off these copies, and the stuck arbiter's prompt inlines resolved text — the build skill is the only reader/writer of the copies through the loop. The copies are disposable: every run re-pulls from the server; a scratchpad tree left by a prior run is never trusted or reused.
 
 ## §4 Artifact writes
 
-Every artifact write named in the skill is upserted to the server via the Write artifact operation the moment the producing step completes — `05-tests.md` and `06-summary.md` each with the `verdict` rule in §6. Update the scratchpad copy and push in the same step; a crash then loses at most the in-flight checkpoint's output, and a re-run resumes from exactly what the server holds. The `## Worktree` record written into `03-implementation.md` follows the same rule.
+Every artifact write named in the skill is upserted to the server via the Write artifact operation the moment the producing step completes. Update the scratchpad copy and push in the same step; a crash then loses at most the in-flight step's output, and a re-run resumes from exactly what the server holds. The `## Worktree` record written into `03-implementation.md` follows the same rule.
 
-`03-implementation.md` (no `verdict`) is the exception to pushing in the same step. It is appended to the scratchpad copy by the mechanism in [`implementation-handoff.md`](implementation-handoff.md) §5. Its upsert carries the copy's current content and is issued as a parallel call alongside the next tool call, never as a turn of its own — still one upsert per step, so the recency signal in §10 holds. With no validation commands documented, the append itself rides with the next step's first tool call, so its upsert rides with the call after that. The last step's upsert rides with the phase-end write, and the post-checkpoint sections are upserted the same way. A crash between an append and its upsert loses at most the entries not yet pushed, one step's worth.
+`03-implementation.md` (no `verdict`) is the exception to pushing in the same step. It is appended to the scratchpad copy by the mechanism in [`implementation-handoff.md`](implementation-handoff.md) §5. Its upsert carries the copy's current content and is issued as a parallel call alongside the next tool call, never as a turn of its own — still one upsert per step, so the recency signals the review and close stages read hold. With no validation commands documented, the append itself rides with the next step's first tool call, so its upsert rides with the call after that. The last step's upsert rides with the phase-end write, and the `## Stuck` record's with the stuck exit. A crash between an append and its upsert loses at most the entries not yet pushed, one step's worth.
 
 ## §5 Worktree binding
 
-The worktree binding runs after §3 because both of its parts read and write `03-implementation.md`, and that copy does not exist until the pull runs. The bound `<wt-path>`, `<branch>` and `<repo-root>` are handed to the finalizer as resolved facts in its spawn prompt — teardown runs there, against those same absolute paths. The existence check that gates re-binding a recorded worktree reads the artifact listing gathered in §3 — never an unguarded read: `pipeline_get_artifact` for an absent artifact is a failed operation under §Loud failure, and would stop every fresh build. [`worktree.md`](worktree.md) §3's "stays in the main checkout" column is moot in this mode — artifacts are rows and `<ticket-folder>` is the session scratchpad — but §2 step 6's config-presence assertion (§11) still applies.
-
-## §6 Artifact verdicts
-
-The Write artifact operation accepts `verdict` ∈ `pass | fail | partial`. Per write site:
-
-- **`05-tests.md`, ui-tester output** — `pass` when every acceptance criterion passed; `partial` when a `## Failed Criteria` section is present.
-- **`05-tests.md`, skip artifact** — skip labels are outside the enum: write **without** `verdict`; the skip variant stays in the body.
-- **`06-summary.md`** — `pass` → `pass`, `partial` → `partial`; `stuck` is outside the enum — omit `verdict` and keep the token in the body.
-
-## §8 Lessons
-
-The cross-ticket lessons log is the lesson tools, per [`../../flow/references/lessons-log-server.md`](../../flow/references/lessons-log-server.md).
-
-## §9 PR linkage
-
-Performed by the finalizer, which receives the ticket handle and every scratchpad path below as resolved values in its spawn prompt.
-
-- **Ticket id and title for the PR** — there is no `01-spec.md` file to `sed`; the ticket's `id` and `title` are row fields (Read ticket metadata). The injection discipline of [`pr-creation.md`](pr-creation.md) §4 is preserved by changing the source, not the mechanism: write each value to a session-scratchpad file with the Write tool, then load it with the same command substitution (`TICKET_ID=$(cat "<scratchpad id file>")`, likewise the title) — never paste row text into a `"…"` literal. The `--body-file` path is the session working copy of `06-summary.md` (pulled per §3, pushed per §4).
-- **Recording the opened PR** — re-upsert `06-summary.md` with the URL + branch appended (its body is otherwise left as build authored it), and additionally record the URL on the ticket row via Update ticket fields (`pipeline_update_ticket` `pr_url`) — the non-status field write named in [`../../flow/references/state-transitions-server.md`](../../flow/references/state-transitions-server.md) Transition 5.
+The worktree binding runs after §3 because both of its parts read and write `03-implementation.md`, and that copy does not exist until the pull runs. The review and close stages re-bind `<wt-path>`, `<branch>` and `<repo-root>` from the same record; teardown runs in the close stage's finalizer, against those same absolute paths. The existence check that gates re-binding a recorded worktree reads the artifact listing gathered in §3 — never an unguarded read: `pipeline_get_artifact` for an absent artifact is a failed operation under §Loud failure, and would stop every fresh build. [`worktree.md`](worktree.md) §3's "stays in the main checkout" column is moot in this mode — artifacts are rows and `<ticket-folder>` is the session scratchpad — but §2 step 6's config-presence assertion (§11) still applies.
 
 ## §10 Resumption keying
 
-The routing table's signals map onto the ticket row plus `pipeline_list_artifacts` (artifact rows carrying `created_at`/`updated_at`), read after State setup's metadata binding and working-copy pull:
+The routing signals map onto the ticket row plus `pipeline_list_artifacts`, read after State setup's metadata binding and working-copy pull:
 
-- The first row keys on row status `in-review` — the row status is the only state signal in this mode. For the merge predicate, the row's `pr_url` (when set) identifies the PR directly (`gh pr view <url>` accepts a URL) and takes precedence over branch recovery; otherwise the pushed branch is recovered from the `06-summary.md` artifact body or the current checkout. For an epic child flipped `in-review` in place this keying deliberately diverges from the folder-keyed reading of the other mode — the divergence note in [`../../flow/references/keying-server.md`](../../flow/references/keying-server.md) §1 applies here identically.
-- Artifact presence comes from the listing; verdict and `## Failed Criteria` checks read the pulled artifact bodies.
-- An **incomplete tail** — the finalizer never ran, or returned an error — is keyed on `06-summary.md` being present in the listing while the row status is still `in-progress` or `partial-completion`. Both values are needed: `accept-as-partial` sets `partial-completion` in its own operation, before the one that lands the terminal status, so a tail interrupted between them carries the former. An interrupted `continue-with-hint` loop carries the same statuses, so compare artifact timestamps to tell them apart: `05-tests.md`, `04-review.md` or `03-implementation.md` with an `updated_at` later than `06-summary.md`'s means the loop was still running, and the checkpoint rows own it. The gate's decisions are conversational state and are deliberately not persisted, so nothing else about the tail is recoverable from the store.
+- The in-review refusal keys on row status `in-review` — the row status is the only state signal in this mode.
+- Artifact presence comes from the listing; the already-complete check reads the first line of the pulled `06-summary.md` body. The handoff's done signal and its `## Rationale` / `## Stuck` sections are read from the pulled `03-implementation.md` body.
 - **Start fresh** — the user deletes `03-implementation.md` (and downstream) via the Delete artifact operation, a user-side action; build itself never deletes artifacts. Permanent: a deleted artifact body has no server-side history, so copy anything worth keeping before deleting.
 
 ## §11 Config presence in a worktree
@@ -58,15 +38,4 @@ The routing table's signals map onto the ticket row plus `pipeline_list_artifact
 
 ## §12 Error handling
 
-A storage operation that fails mid-loop stops the skill per [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md) §Loud failure, with a state report — which artifacts were pushed this run and which checkpoint's output was not, so the user knows exactly what the server holds before re-running. A CAS conflict at the verdict gate follows the same file's §CAS conflict doctrine (re-read, re-evaluate, proceed or stop — never widen `from[]`).
-
-## §13 UI evidence home
-
-Every `ui-tester` capture — build's test checkpoint and ship's end-of-run pass alike — is written to one declared directory, named per [`ui-checks.md`](ui-checks.md) §3:
-
-- **Ticket pass**: `claudedocs/ui-evidence/<id>/` under the main checkout's root, as an absolute path — inside the workspace root, where the Playwright MCP is allowed to write. With a worktree bound it still resolves in the main checkout, never inside `<wt-path>`.
-- **A pass covering an epic**: `claudedocs/ui-evidence/<epic-id>/`.
-
-The spawn prompt carries the resolved absolute path, never a link to this section. Fixed filenames overwrite a prior run's captures.
-
-**Gitignore expectation — stated once, here.** Screenshots are binary run evidence, not an artifact row: they are never pushed to the server and never enter a commit — [`commit.md`](commit.md) §1 excludes `claudedocs/` from build's own commits.
+A storage operation that fails mid-loop stops the skill per [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md) §Loud failure, with a state report — which artifacts were pushed this run and which step's output was not, so the user knows exactly what the server holds before re-running. A CAS conflict at Transition 1 follows the same file's §CAS conflict doctrine (re-read, re-evaluate, proceed or stop — never widen `from[]`).

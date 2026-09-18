@@ -42,7 +42,7 @@ Move the ticket through the state machine. The per-transition semantics (sources
 
 ### Update ticket fields
 
-Write non-status fields — `title`, `priority`, `complexity`, `tags`, `blocked_by` — via frontmatter `Edit` on `01-spec.md` / `prd.md`. `pr_url` has no frontmatter slot — build records the PR URL in `06-summary.md`, and `sync` rediscovers PRs by title search.
+Write non-status fields — `title`, `priority`, `complexity`, `tags`, `blocked_by` — via frontmatter `Edit` on `01-spec.md` / `prd.md`. `pr_url` has no frontmatter slot — the close stage's finalizer records the PR URL in `06-summary.md`, and `sync` rediscovers PRs by title search.
 
 ### List tickets / list children
 

@@ -1,6 +1,6 @@
 # Required UI Checks
 
-This contract is injected into every `ui-tester` spawn prompt — by `build/SKILL.md`'s test checkpoint and by ship's end-of-run pass ([`../../ship/references/ui-verification.md`](../../ship/references/ui-verification.md)) — under a `## Required UI checks (use this exactly)` header. The `ui-tester` agent body points at the injected block and must not duplicate it. The brief that carries this block also names the run's evidence home — the one directory every capture below is written into.
+This contract is injected into every `ui-tester` spawn prompt — by `close-stage/SKILL.md`'s test checkpoint and by ship's end-of-run pass ([`../../ship/references/ui-verification.md`](../../ship/references/ui-verification.md)) — under a `## Required UI checks (use this exactly)` header. The `ui-tester` agent body points at the injected block and must not duplicate it. The brief that carries this block also names the run's evidence home — the one directory every capture below is written into.
 
 These checks are part of every browser pass, on top of the ticket's acceptance criteria. They are required, and their failures affect the verdict exactly like a failed acceptance criterion.
 

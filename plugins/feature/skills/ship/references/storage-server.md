@@ -30,7 +30,7 @@ Four placeholders in the brief templates resolve here; the orchestrator fills th
 
 ## §4 PR linkage
 
-The post-PR linkage step: after each implementer returns, confirm the ticket row's `pr_url` is set — build records it at PR creation (`pr-creation.md` §5); if it is missing (a degraded or interrupted build), backfill it via `pipeline_update_ticket` with the verified PR's URL. An epic run's integration-PR title is read from the epic row (`pipeline_get_ticket`), and the integration PR's URL is recorded on the **epic row** via `pipeline_update_ticket` `pr_url` — ship owns this PR, so ship owns its linkage (per-ticket `pr_url`s were already set by each build).
+The post-PR linkage step: after each implementer returns, confirm the ticket row's `pr_url` is set — the close stage's finalizer records it at PR creation (`pr-creation.md` §5); if it is missing (a degraded or interrupted close), backfill it via `pipeline_update_ticket` with the verified PR's URL. An epic run's integration-PR title is read from the epic row (`pipeline_get_ticket`), and the integration PR's URL is recorded on the **epic row** via `pipeline_update_ticket` `pr_url` — ship owns this PR, so ship owns its linkage (per-ticket `pr_url`s were already set by each build).
 
 ## §5 In-review evidence and recovery
 
@@ -47,4 +47,4 @@ Every shared mutation in a `--parallel` run is orchestrator-only, in the forms [
 
 ## §7 UI evidence home and hosting
 
-Screenshots go to the evidence home declared in [build's `storage-server.md`](../../build/references/storage-server.md) §13 — its location, its epic form and its gitignore expectation live there — with the filenames fixed by [`ui-checks.md`](../../build/references/ui-checks.md) §3. Nothing is hostable, so the evidence post always takes the path-manifest outcome in `ui-verification.md` step 3 — the per-AC verdict plus the manifest, with no `git check-ignore` probe.
+Screenshots go to the evidence home declared in [the close stage's `storage-server.md`](../../close-stage/references/storage-server.md) §8 — its location, its epic form and its gitignore expectation live there — with the filenames fixed by [`ui-checks.md`](../../build/references/ui-checks.md) §3. Nothing is hostable, so the evidence post always takes the path-manifest outcome in `ui-verification.md` step 3 — the per-AC verdict plus the manifest, with no `git check-ignore` probe.
