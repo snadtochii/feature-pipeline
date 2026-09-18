@@ -83,6 +83,7 @@ The diff is everything between the merge-base and the working tree, plus untrack
 cd "<root>" || exit 1
 want=<base-arg>
 if [ -n "$want" ]; then
+  case "$want" in *@{*) echo "NO_BASE"; exit 1 ;; esac
   git check-ref-format --branch "$want" >/dev/null 2>&1 || { echo "NO_BASE"; exit 1; }
   if git rev-parse --verify -q "origin/$want^{commit}" >/dev/null; then base="origin/$want"
   elif git rev-parse --verify -q "$want^{commit}" >/dev/null; then base="$want"
@@ -106,7 +107,7 @@ git ls-files -z --others --exclude-standard -- . ':(exclude)claudedocs/' <exclud
 true
 ```
 
-`<base-arg>` is `''` without `--base`, else the `--base` value single-quoted, an embedded `'` written as `'\''`. The script validates it with `git check-ref-format --branch` before any use — a name starting with `-` or carrying ref-illegal characters is rejected — then prefers `origin/<branch>`, falls back to the local `<branch>`, and otherwise stops. A given `--base` never falls back to the default resolution: a wrong base silently widens the diff. `<exclude-pathspecs>` is one single-quoted `':(exclude)<path>'` per `<excluded>` entry, empty when none is bound; an embedded `'` in a path is written as `'\''`. Untracked file names never pass through the model: the NUL-delimited loop quotes them, so a name with spaces, `$( )` or a leading `-` stays data. `git diff --no-index` exits non-zero when it prints a diff, which is why the call ends in `true` and never runs under `pipefail`; a binary file prints as `Binary files … differ`. The remote-tracking base (`origin/main`) is intended — it is only ever diffed against. `NO_BASE` → `error`, `failed-step: base`.
+`<base-arg>` is `''` without `--base`, else the `--base` value single-quoted, an embedded `'` written as `'\''`. The script validates it with `git check-ref-format --branch` before any use — a name starting with `-`, carrying ref-illegal characters, or containing `@{` (which `check-ref-format` would expand to a different branch) is rejected — then prefers `origin/<branch>`, falls back to the local `<branch>`, and otherwise stops. A given `--base` never falls back to the default resolution: a wrong base silently widens the diff. `<exclude-pathspecs>` is one single-quoted `':(exclude)<path>'` per `<excluded>` entry, empty when none is bound; an embedded `'` in a path is written as `'\''`. Untracked file names never pass through the model: the NUL-delimited loop quotes them, so a name with spaces, `$( )` or a leading `-` stays data. `git diff --no-index` exits non-zero when it prints a diff, which is why the call ends in `true` and never runs under `pipefail`; a binary file prints as `Binary files … differ`. The remote-tracking base (`origin/main`) is intended — it is only ever diffed against. `NO_BASE` → `error`, `failed-step: base`.
 
 The **diff union** is the tracked diff plus the rendered untracked files. `claudedocs/` is excluded because the ticket's own artifacts are not the change under review. Empty union → write `04-review.md` with the `verdict: skipped (no changes)` label and `fix-step: complete` (§3, §4), and return `no-diff`.
 
