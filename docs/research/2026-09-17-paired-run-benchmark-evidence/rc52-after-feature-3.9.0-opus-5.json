@@ -1,0 +1,409 @@
+{
+  "schema_version": 1,
+  "generator": "measure-session.py",
+  "session_id": "36fdf6a4-f45a-4464-bf45-7605bd0151a4",
+  "unit": "weighted input-token equivalents - not a price and not a plan-limit multiplier",
+  "weights": {
+    "i": 1.0,
+    "cw": 1.25,
+    "cr": 0.1,
+    "o": 5.0
+  },
+  "weights_expression": "1*input + 1.25*cache_write + 0.1*cache_read + 5*output",
+  "role_map": {
+    "build-stage": "^Build stage for ",
+    "plan-stage": "^Plan stage for ",
+    "finalize-child": "^Finalize ",
+    "ship-implementer": " implementer via flow$",
+    "ship-review": "^Independent review of ",
+    "ship-address": "^Address review on "
+  },
+  "check_pattern": "check-[a-z-]+\\.(?:sh|mjs)|bash scripts/|vitest|pytest|npm (?:run|test|ci)\\b|node |tsc\\b|pyright",
+  "labels": {
+    "exact": "token counts (input / cache-write / cache-read / output), turn counts, windows, first-turn floors, peak windows, re-read sums, weighted units, and every share derived from them - all taken from the API `usage` field",
+    "estimate": "the check/test-run count, the commit / pushed / PR booleans (all three read command text, so a command that names an action it did not perform can move them), and any reviewer finding count recovered by scanning a review body rather than reading its documented count block"
+  },
+  "totals": {
+    "agents": 8,
+    "turns": 120,
+    "input_tokens": 240,
+    "cache_write_tokens": 657440,
+    "cache_read_tokens": 10623247,
+    "output_tokens": 76373,
+    "weighted_units": 2266229.7
+  },
+  "agents": [
+    {
+      "agent_id": "root",
+      "role": "root-session",
+      "agent_type": "root-session",
+      "description": "",
+      "spawn_depth": 0,
+      "parent": null,
+      "ticket": "RC-52",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 39,
+      "turns_without_usage": 0,
+      "input_tokens": 78,
+      "cache_write_tokens": 145221,
+      "cache_read_tokens": 5542743,
+      "output_tokens": 30553,
+      "first_turn_floor": 81185,
+      "peak_window": 188020,
+      "reread_sum": 5688042,
+      "weighted_units": 888643.55
+    },
+    {
+      "agent_id": "a03b9c15e2cf0b56b",
+      "role": "feature:finalizer",
+      "agent_type": "feature:finalizer",
+      "description": "Finalize RC-52",
+      "spawn_depth": 2,
+      "parent": "a612fb72665f8ae3c",
+      "ticket": "RC-52",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 13,
+      "turns_without_usage": 0,
+      "input_tokens": 26,
+      "cache_write_tokens": 40797,
+      "cache_read_tokens": 427801,
+      "output_tokens": 5779,
+      "first_turn_floor": 19233,
+      "peak_window": 40799,
+      "reread_sum": 468624,
+      "weighted_units": 122697.35
+    },
+    {
+      "agent_id": "a612fb72665f8ae3c",
+      "role": "general-purpose (other)",
+      "agent_type": "general-purpose",
+      "description": "RC-52 close stage",
+      "spawn_depth": 1,
+      "parent": "root",
+      "ticket": "RC-52",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 14,
+      "turns_without_usage": 0,
+      "input_tokens": 28,
+      "cache_write_tokens": 88276,
+      "cache_read_tokens": 1335998,
+      "output_tokens": 7988,
+      "first_turn_floor": 55992,
+      "peak_window": 121551,
+      "reread_sum": 1424302,
+      "weighted_units": 283912.8
+    },
+    {
+      "agent_id": "a67faedb29c74fa4f",
+      "role": "feature:security-engineer",
+      "agent_type": "feature:security-engineer",
+      "description": "RC-52 security review",
+      "spawn_depth": 2,
+      "parent": "a64ae806a63975f65",
+      "ticket": "RC-52",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 4,
+      "turns_without_usage": 0,
+      "input_tokens": 8,
+      "cache_write_tokens": 51636,
+      "cache_read_tokens": 109909,
+      "output_tokens": 3747,
+      "first_turn_floor": 14743,
+      "peak_window": 54696,
+      "reread_sum": 161553,
+      "weighted_units": 94278.9
+    },
+    {
+      "agent_id": "a8ddeb5c616b3f8e7",
+      "role": "feature:performance-engineer",
+      "agent_type": "feature:performance-engineer",
+      "description": "RC-52 performance review",
+      "spawn_depth": 2,
+      "parent": "a64ae806a63975f65",
+      "ticket": "RC-52",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 6,
+      "turns_without_usage": 0,
+      "input_tokens": 12,
+      "cache_write_tokens": 53524,
+      "cache_read_tokens": 216886,
+      "output_tokens": 3243,
+      "first_turn_floor": 14717,
+      "peak_window": 56584,
+      "reread_sum": 270422,
+      "weighted_units": 104820.6
+    },
+    {
+      "agent_id": "a71a70e4ca5dd2d8e",
+      "role": "feature:code-reviewer",
+      "agent_type": "feature:code-reviewer",
+      "description": "RC-52 correctness review",
+      "spawn_depth": 2,
+      "parent": "a64ae806a63975f65",
+      "ticket": "RC-52",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 21,
+      "turns_without_usage": 0,
+      "input_tokens": 42,
+      "cache_write_tokens": 80865,
+      "cache_read_tokens": 1244004,
+      "output_tokens": 10489,
+      "first_turn_floor": 14761,
+      "peak_window": 80867,
+      "reread_sum": 1324911,
+      "weighted_units": 277968.65
+    },
+    {
+      "agent_id": "a79a8ea3226710eb9",
+      "role": "feature:code-architect",
+      "agent_type": "feature:code-architect",
+      "description": "RC-52 architecture review",
+      "spawn_depth": 2,
+      "parent": "a64ae806a63975f65",
+      "ticket": "RC-52",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 9,
+      "turns_without_usage": 0,
+      "input_tokens": 18,
+      "cache_write_tokens": 63399,
+      "cache_read_tokens": 424346,
+      "output_tokens": 6122,
+      "first_turn_floor": 14957,
+      "peak_window": 66459,
+      "reread_sum": 487763,
+      "weighted_units": 152311.35
+    },
+    {
+      "agent_id": "a64ae806a63975f65",
+      "role": "general-purpose (other)",
+      "agent_type": "general-purpose",
+      "description": "RC-52 review stage",
+      "spawn_depth": 1,
+      "parent": "root",
+      "ticket": "RC-52",
+      "models": [
+        "claude-opus-5"
+      ],
+      "turns": 14,
+      "turns_without_usage": 0,
+      "input_tokens": 28,
+      "cache_write_tokens": 133722,
+      "cache_read_tokens": 1321560,
+      "output_tokens": 8452,
+      "first_turn_floor": 55599,
+      "peak_window": 133724,
+      "reread_sum": 1455310,
+      "weighted_units": 341596.5
+    }
+  ],
+  "roles": [
+    {
+      "role": "root-session",
+      "count": 1,
+      "turns": 39,
+      "input_tokens": 78,
+      "cache_write_tokens": 145221,
+      "cache_read_tokens": 5542743,
+      "output_tokens": 30553,
+      "weighted_units": 888643.55,
+      "share_pct": 39.212
+    },
+    {
+      "role": "general-purpose (other)",
+      "count": 2,
+      "turns": 28,
+      "input_tokens": 56,
+      "cache_write_tokens": 221998,
+      "cache_read_tokens": 2657558,
+      "output_tokens": 16440,
+      "weighted_units": 625509.3,
+      "share_pct": 27.601
+    },
+    {
+      "role": "feature:code-reviewer",
+      "count": 1,
+      "turns": 21,
+      "input_tokens": 42,
+      "cache_write_tokens": 80865,
+      "cache_read_tokens": 1244004,
+      "output_tokens": 10489,
+      "weighted_units": 277968.65,
+      "share_pct": 12.266
+    },
+    {
+      "role": "feature:code-architect",
+      "count": 1,
+      "turns": 9,
+      "input_tokens": 18,
+      "cache_write_tokens": 63399,
+      "cache_read_tokens": 424346,
+      "output_tokens": 6122,
+      "weighted_units": 152311.35,
+      "share_pct": 6.721
+    },
+    {
+      "role": "feature:finalizer",
+      "count": 1,
+      "turns": 13,
+      "input_tokens": 26,
+      "cache_write_tokens": 40797,
+      "cache_read_tokens": 427801,
+      "output_tokens": 5779,
+      "weighted_units": 122697.35,
+      "share_pct": 5.414
+    },
+    {
+      "role": "feature:performance-engineer",
+      "count": 1,
+      "turns": 6,
+      "input_tokens": 12,
+      "cache_write_tokens": 53524,
+      "cache_read_tokens": 216886,
+      "output_tokens": 3243,
+      "weighted_units": 104820.6,
+      "share_pct": 4.625
+    },
+    {
+      "role": "feature:security-engineer",
+      "count": 1,
+      "turns": 4,
+      "input_tokens": 8,
+      "cache_write_tokens": 51636,
+      "cache_read_tokens": 109909,
+      "output_tokens": 3747,
+      "weighted_units": 94278.9,
+      "share_pct": 4.16
+    }
+  ],
+  "tickets": [
+    {
+      "ticket": "RC-52",
+      "count": 8,
+      "turns": 120,
+      "input_tokens": 240,
+      "cache_write_tokens": 657440,
+      "cache_read_tokens": 10623247,
+      "output_tokens": 76373,
+      "weighted_units": 2266229.7,
+      "share_pct": 100.0
+    }
+  ],
+  "models": [
+    {
+      "model": "claude-opus-5",
+      "turns": 120,
+      "input_tokens": 240,
+      "cache_write_tokens": 657440,
+      "cache_read_tokens": 10623247,
+      "output_tokens": 76373
+    }
+  ],
+  "builds": [
+    {
+      "agent_id": "a64ae806a63975f65",
+      "ticket": "RC-52",
+      "role": "general-purpose (other)",
+      "site": "stage subagent (under flow)",
+      "turns": 14,
+      "reread_self": 1455310,
+      "reread_self_children": 3699959,
+      "phases": [
+        {
+          "name": "implement",
+          "status": "ok",
+          "reason": "",
+          "turns": 8,
+          "start_turn": 1,
+          "end_turn": 8,
+          "start_window": 55599,
+          "end_window": 117774,
+          "reread_self": 681589,
+          "reread_self_children": 681589,
+          "share_self_pct": 46.835,
+          "share_self_children_pct": 18.422
+        },
+        {
+          "name": "review",
+          "status": "ok",
+          "reason": "",
+          "turns": 4,
+          "start_turn": 9,
+          "end_turn": 12,
+          "start_window": 118906,
+          "end_window": 130820,
+          "reread_self": 507878,
+          "reread_self_children": 2752527,
+          "share_self_pct": 34.898,
+          "share_self_children_pct": 74.393
+        },
+        {
+          "name": "post-review",
+          "status": "ok",
+          "reason": "no 06-summary.md write; post-review runs to the end",
+          "turns": 2,
+          "start_turn": 13,
+          "end_turn": 14,
+          "start_window": 132119,
+          "end_window": 133724,
+          "reread_self": 265843,
+          "reread_self_children": 265843,
+          "share_self_pct": 18.267,
+          "share_self_children_pct": 7.185
+        },
+        {
+          "name": "post-gate",
+          "status": "n/a",
+          "reason": "no 06-summary.md write, so the post-gate boundary is unknown",
+          "turns": 0,
+          "start_turn": null,
+          "end_turn": null,
+          "start_window": null,
+          "end_window": null,
+          "reread_self": 0,
+          "reread_self_children": 0,
+          "share_self_pct": null,
+          "share_self_children_pct": null
+        }
+      ],
+      "parity": {
+        "verdict": "unknown",
+        "verdict_label": "unknown",
+        "findings": {
+          "CRITICAL": 0,
+          "IMPORTANT": 0,
+          "SUGGESTION": 6
+        },
+        "findings_label": "estimate",
+        "check_runs": 1,
+        "bash_calls": 9,
+        "check_runs_label": "estimate",
+        "commit": "unknown",
+        "pushed": "unknown",
+        "pr": "unknown",
+        "commit_pr_label": "unknown",
+        "tail_label": "unknown",
+        "notes": [
+          "no 06-summary.md write, so the transcript ends before the commit and PR work"
+        ]
+      },
+      "finalizer_agent_ids": []
+    }
+  ],
+  "notes": [
+    "record type(s) this script does not classify were ignored: file-history-delta"
+  ]
+}
