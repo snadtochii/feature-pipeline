@@ -68,8 +68,9 @@ First match wins. Signals are read per §6.
 
 | On disk | Route |
 |---|---|
-| `04-review.md` newer than `03-implementation.md`, with `fix-step: complete` | Already reviewed. Return the result its body records; write nothing. |
-| `04-review.md` newer than `03-implementation.md`, with `fix-step: pending` | Resume at the fix step (step 7) from the recorded decisions. No reviewer is spawned. |
+| `04-review.md` with `fix-step: pending`, whatever the recency | Resume: run step 1's collection (step 7 bounds fixes by the diff and step 8 notes a fix outside it), then continue at the fix step (step 7) from the recorded decisions. No reviewer is spawned. Recency is not consulted: a round's own `## Post-review` append can leave `03-implementation.md` newer than its pending `04-review.md`. |
+| `04-review.md` newer than `03-implementation.md`, with `fix-step: complete` and the `failed (all reviewers)` label | Full review from step 1 — a reviewer failure is retried, never returned as recorded. |
+| `04-review.md` newer than `03-implementation.md`, with `fix-step: complete` | Already reviewed. Return the result its body records; write nothing. A `stuck` round is returned as recorded too; deleting `04-review.md` starts a fresh round. |
 | Otherwise (absent, or `03-implementation.md` newer) | Full review from step 1. An existing `04-review.md` is overwritten, never appended to. |
 
 ## Process
@@ -97,7 +98,7 @@ git ls-files -z --others --exclude-standard -- . ':(exclude)claudedocs/' <exclud
 true
 ```
 
-`<exclude-pathspecs>` is one single-quoted `':(exclude)<path>'` per `<excluded>` entry, empty when none is bound. File names never pass through the model: the NUL-delimited loop quotes them, so a name with spaces, `$( )` or a leading `-` stays data. `git diff --no-index` exits non-zero when it prints a diff, which is why the call ends in `true` and never runs under `pipefail`; a binary file prints as `Binary files … differ`. The remote-tracking base (`origin/main`) is intended — it is only ever diffed against. `NO_BASE` → `error`, `failed-step: base`.
+`<exclude-pathspecs>` is one single-quoted `':(exclude)<path>'` per `<excluded>` entry, empty when none is bound; an embedded `'` in a path is written as `'\''`. Untracked file names never pass through the model: the NUL-delimited loop quotes them, so a name with spaces, `$( )` or a leading `-` stays data. `git diff --no-index` exits non-zero when it prints a diff, which is why the call ends in `true` and never runs under `pipefail`; a binary file prints as `Binary files … differ`. The remote-tracking base (`origin/main`) is intended — it is only ever diffed against. `NO_BASE` → `error`, `failed-step: base`.
 
 The **diff union** is the tracked diff plus the rendered untracked files. `claudedocs/` is excluded because the ticket's own artifacts are not the change under review. Empty union → write `04-review.md` with the `verdict: skipped (no changes)` label and `fix-step: complete` (§3, §4), and return `no-diff`.
 
@@ -212,7 +213,7 @@ On the resume route, start here from the decisions recorded in `04-review.md`. A
 
 ### 8. Post-review validation and the handoff append
 
-Run the validation commands over the tree once. When at least one fix was applied, chain the `## Post-review` append to `03-implementation.md` onto that same call, per handoff §5: open with `set -o pipefail`, join the commands with `&&`, and use a quoted, entry-unique delimiter (`HANDOFF_REVIEW_<R>_END`), checking the entry for that token before sending. One bullet per applied finding — `[F<k>] <finding>: what changed, where, why` (handoff §4) — and say so when a fix touched a file outside the diff.
+Run the validation commands over the tree once. When at least one fix was applied, chain the `## Post-review` append to `03-implementation.md` onto that same call, per handoff §5: open with `set -o pipefail`, join the commands with `&&`, and use a quoted, entry-unique delimiter (`HANDOFF_REVIEW_<R>_END`), checking the entry for that token before sending. One bullet per applied finding — `[F<k>] <finding>: what changed, where, why` (handoff §4) — and say so when a fix touched a file outside the diff. With no validation commands documented, the append is a Bash call of its own, issued alone and completed before step 9's write. On the resume route, a `## Post-review` heading for this round already present in the current pass means the append landed before the interruption: do not append it again.
 
 The heading follows handoff §1: the review stage never opens a pass. The first review round of pass K writes `## Post-review` (` (pass K)` suffixed for K ≥ 2); a later round in the same pass writes `## Post-review (round R)`, or `## Post-review (pass K, round R)`, R counting from 2.
 
