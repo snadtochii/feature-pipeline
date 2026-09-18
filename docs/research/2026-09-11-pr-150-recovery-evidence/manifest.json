@@ -1,0 +1,55 @@
+{
+  "date": "2026-09-11",
+  "repository": "/Users/serhiinadtochii/Projects/personal-server",
+  "head": "875078fefc4f55822153de740c59cd34aa905808",
+  "node": "v24.18.0",
+  "selected_source_sha256": {
+    "AGENTS.md": "be8093d3c8692a294b5f5b2c0bb56d15406335e99b902b8c1071cc40f137cad0",
+    "docs/assistant-access.md": "eb1b6f2add0979afbc7bd02c494133b1eaea58453578911854a27e2aa6b1a513",
+    "docs/assistant-recovery.md": "d2c9aa791dce47ad7ea966e8000217c7a9f029eb1c4ba29e654221e20c8e5f78",
+    "docs/todoist-migration.md": "0b56ab5eb971b73e5fae634b2cf53fbf8c46f163e39ce28e38840edcdedeb3ad",
+    "apps/api/.swcrc": "8d2b2f0065f385e1d9f605c6daa0df2fefb19932c7241b9c461fadcafb14ae61",
+    "apps/api/src/app.module.ts": "7c43eefdd9973760f00acf43ad4edf260f10348e251e2f70b6d0fb3f556f68f6",
+    "apps/api/src/recovery/recovery.module.ts": "1247aaf9495c8fb94254ce4e065de9e5a462ccfab0873be3a508e212b46da844",
+    "apps/api/src/recovery/sqlite-recovery-store.ts": "6f29a7606133fe6f7b8f173f140853f4a3478d893329e6897c43a87c50d506eb",
+    "apps/api/src/recovery/restore-database.ts": "b0cc3448601251a21fb2848532437e15b6be14ee9cf3fcdc73bb96ff1a095ac8",
+    "apps/api/src/access/access.guard.ts": "75b1d78a963d0542d0b4f67b53287e49a13f73654a438397b949d2d07b7a3d56",
+    "apps/api/src/access/access.service.ts": "07b66a9d077285c41945a5f52137db5c7e39427f9fe1e811367fa7f7271341f0",
+    "apps/api/src/assistant/assistant-http.filter.ts": "48fc716d3f315d9b91bea5f970d0ad75e467c901a22f589063aa773f2e60ebc1",
+    "apps/api/src/common/zod-validation.pipe.ts": "c42ce7ba655a8c13d97e503d60649e0dbead308fcca7c9b78e0bf2c46b943f32",
+    "apps/api/src/todoist/todoist.module.ts": "6ef8940bcf7ab99a0016b85d442a57e03c22d1b5e0108b0a445ce5b6247f92ad",
+    "apps/api/src/todoist/sqlite-todoist-store.ts": "51bd7c64b027113dc854f86958a9a46ac13241c7da15386bf67b4bedff6ce991",
+    "packages/client/src/recovery-client.ts": "e15dcfa96c6fdb9d57d4794eb741a76baae4a88271c4ef5d5503f9a66e053495",
+    "packages/contracts/src/assistant/recovery.ts": "cfae61e6469084d3a18a42b53ef2b609972309f4dba82e21947ebb9f9c2f1e93",
+    "scripts/recovery/archive.mjs": "84dbe91458323546dd4955033722ac1c8ed43443902bb2db9b8fdf087730ccc1",
+    "scripts/recovery/operator.mjs": "2ba4fca725c3ac2c808b0b59bbc99ce25fabc4eb6709456645f9e77f9c1ad752",
+    "scripts/recovery/runtime-build.mjs": "74faa93bb6bcd6f1c888e8fe432cda4ac0b2d49779e68394aa5d9cb5592f9592",
+    "scripts/todoist/rehearsal.mjs": "ac545603efcdd6443b41d48ef613f63bd6b1172e9a6e49060ae73b122c8aa1be",
+    "claudedocs/tickets/review/PS-103/tasks/PS-114/02-plan.md": "9b4875d7280c884b0d69df3720a563c26711c0dd1daeda0c1f1e28c9dfcc02fc",
+    "claudedocs/tickets/review/PS-103/tasks/PS-115/02-plan.md": "d7564fc2787a78e9fa2273c334f878bc51f7769a0a335117552219ec13912d56",
+    "pnpm-lock.yaml": "3b52b2a399e52efcb04af84ad0ce48ee11c2d18f80767a763558f93eb354770f"
+  },
+  "evidence_sha256": {
+    "probe.cjs": "0253550281982591a60d032a5967966eefa73f8da2e224045c7798a90f28fd59",
+    "results.json": "2d63e01d02f43040b6d7e66554b22937af0501068fead37d8958b4a45093ee85"
+  },
+  "tree_digest_method": "sha256 of sorted relative_path + space + file_sha256 + newline, UTF-8; API tree includes .ts, workspace dist trees include .js only",
+  "tree_digests": {
+    "apps/api/src": {
+      "files": 237,
+      "sha256": "eada9e7ed21df303f4ce796dd15e9dcb888ba3cdaaf01278f3dc6cb0072cb641"
+    },
+    "packages/contracts/dist": {
+      "files": 26,
+      "sha256": "64c45c369700c3816e028b469bde0816f706a728b0ae6a8d1e4d975cded69202"
+    },
+    "packages/client/dist": {
+      "files": 27,
+      "sha256": "bb8787df8499873adcb74002678e9122663c825390ffd377666dd199206949b2"
+    },
+    "packages/mcp-tools/dist": {
+      "files": 7,
+      "sha256": "376695aaef09e59142be831efb6d5302999b6f97a7f538fa7cf8da0c2b7e31fa"
+    }
+  }
+}

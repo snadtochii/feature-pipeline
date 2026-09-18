@@ -1,0 +1,16 @@
+test_boundary_requires_falsifiable_check_and_reuse_requires_invariants (test_workflow.WorkflowTests.test_boundary_requires_falsifiable_check_and_reuse_requires_invariants) ... ok
+test_exception_is_visible_and_blocks_until_prior_approval_is_recorded (test_workflow.WorkflowTests.test_exception_is_visible_and_blocks_until_prior_approval_is_recorded) ... ok
+test_failure_cases_must_be_independent_nonempty_and_bound_to_plan (test_workflow.WorkflowTests.test_failure_cases_must_be_independent_nonempty_and_bound_to_plan) ... ok
+test_historical_failure_shapes_need_specific_evidence (test_workflow.WorkflowTests.test_historical_failure_shapes_need_specific_evidence) ... ok
+test_missing_behavior_evidence_and_unresolved_assessment_cannot_pass (test_workflow.WorkflowTests.test_missing_behavior_evidence_and_unresolved_assessment_cannot_pass) ... ok
+test_no_retrospective_initial_plan_or_case_selection (test_workflow.WorkflowTests.test_no_retrospective_initial_plan_or_case_selection) ... ok
+test_old_states_are_not_silently_migrated (test_workflow.WorkflowTests.test_old_states_are_not_silently_migrated) ... ok
+test_plan_amendment_revokes_case_selection_and_work_without_losing_history (test_workflow.WorkflowTests.test_plan_amendment_revokes_case_selection_and_work_without_losing_history) ... ok
+test_rerun_preserves_reviewed_log_and_requires_new_review (test_workflow.WorkflowTests.test_rerun_preserves_reviewed_log_and_requires_new_review) ... ok
+test_reviewer_added_check_is_required_and_command_change_revokes_cache (test_workflow.WorkflowTests.test_reviewer_added_check_is_required_and_command_change_revokes_cache) ... ok
+test_same_tree_work_change_invalidates_old_review (test_workflow.WorkflowTests.test_same_tree_work_change_invalidates_old_review) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 38.067s
+
+OK

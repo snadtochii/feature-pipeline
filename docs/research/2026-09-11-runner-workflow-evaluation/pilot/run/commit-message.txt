@@ -1,0 +1,5 @@
+PILOT-1: add atomic catalog batch rename
+
+Stage scoped edits in CatalogStore before persistence and invalidate only
+successful batch cache entries in CatalogService. Cover failure atomicity,
+cache retention, snapshot detachment and single-rename compatibility.

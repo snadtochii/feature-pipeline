@@ -87,8 +87,7 @@ Where `id`, `title`, and the `--body-file` path come from — the `sed` reads ab
 
 ## §5 Finalize
 
-- **Success** (PR opened, URL captured) → Transition 5 (`in-progress → review`, status `in-review`). Record the PR URL + branch (PR linkage on the ticket: the close stage's [`storage-fs.md`](../../close-stage/references/storage-fs.md) / [`storage-server.md`](../../close-stage/references/storage-server.md) §6, for the detected mode). Print:
-  `✅ PR opened: <url>  (branch <branch> → <base>). Ticket → review/. Merge the PR, then re-run to finalize to done/.`
+- **Success** (PR opened, URL captured) → Transition 5 (`in-progress → review`, status `in-review`). Record the PR URL + branch (PR linkage on the ticket: the close stage's [`storage-fs.md`](../../close-stage/references/storage-fs.md) / [`storage-server.md`](../../close-stage/references/storage-server.md) §6, for the detected mode). The user-facing PR line is the close stage's: it prints it from the finalizer's result (`close-stage/SKILL.md` §6).
 - **Degradation** (any precondition/push/PR failure) → Transition 2 (`done/`). Record the reason + branch in `06-summary.md`. Print the specific degradation line.
 - The verdict stays `pass` in both cases — degradation is not a failed close.
 

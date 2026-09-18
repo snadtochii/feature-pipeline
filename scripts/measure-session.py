@@ -150,21 +150,41 @@ asserted, their real-transcript shape is not:
   - A standalone `/feature:build` root session, recognised through the
     `<command-name>/feature:build</command-name>` record.
   - The finalizer child. Its recognition contract is
-    `parentAgentId == <the build agent's id>` AND a description matching
-    `^Finalize <TICKET-ID>\b`. `parentAgentId` alone is insufficient, because
-    a build already spawns four reviewers. A finalizer child is reported as
-    the post-gate phase of its parent build; any spawn that means to be
-    recognised as one must emit exactly that description.
+    `parentAgentId == <the build's id>` - the build agent in the single-agent
+    shape, the close-stage child in the three-stage one - AND a description
+    matching `^Finalize <TICKET-ID>\b`. `parentAgentId` alone is
+    insufficient, because a build already spawns four reviewers. A finalizer
+    child is reported as the post-gate phase of its parent build; any spawn
+    that means to be recognised as one must emit exactly that description.
 
     This clause reaches the phase table through the `self+children` column:
     the child's re-read sum is attributed to the phase holding its spawn
     turn. The phase boundaries themselves, and the parity fields, are read
-    from the *build's own* tool calls, so the build must keep authoring its
-    own `06-summary.md` write. Were that write to move into the finalizer,
-    the post-gate boundary would read as missing and `verdict`, `findings`,
+    from the tool calls of the agent that authors the artifact, so
+    `04-review.md` and `06-summary.md` must be written by one of the agents
+    the shapes below name. Were a write to move into the finalizer, the
+    post-gate boundary would read as missing and `verdict`, `findings`,
     `commit` and `pr` would all degrade to `unknown` - correctly, but the
-    measurement would stop answering AC 4. A change to who writes the
-    summary is therefore a change to this script.
+    measurement would stop answering AC 4. A change to who writes an
+    artifact is therefore a change to this script.
+  - The three-stage build shape: implement, then a review-stage and a
+    close-stage child. A child is a stage by its role - the `review-stage` /
+    `close-stage` entries of the role map, which match the `Review stage for
+    <TICKET-ID>` / `Close stage for <TICKET-ID>` literals and the anchored
+    `<TICKET-ID> review stage` / `<TICKET-ID> close stage` form a measured
+    session used - and is grouped with its siblings by (parent, ticket). The implement agent is a `Build stage
+    for <TICKET-ID>` sibling (under flow), else the parent itself when that
+    is the root session or ran `/feature:build` (standalone build: its turns
+    from the first stage spawn on are sequencer turns, credited to the stage
+    whose spawn most recently preceded them). Phases: implement = the
+    implement agent's turns; review = the review-stage child, its reviewers
+    as children; post-review = the close-stage child up to its FIRST
+    `06-summary.md` write; post-gate = the rest of it, the finalizer as a
+    child. Parity reads `04-review.md` from the review stage and
+    `06-summary.md` from the close stage. Pinned by a synthetic probe of each
+    parent shape, and checked once by hand against a real standalone-build
+    transcript - the RC-52 pair in
+    docs/research/2026-09-17-paired-run-benchmark-protocol.md §7.2.
 
 Codex transcripts are out of scope and take the loud-failure path.
 """
@@ -193,6 +213,8 @@ UNIT_NAME = "weighted input-token equivalents - not a price and not a plan-limit
 DEFAULT_ROLE_MAP = {
     "build-stage": r"^Build stage for ",
     "plan-stage": r"^Plan stage for ",
+    "review-stage": r"^Review stage for |^\S+ review stage$",
+    "close-stage": r"^Close stage for |^\S+ close stage$",
     "finalize-child": r"^Finalize ",
     "ship-implementer": r" implementer via flow$",
     "ship-review": r"^Independent review of ",
@@ -257,6 +279,10 @@ KNOWN_VERDICTS = frozenset({"pass", "partial", "stuck", "fail"})
 SLASH_BUILD_RE = re.compile(r"<command-name>\s*/?feature:build\s*</command-name>")
 COMMAND_ARGS_RE = re.compile(r"<command-args>(.*?)</command-args>", re.DOTALL)
 FINALIZER_DESC_RE_TEMPLATE = r"^Finalize {ticket}\b"
+# The three stages of a three-stage build are keyed on the role map above -
+# the one recognition path, so a `--role-map` override moves all of them.
+IMPLEMENT_STAGE_ROLE = "build-stage"
+STAGE_CHILD_ROLES = {"review-stage": "review", "close-stage": "close"}
 REVIEWER_SUBAGENT = "feature:code-reviewer"
 SPAWN_TOOLS = ("Agent", "Task")
 
@@ -884,6 +910,10 @@ class Phase:
     reread_self_children: int = 0
     share_self: float | None = None
     share_self_children: float | None = None
+    # The agents whose turns this phase spans. Empty for a single-agent build;
+    # a three-stage build's review phase names its review-stage child, and its
+    # post-review and post-gate phases the close-stage child.
+    agent_ids: list = field(default_factory=list)
 
 
 @dataclass
@@ -915,9 +945,20 @@ class BuildReport:
     phases: list
     parity: Parity
     finalizer_agent_ids: list = field(default_factory=list)
+    # Three-stage builds only: {"implement": [...], "review": [...], "close": [...]}.
+    stage_agent_ids: dict = field(default_factory=dict)
+
+
+def stage_child_kind(agent: Agent) -> str | None:
+    """`review` or `close` for a review-stage / close-stage child, else None."""
+    return STAGE_CHILD_ROLES.get(agent.role)
 
 
 def is_build_agent(agent: Agent) -> bool:
+    # A review-stage child writes 04-review.md and spawns the reviewers, but
+    # it is a phase of its parent's build, never a build of its own.
+    if stage_child_kind(agent):
+        return False
     for call in agent.tool_calls:
         if artifact_write_name(call) == "04-review.md":
             return True
@@ -1067,6 +1108,168 @@ def split_phases(agent: Agent, spawn_turn_of_child, children_by_parent, by_id) -
     return phases
 
 
+def _accumulate_phase(name, spans, relay_spans, spawn_turn_of_child, children_by_parent, by_id, skip_children, reason=""):
+    """One phase assembled from turn spans over one or more agents.
+
+    `spans` are `(agent, start, end)` on the stage agents that own the phase;
+    `relay_spans` are the sequencer's own turns that belong to it (the spawn
+    and the turns that handle the return), counted into the sums but kept out
+    of the turn range. A child spawned inside a span is credited to the phase,
+    except the stage agents themselves, which `skip_children` names - their
+    turns are already the phase's own.
+    """
+    turns = 0
+    self_sum = 0
+    children_sum = 0
+    start_window = end_window = None
+    start_turn = end_turn = None
+    agent_ids = []
+    relay_turns = 0
+    relay_agent = None
+    tagged = [(False, span) for span in spans] + [(True, span) for span in relay_spans]
+    for is_relay, (agent, start, end) in tagged:
+        start = max(1, start)
+        end = min(end, len(agent.turns))
+        if start > end:
+            continue
+        windows = [t.window for t in agent.turns]
+        turns += end - start + 1
+        self_sum += sum(windows[start - 1 : end])
+        for child_id in children_by_parent.get(agent.agent_id, []):
+            if child_id in skip_children:
+                continue
+            spawn = spawn_turn_of_child.get(child_id)
+            if spawn is not None and start <= spawn <= end:
+                children_sum += by_id[child_id].reread_sum + _subtree_reread(
+                    child_id, children_by_parent, by_id
+                )
+        if is_relay:
+            relay_turns += end - start + 1
+            relay_agent = agent.agent_id
+            continue
+        if start_window is None:
+            start_window = windows[start - 1]
+            start_turn = start
+        end_window = windows[end - 1]
+        end_turn = end
+        if agent.agent_id not in agent_ids:
+            agent_ids.append(agent.agent_id)
+    if relay_turns:
+        note = f"+{relay_turns} sequencer turn(s) in {relay_agent}"
+        reason = f"{reason}; {note}" if reason else note
+    return Phase(
+        name=name,
+        status="ok",
+        reason=reason,
+        turns=turns,
+        start_turn=start_turn,
+        end_turn=end_turn,
+        start_window=start_window,
+        end_window=end_window,
+        reread_self=self_sum,
+        reread_self_children=self_sum + children_sum,
+        agent_ids=agent_ids,
+    )
+
+
+def split_staged_phases(
+    implement_agents, review_agents, close_agents, relay, spawn_turn_of_child, children_by_parent, by_id
+):
+    """Phases of a three-stage build: implement, then review-stage and
+    close-stage children.
+
+    `implement_agents` own every turn of the implement phase - `Build stage
+    for` siblings under flow. When `relay` is set it is the standalone build
+    root instead: its turns before the first stage spawn are the implement
+    phase, and each later turn is credited to the stage whose spawn most
+    recently preceded it (the spawn turn of the close stage to post-review,
+    the turns after it to post-gate). Inside a close-stage child the
+    post-review / post-gate boundary is the FIRST 06-summary.md write, as in
+    `split_phases`.
+    """
+    stage_ids = {a.agent_id for a in review_agents + close_agents}
+    relay_spans = {name: [] for name in PHASE_NAMES}
+    if relay is not None:
+        stage_spawns = sorted(
+            (spawn_turn_of_child[a.agent_id], stage_child_kind(a))
+            for a in review_agents + close_agents
+            if a.agent_id in spawn_turn_of_child
+        )
+        first_spawn = stage_spawns[0][0] if stage_spawns else len(relay.turns) + 1
+        implement_spans = [(relay, 1, first_spawn - 1)]
+        for turn in range(first_spawn, len(relay.turns) + 1):
+            spawn_turn, kind = max((s for s in stage_spawns if s[0] <= turn), key=lambda s: s[0])
+            if kind == "review":
+                relay_spans["review"].append((relay, turn, turn))
+            elif turn == spawn_turn:
+                relay_spans["post-review"].append((relay, turn, turn))
+            else:
+                relay_spans["post-gate"].append((relay, turn, turn))
+    else:
+        implement_spans = [(a, 1, len(a.turns)) for a in implement_agents]
+
+    def phase(name, spans, reason=""):
+        return _accumulate_phase(
+            name, spans, relay_spans[name], spawn_turn_of_child, children_by_parent, by_id, stage_ids, reason
+        )
+
+    phases = []
+    if implement_spans:
+        phases.append(phase("implement", implement_spans))
+    else:
+        phases.append(
+            Phase(
+                name="implement",
+                status="n/a",
+                reason="no implement agent: the stage children's parent neither ran "
+                "/feature:build nor spawned a `Build stage for` sibling",
+            )
+        )
+    if review_agents:
+        phases.append(phase("review", [(a, 1, len(a.turns)) for a in review_agents]))
+    else:
+        phases.append(Phase(name="review", status="n/a", reason="no review stage child"))
+    if close_agents:
+        post_review = []
+        post_gate = []
+        reasons = []
+        for agent in close_agents:
+            summary_write = next(
+                (c.turn for c in agent.tool_calls if artifact_write_name(c) == "06-summary.md"),
+                None,
+            )
+            if summary_write is None:
+                post_review.append((agent, 1, len(agent.turns)))
+                reasons.append(f"no 06-summary.md write in {agent.agent_id}; post-review runs to its end")
+            else:
+                post_review.append((agent, 1, summary_write))
+                post_gate.append((agent, summary_write + 1, len(agent.turns)))
+        phases.append(phase("post-review", post_review, "; ".join(reasons)))
+        if post_gate:
+            phases.append(phase("post-gate", post_gate))
+        else:
+            phases.append(
+                Phase(
+                    name="post-gate",
+                    status="n/a",
+                    reason="no 06-summary.md write, so the post-gate boundary is unknown",
+                )
+            )
+    else:
+        missing = "no close stage child"
+        phases.append(Phase(name="post-review", status="n/a", reason=missing))
+        phases.append(Phase(name="post-gate", status="n/a", reason=missing))
+
+    total_self = sum(p.reread_self for p in phases)
+    total_all = sum(p.reread_self_children for p in phases)
+    for p in phases:
+        if p.status != "ok":
+            continue
+        p.share_self = (100.0 * p.reread_self / total_self) if total_self else None
+        p.share_self_children = (100.0 * p.reread_self_children / total_all) if total_all else None
+    return phases
+
+
 def _severity_counts(body: str):
     """Reviewer findings per severity, from the review body.
 
@@ -1137,11 +1340,23 @@ def _newest_answer(calls, answer_of):
     return None
 
 
-def extract_parity(agent: Agent, check_re, post_gate_agents=()) -> Parity:
+def extract_parity(artifact_agents, bash_agents, check_re) -> Parity:
+    """Parity fields of one build.
+
+    `artifact_agents` are scanned for the 04-review.md and 06-summary.md
+    writes - the build itself in the single-agent shape, the review-stage and
+    close-stage children in the three-stage one. `bash_agents` are scanned for
+    check runs and the commit / push / PR commands: those plus the implement
+    agent and the finalizer, whose commands answer the same questions.
+    """
     parity = Parity()
 
-    summary_calls = [c for c in agent.tool_calls if artifact_write_name(c) == "06-summary.md"]
-    review_calls = [c for c in agent.tool_calls if artifact_write_name(c) == "04-review.md"]
+    summary_calls = [
+        c for a in artifact_agents for c in a.tool_calls if artifact_write_name(c) == "06-summary.md"
+    ]
+    review_calls = [
+        c for a in artifact_agents for c in a.tool_calls if artifact_write_name(c) == "04-review.md"
+    ]
 
     def verdict_of(call):
         found = VERDICT_RE.search(artifact_write_body(call))
@@ -1194,10 +1409,7 @@ def extract_parity(agent: Agent, check_re, post_gate_agents=()) -> Parity:
     commit = False
     pushed = False
     pr = False
-    # A finalizer child does the post-gate work on the build's behalf, so its
-    # commands answer the same parity questions and are scanned with the
-    # build's own - the same subtree the phase table credits to post-gate.
-    for source in (agent,) + tuple(post_gate_agents):
+    for source in bash_agents:
         for call in source.tool_calls:
             if call.name != "Bash":
                 continue
@@ -1306,22 +1518,40 @@ def build_report(session_id, raws, weights, role_map_source, check_pattern, tick
             + ", ".join(unknown_types)
         )
 
-    builds = []
-    for agent in agents:
-        if not is_build_agent(agent):
-            continue
-        phases = split_phases(agent, spawn_turn_of_child, children_by_parent, by_id)
-        finalizer_re = re.compile(
-            FINALIZER_DESC_RE_TEMPLATE.format(ticket=re.escape(agent.ticket))
-            if agent.ticket != UNATTRIBUTED
+    def finalizer_re_for(ticket):
+        return re.compile(
+            FINALIZER_DESC_RE_TEMPLATE.format(ticket=re.escape(ticket))
+            if ticket != UNATTRIBUTED
             else r"^Finalize\b"
         )
-        finalizers = [
+
+    def finalizers_under(parent_ids, ticket):
+        pattern = finalizer_re_for(ticket)
+        return [
             child
-            for child in children_by_parent.get(agent.agent_id, [])
-            if finalizer_re.search(by_id[child].description or "")
+            for parent_id in parent_ids
+            for child in children_by_parent.get(parent_id, [])
+            if pattern.search(by_id[child].description or "")
         ]
-        parity = extract_parity(agent, check_re, [by_id[c] for c in finalizers])
+
+    # Three-stage builds: a review-stage or close-stage child is a phase of
+    # its parent's build, grouped by (parent, ticket). A finalizer under a
+    # close stage is that build's post-gate child.
+    staged = {}
+    for agent in agents:
+        kind = stage_child_kind(agent)
+        if kind and agent.parent_id in by_id:
+            group = staged.setdefault((agent.parent_id, agent.ticket), {"review": [], "close": []})
+            group[kind].append(agent)
+    staged_parents = {parent_id for parent_id, _ in staged}
+
+    builds = []
+    for agent in agents:
+        if not is_build_agent(agent) or agent.agent_id in staged_parents:
+            continue
+        phases = split_phases(agent, spawn_turn_of_child, children_by_parent, by_id)
+        finalizers = finalizers_under([agent.agent_id], agent.ticket)
+        parity = extract_parity([agent], [agent] + [by_id[c] for c in finalizers], check_re)
         children_total = sum(
             by_id[c].reread_sum + _subtree_reread(c, children_by_parent, by_id)
             for c in children_by_parent.get(agent.agent_id, [])
@@ -1338,6 +1568,63 @@ def build_report(session_id, raws, weights, role_map_source, check_pattern, tick
                 phases=phases,
                 parity=parity,
                 finalizer_agent_ids=finalizers,
+            )
+        )
+
+    def spawn_order(agent):
+        return spawn_turn_of_child.get(agent.agent_id, 0)
+
+    for (parent_id, ticket), group in staged.items():
+        parent = by_id[parent_id]
+        review_agents = sorted(group["review"], key=spawn_order)
+        close_agents = sorted(group["close"], key=spawn_order)
+        stage_ids = {a.agent_id for a in review_agents + close_agents}
+        siblings = [
+            by_id[c]
+            for c in children_by_parent.get(parent_id, [])
+            if by_id[c].role == IMPLEMENT_STAGE_ROLE and by_id[c].ticket == ticket
+        ]
+        if siblings:
+            implement_agents, relay = sorted(siblings, key=spawn_order), None
+            site = "stage subagents (under flow)"
+        elif parent.agent_id == ROOT_AGENT_ID or parent.slash_build_ticket:
+            implement_agents, relay = [parent], parent
+            site = "root session (standalone /feature:build), stages as subagents"
+        else:
+            implement_agents, relay = [], None
+            site = "stage subagents (implement agent not found)"
+        phases = split_staged_phases(
+            implement_agents, review_agents, close_agents, relay, spawn_turn_of_child, children_by_parent, by_id
+        )
+        finalizers = finalizers_under([a.agent_id for a in close_agents], ticket)
+        group_agents = implement_agents + review_agents + close_agents
+        parity = extract_parity(
+            review_agents + close_agents, group_agents + [by_id[c] for c in finalizers], check_re
+        )
+        reread_self = sum(a.reread_sum for a in group_agents)
+        children_total = sum(
+            by_id[c].reread_sum + _subtree_reread(c, children_by_parent, by_id)
+            for a in group_agents
+            for c in children_by_parent.get(a.agent_id, [])
+            if c not in stage_ids
+        )
+        builds.append(
+            BuildReport(
+                agent_id=implement_agents[0].agent_id if implement_agents else f"{parent_id} (stages)",
+                ticket=ticket,
+                role="three-stage build",
+                site=site,
+                turns=sum(len(a.turns) for a in group_agents),
+                reread_self=reread_self,
+                reread_self_children=reread_self + children_total,
+                phases=phases,
+                parity=parity,
+                finalizer_agent_ids=finalizers,
+                stage_agent_ids={
+                    "implement": [a.agent_id for a in implement_agents],
+                    "review": [a.agent_id for a in review_agents],
+                    "close": [a.agent_id for a in close_agents],
+                },
             )
         )
 
@@ -1472,6 +1759,7 @@ def phase_to_dict(phase: Phase) -> dict:
         "end_window": phase.end_window,
         "reread_self": phase.reread_self,
         "reread_self_children": phase.reread_self_children,
+        "agent_ids": list(phase.agent_ids),
         "share_self_pct": None if phase.share_self is None else round(phase.share_self, 3),
         "share_self_children_pct": (
             None if phase.share_self_children is None else round(phase.share_self_children, 3)
@@ -1509,6 +1797,7 @@ def build_to_dict(build: BuildReport) -> dict:
         "phases": [phase_to_dict(p) for p in build.phases],
         "parity": parity_to_dict(build.parity),
         "finalizer_agent_ids": list(build.finalizer_agent_ids),
+        "stage_agent_ids": {k: list(v) for k, v in build.stage_agent_ids.items()},
     }
 
 
@@ -1774,6 +2063,14 @@ def render_text(report: Report, session_path=None) -> str:
                 ],
                 rows,
             )
+            if build.stage_agent_ids:
+                out.append(
+                    "stage agents: "
+                    + " | ".join(
+                        f"{stage} {', '.join(ids) or '-'}"
+                        for stage, ids in build.stage_agent_ids.items()
+                    )
+                )
             if build.finalizer_agent_ids:
                 out.append(
                     "finalizer child in post-gate: " + ", ".join(build.finalizer_agent_ids)
@@ -2324,6 +2621,8 @@ def _register_pattern_probes(probe, role_map):
         ("Build stage for FP-86", "build-stage"),
         ("Plan stage for FP-85", "plan-stage"),
         ("Finalize FP-93 after the gate", "finalize-child"),
+        ("Review stage for FP-3", "review-stage"),
+        ("FP-3 close stage", "close-stage"),
         ("FP-87 implementer via flow", "ship-implementer"),
         ("Independent review of PR 97", "ship-review"),
         ("Address review on PR 98", "ship-address"),
@@ -2425,7 +2724,7 @@ def run_self_test() -> int:
             tool_calls=calls,
             models=[],
         )
-        return extract_parity(agent, compile_check_pattern(DEFAULT_CHECK_PATTERN))
+        return extract_parity([agent], [agent], compile_check_pattern(DEFAULT_CHECK_PATTERN))
 
     fragment_edit = [
         _call("Write", file_path="/t/06-summary.md", content="# Summary\n\nverdict: pass\n"),
@@ -2715,6 +3014,193 @@ def run_self_test() -> int:
         f"post-gate self={fin_post_gate.reread_self} "
         f"self+children={fin_post_gate.reread_self_children} child={fin_child_reread}",
     )
+    # The three-stage shape, end to end through build_report: a standalone
+    # /feature:build root that spawns a review stage and a close stage. Every
+    # synthetic turn has a 60-token window, so the expected sums are exact.
+    def _spawn(tool_use_id, description, subagent_type=GENERIC_ROLE):
+        return {
+            "type": "tool_use",
+            "id": tool_use_id,
+            "name": "Task",
+            "input": {"subagent_type": subagent_type, "description": description},
+        }
+
+    def _write(tool_use_id, name, content):
+        return {
+            "type": "tool_use",
+            "id": tool_use_id,
+            "name": "Write",
+            "input": {"file_path": f"/t/{name}", "content": content},
+        }
+
+    def _meta(description, parent, tool_use_id, agent_type=GENERIC_ROLE, depth=1):
+        meta = {
+            "agentType": agent_type,
+            "description": description,
+            "spawnDepth": depth,
+            "toolUseId": tool_use_id,
+        }
+        if parent is not None:
+            meta["parentAgentId"] = parent
+        return meta
+
+    def _records(prefix, count, content_at):
+        return [_assistant(f"{prefix}{i}", content=content_at.get(i)) for i in range(1, count + 1)]
+
+    weights = dict(DEFAULT_WEIGHTS)
+    standalone_root = [
+        {
+            "type": "user",
+            "message": {
+                "content": "<command-name>/feature:build</command-name>"
+                "<command-args>FP-42</command-args>"
+            },
+        }
+    ] + _records(
+        "sr",
+        6,
+        {2: [_spawn("s1", "Review stage for FP-42")], 4: [_spawn("s2", "Close stage for FP-42")]},
+    )
+    standalone_raws = [
+        _synthetic_agent(ROOT_AGENT_ID, standalone_root, label="<synthetic>/root.jsonl"),
+        _synthetic_agent(
+            "rstage",
+            _records(
+                "rs",
+                3,
+                {
+                    1: [_spawn("rv1", "FP-42 correctness review", REVIEWER_SUBAGENT)],
+                    3: [_write("rw1", "04-review.md", "| CRITICAL | 1 |")],
+                },
+            ),
+            meta=_meta("Review stage for FP-42", None, "s1"),
+        ),
+        _synthetic_agent(
+            "rev",
+            _records("rv", 2, {}),
+            meta=_meta("FP-42 correctness review", "rstage", "rv1", REVIEWER_SUBAGENT, 2),
+        ),
+        _synthetic_agent(
+            "cstage",
+            _records(
+                "cs",
+                4,
+                {
+                    2: [_write("cw1", "06-summary.md", "verdict: pass")],
+                    3: [_spawn("fz1", "Finalize FP-42")],
+                },
+            ),
+            meta=_meta("Close stage for FP-42", None, "s2"),
+        ),
+        _synthetic_agent(
+            "fin",
+            _records(
+                "fz",
+                2,
+                {
+                    1: [
+                        {
+                            "type": "tool_use",
+                            "id": "fb1",
+                            "name": "Bash",
+                            "input": {"command": "git commit -F m.txt && git push && gh pr create"},
+                        }
+                    ]
+                },
+            ),
+            meta=_meta("Finalize FP-42", "cstage", "fz1", "feature:finalizer", 2),
+        ),
+    ]
+    staged = build_report("probe", standalone_raws, weights, DEFAULT_ROLE_MAP, DEFAULT_CHECK_PATTERN)
+    probe(
+        "three-stage: a standalone build with stage children is exactly one build",
+        len(staged.builds) == 1
+        and staged.builds[0].agent_id == ROOT_AGENT_ID
+        and staged.builds[0].stage_agent_ids == {
+            "implement": [ROOT_AGENT_ID],
+            "review": ["rstage"],
+            "close": ["cstage"],
+        },
+        f"builds={[(b.agent_id, b.stage_agent_ids) for b in staged.builds]}",
+    )
+    if staged.builds:
+        by_name = {p.name: p for p in staged.builds[0].phases}
+        expected = {
+            # (turns, self, self+children): the root's 6 turns split 1 / 2 / 1 / 2
+            # across the phases, the stage children add their own, and the
+            # reviewer and finalizer land under review and post-gate.
+            "implement": (1, 60, 60),
+            "review": (5, 300, 420),
+            "post-review": (3, 180, 180),
+            "post-gate": (4, 240, 360),
+        }
+        got = {
+            name: (p.turns, p.reread_self, p.reread_self_children) for name, p in by_name.items()
+        }
+        probe(
+            "three-stage: sequencer turns follow the stage they relay; children land by spawn turn",
+            got == expected and all(by_name[n].status == "ok" for n in expected),
+            f"got {got}",
+        )
+        probe(
+            "three-stage: the review phase names its stage child and its own turn range",
+            by_name["review"].agent_ids == ["rstage"]
+            and (by_name["review"].start_turn, by_name["review"].end_turn) == (1, 3)
+            and by_name["post-gate"].agent_ids == ["cstage"]
+            and (by_name["post-gate"].start_turn, by_name["post-gate"].end_turn) == (3, 4),
+            f"review={by_name['review']} post-gate={by_name['post-gate']}",
+        )
+        probe(
+            "three-stage: shares sum to 100 over the group",
+            abs(sum(p.share_self for p in by_name.values()) - 100.0) < 1e-6
+            and abs(sum(p.share_self_children for p in by_name.values()) - 100.0) < 1e-6,
+        )
+        parity = staged.builds[0].parity
+        probe(
+            "three-stage: parity reads the review stage's findings and the close stage's verdict",
+            parity.verdict == "pass"
+            and parity.findings.get("CRITICAL") == 1
+            and parity.commit is True
+            and parity.pr is True
+            and staged.builds[0].finalizer_agent_ids == ["fin"],
+            f"verdict={parity.verdict} findings={parity.findings} commit={parity.commit} "
+            f"pr={parity.pr} finalizers={staged.builds[0].finalizer_agent_ids}",
+        )
+
+    flow_root = _records(
+        "fr",
+        2,
+        {
+            1: [
+                _spawn("b1", "Build stage for FP-42"),
+                _spawn("s1", "Review stage for FP-42"),
+                _spawn("s2", "Close stage for FP-42"),
+            ]
+        },
+    )
+    flow_raws = [
+        _synthetic_agent(ROOT_AGENT_ID, flow_root, label="<synthetic>/root.jsonl"),
+        _synthetic_agent("bstage", _records("bs", 3, {}), meta=_meta("Build stage for FP-42", None, "b1")),
+        _synthetic_agent("rstage", _records("rs", 2, {}), meta=_meta("Review stage for FP-42", None, "s1")),
+        _synthetic_agent(
+            "cstage",
+            _records("cs", 2, {1: [_write("cw1", "06-summary.md", "verdict: pass")]}),
+            meta=_meta("Close stage for FP-42", None, "s2"),
+        ),
+    ]
+    under_flow = build_report("probe", flow_raws, weights, DEFAULT_ROLE_MAP, DEFAULT_CHECK_PATTERN)
+    flow_got = {
+        p.name: (p.turns, p.reread_self) for b in under_flow.builds for p in b.phases
+    }
+    probe(
+        "three-stage: under flow the Build stage sibling is the implement phase, whole",
+        len(under_flow.builds) == 1
+        and under_flow.builds[0].agent_id == "bstage"
+        and under_flow.builds[0].site.endswith("(under flow)")
+        and flow_got == {"implement": (3, 180), "review": (2, 120), "post-review": (1, 60), "post-gate": (1, 60)},
+        f"builds={[b.agent_id for b in under_flow.builds]} phases={flow_got}",
+    )
+
     stuck_records = [_assistant(f"s{i}") for i in range(1, 4)]
     stuck_agents = parse_agents([_synthetic_agent("stuck", stuck_records)], role_map)
     stuck_phases = split_phases(stuck_agents[0], {}, {}, {a.agent_id: a for a in stuck_agents})

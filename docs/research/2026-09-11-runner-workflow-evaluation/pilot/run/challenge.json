@@ -1,0 +1,47 @@
+{
+  "ticket": "PILOT-1",
+  "base": "d9dd52cdb648190333975500531ad0a949e1fa01",
+  "tree": "344c80154cbcc50146599b6fcb1f09dce17d3741",
+  "quality_fingerprint": "e8fc2e04ed901cc129e48bafbdf7fe67f31b6544ddbd6e7d31abe6d864bdd1a5",
+  "plan_digest": "fea88a710967c3d6dc04dad74e61736adec1a45c127fb848c14f0c1e3794595d",
+  "reviewer": "/root/workflow_pilot/reviewer",
+  "selection_basis": "Inspected the raw PILOT-1 specification, fixture AGENTS.md, original catalog.py and test_catalog.py, and workflow contract. No predecessor results or revision histories were supplied. Cases target the requirements' consequential intersections: later-item rejection with already cached valid records, ownership with public error disclosure, successful batches with cache retention and snapshot isolation, and compatibility with existing single rename. Reconciled these risks with the recorded plan: store-owned staging and service-owned targeted invalidation preserve the documented boundaries; no exception or plan correction is needed. Behavioral reuse must preserve existing label values, scope/error semantics, revision handling, and detached cache reads, not merely reuse a method name. The configured unit gate must contain meaningful assertions for these cases; final source inspection must additionally verify persistence ownership. This is initial selection before product changes, using only original source; no tests were run, files changed, or implementation designed. The packet exposed the plan before the raw files were read, so this review does not claim blinding to the plan.",
+  "cases": [
+    {
+      "id": "late-rejection-atomicity",
+      "invariant": "Every rejected batch preserves all persisted rows and previously cached reads.",
+      "setup": "Prime cached reads for multiple owned records and retain their cached entries and returned snapshots. Submit batches whose first edit is valid but a later edit has a stale revision, invalid label, missing ID, foreign ID, or duplicate ID. Exercise invalid labels including whitespace-only and non-string values.",
+      "expected": "Each batch raises the appropriate rejection; stale revision raises Conflict and missing/foreign records raise Unavailable. No record's label or revision changes, no existing cache entry is replaced or evicted, and retained read snapshots remain unchanged.",
+      "check": "unit"
+    },
+    {
+      "id": "scope-and-error-certainty",
+      "invariant": "Batch access remains caller-scoped and absent versus foreign records are publicly indistinguishable.",
+      "setup": "Use a record owned by another caller, optionally already cached under its actual owner, and compare an attempted batch rename by the wrong owner with an otherwise equivalent attempt on an absent ID.",
+      "expected": "Both attempts raise Unavailable with the exact public message 'Record unavailable'; neither exposes or changes foreign data, and all rows and existing cache entries remain unchanged.",
+      "check": "unit"
+    },
+    {
+      "id": "success-order-cache-and-detachment",
+      "invariant": "A successful batch changes each selected owned record once, preserves input order, refreshes affected reads, retains unrelated cache entries, and returns detached snapshots.",
+      "setup": "Prime affected and unrelated cache entries, including an unrelated owner's entry. Rename two owned records in reverse storage order using their current revisions. Retain pre-operation read snapshots, then inspect returned results and subsequent reads. Mutate returned snapshots and read snapshots, including nested payloads when present.",
+      "expected": "Results follow edit order; each selected label changes and revision increments exactly once. Subsequent reads show updated values. Unrelated cache entries retain identity and contents. Old read snapshots retain their original values, and mutations to any public snapshot do not alter persisted rows, cached contents, or other snapshots.",
+      "check": "unit"
+    },
+    {
+      "id": "batch-container-validation",
+      "invariant": "Only a nonempty list is an accepted batch container, and container rejection has no side effects.",
+      "setup": "With persisted rows and cached reads already present, call rename_many with an empty list and representative non-list containers such as None, a dictionary, and a tuple of otherwise valid edit objects.",
+      "expected": "Every invalid container is rejected before any observable row or cache change. The requirement does not prescribe a particular exception class for these container failures.",
+      "check": "unit"
+    },
+    {
+      "id": "single-rename-contract",
+      "invariant": "Existing single rename retains its successful and failing behavior alongside the new batch API.",
+      "setup": "Exercise cached single rename before and after batch operations. Cover success using a nonempty label with surrounding whitespace, stale revision, invalid label, and foreign or absent ID. Include stale revision combined with an invalid label to observe existing validation precedence.",
+      "expected": "Single rename preserves the supplied valid label verbatim, increments revision once, refreshes subsequent affected reads, and returns detached data. Failures preserve rows and cache. Scope failures remain Unavailable('Record unavailable'); stale revision remains Conflict('Revision changed'), including when the label is also invalid; an invalid label at the current revision remains ValueError('Nonempty label required').",
+      "check": "unit"
+    }
+  ],
+  "checks": []
+}

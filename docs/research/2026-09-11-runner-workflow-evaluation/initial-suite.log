@@ -1,0 +1,18 @@
+......F........................................
+======================================================================
+FAIL: test_publication_replays_after_folder_move_and_interrupted_write (test_feature_adapter.FeatureTests.test_publication_replays_after_folder_move_and_interrupted_write)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/serhiinadtochii/Projects/feature-pipeline/prototypes/codex-ticket-runner/test_feature_adapter.py", line 165, in test_publication_replays_after_folder_move_and_interrupted_write
+    self.cli("sync-feature")
+    ~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/Users/serhiinadtochii/Projects/feature-pipeline/prototypes/codex-ticket-runner/test_runner.py", line 52, in cli
+    self.assertEqual(result.returncode, 0 if ok else 1, result.stdout + result.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 0 : {"outcome": "blocked", "reason": "Quality instruction or context changed: /Users/serhiinadtochii/Projects/feature-pipeline/prototypes/codex-ticket-runner/workflow-contract.md"}
+
+
+----------------------------------------------------------------------
+Ran 47 tests in 519.688s
+
+FAILED (failures=1)

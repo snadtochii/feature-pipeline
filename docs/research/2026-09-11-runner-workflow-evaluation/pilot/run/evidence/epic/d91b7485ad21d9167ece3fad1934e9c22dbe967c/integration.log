@@ -1,0 +1,11 @@
+test_batch_foreign_and_absent_have_identical_public_error (test_catalog.CatalogTests.test_batch_foreign_and_absent_have_identical_public_error) ... ok
+test_batch_success_order_cache_and_nested_detachment (test_catalog.CatalogTests.test_batch_success_order_cache_and_nested_detachment) ... ok
+test_invalid_batch_containers_leave_rows_and_cache_unchanged (test_catalog.CatalogTests.test_invalid_batch_containers_leave_rows_and_cache_unchanged) ... ok
+test_late_batch_rejection_is_atomic (test_catalog.CatalogTests.test_late_batch_rejection_is_atomic) ... ok
+test_rename_refreshes_detached_cached_read (test_catalog.CatalogTests.test_rename_refreshes_detached_cached_read) ... ok
+test_single_rename_contract_before_and_after_batch (test_catalog.CatalogTests.test_single_rename_contract_before_and_after_batch) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.001s
+
+OK

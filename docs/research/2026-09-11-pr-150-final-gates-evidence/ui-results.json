@@ -1,0 +1,45 @@
+{
+  "previewInvalidation": {
+    "invalidationArguments": [
+      []
+    ],
+    "unrelatedActiveRefetches": 1,
+    "unrelatedInactiveMarkedStale": true,
+    "inactiveData": "retained-inactive",
+    "approvalDialogVisible": true
+  },
+  "notDispatched": {
+    "alert": "Failed to confirm; may have been applied. Check the same request before continuing.",
+    "undoCalls": 0
+  },
+  "unmountedRegistration": [
+    "register-start",
+    "unmounted",
+    "recovery-callback",
+    "undo-dispatched"
+  ],
+  "recoveryBeforeFailedUndo": {
+    "events": [
+      "recovery-callback",
+      "undo-dispatched"
+    ],
+    "errorVisibleAfterParentReplacesReceipt": false,
+    "recoverySelected": true
+  },
+  "purge": {
+    "callsAfterFirstClick": {
+      "request": 1,
+      "disclosure": 1
+    },
+    "confirmationDialogs": 0,
+    "disabledWhilePending": {
+      "request": false,
+      "disclosure": false
+    },
+    "callsAfterSecondClickWhilePending": {
+      "request": 2,
+      "disclosure": 2
+    }
+  },
+  "scope": "Actual ChatReceipt, HistoryPage, UI components, providers and QueryClient in JSDOM; injected synthetic clients. Parent replacement is controlled, not a real router/browser run. No HTTP or user data."
+}

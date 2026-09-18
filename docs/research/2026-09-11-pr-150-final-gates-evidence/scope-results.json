@@ -1,0 +1,18 @@
+{
+  "approval": {
+    "ordinaryForeignRequestLookup": "record_unavailable",
+    "foreignPreviewReturnedOwnerRequest": true,
+    "foreignPreviewContainsOwnerTask": true,
+    "foreignDecision": "approved",
+    "foreignDecisionIssuedReceipt": true,
+    "foreignReceiptConsumptionError": "approval_invalid",
+    "ownerExecutionWithForeignDecision": "applied",
+    "ownerTaskStillExists": false
+  },
+  "denial": {
+    "foreignDecision": "denied",
+    "ownerOperationState": "denied",
+    "ownerTaskStillExists": true
+  },
+  "scope": "Production SqliteAssistantStore with default DomainCommands, real in-memory migrations and real task create/delete; two synthetic trusted local_human contexts, not multi-user HTTP exploitation."
+}

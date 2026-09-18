@@ -13,6 +13,8 @@
   "role_map": {
     "build-stage": "^Build stage for ",
     "plan-stage": "^Plan stage for ",
+    "review-stage": "^Review stage for |^\\S+ review stage$",
+    "close-stage": "^Close stage for |^\\S+ close stage$",
     "finalize-child": "^Finalize ",
     "ship-implementer": " implementer via flow$",
     "ship-review": "^Independent review of ",
@@ -79,7 +81,7 @@
     },
     {
       "agent_id": "a612fb72665f8ae3c",
-      "role": "general-purpose (other)",
+      "role": "close-stage",
       "agent_type": "general-purpose",
       "description": "RC-52 close stage",
       "spawn_depth": 1,
@@ -189,7 +191,7 @@
     },
     {
       "agent_id": "a64ae806a63975f65",
-      "role": "general-purpose (other)",
+      "role": "review-stage",
       "agent_type": "general-purpose",
       "description": "RC-52 review stage",
       "spawn_depth": 1,
@@ -223,15 +225,26 @@
       "share_pct": 39.212
     },
     {
-      "role": "general-purpose (other)",
-      "count": 2,
-      "turns": 28,
-      "input_tokens": 56,
-      "cache_write_tokens": 221998,
-      "cache_read_tokens": 2657558,
-      "output_tokens": 16440,
-      "weighted_units": 625509.3,
-      "share_pct": 27.601
+      "role": "review-stage",
+      "count": 1,
+      "turns": 14,
+      "input_tokens": 28,
+      "cache_write_tokens": 133722,
+      "cache_read_tokens": 1321560,
+      "output_tokens": 8452,
+      "weighted_units": 341596.5,
+      "share_pct": 15.073
+    },
+    {
+      "role": "close-stage",
+      "count": 1,
+      "turns": 14,
+      "input_tokens": 28,
+      "cache_write_tokens": 88276,
+      "cache_read_tokens": 1335998,
+      "output_tokens": 7988,
+      "weighted_units": 283912.8,
+      "share_pct": 12.528
     },
     {
       "role": "feature:code-reviewer",
@@ -314,93 +327,116 @@
   ],
   "builds": [
     {
-      "agent_id": "a64ae806a63975f65",
+      "agent_id": "root",
       "ticket": "RC-52",
-      "role": "general-purpose (other)",
-      "site": "stage subagent (under flow)",
-      "turns": 14,
-      "reread_self": 1455310,
-      "reread_self_children": 3699959,
+      "role": "three-stage build",
+      "site": "root session (standalone /feature:build), stages as subagents",
+      "turns": 67,
+      "reread_self": 8567654,
+      "reread_self_children": 11280927,
       "phases": [
         {
           "name": "implement",
           "status": "ok",
           "reason": "",
-          "turns": 8,
+          "turns": 36,
           "start_turn": 1,
-          "end_turn": 8,
-          "start_window": 55599,
-          "end_window": 117774,
-          "reread_self": 681589,
-          "reread_self_children": 681589,
-          "share_self_pct": 46.835,
-          "share_self_children_pct": 18.422
+          "end_turn": 36,
+          "start_window": 81185,
+          "end_window": 183830,
+          "reread_self": 5129439,
+          "reread_self_children": 5129439,
+          "agent_ids": [
+            "root"
+          ],
+          "share_self_pct": 59.87,
+          "share_self_children_pct": 45.47
         },
         {
           "name": "review",
           "status": "ok",
-          "reason": "",
-          "turns": 4,
-          "start_turn": 9,
-          "end_turn": 12,
-          "start_window": 118906,
-          "end_window": 130820,
-          "reread_self": 507878,
-          "reread_self_children": 2752527,
-          "share_self_pct": 34.898,
-          "share_self_children_pct": 74.393
+          "reason": "+1 sequencer turn(s) in root",
+          "turns": 15,
+          "start_turn": 1,
+          "end_turn": 14,
+          "start_window": 55599,
+          "end_window": 133724,
+          "reread_self": 1640069,
+          "reread_self_children": 3884718,
+          "agent_ids": [
+            "a64ae806a63975f65"
+          ],
+          "share_self_pct": 19.143,
+          "share_self_children_pct": 34.436
         },
         {
           "name": "post-review",
           "status": "ok",
-          "reason": "no 06-summary.md write; post-review runs to the end",
-          "turns": 2,
-          "start_turn": 13,
-          "end_turn": 14,
-          "start_window": 132119,
-          "end_window": 133724,
-          "reread_self": 265843,
-          "reread_self_children": 265843,
-          "share_self_pct": 18.267,
-          "share_self_children_pct": 7.185
+          "reason": "+1 sequencer turn(s) in root",
+          "turns": 10,
+          "start_turn": 1,
+          "end_turn": 9,
+          "start_window": 55992,
+          "end_window": 115028,
+          "reread_self": 1015684,
+          "reread_self_children": 1015684,
+          "agent_ids": [
+            "a612fb72665f8ae3c"
+          ],
+          "share_self_pct": 11.855,
+          "share_self_children_pct": 9.004
         },
         {
           "name": "post-gate",
-          "status": "n/a",
-          "reason": "no 06-summary.md write, so the post-gate boundary is unknown",
-          "turns": 0,
-          "start_turn": null,
-          "end_turn": null,
-          "start_window": null,
-          "end_window": null,
-          "reread_self": 0,
-          "reread_self_children": 0,
-          "share_self_pct": null,
-          "share_self_children_pct": null
+          "status": "ok",
+          "reason": "+1 sequencer turn(s) in root",
+          "turns": 6,
+          "start_turn": 10,
+          "end_turn": 14,
+          "start_window": 116761,
+          "end_window": 121551,
+          "reread_self": 782462,
+          "reread_self_children": 1251086,
+          "agent_ids": [
+            "a612fb72665f8ae3c"
+          ],
+          "share_self_pct": 9.133,
+          "share_self_children_pct": 11.09
         }
       ],
       "parity": {
-        "verdict": "unknown",
-        "verdict_label": "unknown",
+        "verdict": "pass",
+        "verdict_label": "exact",
         "findings": {
           "CRITICAL": 0,
           "IMPORTANT": 0,
           "SUGGESTION": 6
         },
         "findings_label": "estimate",
-        "check_runs": 1,
-        "bash_calls": 9,
+        "check_runs": 6,
+        "bash_calls": 64,
         "check_runs_label": "estimate",
-        "commit": "unknown",
-        "pushed": "unknown",
-        "pr": "unknown",
-        "commit_pr_label": "unknown",
-        "tail_label": "unknown",
-        "notes": [
-          "no 06-summary.md write, so the transcript ends before the commit and PR work"
-        ]
+        "commit": true,
+        "pushed": true,
+        "pr": true,
+        "commit_pr_label": "estimate",
+        "tail_label": "exact",
+        "notes": []
       },
-      "finalizer_agent_ids": []
+      "finalizer_agent_ids": [
+        "a03b9c15e2cf0b56b"
+      ],
+      "stage_agent_ids": {
+        "implement": [
+          "root"
+        ],
+        "review": [
+          "a64ae806a63975f65"
+        ],
+        "close": [
+          "a612fb72665f8ae3c"
+        ]
+      }
     }
   ],
   "notes": [

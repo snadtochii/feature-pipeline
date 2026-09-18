@@ -1,0 +1,26 @@
+test_cancelling_check_stops_its_process_and_preserves_pending_gate (test_runner.RunnerTests.test_cancelling_check_stops_its_process_and_preserves_pending_gate) ... ok
+test_capacity_block_retains_gate_and_requires_no_new_agents (test_runner.RunnerTests.test_capacity_block_retains_gate_and_requires_no_new_agents) ... ok
+test_check_cache_and_source_mutation (test_runner.RunnerTests.test_check_cache_and_source_mutation) ... ok
+test_check_timeout_recorded_as_failure (test_runner.RunnerTests.test_check_timeout_recorded_as_failure) ... ok
+test_clean_entry_and_owned_paths (test_runner.RunnerTests.test_clean_entry_and_owned_paths) ... ok
+test_epic_pr_cannot_degrade_to_local_completion (test_runner.RunnerTests.test_epic_pr_cannot_degrade_to_local_completion) ... ok
+test_external_commit_stops_resume (test_runner.RunnerTests.test_external_commit_stops_resume) ... ok
+test_failed_final_rerun_revokes_completion (test_runner.RunnerTests.test_failed_final_rerun_revokes_completion) ... ok
+test_fix_invalidates_review_and_checks (test_runner.RunnerTests.test_fix_invalidates_review_and_checks) ... ok
+test_hook_modified_commit_does_not_complete_ticket (test_runner.RunnerTests.test_hook_modified_commit_does_not_complete_ticket) ... ok
+test_missing_gate_never_commits_or_finishes (test_runner.RunnerTests.test_missing_gate_never_commits_or_finishes) ... ok
+test_multiline_commit_message_file (test_runner.RunnerTests.test_multiline_commit_message_file) ... ok
+test_mutating_check_cannot_pass (test_runner.RunnerTests.test_mutating_check_cannot_pass) ... ok
+test_resume_after_commit_before_state_write (test_runner.RunnerTests.test_resume_after_commit_before_state_write) ... ok
+test_reviewer_must_not_be_author (test_runner.RunnerTests.test_reviewer_must_not_be_author) ... ok
+test_spec_and_manifest_changes_are_not_silent (test_runner.RunnerTests.test_spec_and_manifest_changes_are_not_silent) ... ok
+test_staged_only_code_is_reviewed (test_runner.RunnerTests.test_staged_only_code_is_reviewed) ... ok
+test_three_dependent_tickets_commit_in_order (test_runner.RunnerTests.test_three_dependent_tickets_commit_in_order) ... ok
+test_unknown_or_cyclic_dependencies_rejected (test_runner.RunnerTests.test_unknown_or_cyclic_dependencies_rejected) ... ok
+test_unresolved_review_findings_block_commit (test_runner.RunnerTests.test_unresolved_review_findings_block_commit) ... ok
+test_untracked_staged_unstaged_deleted_and_renamed_snapshot (test_runner.RunnerTests.test_untracked_staged_unstaged_deleted_and_renamed_snapshot) ... ok
+
+----------------------------------------------------------------------
+Ran 21 tests in 86.989s
+
+OK

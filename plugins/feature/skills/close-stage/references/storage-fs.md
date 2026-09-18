@@ -4,7 +4,9 @@ Canonical logic for the close stage's storage-touching steps in fs-native storag
 
 ## §1 Inputs and working copy
 
-`<ticket-folder>` is the resolved ticket folder in the main checkout, bound as an absolute path. With a worktree bound it still resolves there, never inside `<wt-path>`. Every input — `01-spec.md`, `02-plan.md`, `03-implementation.md`, and `04-review.md`, `05-tests.md` and `06-summary.md` when present — is a file under it, read with `Read` after a presence check (`Glob`). Subagent spawn prompts carry absolute paths or inline the resolved text; the `ui-tester` never reads the ticket folder.
+`<ticket-folder>` is the resolved ticket folder in the main checkout, bound as an absolute path. With a worktree bound it still resolves there, never inside `<wt-path>`. Every input — `01-spec.md`, `02-plan.md`, `03-implementation.md`, and `04-review.md`, `05-tests.md` and `06-summary.md` when present — is a file under it. Subagent spawn prompts carry absolute paths or inline the resolved text; the `ui-tester` never reads the ticket folder.
+
+**The preparation read** (the skill's Entry step 4) is one Bash call that prints, in order: `claudedocs/tickets/config.yaml`; the frontmatter of `01-spec.md`; `03-implementation.md` in full; `04-review.md`; `ls -l` over `02-plan.md`, `05-tests.md` and `06-summary.md` (presence and mtimes — §7's signals); the lessons contract, [`lessons-log-fs.md`](../../flow/references/lessons-log-fs.md); and `grep '^## ' claudedocs/tickets/_lessons.md` (the store's headings, for §4 of that contract). A file that does not exist prints nothing, and that is its absence — not a §9 error. Each command is separated by `;`, never `&&`, so a missing file cannot stop the rest of the read.
 
 ## §2 Ticket metadata
 
@@ -16,7 +18,7 @@ Read ticket metadata reads the frontmatter of `01-spec.md`: bind `status`, `kind
 
 ## §4 Artifact verdicts
 
-The verdict or skip label is the first line of the artifact body — `06-summary.md` and `05-tests.md`'s skip variants per [`skip-artifacts.md`](skip-artifacts.md); `## Failed Criteria` is a body section of `05-tests.md`. No artifact carries a field outside its body.
+The verdict or skip label is the first line of the artifact body — `06-summary.md` and `05-tests.md`'s skip variants, whose bodies the skill's test checkpoint (step c) inlines; `## Failed Criteria` is a body section of `05-tests.md`. No artifact carries a field outside its body.
 
 ## §5 Lessons
 

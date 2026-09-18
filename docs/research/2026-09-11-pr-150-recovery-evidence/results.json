@@ -1,0 +1,169 @@
+{
+  "rows": [
+    {
+      "mode": "active",
+      "route": "GET /projects",
+      "identity": "anonymous",
+      "status": 401,
+      "trace": [
+        "recovery-guard",
+        "recovery-status-query",
+        "access-guard"
+      ]
+    },
+    {
+      "mode": "active",
+      "route": "GET /projects",
+      "identity": "assistant",
+      "status": 403,
+      "trace": [
+        "recovery-guard",
+        "recovery-status-query",
+        "access-guard"
+      ]
+    },
+    {
+      "mode": "active",
+      "route": "GET /projects",
+      "identity": "human",
+      "status": 200,
+      "trace": [
+        "recovery-guard",
+        "recovery-status-query",
+        "access-guard"
+      ]
+    },
+    {
+      "mode": "frozen",
+      "route": "GET /projects",
+      "identity": "anonymous",
+      "status": 503,
+      "trace": [
+        "recovery-guard",
+        "recovery-status-query"
+      ]
+    },
+    {
+      "mode": "frozen",
+      "route": "GET /recovery/status",
+      "identity": "anonymous",
+      "status": 401,
+      "trace": [
+        "recovery-guard",
+        "access-guard"
+      ]
+    },
+    {
+      "mode": "frozen",
+      "route": "GET /todoist-imports/:id/state",
+      "identity": "anonymous",
+      "status": 401,
+      "trace": [
+        "recovery-guard",
+        "access-guard"
+      ]
+    },
+    {
+      "mode": "frozen",
+      "route": "POST /todoist-imports/:id/decision",
+      "identity": "anonymous",
+      "status": 401,
+      "trace": [
+        "recovery-guard",
+        "access-guard"
+      ]
+    },
+    {
+      "mode": "frozen",
+      "route": "GET /projects",
+      "identity": "assistant",
+      "status": 503,
+      "trace": [
+        "recovery-guard",
+        "recovery-status-query"
+      ]
+    },
+    {
+      "mode": "frozen",
+      "route": "GET /recovery/status",
+      "identity": "assistant",
+      "status": 403,
+      "trace": [
+        "recovery-guard",
+        "access-guard"
+      ]
+    },
+    {
+      "mode": "frozen",
+      "route": "GET /todoist-imports/:id/state",
+      "identity": "assistant",
+      "status": 403,
+      "trace": [
+        "recovery-guard",
+        "access-guard"
+      ]
+    },
+    {
+      "mode": "frozen",
+      "route": "POST /todoist-imports/:id/decision",
+      "identity": "assistant",
+      "status": 403,
+      "trace": [
+        "recovery-guard",
+        "access-guard"
+      ]
+    },
+    {
+      "mode": "frozen",
+      "route": "GET /projects",
+      "identity": "human",
+      "status": 503,
+      "trace": [
+        "recovery-guard",
+        "recovery-status-query"
+      ]
+    },
+    {
+      "mode": "frozen",
+      "route": "GET /recovery/status",
+      "identity": "human",
+      "status": 200,
+      "trace": [
+        "recovery-guard",
+        "access-guard",
+        "recovery-status-query"
+      ]
+    },
+    {
+      "mode": "frozen",
+      "route": "GET /todoist-imports/:id/state",
+      "identity": "human",
+      "status": 200,
+      "trace": [
+        "recovery-guard",
+        "access-guard"
+      ]
+    },
+    {
+      "mode": "frozen",
+      "route": "POST /todoist-imports/:id/decision",
+      "identity": "human",
+      "status": 201,
+      "trace": [
+        "recovery-guard",
+        "access-guard"
+      ]
+    }
+  ],
+  "wrongFreezeDecision": 409,
+  "missingConfirmationStatus": 500,
+  "acceptedState": "accepted",
+  "snapshot": {
+    "status": 200,
+    "sqliteHeaderVerified": true,
+    "rawBytes": 602112,
+    "base64Characters": 802816,
+    "metadataRowsAddedByGET": 1
+  },
+  "scope": "actual source AppModule, real migrations, loopback HTTP, synthetic credentials and disposable DB; guard/store observation wrappers preserve behavior"
+}

@@ -1,0 +1,52 @@
+{
+  "ticket": "PILOT-1",
+  "tree": "d91b7485ad21d9167ece3fad1934e9c22dbe967c",
+  "quality_fingerprint": "e8fc2e04ed901cc129e48bafbdf7fe67f31b6544ddbd6e7d31abe6d864bdd1a5",
+  "plan_digest": "fea88a710967c3d6dc04dad74e61736adec1a45c127fb848c14f0c1e3794595d",
+  "challenge_digest": "ad5fcc963ca9ddf83dbe9fcf5e7880bc9eef95f1c7c6e0e3e3c6f43ee68eb902",
+  "skills_used": [],
+  "behavior_evidence": [
+    {
+      "obligation": "boundary:persistence-owner",
+      "check": "unit",
+      "evidence": "catalog.py CatalogStore._prepare_rename loads detached scoped rows; CatalogStore.rename_many stages every row and snapshots results before self.rows.update. CatalogService only calls store methods. test_late_batch_rejection_is_atomic asserts full persisted row equality on all failures; source review verifies ownership."
+    },
+    {
+      "obligation": "boundary:service-cache-scope",
+      "check": "unit",
+      "evidence": "CatalogService.rename_many forwards owner and invalidates only (owner, result id) after store success. test_batch_success_order_cache_and_nested_detachment asserts unrelated owner/key cache identity, refreshed affected reads and detached nested mutations; rejection helper asserts cache identity and value preservation."
+    },
+    {
+      "obligation": "reuse:rename-contract",
+      "check": "unit",
+      "evidence": "CatalogStore.rename and rename_many share _prepare_rename scope/revision/label validation, keeping validation order and label value. test_rename_refreshes_detached_cached_read is retained; test_single_rename_contract_before_and_after_batch verifies success and failure compatibility around a batch."
+    },
+    {
+      "obligation": "case:late-rejection-atomicity",
+      "check": "unit",
+      "evidence": "test_late_batch_rejection_is_atomic places valid edit first and tests stale, missing, foreign, duplicate, empty, whitespace and nonstring second edit; assert_rejected_unchanged checks exact errors, all persisted rows, cache contents/identities and old snapshots."
+    },
+    {
+      "obligation": "case:scope-and-error-certainty",
+      "check": "unit",
+      "evidence": "test_batch_foreign_and_absent_have_identical_public_error verifies both Unavailable messages exactly equal Record unavailable; the foreign row is already cached for bob. Full store/cache and snapshot preservation checked."
+    },
+    {
+      "obligation": "case:success-order-cache-and-detachment",
+      "check": "unit",
+      "evidence": "test_batch_success_order_cache_and_nested_detachment renames b then a, asserts complete ordered results with exactly incremented revisions, affected read freshness and unrelated cache identity/rows. Nested/result/read/old-snapshot mutation checks prove detachment."
+    },
+    {
+      "obligation": "case:batch-container-validation",
+      "check": "unit",
+      "evidence": "test_invalid_batch_containers_leave_rows_and_cache_unchanged rejects [], None, dict, tuple, string and verifies full row/cache/snapshot preservation."
+    },
+    {
+      "obligation": "case:single-rename-contract",
+      "check": "unit",
+      "evidence": "test_single_rename_contract_before_and_after_batch verifies exact scope/conflict/invalid-label messages, conflict before invalid label, valid whitespace preserved, exact revision increments, cache freshness, nested detachment and failure atomicity before and after a batch."
+    }
+  ],
+  "summary": "Implemented atomic store-owned batch rename and service-owned targeted cache invalidation. Shared existing rename preparation preserves validation semantics for both operations. Added meaningful unittest coverage for the five independent cases, retaining the original regression test. Only catalog.py and test_catalog.py changed.",
+  "acceptance_evidence": "PILOT-1: nonempty list/container and duplicate/invalid-label rejection covered by container and late-rejection tests; owned rows, order, exact revisions and deep-copy results by success test; missing/foreign indistinguishability and stale Conflict by scope/atomicity tests; failed row/cache preservation by shared assertion helper; successful affected refresh and unrelated cache retention by success test; existing single rename by original test plus before/after compatibility test. AGENTS.md persistence and service boundaries verified in source and behavioral assertions. Standard library only, no dependencies or external interactions. Required unit passed (6 tests plus parameterized subcases, exit 0), log: /private/tmp/runner-workflow-pilot/run/evidence/PILOT-1/d91b7485ad21d9167ece3fad1934e9c22dbe967c/unit.log. Final integration follows the verified ticket commit."
+}
