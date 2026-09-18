@@ -88,8 +88,25 @@ else:
     if forbidden:
         errors.append(f"finalizer: leaf role must not hold {sorted(set(forbidden))}")
 
+# The required UI checks are stated once and injected at both ui-tester spawn
+# sites; the tester needs the resize tool the checks' two widths depend on. A
+# spawn site that stops naming the contract, or a budget that loses the tool,
+# would silently drop the checks from every browser pass.
+if not (plugin / "skills/build/references/ui-checks.md").is_file():
+    errors.append("missing required UI checks contract: skills/build/references/ui-checks.md")
+if "references/ui-checks.md" not in build:
+    errors.append("build: test checkpoint must inject references/ui-checks.md")
+ship_ui = plugin / "skills/ship/references/ui-verification.md"
+if not ship_ui.is_file() or "build/references/ui-checks.md" not in ship_ui.read_text():
+    errors.append("ship: ui-verification.md must inject build/references/ui-checks.md")
+tester = plugin / "agents/ui-tester.md"
+tester_frontmatter = tester.read_text().split("---", 2)[1] if tester.is_file() else ""
+for resize_tool in ("mcp__playwright__browser_resize", "mcp__chrome-devtools__resize_page"):
+    if not re.search(rf"^  - {re.escape(resize_tool)}$", tester_frontmatter, re.M):
+        errors.append(f"ui-tester: tool budget must list {resize_tool}")
+
 if errors:
     print("\n".join(f"FAIL: {error}" for error in errors), file=sys.stderr)
     sys.exit(1)
-print("OK: 4 runtime consumers, 2 runtime implementations, 2 neutral stage templates, 4 read-only reviewer roles, 1 mutating finalizer role")
+print("OK: 4 runtime consumers, 2 runtime implementations, 2 neutral stage templates, 4 read-only reviewer roles, 1 mutating finalizer role, 2 ui-checks injection sites")
 PY

@@ -1,6 +1,6 @@
 # Build — server-native Storage Mechanics
 
-Canonical logic for build's storage-touching steps in server-native storage mode. Read when the storage mode detected at the caller's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is server-native — an fs-native run never needs this file. Referenced by `build`, and by [`worktree.md`](worktree.md) / [`pr-creation.md`](pr-creation.md) on behalf of whichever skill runs them. Operations named below are defined in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md); sections are numbered so the skill body cites `§N`.
+Canonical logic for build's storage-touching steps in server-native storage mode. Read when the storage mode detected at the caller's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is server-native — an fs-native run never needs this file. Referenced by `build`, and by [`worktree.md`](worktree.md) / [`pr-creation.md`](pr-creation.md) on behalf of whichever skill runs them. Ship's same-mode storage file points at §13 for the UI evidence home. Operations named below are defined in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md); sections are numbered so the skill body cites `§N`.
 
 ## §1 Inputs
 
@@ -64,3 +64,14 @@ The routing table's signals map onto the ticket row plus `pipeline_list_artifact
 ## §12 Error handling
 
 A storage operation that fails mid-loop stops the skill per [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md) §Loud failure, with a state report — which artifacts were pushed this run and which checkpoint's output was not, so the user knows exactly what the server holds before re-running. A CAS conflict at the verdict gate follows the same file's §CAS conflict doctrine (re-read, re-evaluate, proceed or stop — never widen `from[]`).
+
+## §13 UI evidence home
+
+Every `ui-tester` capture — build's test checkpoint and ship's end-of-run pass alike — is written to one declared directory, named per [`ui-checks.md`](ui-checks.md) §3:
+
+- **Ticket pass**: `claudedocs/ui-evidence/<id>/` under the main checkout's root, as an absolute path — inside the workspace root, where the Playwright MCP is allowed to write. With a worktree bound it still resolves in the main checkout, never inside `<wt-path>`.
+- **A pass covering an epic**: `claudedocs/ui-evidence/<epic-id>/`.
+
+The spawn prompt carries the resolved absolute path, never a link to this section. Fixed filenames overwrite a prior run's captures.
+
+**Gitignore expectation — stated once, here.** Screenshots are binary run evidence, not an artifact row: they are never pushed to the server and never enter a commit — [`commit.md`](commit.md) §1 excludes `claudedocs/` from build's own commits.

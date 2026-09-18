@@ -47,4 +47,4 @@ Every shared mutation in a `--parallel` run is orchestrator-only, in the forms [
 
 ## §7 UI evidence home and hosting
 
-Screenshots go to a run-local directory **outside the ticket store** (e.g. `/tmp/fp-ui-test-<id>/<AC>.png`; never under `claudedocs/tickets/` — creating a tree there would violate the storage doctrine). They are binary run evidence, not a whitelisted artifact row, and are not pushed to the server. Nothing is hostable, so the evidence post always takes the path-manifest outcome in `ui-verification.md` step 3 — the per-AC verdict plus the manifest, with no `git check-ignore` probe.
+Screenshots go to the evidence home declared in [build's `storage-server.md`](../../build/references/storage-server.md) §13 — its location, its epic form and its gitignore expectation live there — with the filenames fixed by [`ui-checks.md`](../../build/references/ui-checks.md) §3. Nothing is hostable, so the evidence post always takes the path-manifest outcome in `ui-verification.md` step 3 — the per-AC verdict plus the manifest, with no `git check-ignore` probe.
