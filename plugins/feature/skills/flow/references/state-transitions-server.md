@@ -26,7 +26,7 @@ The single definition of "is this epic finished?" Both end-state transitions (Tr
 
 **Inputs**: the epic's handle — the epic row plus its child listing (List tickets / list children in [`storage-server.md`](storage-server.md)).
 
-**Output**: a decision — `promote` or `stay` — plus zero or more warnings. The predicate reads only: it never writes fields or issues transitions. The invoking transition performs the promotion (the epic row's CAS transition); the invoking caller renders the warnings in its own channel (`build` inline at the verdict gate, `sync` as `⚠` report lines).
+**Output**: a decision — `promote` or `stay` — plus zero or more warnings. The predicate reads only: it never writes fields or issues transitions. The invoking transition performs the promotion (the epic row's CAS transition); the invoking caller renders the warnings in its own channel (under `build`, the finalizer child returns them in its result `notes` and build prints them with its closing message; `sync` as `⚠` report lines).
 
 **Definitions**:
 - `declared` = the epic's child roster: the set of IDs of the rows whose `parent_id` is the epic's ID (the epic row carries no roster field — the roster is **derived** from the child rows). This is the authoritative roster contract for the epic.
@@ -92,7 +92,7 @@ If the row status is already `in-progress`, this transition is a no-op (no CAS c
 
 1. The same per-verdict CAS for the child row.
 2. **Epic-completion check** (load-bearing for epic-mode): apply the **Epic-completion predicate** (above) over the rows. On `promote`, CAS the epic row `from: [in-progress, in-review]`, `to: done`; on `stay`, the epic row keeps its precedence-derived status (any sibling still `in-progress` → `in-progress`; else any `in-review` → `in-review`). The epic row reaches `done` only once the predicate returns `promote` — i.e. every child row is terminal.
-3. Surface any predicate warnings (roster-unknown, roster-drift) inline at build's verdict gate.
+3. Surface any predicate warnings (roster-unknown, roster-drift): under `build` they travel out in the finalizer's result `notes`, which build prints with its closing message.
 
 A CAS failure follows [`storage-server.md`](storage-server.md) §CAS conflict doctrine. The CAS transition is a single atomic call — there is no two-step to order.
 
@@ -135,7 +135,7 @@ A CAS failure follows [`storage-server.md`](storage-server.md) §CAS conflict do
 ## Transition 5 — Open-PR (in-progress → in-review)
 
 **Invoked by**:
-- `build` at the verdict gate on verdict `pass` with `--pr`, after a pull request has been opened for the work (the branch/push and the `gh pr create` call live in build's `pr-creation.md` reference). This transition owns the status flip.
+- `build` at the verdict gate on verdict `pass` with `--pr`, after a pull request has been opened for the work — build resolves it at the gate and its finalizer child performs it, alongside the branch/push and the `gh pr create` call in build's `pr-creation.md` reference. This transition owns the status flip.
 
 Ticket lands here when its PR is open but not yet merged — a **non-terminal** state. The work is finished from the build loop's perspective, but "done" would misrepresent it: an open PR can be reworked or closed.
 

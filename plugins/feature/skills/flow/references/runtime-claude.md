@@ -14,7 +14,7 @@ The argument is tool data, never a shell command. Plan gets the ticket argument 
 
 ## Spawn and models
 
-Use the active `Agent` tool (`Task` on surfaces exposing that name) with `subagent_type: general-purpose` for stage, ship worker and generic arbiter children. Use the registered `feature:<role>` for explorer, analyst, reviewers and UI tester as their calling skill prescribes; its existing agent definition controls role tools and model. The generic arbiter receives its calling reference's complete read-only prompt. Prefix every prompt with the resolved `<RUNTIME_BLOCK>` from [runtime.md](runtime.md). Use a new agent instance, not a conversation fork.
+Use the active `Agent` tool (`Task` on surfaces exposing that name) with `subagent_type: general-purpose` for stage, ship worker and generic arbiter children. Use the registered `feature:<role>` for explorer, analyst, reviewers, UI tester and finalizer as their calling skill prescribes; its existing agent definition controls role tools and model. The generic arbiter receives its calling reference's complete read-only prompt. Prefix every prompt with the resolved `<RUNTIME_BLOCK>` from [runtime.md](runtime.md). Use a new agent instance, not a conversation fork.
 
 For a stage override, `inherit` → omit `model`; otherwise pass the user's requested alias or model ID verbatim in `model`. Follow stage-briefs §2 for model-rejection fallback. Do not alter the registered role models or global runtime settings.
 
@@ -26,8 +26,8 @@ Resume that same ID with `SendMessage` (`to` = agent ID, message = the caller's 
 
 ## Capacity
 
-Launch the four independent reviewers concurrently when capacity permits. When the runtime reports a concurrency limit, wait for already-running children to finish before dispatching the remaining roles; collect all four before merging findings. Never retry a capacity failure as a model failure, skip a role, or close a paused stage to free a slot.
+Launch the four independent reviewers concurrently when capacity permits. Build's finalizer is a single child spawned after the verdict gate, when no reviewer is running, so it needs one slot and never competes with that batch. When the runtime reports a concurrency limit, wait for already-running children to finish before dispatching the remaining roles; collect all four before merging findings. Never retry a capacity failure as a model failure, skip a role, or close a paused stage to free a slot.
 
-Count subagent layers below the current caller: `flow → stage → role` needs two; `ship → worker → stage → role` needs three. Check exposed depth constraints before dispatch; a missing nested spawn tool or explicit depth rejection stops that stage with a capability error, preserving artifacts. Do not assume a universal numeric limit or modify user settings. For `ship --parallel`, reserve capacity for each worker's stage plus at least one leaf role; reduce the effective worker count and print the change when the exposed limit requires it.
+Count subagent layers below the current caller: `flow → stage → role` needs two; `ship → worker → stage → role` needs three. The finalizer is a role layer under build, at the same depth as the reviewers and the UI tester, so these counts are unchanged. Check exposed depth constraints before dispatch; a missing nested spawn tool or explicit depth rejection stops that stage with a capability error, preserving artifacts. Do not assume a universal numeric limit or modify user settings. For `ship --parallel`, reserve capacity for each worker's stage plus at least one leaf role; reduce the effective worker count and print the change when the exposed limit requires it.
 
 Claude's native skill invocation, registered role definitions, artifact routing, and pause/answer behavior otherwise remain unchanged.

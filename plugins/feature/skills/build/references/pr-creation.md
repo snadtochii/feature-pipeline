@@ -1,13 +1,13 @@
 # PR Creation
 
-Build invokes this at the verdict gate (SKILL.md sub-step 4d) on verdict `pass` when `--pr` is present, after the implement → review → test checkpoints pass. It runs the branch → commit → push → open-PR sequence non-interactively (the `--pr` flag is the user's authorization for the outward-facing push), finalizes the ticket into `review/` via Transition 5 on success, and degrades to a local commit + `done/` (Transition 2) when GitHub tooling is unavailable — never crashing the verdict gate.
+Build hands this to its `feature:finalizer` child at the verdict gate (SKILL.md sub-step 4d) on verdict `pass` when `--pr` is present, after the implement → review → test checkpoints pass. The child runs the branch → commit → push → open-PR sequence non-interactively (the `--pr` flag is the user's authorization for the outward-facing push), finalizes the ticket into `review/` via Transition 5 on success, and degrades to a local commit + `done/` (Transition 2) when GitHub tooling is unavailable — never crashing the verdict gate.
 
-Build has no `Skill` tool, so the branch conventions are inlined here rather than borrowed from a separate skill; the commit mechanics (staging + message) live in the shared [`commit.md`](commit.md). All git/gh work runs inline via `Bash`.
+Neither build nor its finalizer has a `Skill` tool, so the branch conventions are inlined here rather than borrowed from a separate skill; the commit mechanics (staging + message) live in the shared [`commit.md`](commit.md). All git/gh work runs inline via `Bash`.
 
 ## When it runs
 
-- The full sequence (§0–§5): only on verdict `pass` with `--pr`. On `partial`/`stuck`, or without `--pr`, this reference is not used — the verdict gate's commit-mode dispatch (SKILL.md 4c/4d, driven by the bound `commit_mode`) applies instead.
-- The **Merge predicate** section only: referenced by build's `review/` resumption row, which runs on every re-invocation of a `review/` ticket regardless of whether `--pr` is on the command line.
+- The full sequence (§0–§5): only on verdict `pass` with `--pr`, and it is the finalizer that runs it. On `partial`/`stuck`, or without `--pr`, this reference is not used — the verdict gate's commit-mode dispatch (SKILL.md 4c/4d, driven by the bound `commit_mode`) applies instead.
+- The **Merge predicate** section only: referenced by build's `review/` resumption row, which runs on every re-invocation of a `review/` ticket regardless of whether `--pr` is on the command line. That row is a resumption check rather than post-gate work, so build runs the predicate itself; the finalizer is not involved.
 
 ## §0 Preconditions (short-circuit to commit-only)
 
@@ -32,10 +32,10 @@ Branch-decision matrix — the first entry is a guard that wins over every row b
 - **A worktree was provisioned for this ticket** ([`worktree.md`](worktree.md) §2, via build's `--worktree` or `ship --parallel`) → **reuse `<branch>`**; it is already created and checked out in `<wt-path>`. Skip every row below: never `git checkout <base>` (the base is checked out in the main checkout, and git refuses one branch in two worktrees — that checkout is exactly what fails here), and never re-create the convention branch (it exists, and this worktree is on it). Proceed straight to §3 with all git work bound to `<wt-path>` per [`worktree.md`](worktree.md) §3.
 - **On `main`/`master`** → `git checkout -b <branch>` carrying the uncommitted changes (clean fork; the trunk stays put).
 - **On a feature branch, no commits ahead of base** (`git rev-list origin/<base>..HEAD` empty) → fork from base: `git stash -u` → `git checkout <base>` → `git pull --ff-only` → `git checkout -b <branch>` → `git stash pop` → commit.
-- **On a feature branch WITH commits ahead of base** (`git rev-list origin/<base>..HEAD` non-empty) → do NOT silently fork; the uncommitted work may depend on those commits. Pause and ask: **reuse current branch** / **fork anyway** / **abort**.
-- **Detached HEAD** → can't safely reuse; pause and ask: **fork anyway** / **abort**.
+- **On a feature branch WITH commits ahead of base** (`git rev-list origin/<base>..HEAD` non-empty) → do NOT silently fork; the uncommitted work may depend on those commits. This needs a human: return `result: needs-decision` naming this stop and carrying the choice block verbatim — **reuse current branch** / **fork anyway** / **abort** — for build to relay. Apply nothing further until the answer arrives with the re-spawn.
+- **Detached HEAD** → can't safely reuse; return `result: needs-decision` the same way, with the choice block **fork anyway** / **abort**.
 - **No local base branch** (only `origin/<base>`) → fork from `origin/<base>` directly (`git checkout -b <branch> origin/<base>`); never assume a local `<base>` exists.
-- **Stash-pop conflict mid-fork** → stop; leave the stash intact; print the conflict + `resolve, then \`git stash pop\``; abort the PR step WITHOUT committing; report and exit the ship path (do not crash the gate).
+- **Stash-pop conflict mid-fork** → stop; leave the stash intact; abort the PR step WITHOUT committing. The prescription is fixed, so this is a terminal `result: error` rather than a decision request — there is no answer to relay: report the conflict and `resolve, then `git stash pop`` in the result's `detail`, and exit without crashing the gate.
 
 `<branch>` = `<type>/<TICKET-ID>-<slug>` (see §2).
 

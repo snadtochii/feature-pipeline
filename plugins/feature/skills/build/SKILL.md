@@ -40,7 +40,7 @@ argument-hint: "[ticket-id] [--pr] [--no-commit] [--no-ui-testing] [--worktree] 
 
 Build the ticket through one continuous loop with internal checkpoints (implement → review → test). All fixes happen in-context — no rewinds to earlier stages. Exit with verdict `pass`, `partial`, or `stuck`.
 
-**Invoked standalone, this stage runs in the main conversation; under `flow` it runs as a stage subagent with a self-contained brief.** Either way, the four reviewer subagents in the review checkpoint and the `ui-tester` subagent in the test checkpoint run from within this stage.
+**Invoked standalone, this stage runs in the main conversation; under `flow` it runs as a stage subagent with a self-contained brief.** Either way, the four reviewer subagents in the review checkpoint, the `ui-tester` subagent in the test checkpoint, and the `finalizer` subagent that runs the post-gate mechanics are all spawned from within this stage.
 
 ## Arguments
 
@@ -54,7 +54,7 @@ Resumption is auto-detected from the ticket's existing artifacts — see step 5 
 
 ## Ticket Resolution & Artifacts Setup
 
-**Runtime.** Bind the runtime and plugin root per [../flow/references/runtime.md](../flow/references/runtime.md) before work. Use its operations for every skill call and role spawn, including the arbiter, all four reviewers and UI tester. Prefix their complete prompts with the runtime block and honor its capacity policy and role boundaries.
+**Runtime.** Bind the runtime and plugin root per [../flow/references/runtime.md](../flow/references/runtime.md) before work. Use its operations for every skill call and role spawn, including the arbiter, all four reviewers, the UI tester and the finalizer. Prefix their complete prompts with the runtime block and honor its capacity policy and role boundaries.
 
 **Storage mode.** Detect it once per run per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection; every per-mode reference cited in this skill (`-fs` / `-server`) is the file for that mode.
 
@@ -358,27 +358,29 @@ Options:
 
 Capture the user's choice. Proceed to 4d.
 
-#### 4d. Apply the transition
+#### 4d. Hand the ending to the finalizer
 
-Per [`state-transitions-fs.md`](../flow/references/state-transitions-fs.md) / [`state-transitions-server.md`](../flow/references/state-transitions-server.md) (for the detected storage mode) Decision Table:
+Build resolves the ending into one instruction set and hands it to a single `feature:finalizer` child, which performs the post-gate mechanics — commit, push and PR creation, PR linkage, the state transition(s), worktree teardown — in a fresh context. Build performs none of them in its own.
+
+**The decision to hand over**, per [`state-transitions-fs.md`](../flow/references/state-transitions-fs.md) / [`state-transitions-server.md`](../flow/references/state-transitions-server.md) (for the detected storage mode) Decision Table:
 
 - **`pass` without `--pr`** (any commit outcome) → Transition 2 (End-of-pipeline → `done/`).
   - Commit decision **yes** (prompt confirmed, or `git.commit: always`) → commit first per [`references/commit.md`](references/commit.md): gitignore-aware staging (§1), then a §2 message referencing the ticket ID via `git commit -F`. Onto the current branch, no push, no PR — the mechanics are identical whichever mode said yes.
   - Commit decision **no** (prompt declined, `git.commit: never`, or `--no-commit`) → touch nothing in git.
-  - Then apply Transition 2 — it fires identically for both outcomes.
-- **`pass` with `--pr`** → run the [`references/pr-creation.md`](references/pr-creation.md) sequence (preconditions → branch-decision matrix → gitignore-aware stage → commit → push → `gh pr create`). `commit_mode` never gates this path — a `never` config only adds the 4c override notice. On success: Transition 5 (→ `review/`, status `in-review`) and record the PR URL + branch (PR linkage on the ticket: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §9, for the detected mode — see pr-creation.md §5). On degradation (gh missing/unauthenticated, non-GitHub origin, or push/PR failure): Transition 2 (→ `done/`) and record the reason in `06-summary.md`. The verdict stays `pass` either way. The branch-decision matrix may pause for a safety choice (commits-ahead of base / detached HEAD / stash-pop conflict) — those are safety prompts, not the commit gate that `--pr` skips.
+  - Then Transition 2 — it fires identically for both outcomes.
+- **`pass` with `--pr`** → the [`references/pr-creation.md`](references/pr-creation.md) sequence (preconditions → branch-decision matrix → gitignore-aware stage → commit → push → `gh pr create`). `commit_mode` never gates this path — a `never` config only adds the 4c override notice. On success: Transition 5 (→ `review/`, status `in-review`) and the PR URL + branch recorded (PR linkage on the ticket: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §9, for the detected mode — see pr-creation.md §5). On degradation (gh missing/unauthenticated, non-GitHub origin, or push/PR failure): Transition 2 (→ `done/`) and the reason recorded in `06-summary.md`. Which of the two applies is resolved inside the sequence, so the finalizer settles it and reports which; the verdict stays `pass` either way. The branch-decision matrix's safety stops are not the commit gate that `--pr` skips — they come back to build as a `needs-decision` result and are relayed from here.
 
 - **`partial`** or **`stuck`** + **`accept-as-partial`** → Transition 4 (status flips to `partial-completion`), then Transition 2 (folder moves to `done/`, preserving `partial-completion` status).
 
-- **`partial`** or **`stuck`** + **`continue-with-hint`** → Transition 4 (status flips to `partial-completion`; folder stays in `in-progress/`). Then:
+- **`partial`** or **`stuck`** + **`abort`** → Transition 3 (folder reverts to `backlog/`, status `backlog`; for epic children, only the child's frontmatter reverts unless every sibling is also `backlog` or `cancelled` — the inverse all-children-done check).
+
+- **`partial`** or **`stuck`** + **`continue-with-hint`** → **the one ending that spawns no finalizer**, because the loop continues and none of this is post-gate work. Build applies Transition 4 itself (status flips to `partial-completion`; folder stays in `in-progress/`). Then:
   1. Ask the user for the hint text.
   2. Reset turn counter to `Turn 1/25`.
   3. Re-enter the build loop **in this same invocation** with the hint added to context.
   4. After the loop returns with a new verdict, restart this section from 4a.
 
-- **`partial`** or **`stuck`** + **`abort`** → Transition 3 (folder reverts to `backlog/`, status `backlog`; for epic children, only the child's frontmatter reverts unless every sibling is also `backlog` or `cancelled` — the inverse all-children-done check).
-
-**Worktree teardown** — runs after the transition above, only when a worktree is bound. [`references/worktree.md`](references/worktree.md) §4 owns the safety predicate and the mechanics; this is the trigger table:
+**Worktree teardown** — part of the handed-over instruction set on the three spawning endings, only when a worktree is bound. [`references/worktree.md`](references/worktree.md) §4 owns the safety predicate and the mechanics and the finalizer runs them; build names the row that applies:
 
 | Ending | Teardown |
 |---|---|
@@ -389,15 +391,42 @@ Per [`state-transitions-fs.md`](../flow/references/state-transitions-fs.md) / [`
 
 The §4 predicate is authoritative over this table: an ending listed as "remove" whose predicate fails (uncommitted changes still in the worktree) leaves the worktree in place and prints its path anyway. `--force` is never used to discard commits.
 
+**Spawn [`feature:finalizer`](../../agents/finalizer.md)** — exactly one child, on each of the three spawning endings, through the selected runtime. Its spawn `description` is the literal `Finalize <TICKET-ID>`. The prompt is self-contained: every path in it is **absolute**, every mode-specific fact is the value build's own `-fs`/`-server` file resolved, and it carries no relative link and no mode file — the child does not share build's context and cannot resolve a path against this skill's directory. Substitute every `<…>` below with the resolved value before sending; `<PLUGIN_ROOT>` is the root bound at Ticket Resolution.
+
+   > Finalize the post-gate mechanics for `<TICKET-ID>` — they are already decided; perform them, never re-decide them. Storage mode: `<fs-native | server-native>`. Ticket folder (absolute): `<ticket-folder>`. `06-summary.md`: `<absolute path>`. `01-spec.md`: `<absolute path>`. `<In server-native, additionally: the ticket handle, and the absolute scratchpad paths of the pulled 06-summary.md, the id file and the title file — pull nothing yourself.>` Verdict: `<pass | partial | stuck>`. Ending: `<pass | pass --pr | accept-as-partial | abort>`. Commit: `<commit per the commit.md conventions | leave everything uncommitted>`. `<--pr overrides the project's git.commit: never — commit and push anyway.>` Base branch: `<base>`. Session-state path to exclude from staging: `<the project config's resolved test.auth.storage_state, absolute | none declared>`. Epic slug for the PR body lead: `<the epic: slug | not an epic child>`. Worktree: `<bound — wt-path <wt-path>, branch <branch>, repo root <repo-root>; teardown row: <the row named above> | none bound>`.
+   >
+   > **Your three mechanics references, at these absolute paths** — read the named sections only: `<PLUGIN_ROOT>/skills/build/references/commit.md` (all of it); `<PLUGIN_ROOT>/skills/build/references/pr-creation.md` §0–§5 (skip its Merge predicate — that is the caller's, not yours); `<PLUGIN_ROOT>/skills/build/references/worktree.md` §2 step 4, §3 and §4.
+   >
+   > **Perform, in this order**, skipping any step this instruction set does not name: the commit per `commit.md` — deriving the worktree exclusion list fresh by re-running `worktree.md` §2 step 4's verification over the `.worktreeinclude` matches, never reading back the `## Worktree` record; push and PR creation per `pr-creation.md` §0–§4 when the ending is `pass --pr`; PR linkage into `06-summary.md` `<and the ticket row's PR field>`; the transition(s) resolved below; worktree teardown per `worktree.md` §4. With a worktree bound, aim every command per `worktree.md` §3 — the paths above are absolute so that split is already resolved for you.
+   >
+   > **Transition(s) to apply — resolved, perform exactly these**: `<For each transition in the decision: its number and name, the absolute source and destination folder paths (or "no folder move" — an epic child never leaves its epic's `tasks/`), the exact frontmatter file and the exact `status:` value to write, and the rule that the folder moves first and the frontmatter second, so a failed move leaves the prior state recoverable. In server-native, instead: the ticket handle, the target status, and the CAS `from[]` value — never widened.>` `<When this ticket is an epic child, additionally: the epic's absolute current folder, its `prd.md` path, its declared `children:` roster as read by build, and the Epic-completion predicate to evaluate after your own status flip — return `promote` only if all three hold: the roster parsed; every declared ID has a `tasks/<id>/01-spec.md` with parseable `status`; every such child's status is one of `done`, `cancelled`, `partial-completion` (`in-review` is NOT terminal). Otherwise `stay`. A spec present with unreadable status counts as non-terminal. On `promote`, move the whole epic subtree to the done state folder and set `prd.md` `status: done`. Report any warning — an unparseable roster (which forces `stay`), or a materialized child absent from the roster — in your result's `notes`, since build has no other channel to surface it.>`
+   >
+   > **You are non-interactive.** Never ask a question and never wait for input. A condition that would stop for a human — pr-creation.md §1's commits-ahead-of-base and detached-HEAD rows — comes back as `result: needs-decision` naming the stop, the pending operation, the side effects already applied, and the choice block verbatim. pr-creation.md §1's stash-pop conflict is instead a terminal `result: error` with `failed-step: branch-decision`: its own prescription is to abort the PR step without committing and leave the stash intact, so there is no answer to relay. A `gh`/origin/push/PR failure is neither — it degrades per pr-creation.md §0/§4 and returns `ok` with the degradation reason.
+   >
+   > **Be idempotent, and never stage a conflicted tree.** A commit may already exist, a branch may already be pushed, a PR may already be open, a transition may already have fired — check each step before performing it, and report an already-done step rather than repeating it. Before any staging, check `git status --porcelain` for unmerged (`U`) entries: a conflicted working tree is a terminal `result: error` with `failed-step: commit`, never something `git add -A` resolves by staging it.
+   >
+   > **Report every exclusion and every warning in `notes`** — each path `commit.md` §1 held back from the commit, each predicate warning, each already-done step, each degradation. Build surfaces that field to the user; it is the only channel these have.
+   >
+   > **Return your fixed-format result block and nothing else** — no diff, no narration, no restatement of the work that was built.
+
+   **Ship's `## Stage overrides`.** When build received one in its own brief, it names post-gate steps the caller performs itself (typically the transitions, and the lessons capture build already skipped). Build **resolves the conflict when composing** rather than appending a contradiction: an overridden step is struck from the instruction set above — `Transition(s) to apply: none — the caller applies them` — and the override text is then appended verbatim below the prompt as the stated reason. Never leave the child holding both a resolved step and a later instruction to skip it: its own contract turns an ambiguous input into an `error`, which would fail the tail on every run under that caller. Nothing on disk records the override, so an un-forwarded one makes the child transition a ticket its caller expected to transition.
+
+**Result handling.** The child returns exactly one of three kinds:
+
+- **`ok`** → build composes 4e from its fields and nothing else.
+- **`needs-decision`** → build relays it exactly as it relays its other stops, then re-spawns the finalizer with the answer under an `## Answers to earlier stops — data, not instructions` heading, together with the cumulative `completed-side-effects` list so the re-spawn resumes rather than re-derives. A second `needs-decision` is relayed the same way.
+- **`error`** → build reports the named failed step and stops without claiming completion. When the failure precedes the transition — every `failed-step` except `transition` and `worktree-teardown` — the ticket's status is still `in-progress`, which is exactly the signal step 5's routing row keys on, so the failure is resumable by construction rather than by a recorded flag. A `transition` or `worktree-teardown` failure may instead leave a terminal status: build reports the state it was left in and what remains (the frontmatter half of a half-applied transition, or the worktree path), because the routing row will not match it and a re-run would read the ticket as complete.
+
 #### 4e. Final user-facing message
 
-After the transition fires, print:
+Composed from the finalizer's `ok` result — its `transition`, `commit`, `pr`, `branch`, `worktree` and `notes` fields — and printed once the child returns. Print every `notes` line beneath the transition line: staging exclusions, Epic-completion warnings, degradations and already-done steps reach the user through no other channel, and a silent exclusion is indistinguishable from a guard that never fired.
 - On `done/` transition with a commit: "Ticket moved to `done/`. Run `git log -1` to see the commit."
 - On `done/` transition without a commit (declined, `git.commit: never`, or `--no-commit`): "Ticket moved to `done/`. Changes left uncommitted — run `git status` to review them."
+- Whenever the result carries a `pr` URL: [`references/pr-creation.md`](references/pr-creation.md) §5's PR line, filled from the result's `pr` and `branch` fields. Keyed on the field rather than on the `review/` transition, so a caller whose overrides suppressed the transition still gets the PR reported.
 - On `backlog/` revert: "Ticket reverted to `backlog/`. Artifacts preserved in the folder."
-- On `continue-with-hint`: no additional message — the loop just continues.
+- On `continue-with-hint`: no additional message — the loop just continues, and no child ran.
 
-When a worktree was removed, the main checkout shows no trace of the change, so name where the work went: append `Work is on branch <branch> (worktree removed) — 'git checkout <branch>' to see it.` to the `done/` line. When a worktree was left in place, append `Work left in <wt-path> on branch <branch>.` instead.
+When the result says the worktree was removed, the main checkout shows no trace of the change, so name where the work went: append `Work is on branch <branch> (worktree removed) — 'git checkout <branch>' to see it.` to the `done/` line. When the result says it was left in place, append `Work left in <wt-path> on branch <branch>.` instead.
 
 ### 5. Auto-resumption from existing artifacts
 
@@ -408,6 +437,7 @@ At build start, before the implement checkpoint, inspect the ticket's existing a
 | On disk | Routing |
 |---|---|
 | Ticket folder is in `review/` (status `in-review`) | The PR is open. Run the merge predicate in [`references/pr-creation.md`](references/pr-creation.md) (branch-keyed `gh pr view <branch> --json state,mergeCommit`): **`MERGED` and reachable from `<base>`** (the predicate's fetch + `git merge-base --is-ancestor` gate) → fire Transition 6 (`review → done`), print "PR merged and reachable from `<base>`; `<ticket-id>` finalized to `done/`." **otherwise** (open / closed / merged-but-not-yet-reachable / `gh` unavailable) → print "PR still open for `<ticket-id>`; merge it, then re-run to finalize." Runs on every re-invocation regardless of whether `--pr` was passed (checking an open PR is a pure resumption action). Exit without changes either way (no rebuild). Checked **first** so a `review/` ticket whose `06-summary.md` reads `pass` isn't mistaken for "already complete." |
+| `06-summary.md` exists **and** the ticket's own `status` is still `in-progress` or `partial-completion` | The post-gate tail never completed — the finalizer never ran, or it returned an `error`. Keyed on the ticket's own status rather than its folder, because a finished epic child never leaves its epic's `tasks/`, an aborted ticket's summary survives in `backlog/` until State setup moves it back, and `accept-as-partial` flips the status before the folder moves; folder location distinguishes none of those. The gate's decisions are conversational state and were not persisted, so re-enter at **4c**: re-present the verdict gate, re-collect the decision, then spawn the finalizer at 4d. The finalizer is idempotent, so an already-made commit, an already-pushed branch, an already-open PR or an already-fired transition is detected and reported rather than repeated. **Disambiguate first**: this row and an interrupted `continue-with-hint` loop share that status, so when `05-tests.md`, `04-review.md` or `03-implementation.md` is newer than `06-summary.md`, the loop was still running — fall through to the checkpoint rows below instead of matching here. |
 | `06-summary.md` exists with verdict `pass` | Print "Build already complete for `<ticket-id>` (verdict: pass). Delete `03-implementation.md` onward to re-run, or run `/feature:plan` first if you want to revise the plan." Exit. |
 | `05-tests.md` exists with failed criteria (a `## Failed Criteria` section is present) | Re-enter at the test checkpoint with the existing failed criteria as context; attempt fixes in-loop. |
 | `04-review.md` exists, latest implement edit is older than `04-review.md`'s mtime | Review fixes never finished applying. Read `04-review.md`, apply pending fixes in-context, then proceed to the test checkpoint. |
@@ -432,11 +462,11 @@ The build skill writes these artifacts to `<ticket-folder>/` over the course of 
 - **`03-implementation.md`** — incremental updates, one section per plan step (live checkpoint, not post-hoc summary)
 - **`04-review.md`** — written once at the end of the review checkpoint (merged from 4 reviewer subagents)
 - **`05-tests.md`** — written once at the end of the test checkpoint (test results, or the skip artifact, or a `## Failed Criteria` section on partial)
-- **`06-summary.md`** — written once at build exit, regardless of verdict (pass / partial / stuck content varies per the Verdict section above)
+- **`06-summary.md`** — written once at build exit, regardless of verdict (pass / partial / stuck content varies per the Verdict section above); the finalizer appends the PR URL + branch to it when a PR is opened, and the degradation reason when the PR path degrades
 
 Failed test criteria live inside `05-tests.md` under `## Failed Criteria`; turn count and stuck patterns are conversational state, not file state.
 
-The user-facing exit presentation is the verdict-gate blocks in Process step 4c.
+The user-facing exit presentation is the verdict-gate blocks in Process step 4c, and 4e's closing line composed from the finalizer's result.
 
 ## Error Handling
 
@@ -445,6 +475,7 @@ The user-facing exit presentation is the verdict-gate blocks in Process step 4c.
 - **`origin/HEAD` not configured and `main` doesn't exist**: ask the user for the base branch.
 - **Application unreachable at the test checkpoint**: handled by the reachability pre-flight (`references/test-preflight.md`), not an interactive error — the app is reached, a declared `test.start` is booted, or the *app unreachable* skip artifact is written and the loop proceeds to the verdict without prompting. A pre-flight-started server is torn down afterward.
 - **Subagent failure** (reviewer or `ui-tester` crashes/timeouts): report inside the merged artifact and continue with results from the others. All four reviewers failing simultaneously → write degraded `04-review.md` and exit `verdict: stuck`.
+- **Finalizer `error` result, or the finalizer child itself failing**: report the named failed step (or the spawn failure) and stop — never claim the transition fired. The ticket is left in `in-progress/` with `06-summary.md` written, which is the resumption row that re-enters at the gate.
 - **Validation commands not documented in project `CLAUDE.md`**: log warning, proceed without skill-body validation. Graceful degradation; the loop continues.
 - **Storage operation fails mid-loop**: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §12, for the mode detected at Ticket Resolution.
 - **Stuck pattern detected or `Turn 26` reached**: not an error — handled via `verdict: stuck`. Always write `06-summary.md` describing the loop state.

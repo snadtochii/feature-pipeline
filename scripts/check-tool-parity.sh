@@ -52,11 +52,20 @@ stray_re = re.compile(r"^  - (mcp__plugin_\S*?pipeline_\w+)$")
 failures = []
 checked = 0
 
-for skill in sorted(skills_dir.glob("*/SKILL.md")):
+# Agents declare the same tools under `tools:` instead of `allowed-tools:`, so the
+# same bare/scoped regexes apply unchanged. `finalizer` is the first agent to carry
+# pipeline_* entries; without this walk a connector rename would silently invalidate
+# the one agent that performs server-native ticket transitions, while this script
+# still printed OK.
+agents_dir = skills_dir.parent / "agents"
+targets = [(p.parent.name, p) for p in sorted(skills_dir.glob("*/SKILL.md"))]
+targets += [(f"agents/{p.stem}", p) for p in sorted(agents_dir.glob("*.md"))]
+
+for name, skill in targets:
     lines = skill.read_text().split("\n")
     fences = [i for i, line in enumerate(lines) if line == "---"][:2]
     if len(fences) != 2:
-        failures.append(f"{skill}: no frontmatter fences")
+        failures.append(f"{name}: no frontmatter fences")
         continue
     front = lines[fences[0]:fences[1]]
 
@@ -69,10 +78,9 @@ for skill in sorted(skills_dir.glob("*/SKILL.md")):
     ]
 
     if not bare and not scoped and not stray:
-        continue  # skill declares no pipeline tools at all
+        continue  # declares no pipeline tools at all
 
     checked += 1
-    name = skill.parent.name
 
     if stray:
         failures.append(
@@ -92,7 +100,7 @@ for skill in sorted(skills_dir.glob("*/SKILL.md")):
         print(f"  ok  {name}: {len(bare)} tool(s) dual-listed")
 
 if not checked:
-    print("FAIL: no skill declared any pipeline_* tools — check the skills path", file=sys.stderr)
+    print("FAIL: nothing declared any pipeline_* tools — check the skills/agents paths", file=sys.stderr)
     sys.exit(1)
 
 if failures:
@@ -101,5 +109,5 @@ if failures:
         print(f"  - {failure}", file=sys.stderr)
     sys.exit(1)
 
-print(f"\nOK: {checked} skill(s) consistent against {prefix}")
+print(f"\nOK: {checked} skill/agent frontmatter(s) consistent against {prefix}")
 PY

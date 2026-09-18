@@ -101,7 +101,7 @@ flow owns:
 
 It does NOT own:
 - State transitions — plan and build perform these themselves per `references/state-transitions-fs.md` / `references/state-transitions-server.md`
-- The verdict gate — build owns it end-to-end (verdict, option menu, user-choice capture, transition dispatch); flow only carries the gate's text out of the build subagent and the choice back in (`references/stage-briefs.md` §5)
+- The verdict gate — build owns it end-to-end (verdict, option menu, user-choice capture, and the instruction set its finalizer child then applies); flow only carries the gate's text out of the build subagent and the choice back in (`references/stage-briefs.md` §5)
 - Stage internals — plan owns its Phase 1 synthesis and plan design; build owns its loop and checkpoints
 - Agent coordination — plan and build spawn their own subagents
 - Artifact writes — every artifact is written by the stage that produces it

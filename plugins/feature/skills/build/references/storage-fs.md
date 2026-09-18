@@ -20,7 +20,7 @@ Each artifact is a `Write` to `<ticket-folder>/0N-*.md` the moment its producing
 
 ## §5 Worktree binding
 
-The `03-implementation.md` existence check that gates re-binding a recorded worktree is a file-presence check (`Glob`), never an unguarded `Read`. [`worktree.md`](worktree.md) §3's "stays in the main checkout" column is `<ticket-folder>` and the lessons log, as written there.
+The `03-implementation.md` existence check that gates re-binding a recorded worktree is a file-presence check (`Glob`), never an unguarded `Read`. [`worktree.md`](worktree.md) §3's "stays in the main checkout" column is `<ticket-folder>` and the lessons log, as written there. The bound `<wt-path>`, `<branch>` and `<repo-root>` are handed to the finalizer as resolved facts in its spawn prompt — teardown runs there, against those same absolute paths.
 
 ## §6 Artifact verdicts
 
@@ -36,11 +36,11 @@ Read each blocker's artifacts from its resolved folder; "missing" means the file
 
 ## §9 PR linkage
 
-`id`/`title` come from the `sed` reads in [`pr-creation.md`](pr-creation.md) §4; `--body-file` is `<ticket-folder>/06-summary.md`; the opened PR's URL + branch are recorded in `06-summary.md`.
+Performed by the finalizer, which receives every path below as an absolute value in its spawn prompt. `id`/`title` come from the `sed` reads in [`pr-creation.md`](pr-creation.md) §4 against `<ticket-folder>/01-spec.md`; `--body-file` is `<ticket-folder>/06-summary.md`; the opened PR's URL + branch are appended to `06-summary.md`, whose body is otherwise left as build authored it.
 
 ## §10 Resumption keying
 
-The first row keys on the ticket folder being in `review/`; the merge predicate's branch is recovered from `06-summary.md` or the current checkout. An epic child flipped `in-review` in place under `in-progress/<EPIC>/` is not matched — it falls through to the `06-summary.md` verdict-`pass` row and exits as already complete. Artifact presence is file presence; the `04-review.md` recency rows compare file mtimes. Start fresh = the user deletes `03-implementation.md` (and downstream) from the folder; git is the version-history layer.
+The first row keys on the ticket folder being in `review/`; the merge predicate's branch is recovered from `06-summary.md` or the current checkout. An epic child flipped `in-review` in place under `in-progress/<EPIC>/` is not matched — it falls through to the `06-summary.md` verdict-`pass` row and exits as already complete. Artifact presence is file presence; the `04-review.md` recency rows compare file mtimes. An **incomplete tail** — the finalizer never ran, or returned an error — is keyed on `06-summary.md` being present while the ticket's own `01-spec.md` `status` is still `in-progress` or `partial-completion`. The signal is the status, never the folder: a finished epic child keeps its folder inside the epic's `tasks/`, an aborted ticket's summary sits in `backlog/` until State setup moves it back, and `accept-as-partial` writes the status before the folder moves — folder location separates none of those from an unfinished tail. An interrupted `continue-with-hint` loop carries the same status, so compare mtimes to tell them apart: `05-tests.md`, `04-review.md` or `03-implementation.md` newer than `06-summary.md` means the loop was still running, and the checkpoint rows own it. The gate's decisions are conversational state and are deliberately not persisted, so nothing else about the tail is recoverable from the folder. Start fresh = the user deletes `03-implementation.md` (and downstream) from the folder; git is the version-history layer.
 
 ## §11 Config presence in a worktree
 
