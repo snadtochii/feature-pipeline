@@ -56,7 +56,7 @@ Its user-facing stops are the verdict gate's and a finalizer `needs-decision` re
 - `04-review.md` — **required** with `fix-step: complete`, unless the current pass carries `## Stuck`; its first-line label and each accepted finding's `outcome` feed the verdict.
 - `05-tests.md`, `06-summary.md` — optional; a prior close run's state, read by the Router.
 
-Storage mechanics for these inputs: §1 of the stage's storage file (loaded at Entry step 4).
+Storage mechanics for these inputs: §1 of the stage's storage file (loaded at Entry step 3).
 
 ## Entry
 
@@ -64,10 +64,10 @@ Storage mechanics for these inputs: §1 of the stage's storage file (loaded at E
 
 Every call in this stage re-reads its whole window, so the numbered steps below are the call sequence, and a skipped checkpoint closes in five calls after the skill load: the ticket resolution (step 3), the preparation read (step 4), one artifact write (§1 step c through §3), the finalizer spawn (§5) and the final message (§6). Nothing below reads a reference on its own — what the stage needs is fetched inside the preparation read, and what it writes is inlined in this file. Any `error` below ends the stage with the Result line.
 
-1. **Storage mode.** From the brief's `Storage mode:` line when there is one (the same §3 makes it authoritative); standalone, detect it once per [`storage.md`](../flow/references/storage.md) §Mode detection. No storage file is read here — the preparation read (step 4) opens with it.
+1. **Storage mode.** From the brief's `Storage mode:` line when there is one (the same §3 makes it authoritative); standalone, detect it once per [`storage.md`](../flow/references/storage.md) §Mode detection. No storage file is read here — step 3's call fetches it.
 2. **Flag validation.** `--pr` and `--no-commit` together contradict — `--pr` must commit and push. This check runs before any read or state mutation: stop with one line — `--pr and --no-commit contradict — --pr must commit and push. Drop one and re-run.` No work happens, no artifacts are written, no transition fires. Flow performs the same rejection in its SETUP, so a flow run never reaches the stage with the pair; this check guards direct invocation.
-3. **Resolve the ticket** per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the bound mode), Steps 1–3 — one call that fetches that reference and locates the ticket. The stage is interactive, so that reference's ask-the-user points stand; a ticket that cannot be resolved → `error`, `failed-step: ticket`.
-4. **The preparation read** — one call, whose contents §1 of the stage's storage file for the bound mode lists: [`references/storage-fs.md`](references/storage-fs.md) / [`references/storage-server.md`](references/storage-server.md). It opens with that storage file itself, read **once, in full** — every later `§N` cite in this skill refers to it — and it binds the working copy: `<ticket-folder>` is absolute and stays in the main checkout. Nothing it fetches is read a second time later in the stage. `01-spec.md`'s body and `02-plan.md` are outside it: the spec body is read only when a tester spawn needs it, the plan only for the skip-detection scan.
+3. **Resolve the ticket** per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the bound mode), Steps 1–3 — one call that fetches that reference together with the stage's storage file for the bound mode, [`references/storage-fs.md`](references/storage-fs.md) / [`references/storage-server.md`](references/storage-server.md), read **once, in full** (every later `§N` cite in this skill refers to it), and locates the ticket. The stage is interactive, so the resolution reference's ask-the-user points stand; a ticket that cannot be resolved → `error`, `failed-step: ticket`.
+4. **The preparation read** — one call, its contents the list in §1 of the storage file now in hand. It binds the working copy: `<ticket-folder>` is absolute and stays in the main checkout. Nothing it fetches is read a second time later in the stage. `01-spec.md`'s body and `02-plan.md` are outside it: the spec body is read only when a tester spawn needs it, the plan only for the skip-detection scan.
 
 The remaining steps are computed from that read and call nothing:
 

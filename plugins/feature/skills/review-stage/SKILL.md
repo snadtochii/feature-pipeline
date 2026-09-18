@@ -46,7 +46,7 @@ The stage is **non-interactive end to end**: it never asks anything and never pa
 - `04-review.md` — optional; a prior round's state, read only by the Router.
 - Each `blocked_by` entry's `01-spec.md` and `06-summary.md` (fallback `02-plan.md`, then `01-spec.md` alone) — optional blocker context for the reviewers.
 
-Storage mechanics for these inputs: §1 and §5 of the stage's storage file (loaded at Entry step 3).
+Storage mechanics for these inputs: §1 and §5 of the stage's storage file (loaded at Entry step 2).
 
 ## Entry
 
@@ -54,9 +54,9 @@ Storage mechanics for these inputs: §1 and §5 of the stage's storage file (loa
 
 Every call in this stage re-reads its whole window, so the numbered steps below are the call sequence: the ticket resolution (step 2) and the preparation read (step 3) are one call each, and nothing fetched there is read a second time later in the stage. Any `error` below ends the stage with the Result line and writes nothing.
 
-1. **Storage mode.** From the brief's `Storage mode:` line when there is one (the same §3 makes it authoritative); standalone, detect it once per [`storage.md`](../flow/references/storage.md) §Mode detection. No storage file is read here — the preparation read (step 3) opens with it.
-2. **Resolve the ticket** per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the bound mode), Steps 1–3 — one call that fetches that reference and locates the ticket. Wherever that reference would ask the user — ticket not found, spec missing, an ambiguous project root — return `error` with `failed-step: ticket` instead.
-3. **The preparation read** — one call, whose contents §1 of the stage's storage file for the bound mode lists: [`references/storage-fs.md`](references/storage-fs.md) / [`references/storage-server.md`](references/storage-server.md). It opens with that storage file itself, read **once, in full** — every later `§N` cite in this skill refers to it — and it binds the working copy: `<ticket-folder>` is absolute.
+1. **Storage mode.** From the brief's `Storage mode:` line when there is one (the same §3 makes it authoritative); standalone, detect it once per [`storage.md`](../flow/references/storage.md) §Mode detection. No storage file is read here — step 2's call fetches it.
+2. **Resolve the ticket** per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the bound mode), Steps 1–3 — one call that fetches that reference together with the stage's storage file for the bound mode, [`references/storage-fs.md`](references/storage-fs.md) / [`references/storage-server.md`](references/storage-server.md), read **once, in full** (every later `§N` cite in this skill refers to it), and locates the ticket. Wherever the resolution reference would ask the user — ticket not found, spec missing, an ambiguous project root — return `error` with `failed-step: ticket` instead.
+3. **The preparation read** — one call, its contents the list in §1 of the storage file now in hand. It binds the working copy: `<ticket-folder>` is absolute.
 
 The remaining steps are computed from that read:
 

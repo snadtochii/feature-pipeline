@@ -1,0 +1,34 @@
+{
+  "quality": {
+    "implementation_skills": [
+      {
+        "id": "angular-developer",
+        "path": "/Users/serhiinadtochii/.agents/skills/angular-developer/SKILL.md"
+      },
+      {
+        "id": "git-workflow",
+        "path": "/Users/serhiinadtochii/.codex/skills/git-workflow/SKILL.md"
+      }
+    ],
+    "review_rubrics": [
+      {
+        "id": "big-leaves-workspace-guidance",
+        "path": "/Users/serhiinadtochii/Projects/big-leaves/AGENTS.md"
+      },
+      {
+        "id": "big-leaves-admin-guidance",
+        "path": "/Users/serhiinadtochii/Projects/big-leaves/big-leaves-admin/CLAUDE.md"
+      }
+    ],
+    "required_checks": [
+      { "name": "admin-lint", "argv": ["npm", "run", "lint"], "timeout": 600 },
+      { "name": "admin-unit", "argv": ["npm", "run", "test:ci"], "timeout": 900 },
+      { "name": "admin-build", "argv": ["npm", "run", "build"], "timeout": 600 }
+    ]
+  },
+  "final_checks": [
+    { "name": "final-admin-lint", "argv": ["npm", "run", "lint"], "timeout": 600 },
+    { "name": "final-admin-unit", "argv": ["npm", "run", "test:ci"], "timeout": 900 },
+    { "name": "final-admin-build", "argv": ["npm", "run", "build"], "timeout": 600 }
+  ]
+}

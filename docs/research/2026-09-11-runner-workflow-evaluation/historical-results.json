@@ -1,0 +1,25 @@
+{
+  "kind": "known-case mechanical replay, not independent discovery",
+  "cases": {
+    "scope": {
+      "exit_code": 1,
+      "log": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import json,subprocess; data=json.loads(subprocess.check_output(['node','/Users/serhiinadtochii/Projects/feature-pipeline/docs/research/2026-09-11-pr-150-final-gates-evidence/scope.cjs'],text=True)); assert not data['approval']['foreignPreviewReturnedOwnerRequest'], 'Foreign scope read owner preview'\n                                                                                                                                                                                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Foreign scope read owner preview\n"
+    },
+    "receipt": {
+      "exit_code": 1,
+      "log": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import json,subprocess; data=json.loads(subprocess.check_output(['node','/Users/serhiinadtochii/Projects/feature-pipeline/docs/research/2026-09-11-pr-150-final-gates-evidence/ui.cjs'],text=True)); assert 'undo-dispatched' not in data['unmountedRegistration'], 'Undo dispatched after unmount'\n                                                                                                                                                                                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Undo dispatched after unmount\n"
+    },
+    "purge": {
+      "exit_code": 1,
+      "log": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import json,subprocess; data=json.loads(subprocess.check_output(['node','/Users/serhiinadtochii/Projects/feature-pipeline/docs/research/2026-09-11-pr-150-final-gates-evidence/ui.cjs'],text=True)); assert data['purge']['callsAfterFirstClick']['request'] == 0, 'Purge dispatched before confirmation'\n                                                                                                                                                                                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Purge dispatched before confirmation\n"
+    }
+  },
+  "outcome": "verify",
+  "missing_checks": [
+    "scope",
+    "receipt",
+    "purge"
+  ],
+  "commit_rejection": "blocked",
+  "head_unchanged": true
+}

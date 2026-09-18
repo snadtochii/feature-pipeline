@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "commit_authorized": true,
+  "delivery": "local",
+  "quality": {
+    "implementation_skills": [],
+    "review_rubrics": [],
+    "required_checks": []
+  },
+  "tickets": [
+    {
+      "id": "PILOT-1",
+      "spec": "/private/tmp/runner-workflow-pilot/input/PILOT-1.md",
+      "context": [
+        {
+          "kind": "project-guidance",
+          "path": "/private/tmp/runner-workflow-pilot/repo/AGENTS.md"
+        }
+      ],
+      "blocked_by": [],
+      "paths": [
+        "catalog.py",
+        "test_catalog.py"
+      ],
+      "checks": [
+        {
+          "name": "unit",
+          "argv": [
+            "/Library/Frameworks/Python.framework/Versions/3.14/bin/python3",
+            "-m",
+            "unittest",
+            "discover",
+            "-v"
+          ],
+          "timeout": 120
+        }
+      ]
+    }
+  ],
+  "final_checks": [
+    {
+      "name": "integration",
+      "argv": [
+        "/Library/Frameworks/Python.framework/Versions/3.14/bin/python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-v"
+      ],
+      "timeout": 120
+    }
+  ]
+}

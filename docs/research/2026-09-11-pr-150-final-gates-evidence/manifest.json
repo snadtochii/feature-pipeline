@@ -1,0 +1,66 @@
+{
+  "date": "2026-09-11",
+  "repository": "/Users/serhiinadtochii/Projects/personal-server",
+  "head": "875078fefc4f55822153de740c59cd34aa905808",
+  "node": "v24.18.0",
+  "selected_source_sha256": {
+    "AGENTS.md": "be8093d3c8692a294b5f5b2c0bb56d15406335e99b902b8c1071cc40f137cad0",
+    "apps/web/CLAUDE.md": "94e341245c2ed1b3ba9282e7cefe8fd88f8e701ac0172b593dcd5faa4ff8b6e9",
+    "apps/api/.swcrc": "8d2b2f0065f385e1d9f605c6daa0df2fefb19932c7241b9c461fadcafb14ae61",
+    "apps/api/src/assistant/sqlite-assistant-store.ts": "d3a571ce5d4383dc2fb13c9af4e7b716cbdf63f211b7e5f880870e2e9a0521ae",
+    "apps/api/src/assistant/sqlite-approval-store.ts": "dc35f9d937d15e8eba62e1eb146b029e2d0ee8a530efccb14336c6c089511060",
+    "apps/api/src/assistant/approvals-undo.spec.ts": "8d8d6e9771c56752ee70d8b803fb246c67a5931b7ebdc219fb205d41cbe1249c",
+    "apps/api/src/assistant/assistant.controller.ts": "52f09d78099eda26715116a01f467a32d6a3b7976ad7f55053f613ffff17368c",
+    "apps/api/src/assistant/assistant.module.ts": "007c9c9de94b7b4ca3d9bb112105c200e7009065b0f83cdb4699500437b39a9f",
+    "apps/api/src/assistant/assistant-store.ts": "95554f59b024dd1f3ce49ef7ec65d970dec5816ae2b1533868df147ed0769838",
+    "apps/api/src/assistant/sqlite-request-ledger.ts": "8c62334bc90bd169429e0ac6aca861f8102187ac8282e971526b47b286768818",
+    "apps/api/src/access/access.service.ts": "07b66a9d077285c41945a5f52137db5c7e39427f9fe1e811367fa7f7271341f0",
+    "apps/api/src/privacy/sqlite-disclosure-store.ts": "31701a02b6990684b5300e5f9d032ca592e43e6d6e9c7d144e3d87b11cdd25e0",
+    "apps/web/src/features/chat/chat-receipt.tsx": "177a9a5bdf977f7e8689a3a6276e1d9e4652dd76e8aeff82d6d732640ef95f18",
+    "apps/web/src/features/chat/chat-page.tsx": "6923e4182332f47cf510ea94a79287481c094bd1bbe13366ac40155e14434626",
+    "apps/web/src/routes/hermes.tsx": "5c2dfcf9f232a4bd61ce1c437cb68ef2cc3be411d373475fdeb179752173926d",
+    "apps/web/src/features/history/history-page.tsx": "a6212bb2e48e4c9630409c53d719f4757eb3908b39688f09730e44a179ad0005",
+    "apps/web/src/features/assistant/use-assistant-command.ts": "9ce5db1774218adc12c7b670ecf3673f7a05d96d01fa1215d7992c540a2fc42f",
+    "apps/web/src/features/assistant/use-assistant-command.spec.tsx": "e22f925e2d24613d397c6e779a4d9bb010f05143ead8b76f2a2da7edba336012",
+    "apps/web/src/features/assistant/approval-dialog.tsx": "b72f71583bf13f4ad648e3e8a40ef9d8f380f9a16e2de35a376b921138e1e4e4",
+    "apps/web/src/lib/task-queries.ts": "2b66929cc94337136f301b50a55141cd17be041baa90946031fd93d6f6e7e743",
+    "apps/web/src/features/inbox/delete-confirm-dialog.tsx": "b65dccd1927a5d903e85c315dd6e3e6963a04f1619deed0d9a43aba6b94e618e",
+    "apps/web/src/features/board/manage-projects-dialog.tsx": "0fa5c1de8633af018d3af6f2ab5a890cc4fd7e0f32ac7d586edef34856ec2db4",
+    "packages/client/src/assistant-client.ts": "49e90e55ee9bbf7230b13d6612cdd75823ab8f42c421ae8a914b62bb44877267",
+    "packages/client/src/request-history-client.ts": "7399f00987d5c5c381591333103cb7fdefc11f05f7cb21eaf5608b7daa31d4eb",
+    "packages/client/src/privacy-client.ts": "0eb4caa08b5b82003e324b272f0129651054655d1449c4b6e662b4859d874868",
+    "scripts/verify-ps112.mjs": "50a8b61fca01dd145ba604fbd67e934af5ef51b5d93c1d9660077c4ea5f5dffc",
+    "claudedocs/tickets/review/PS-103/tasks/PS-105/02-plan.md": "416f64fc220b36af4414933dbf9b59e8e8281d29019df20bdf53365b6ac5a200",
+    "claudedocs/tickets/review/PS-103/tasks/PS-105/04-review.md": "30f0da210e2b4d25b0b4c6d30815707868bfa21086c5da0d0e67cc21eb82b764",
+    "claudedocs/tickets/review/PS-103/tasks/PS-112/02-plan.md": "02c1f3f55e26fe5ca04ab128a27fd71211ce66040613c10353cf621e04e1e7c9",
+    "claudedocs/tickets/review/PS-103/sources/5574978845.md": "559f4ca001674e91626ad36d6846c52cf69baff6a2131f2c3ece1d0ccc822780",
+    "claudedocs/tickets/review/PS-103/sources/5531668110.md": "d13d68b4916fea1778735d43abd7482d868faf55ecb9f3f6fdc9d57829ca2365",
+    "claudedocs/tickets/review/PS-103/sources/5573354175.md": "19e1e7f51fb7699128d9d650c13358c41ec85b603f3e194403a459cdad474803",
+    "pnpm-lock.yaml": "3b52b2a399e52efcb04af84ad0ce48ee11c2d18f80767a763558f93eb354770f"
+  },
+  "evidence_sha256": {
+    "scope.cjs": "8fbdf3793feed331b8a030d83155c79864004cd5ae4cce6877bf6649c50a7bd6",
+    "scope-results.json": "f1b86662885cd40af6b682bb4fd7cce9f23ba094199bca7ca49345a1dbddefc4",
+    "ui.cjs": "e5ad191f0e950d7c39878acee69c8211830715fc6234aa2ac7a6c68300c4a32b",
+    "ui-results.json": "7e5634f466af0e2491c444e47d50a2ca8bd826d6d6c1be0e8d88fb959d8e971e"
+  },
+  "tree_digest_method": "sha256 of sorted relative_path + space + file_sha256 + newline, UTF-8; source trees include .ts/.tsx, workspace dist trees include .js",
+  "tree_digests": {
+    "apps/api/src": {
+      "files": 237,
+      "sha256": "eada9e7ed21df303f4ce796dd15e9dcb888ba3cdaaf01278f3dc6cb0072cb641"
+    },
+    "apps/web/src": {
+      "files": 202,
+      "sha256": "5950174661635c010d837b62bf3d4c11a1eae7c563226878fce09ef08b9fbfef"
+    },
+    "packages/contracts/dist": {
+      "files": 26,
+      "sha256": "64c45c369700c3816e028b469bde0816f706a728b0ae6a8d1e4d975cded69202"
+    },
+    "packages/client/dist": {
+      "files": 27,
+      "sha256": "bb8787df8499873adcb74002678e9122663c825390ffd377666dd199206949b2"
+    }
+  }
+}

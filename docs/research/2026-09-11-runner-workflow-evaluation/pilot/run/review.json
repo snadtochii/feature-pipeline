@@ -1,0 +1,65 @@
+{
+  "ticket": "PILOT-1",
+  "base": "d9dd52cdb648190333975500531ad0a949e1fa01",
+  "tree": "d91b7485ad21d9167ece3fad1934e9c22dbe967c",
+  "reviewer": "/root/workflow_pilot/reviewer",
+  "quality_fingerprint": "e8fc2e04ed901cc129e48bafbdf7fe67f31b6544ddbd6e7d31abe6d864bdd1a5",
+  "rubrics_applied": ["runner-baseline"],
+  "plan_digest": "fea88a710967c3d6dc04dad74e61736adec1a45c127fb848c14f0c1e3794595d",
+  "challenge_digest": "ad5fcc963ca9ddf83dbe9fcf5e7880bc9eef95f1c7c6e0e3e3c6f43ee68eb902",
+  "work_digest": "6c3339bb4905dc52a119b34fdf2c3532d055d8ce75a8ffd278973ca4808edea8",
+  "checks_digest": "2ac2d3a3672000433d8374bc0f1292aa760c8a21eb671a132b6c77e8f0012c61",
+  "assessments": [
+    {
+      "obligation": "boundary:persistence-owner",
+      "check": "unit",
+      "verdict": "satisfied",
+      "evidence": "Source inspection of catalog.py:22-49 confirms detached preparation and result copying occur before the sole batch persistence update; catalog.py:68-72 confines service work to a store call and cache invalidation, with no persistence access. test_catalog.py:78-95 exercises later-item rejection and its helper at lines 21-34 compares every persisted row and cached entry. The packet's unit.log:4 reports this test passing."
+    },
+    {
+      "obligation": "boundary:service-cache-scope",
+      "check": "unit",
+      "verdict": "satisfied",
+      "evidence": "catalog.py:16-20 checks the supplied owner; lines 68-72 forward that owner and invalidate only affected owner/ID cache keys after successful store completion. test_catalog.py:45-76 asserts affected freshness, unrelated cache identity and contents, and nested snapshot detachment. Lines 97-104 verify foreign access rejection while fixture setup primes the real owner's cache. Rejection assertions at lines 21-34 preserve cache identity and values. The packet's unit.log:1-4 records these tests passing."
+    },
+    {
+      "obligation": "reuse:rename-contract",
+      "check": "unit",
+      "verdict": "satisfied",
+      "evidence": "Compared the original implementation with the patch: catalog.py:22-34 retains scope-before-revision-before-label validation, original error messages, verbatim valid labels, revision increments, and detached results. Both rename APIs share this preparation. The original cached-read regression remains at test_catalog.py:36-43; lines 115-142 exercise single rename before and after a successful batch, including error precedence and nested detachment. The packet's unit.log:5-6 records both tests passing."
+    },
+    {
+      "obligation": "case:late-rejection-atomicity",
+      "check": "unit",
+      "verdict": "satisfied",
+      "evidence": "test_catalog.py:78-95 puts a valid edit before stale, absent, foreign, duplicate, empty, whitespace-only, and non-string failures. Its helper at lines 21-34 asserts exact exceptions/messages, all persisted rows, cache contents and entry identity, retained snapshots, and subsequent cached reads. catalog.py:39-48 performs validation and copying before persistence. The packet's unit.log:4 reports the test passing."
+    },
+    {
+      "obligation": "case:scope-and-error-certainty",
+      "check": "unit",
+      "verdict": "satisfied",
+      "evidence": "test_catalog.py:97-104 attempts both foreign and absent IDs and requires Unavailable with the exact message 'Record unavailable'; setup at lines 8-19 has already cached the foreign row for its actual owner. The helper verifies all state remains unchanged. catalog.py:16-20 uses one public error for both conditions. The packet's unit.log:1 reports the test passing."
+    },
+    {
+      "obligation": "case:success-order-cache-and-detachment",
+      "check": "unit",
+      "verdict": "satisfied",
+      "evidence": "test_catalog.py:45-76 submits b before a, asserts complete ordered results with exact revisions, checks persisted values and refreshed reads, retains unrelated cache identity and rows, and verifies pre-operation snapshots. It mutates returned results, fresh reads, and old nested snapshots, then checks persisted and cached values remain intact. catalog.py:39-49 preserves insertion order and deep-copies batch results. The packet's unit.log:2 reports the test passing."
+    },
+    {
+      "obligation": "case:batch-container-validation",
+      "check": "unit",
+      "verdict": "satisfied",
+      "evidence": "catalog.py:36-38 rejects empty or non-list containers before preparation. test_catalog.py:106-113 covers empty list, None, dictionary, tuple, and string inputs with the comprehensive unchanged-state helper. The packet's unit.log:3 reports the test passing."
+    },
+    {
+      "obligation": "case:single-rename-contract",
+      "check": "unit",
+      "verdict": "satisfied",
+      "evidence": "test_catalog.py:115-142 exercises stale revision, stale-plus-invalid-label precedence, current-revision invalid label, foreign and absent IDs, exact public messages, preserved surrounding whitespace, exact revision increments, cache freshness, and nested detachment both before and after batch use. Failed calls invoke the unchanged-state helper. Original behavior is preserved by catalog.py:22-34 and 63-66. The packet's unit.log:5-6 reports the retained regression and compatibility test passing."
+    }
+  ],
+  "verdict": "pass",
+  "findings": [],
+  "summary": "Reviewed the raw spec, current project guidance, complete patch and source, baseline rubric, recorded plan, independent cases, work evidence, and actual unit log. All eight obligations are supported by source inspection and meaningful assertions; the configured command matches the receipt and completed six tests successfully. Only catalog.py and test_catalog.py changed. Read-only git diff against packet tree d91b7485ad21d9167ece3fad1934e9c22dbe967c exited zero, and the untracked-file listing was empty, confirming the current reviewable tree matches the packet. No plan or challenge revisions, predecessor constraints, boundary exceptions, dependencies, or external delivery were present. Architecture, scope isolation, error behavior, atomic rejection, cache integration, compatibility, and proportional resource use were assessed. This reuses the same reviewer context that selected the initial cases; it is not a fresh-context review. I did not execute tests, mutate files or Git, access the network, or delegate. Execution evidence is the supplied tree-bound log; concurrency guarantees beyond the fixture's existing synchronous contract were not established."
+}

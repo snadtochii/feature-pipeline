@@ -13,8 +13,8 @@
   "role_map": {
     "build-stage": "^Build stage for ",
     "plan-stage": "^Plan stage for ",
-    "review-stage": "(?i)\\breview stage\\b",
-    "close-stage": "(?i)\\bclose stage\\b",
+    "review-stage": "^Review stage for |^\\S+ review stage$",
+    "close-stage": "^Close stage for |^\\S+ close stage$",
     "finalize-child": "^Finalize ",
     "ship-implementer": " implementer via flow$",
     "ship-review": "^Independent review of ",

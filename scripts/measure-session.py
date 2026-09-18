@@ -168,10 +168,11 @@ asserted, their real-transcript shape is not:
     measurement would stop answering AC 4. A change to who writes an
     artifact is therefore a change to this script.
   - The three-stage build shape: implement, then a review-stage and a
-    close-stage child. A child is a stage by its description - `Review stage
-    for <TICKET-ID>` / `Close stage for <TICKET-ID>`, or any text carrying
-    `review stage` / `close stage` case-insensitively - and is grouped with
-    its siblings by (parent, ticket). The implement agent is a `Build stage
+    close-stage child. A child is a stage by its role - the `review-stage` /
+    `close-stage` entries of the role map, which match the `Review stage for
+    <TICKET-ID>` / `Close stage for <TICKET-ID>` literals and the anchored
+    `<TICKET-ID> review stage` / `<TICKET-ID> close stage` form a measured
+    session used - and is grouped with its siblings by (parent, ticket). The implement agent is a `Build stage
     for <TICKET-ID>` sibling (under flow), else the parent itself when that
     is the root session or ran `/feature:build` (standalone build: its turns
     from the first stage spawn on are sequencer turns, credited to the stage
@@ -212,8 +213,8 @@ UNIT_NAME = "weighted input-token equivalents - not a price and not a plan-limit
 DEFAULT_ROLE_MAP = {
     "build-stage": r"^Build stage for ",
     "plan-stage": r"^Plan stage for ",
-    "review-stage": r"(?i)\breview stage\b",
-    "close-stage": r"(?i)\bclose stage\b",
+    "review-stage": r"^Review stage for |^\S+ review stage$",
+    "close-stage": r"^Close stage for |^\S+ close stage$",
     "finalize-child": r"^Finalize ",
     "ship-implementer": r" implementer via flow$",
     "ship-review": r"^Independent review of ",
@@ -278,11 +279,10 @@ KNOWN_VERDICTS = frozenset({"pass", "partial", "stuck", "fail"})
 SLASH_BUILD_RE = re.compile(r"<command-name>\s*/?feature:build\s*</command-name>")
 COMMAND_ARGS_RE = re.compile(r"<command-args>(.*?)</command-args>", re.DOTALL)
 FINALIZER_DESC_RE_TEMPLATE = r"^Finalize {ticket}\b"
-# A review-stage or close-stage child of a three-stage build, by description:
-# `Review stage for FP-1` and `FP-1 review stage` both match. The implement
-# stage under flow is the `build-stage` role above.
-STAGE_CHILD_RE = re.compile(r"\b(review|close) stage\b", re.IGNORECASE)
+# The three stages of a three-stage build are keyed on the role map above -
+# the one recognition path, so a `--role-map` override moves all of them.
 IMPLEMENT_STAGE_ROLE = "build-stage"
+STAGE_CHILD_ROLES = {"review-stage": "review", "close-stage": "close"}
 REVIEWER_SUBAGENT = "feature:code-reviewer"
 SPAWN_TOOLS = ("Agent", "Task")
 
@@ -951,10 +951,7 @@ class BuildReport:
 
 def stage_child_kind(agent: Agent) -> str | None:
     """`review` or `close` for a review-stage / close-stage child, else None."""
-    if agent.agent_id == ROOT_AGENT_ID:
-        return None
-    found = STAGE_CHILD_RE.search(agent.description or "")
-    return found.group(1).lower() if found else None
+    return STAGE_CHILD_ROLES.get(agent.role)
 
 
 def is_build_agent(agent: Agent) -> bool:

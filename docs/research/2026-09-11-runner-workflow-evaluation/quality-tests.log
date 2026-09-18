@@ -1,0 +1,13 @@
+test_each_implementation_skill_requires_a_receipt (test_quality.QualityTests.test_each_implementation_skill_requires_a_receipt) ... ok
+test_missing_required_skill_fails_before_entry (test_quality.QualityTests.test_missing_required_skill_fails_before_entry) ... ok
+test_policy_must_be_explicit (test_quality.QualityTests.test_policy_must_be_explicit) ... ok
+test_project_checks_cannot_be_omitted_by_ticket (test_quality.QualityTests.test_project_checks_cannot_be_omitted_by_ticket) ... ok
+test_quality_document_edits_invalidate_the_run (test_quality.QualityTests.test_quality_document_edits_invalidate_the_run) ... ok
+test_reviewer_must_account_for_all_rubrics (test_quality.QualityTests.test_reviewer_must_account_for_all_rubrics) ... ok
+test_ticket_additions_cannot_remove_global_policy (test_quality.QualityTests.test_ticket_additions_cannot_remove_global_policy) ... ok
+test_work_report_is_required_even_with_tests_and_review (test_quality.QualityTests.test_work_report_is_required_even_with_tests_and_review) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 17.861s
+
+OK
