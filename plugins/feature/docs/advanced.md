@@ -6,11 +6,12 @@ Deeper material that doesn't belong in the [README](../../../README.md) front do
 
 - [Auto-PR (`--pr`) and the review → merge flow](#auto-pr---pr-and-the-review--merge-flow)
 - [Skip browser testing (`--no-ui-testing`)](#skip-browser-testing---no-ui-testing)
+- [Attach screenshots to PRs (`--attach-screenshots`)](#attach-screenshots-to-prs---attach-screenshots)
 - [Commit control (`--no-commit`)](#commit-control---no-commit)
 - [Worktree isolation (`--worktree`)](#worktree-isolation---worktree)
 - [Stage subagents and per-stage models (`--plan-model`, `--build-model`)](#stage-subagents-and-per-stage-models---plan-model---build-model)
 - [Epics and blocker dependencies](#epics-and-blocker-dependencies)
-- [Ship flags (`--base`, `--merge`, `--ui-test`, `--parallel`, `--worktree`)](#ship-flags---base---merge---ui-test---parallel---worktree)
+- [Ship flags (`--base`, `--merge`, `--ui-test`, `--attach-screenshots`, `--parallel`, `--worktree`)](#ship-flags---base---merge---ui-test---attach-screenshots---parallel---worktree)
 - [Configuration reference](#configuration-reference)
   - [Project conventions (CLAUDE.md)](#project-conventions-claudemd)
   - [Ticket prefix](#ticket-prefix)
@@ -40,13 +41,28 @@ Every browser pass — the close stage's test checkpoint and ship's `--ui-test` 
 
 `discover` writes the matching criterion — "Error, empty and disabled states render without layout shift at desktop and mobile width." — into every UI-facing ticket, and into every UI-facing child of an epic. A ticket without it is checked against an implicit "UI states (required check)" criterion. The close stage's skip-detection treats `dialog`, `modal` and `sheet` as UI signals, so a dialog-only ticket still gets the browser pass.
 
-Screenshots go to one evidence home per storage mode: `<ticket-folder>/screenshots/` in fs-native mode, `claudedocs/ui-evidence/<id>/` in server-native mode. Both sit under `claudedocs/`, which the pipeline's commits exclude; a stray write to the Playwright MCP's default `.playwright-mcp/` directory is held back from the pipeline's commits unless the project ignores it, and ship's screenshot commit stages only the evidence home.
+Screenshots go to one evidence home per storage mode: `<ticket-folder>/screenshots/` in fs-native mode, `claudedocs/ui-evidence/<id>/` in server-native mode. Both sit under `claudedocs/`, which the pipeline's commits exclude; a stray write to the Playwright MCP's default `.playwright-mcp/` directory is held back from the pipeline's commits unless the project ignores it, and ship's screenshot commit stages only the evidence home. With [attaching](#attach-screenshots-to-prs---attach-screenshots) enabled, the selected captures are also uploaded to GitHub.
 
 ## Skip browser testing (`--no-ui-testing`)
 
 The close stage's test checkpoint verifies UI tickets in a real browser via the `ui-tester` subagent (Playwright/Chrome MCP), which needs interactive MCP permission. That permission isn't available in a non-interactive/headless run (e.g. `claude -p`), so a UI ticket can stall at the browser checkpoint.
 
 Pass `--no-ui-testing` to skip **only** the browser portion of the test checkpoint — non-browser verification (your `validate.lint`/`validate.typecheck` checks) still runs and still gates the verdict. `05-tests.md` records that browser testing was skipped by flag (not "passed"), so the verdict and any PR stay honest about what was verified; browser-level verification then falls to a human at PR review. The flag propagates `flow → close stage` and, in epic mode, is forwarded to every child.
+
+## Attach screenshots to PRs (`--attach-screenshots`)
+
+The browser pass's screenshots stay on your machine unless you opt in. With attaching enabled, the pipeline uploads a selected set to GitHub with `gh … --attach`, and they render inline:
+
+- **Close stage, with `--pr`** — the PR body gains a `## UI evidence` section of screenshots. The ticket's own `06-summary.md` is unchanged: the close stage writes a separate posted-body copy for the PR.
+- **Ship `--ui-test`** — the end-of-run evidence comment carries them. A hidden marker in the comment is checked before any upload, so a resumed or re-run ship posts the evidence once per PR.
+
+Enable it per project with [`git.attach_screenshots: true`](#commit-behavior), or per run with `--attach-screenshots` (accepted by `flow`, `build`, `close-stage` and `ship`; flow forwards it to the close stage, and in epic mode to every child). Neither turns a project's setting off for one run.
+
+At most 15 captures are attached per post — failing criteria first, then one desktop capture per passed criterion, then mobile captures, then error, empty and disabled states. The rest, and any file over 10 MiB, are listed as local paths in a collapsed block.
+
+**Before enabling it:** an upload cannot be undone. On a public repository the uploaded images are world-readable; on a private one they render only for logged-in users with access to the repository. Check what your captures show — seeded data, a token in a URL — before opting in.
+
+Attaching needs `gh` 2.99.0 or later, a github.com or GHE Cloud host (not GitHub Enterprise Server), an OAuth or personal-access token (not a GitHub App token) and write access to the repository. Short of that, the run falls back without failing: the close stage posts a path manifest, and ship embeds commit-SHA links when the ticket folder is tracked, else a path manifest. The run report names the outcome, and suggests upgrading `gh` when it lacks `--attach`. A run with no browser pass attaches nothing.
 
 ## Commit control (`--no-commit`)
 
@@ -101,13 +117,14 @@ This lets you plan ahead while preventing builds on top of unfinished foundation
 
 Run an epic with `/feature:flow <EPIC-ID>` — it walks the children in `blocked_by` topological order, invoking flow per child, and moves the whole epic subtree to `done/` when the last child finalizes. `/feature:plan`, `/feature:build`, `/feature:review-stage` and `/feature:close-stage` refuse to run directly against an epic ID; run them against a child.
 
-## Ship flags (`--base`, `--merge`, `--ui-test`, `--parallel`, `--worktree`)
+## Ship flags (`--base`, `--merge`, `--ui-test`, `--attach-screenshots`, `--parallel`, `--worktree`)
 
-`/feature:ship` is the autonomous layer on top of the pipeline: per ticket it builds (`flow --pr`), spawns an independent reviewer, addresses the review, and ends the run at open PR(s) left as the human gate. Its five flags:
+`/feature:ship` is the autonomous layer on top of the pipeline: per ticket it builds (`flow --pr`), spawns an independent reviewer, addresses the review, and ends the run at open PR(s) left as the human gate. Its six flags:
 
 - **`--base <branch>`** — the trunk of the run (default `main`): the branch feature/integration branches are cut from and the branch the resulting PR(s) target. It doesn't change the branch strategy — an epic still gets an `integration/<epic-id>` branch; solo and multi-solo tickets still ship on per-ticket feature branches.
 - **`--merge`** — merge the resulting PR(s) into `<base>` at the end of the run instead of leaving them open (solo/multi-solo: squash each; an epic's integration PR: a merge commit, preserving the per-ticket squashed commits). In an epic run, per-ticket merges into the integration branch happen regardless — the chain needs them. If branch protection blocks a merge, ship stops and reports.
-- **`--ui-test`** — opt-in end-of-run browser pass (default off). After the resulting PR(s) are open, one `ui-tester` subagent verifies the acceptance criteria plus the [required UI checks](#required-ui-checks) against the assembled branch and posts the evidence — acceptance-criterion and state screenshots alike — to the PR(s). It also rewrites each covered ticket's `05-tests.md` with the result — replacing the skip record its headless build left — and adds a `## UI verification` section to its `06-summary.md`, without changing any verdict, ticket state or PR outcome. Per-ticket builds always run headless regardless of this flag. The pass needs the [`test:` block](#app-test-config) (`url` and `start` — only an app the pass's own `start` boot serves counts as the PR head); without them the pass posts *not verified* to the PR.
+- **`--ui-test`** — opt-in end-of-run browser pass (default off). After the resulting PR(s) are open, one `ui-tester` subagent verifies the acceptance criteria plus the [required UI checks](#required-ui-checks) against the assembled branch and posts the evidence — acceptance-criterion and state screenshots alike — to the PR(s): attached inline with `--attach-screenshots`, embedded from a tracked ticket folder, or listed as local paths. It also rewrites each covered ticket's `05-tests.md` with the result — replacing the skip record its headless build left — and adds a `## UI verification` section to its `06-summary.md`, without changing any verdict, ticket state or PR outcome. Per-ticket builds always run headless regardless of this flag. The pass needs the [`test:` block](#app-test-config) (`url` and `start` — only an app the pass's own `start` boot serves counts as the PR head); without them the pass posts *not verified* to the PR.
+- **`--attach-screenshots`** — upload the `--ui-test` pass's screenshots into the evidence comment with `gh pr comment --attach` for this run, as [`git.attach_screenshots: true`](#commit-behavior) does per project; see [Attach screenshots to PRs](#attach-screenshots-to-prs---attach-screenshots). Without `--ui-test` it has no effect, and per-ticket PR bodies never carry screenshots.
 - **`--parallel [N]`** — opt-in concurrent walk (default off — the walk is serial). Ship computes the **ready set** — tickets whose `blocked_by` dependencies are all terminal — and builds each ready ticket concurrently in its own isolated git worktree, up to N in flight (default 3), greedily dispatching newly-unblocked tickets as workers finish. It applies to epic runs and multi-solo runs; a pure dependency chain walks one ticket at a time either way. In a [multi-repo workspace](#multi-repo-workspaces) the run is partitioned into **per-repo lanes** from the tickets' `repos:` frontmatter: lanes run concurrently against their own repo checkouts (cross-repo parallelism needs no worktrees), worktrees are provisioned only for a lane running two or more of its tickets at once, and N stays one global cap across lanes. Integration merges (one at a time, revalidated per merge), ticket state transitions, and lessons-log writes stay serialized in the orchestrator, and a failed worker doesn't abort its siblings — the end-of-run report names what needs a serial resume. Parallel mode requires the [worktree setup contract](#worktree-setup) (`worktree:` block + optional `.worktreeinclude`) — in a multi-repo workspace only for lanes doing intra-repo concurrency; when the contract is absent or a worktree setup fails, ship logs why and falls back to the serial walk (per lane, in a lane run). Each worker's state clause, workdir, and base branch sit under a `## Stage overrides` heading in its brief, which `flow` copies verbatim into the stage briefs it spawns ([stage subagents](#stage-subagents-and-per-stage-models---plan-model---build-model)).
 - **`--worktree`** — isolate each ticket's build in its own git worktree on the **serial** walk, by forwarding [`--worktree`](#worktree-isolation---worktree) down to `build`. Redundant with `--parallel` (which provisions worktrees already) and unusable on an epic chain (whose base is the integration branch, which `flow` cannot convey to build's provisioning) — dropped with a one-line notice in both cases.
 
@@ -196,17 +213,19 @@ Ship's `--ui-test` pass needs `test.url` and `test.start`, which the pass boots 
 
 ### Commit behavior
 
-An optional `git:` block presets the close stage's verdict-gate commit question for passing non-`--pr` builds. Like `test:`, it is read by the `close-stage` skill, never by `hooks/validate.sh`.
+An optional `git:` block presets the close stage's verdict-gate commit question for passing non-`--pr` builds, and opts the project into attaching screenshots to PRs. Like `test:`, it is model-read by the skills — `close-stage`, and `ship` for `attach_screenshots` — never by `hooks/validate.sh`.
 
 ```yaml
 prefix: FP
 git:
   commit: prompt   # prompt (default) | always | never
+  attach_screenshots: false   # true uploads UI-test screenshots to PRs
 ```
 
 - `prompt` (or an absent block/key) — the interactive ask, exactly as without the config.
 - `always` — skip the prompt and commit: staging is `git add -A` narrowed by exclusion guards (tracked `claudedocs/`, an un-ignored `test.auth.storage_state`), then a commit message referencing the ticket ID; no push, no PR. The sweep honors `.gitignore` but includes every other untracked file — keep secrets gitignored, because under `always` no human reviews what gets staged. `always` presets the prompt's answer to yes, nothing more — it commits onto the **current branch**, exactly as an interactive "yes" would, trunk included; use `--pr` or branch first if you don't want commits on `main`.
 - `never` — skip the prompt and leave the changes uncommitted; the ticket still finalizes to `done/` and the final message points at `git status`.
+- `attach_screenshots: true` — attach the browser pass's screenshots to the PR the close stage opens with `--pr`, and to ship's `--ui-test` comment ([Attach screenshots to PRs](#attach-screenshots-to-prs---attach-screenshots)). Default `false`: uploads are irreversible and world-readable on a public repository. Any other value is treated as `false` with a one-line notice.
 
 An unrecognized value degrades to `prompt` with a one-line notice — a config typo never blocks a build. Per-run overrides beat the config: [`--no-commit`](#commit-control---no-commit) forces "leave uncommitted" over `always`/`prompt`, and `--pr` (the explicit ship authorization) commits, pushes, and opens the PR over `never`, with a one-line notice that the config default was overridden.
 
@@ -214,7 +233,7 @@ An unrecognized value degrades to `prompt` with a one-line notice — a config t
 
 An optional `worktree:` block declares how to make a fresh `git worktree` buildable. A new worktree starts without gitignored files (`.env`, auth storage-state, local config) and without installed dependencies; this contract fixes both, declared once per project. Like `test:`, the block is read by the model, never by `hooks/validate.sh` (the hook's parsers extract only the `validate:` block).
 
-Two things consume it: [`ship --parallel`](#ship-flags---base---merge---ui-test---parallel---worktree), which needs the contract and walks serially without it, and [`--worktree`](#worktree-isolation---worktree), which creates the worktree either way and only skips the setup step when the block is absent.
+Two things consume it: [`ship --parallel`](#ship-flags---base---merge---ui-test---attach-screenshots---parallel---worktree), which needs the contract and walks serially without it, and [`--worktree`](#worktree-isolation---worktree), which creates the worktree either way and only skips the setup step when the block is absent.
 
 ```yaml
 prefix: FP

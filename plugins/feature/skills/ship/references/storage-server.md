@@ -47,7 +47,7 @@ Every shared mutation in a `--parallel` run is orchestrator-only, in the forms [
 
 ## §7 UI evidence home and hosting
 
-Screenshots go to the evidence home declared in [the close stage's `storage-server.md`](../../close-stage/references/storage-server.md) §8 — its location, its epic form and its gitignore expectation live there — with the filenames fixed by [`ui-checks.md`](../../build/references/ui-checks.md) §3. Nothing is hostable, so the evidence post always takes the path-manifest outcome in `ui-verification.md` step 3 — the per-AC verdict plus the manifest, with no `git check-ignore` probe.
+Screenshots go to the evidence home declared in [the close stage's `storage-server.md`](../../close-stage/references/storage-server.md) §8 — its location, its epic form and its gitignore expectation live there — with the filenames fixed by [`ui-checks.md`](../../build/references/ui-checks.md) §3. The evidence home is never committed, so there is no Tracked outcome and no `git check-ignore` probe. With attaching enabled the post tries the **Attached** outcome in `ui-verification.md` step 3 first — the upload goes to GitHub only, never the server — and a refused or unavailable attach goes straight to the path manifest, [`ui-attach.md`](../../build/references/ui-attach.md) §7 having no hosted-link tier here. With attaching off, the post takes the path-manifest outcome: the per-AC verdict plus the manifest.
 
 ## §8 UI verification write-back
 

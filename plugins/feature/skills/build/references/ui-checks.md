@@ -30,7 +30,7 @@ A screen with no form or dialog still gets the viewport checks in §2. A state t
 - Detect layout shift by comparing the same viewport before and after the error message appears.
 - Names — fixed, so a rerun overwrites the earlier capture:
   - Acceptance criteria: `<AC-n>-desktop.png`, `<AC-n>-mobile.png`.
-  - States: `<screen-slug>-<error|empty|disabled>-<desktop|mobile>.png`.
+  - States: `<screen-slug>-<error|empty|disabled>-<desktop|mobile>.png`. `<screen-slug>` is lowercase `[a-z0-9-]` only — strip every other character and collapse consecutive dashes — so a name never carries `#`, a space or a shell metacharacter.
   - A pass that covers more than one ticket in one evidence home (an epic) prefixes every name with the ticket ID: `<ticket-id>-<AC-n>-desktop.png`, so each child's AC 1 keeps its own file.
 - A screenshot that cannot be written is a failed check with the reason.
 

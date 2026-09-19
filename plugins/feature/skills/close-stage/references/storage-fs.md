@@ -26,7 +26,7 @@ The verdict or skip label is the first line of the artifact body — `06-summary
 
 ## §6 PR linkage
 
-Performed by the finalizer, which receives every path below as an absolute value in its spawn prompt. `id`/`title` come from the `sed` reads in [`pr-creation.md`](../../build/references/pr-creation.md) §4 against `<ticket-folder>/01-spec.md`; `--body-file` is `<ticket-folder>/06-summary.md`; the opened PR's URL + branch are appended to `06-summary.md`, whose body is otherwise left as the close stage authored it.
+Performed by the finalizer, which receives every path below as an absolute value in its spawn prompt. `id`/`title` come from the `sed` reads in [`pr-creation.md`](../../build/references/pr-creation.md) §4 against `<ticket-folder>/01-spec.md`; `--body-file` is `<ticket-folder>/06-summary.md` — or, when screenshots are attached, the close stage's posted-body files `<ticket-folder>/pr-body-attach.md` and `<ticket-folder>/pr-body-manifest.md`, written beside it and never committed ([`commit.md`](../../build/references/commit.md) §1 excludes `claudedocs/`); the opened PR's URL + branch are appended to `06-summary.md`, whose body is otherwise left as the close stage authored it.
 
 ## §7 Resumption keying
 
@@ -48,6 +48,8 @@ Every `ui-tester` capture — the close stage's test checkpoint and ship's end-o
 The spawn prompt carries the resolved absolute path, never a link to this section. Fixed filenames overwrite a prior run's captures.
 
 **Gitignore expectation — stated once, here.** The evidence home lives inside the ticket store, so screenshots enter version control only when the project tracks `claudedocs/tickets/` by its own choice. [`commit.md`](../../build/references/commit.md) §1 excludes `claudedocs/` from the finalizer's commits either way.
+
+**Attaching.** With attaching enabled ([`ui-attach.md`](../../build/references/ui-attach.md) §1), the selected captures are uploaded to GitHub's attachment storage by the `gh … --attach` call that posts them — the only place they go beyond this directory.
 
 ## §9 Error handling
 
