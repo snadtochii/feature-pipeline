@@ -56,6 +56,8 @@ Resumption is auto-detected from the ticket's existing artifacts — see step 2 
 
 Use the canonical logic in [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the detected storage mode). The ticket argument is `$1`.
 
+**Entry reads.** The ticket-resolution file, build's storage file and the state-transitions file, each for the detected mode, go out as one message of parallel `Read` calls, never one shell print of several files. `worktree.md`, `pr-creation.md` and `implementation-handoff.md` are not in it: they are read, as one parallel message, only when State setup's worktree binding needs them ([`runtime-claude.md`](../flow/references/runtime-claude.md) / [`runtime-codex.md`](../flow/references/runtime-codex.md) §Tool results).
+
 ## Required Input
 
 - `01-spec.md` — the ticket specification (for acceptance criteria)
@@ -103,7 +105,7 @@ Before the implement checkpoint, perform the start-of-pipeline transition per [`
 
 **Bind ticket metadata — before the step-2 resumption routing.** Values read only inside a checkpoint are unbound on resumed runs that re-enter downstream of it, so build binds them here, upstream of the router: read `status`, `kind`, `blocked_by`, and the mode-specific fields once via the Read ticket metadata operation — never parsed out of artifact bodies. Which fields exist and where they are read: [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) §2, for the detected mode.
 
-**Working copy and artifact writes.** Read build's storage file for the mode detected above — [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) — **once here, in full**; every later `§N` cite in this skill refers to that already-loaded file. §3 and §4 govern every `<ticket-folder>` read and write in this loop — where the artifacts live, and how each write lands the moment its producing step completes. Subagent spawn prompts inline the paths that step resolves; a subagent never follows a storage reference itself.
+**Working copy and artifact writes.** Build's storage file for the mode detected above — [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) — is the copy the entry reads fetched, in full; every later `§N` cite in this skill refers to it. §3 and §4 govern every `<ticket-folder>` read and write in this loop — where the artifacts live, and how each write lands the moment its producing step completes. Subagent spawn prompts inline the paths that step resolves; a subagent never follows a storage reference itself.
 
 **Bind the worktree — same placement rule, and re-bind even without the flag.** Placed here, after the working-copy step, because both parts below read and write `03-implementation.md`, and the storage file's §3 is what makes `<ticket-folder>` readable. Every artifact touch below therefore goes through its §4 — never a bare filename — and the `## Worktree` write follows the same rule. This is still upstream of the step-2 router, which is what the placement rule requires. The guarded existence check: the storage file's §5.
 

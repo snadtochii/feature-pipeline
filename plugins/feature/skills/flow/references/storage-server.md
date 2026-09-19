@@ -63,7 +63,7 @@ Read the ticket's structured fields: the row fields returned by `pipeline_get_ti
 
 ### Read artifact
 
-`pipeline_get_artifact` with the ticket ID and artifact name. For an optional artifact, check the listing first (List artifacts, below) — `pipeline_get_artifact` on an absent artifact is a failed operation under §Loud failure, not a signal.
+`pipeline_get_artifact` with the ticket ID and artifact name. For an optional artifact, presence comes from the listing (List artifacts, below) — `pipeline_get_artifact` on an absent artifact is a failed operation, never a signal on its own. The get either follows the listing, or goes out in the same message beside it and is reconciled against it: a failed get for an artifact the listing does not show is that artifact's absence; one for an artifact the listing shows is a failure under §Loud failure.
 
 ### Write artifact
 

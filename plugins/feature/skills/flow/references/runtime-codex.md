@@ -49,7 +49,7 @@ Use stage-briefs §5's artifact fallback only when no available operation can re
 
 ## Tool results
 
-The active surface truncates or offloads an oversized shell result by its own rule; inspect that rule rather than assume Claude's 20KB persistence. The operation is the same either way: fetch a file through the surface's read tool, which returns its content inline, and keep a shell print to small items — a config, a frontmatter, a listing, a grep. Independent tool calls issued together in one turn re-read the window once.
+The active surface truncates or offloads an oversized tool result by its own rule; inspect that rule rather than assume Claude's 20KB persistence. The operation is the same either way: fetch a file through the surface's read tool, which returns its content inline, and keep a shell print to small items — a config, a frontmatter, a listing, a grep. Independent tool calls issued together in one turn re-read the window once.
 
 A shell call a reference gives a minimum timeout — `test-preflight.md` §3's `test.start` poll — sets the active shell tool's own timeout field to at least that bound; check the surface's maximum rather than assume Claude's.
 

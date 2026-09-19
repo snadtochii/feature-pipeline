@@ -4,9 +4,9 @@ Canonical logic for the review stage's storage-touching steps in server-native s
 
 ## §1 Inputs and working copy
 
-Pull `01-spec.md`, `02-plan.md`, `03-implementation.md` and `04-review.md` — whichever exist, per the List artifacts operation — into a session-scratchpad directory outside the repository. `<ticket-folder>` denotes that working copy: every `<ticket-folder>/0N-*.md` read and write site in the skill operates on the copies, with writes pushed per §3. Reviewer spawn prompts inline the resolved text; reviewers never touch the ticket store. The copies are disposable: every run re-pulls from the server, and a scratchpad tree left by a prior run is never trusted or reused.
+The working copy is the `01-spec.md`, `02-plan.md`, `03-implementation.md` and `04-review.md` bodies the preparation read's Read artifact calls return, held in a session-scratchpad directory outside the repository. `<ticket-folder>` denotes that working copy: every `<ticket-folder>/0N-*.md` read and write site in the skill operates on the copies, with writes pushed per §3. Reviewer spawn prompts inline the resolved text; reviewers never touch the ticket store. The copies are disposable: every run re-pulls from the server, and a scratchpad tree left by a prior run is never trusted or reused.
 
-**The preparation read** (the skill's Entry step 3) is one message carrying every call in parallel: Read ticket metadata; List artifacts (the rows' `updated_at` — §6's signals); Read artifact for each of `01-spec.md`, `02-plan.md`, `03-implementation.md` and `04-review.md` — a read of an artifact the ticket does not have fails, and that failure is its absence, not a §7 error. Nothing goes through a shell print — the artifacts arrive through Read artifact, per the runtime reference's tool-result rule. Blocker artifacts (§5) are a second message, issued only when `blocked_by` is non-empty. The pulled bodies are the working copies: each lands in the scratchpad with the first §3 write that touches it, and a body the stage never modifies is never materialized.
+**The preparation read** (the skill's Entry step 3) is one message carrying every call in parallel: Read ticket metadata; List artifacts (the rows' presence and `updated_at` — §6's signals); Read artifact for each of `01-spec.md`, `02-plan.md`, `03-implementation.md` and `04-review.md`. The listing's result is consumed for those signals alone — never extracted or written to the scratchpad, and a listing that arrives persisted is read for its timestamps only; the bodies come from the gets. A get that fails for an artifact the listing does not show is that artifact's absence; one that fails for an artifact the listing shows is a §7 error. Nothing goes through a shell print — the artifacts arrive through Read artifact, per the runtime reference's tool-result rule. Blocker artifacts (§5) are a second message, issued only when `blocked_by` is non-empty. The pulled bodies are the working copies: each lands in the scratchpad with the first §3 write that touches it, and a body the stage never modifies is never materialized.
 
 ## §2 Ticket metadata
 
@@ -27,7 +27,7 @@ The Write artifact operation accepts `verdict` ∈ `pass | fail | partial`. The 
 
 ## §5 Blocker context for reviewers
 
-Blocker artifacts belong to *other* tickets, so they are outside this ticket's working-copy pull — check what each blocker has via List artifacts on the blocker's handle, then Read artifact for each; "missing" means absent from that blocker's artifact listing, never a failed read.
+Blocker artifacts belong to *other* tickets, so they are outside this ticket's working-copy pull — §1's second message carries, for every blocker handle, List artifacts, for presence alone, beside a Read artifact of `01-spec.md` and `06-summary.md`. `02-plan.md` is the fallback only: its get goes out in one further message, issued only for the blockers whose listing lacks `06-summary.md`. "Missing" means absent from that blocker's listing — a get that fails for an artifact the listing does not show; a get that fails for a listed artifact is a §7 error. The bodies come from the gets, never from the listing.
 
 ## §6 Resumption keying
 
