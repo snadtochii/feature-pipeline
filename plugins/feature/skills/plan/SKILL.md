@@ -54,6 +54,8 @@ Two phases:
 
 Use the canonical logic in [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) (for the detected storage mode). The ticket argument is `$1`.
 
+**Entry reads.** The references this section and Step 1.1 cite go out as one message of parallel `Read` calls, never one shell print of several files ([`runtime-claude.md`](../flow/references/runtime-claude.md) / [`runtime-codex.md`](../flow/references/runtime-codex.md) §Tool results).
+
 ## Required Input
 
 - `01-spec.md` — the ticket specification

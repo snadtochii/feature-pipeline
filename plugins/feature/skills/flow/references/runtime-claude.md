@@ -34,7 +34,7 @@ Count subagent layers below the current caller: `flow → stage → role` needs 
 
 ## Tool results
 
-A `Bash` result past about 20KB is not returned to the conversation: Claude Code persists it to a file and shows a 2KB preview, so reading it back is a further call and the same tokens twice. Fetch a file through `Read`, which returns its content inline, and keep a Bash print to small items — a config, a frontmatter, a listing, a grep. One message may carry several tool calls in parallel; the window is re-read once per message, not once per call.
+A tool result past about 20KB — a shell print or an MCP call's return — is not returned to the conversation: Claude Code persists it to a file and shows a 2KB preview, so reading it back is a further call and the same tokens twice. Fetch a file through `Read`, which returns its content inline, and keep a Bash print to small items — a config, a frontmatter, a listing, a grep. One message may carry several tool calls in parallel; the window is re-read once per message, not once per call.
 
 A shell call a reference gives a minimum timeout — `test-preflight.md` §3's `test.start` poll — sets `Bash`'s `timeout` parameter in milliseconds (seconds × 1000). Claude caps it at 600000 ms, which is why `test.start_timeout` stops at 540 seconds.
 

@@ -12,7 +12,7 @@ Read ticket metadata reads the ticket row. The row has no `repos` field: the wor
 
 ## §3 Working copy
 
-Pull `01-spec.md`, `02-plan.md`, and whichever of `03-implementation.md`/`06-summary.md` exist (per the List artifacts operation) into a session-scratchpad directory — an ephemeral location outside the repository; nothing is ever materialized under `claudedocs/tickets/`, which is not a ticket store in this mode. `<ticket-folder>` denotes this working-copy directory: every `<ticket-folder>/0N-*.md` read/write site in the skill operates on the copies, with writes pushed per §4. All in-loop reading (including the per-step `Read` offset/limit re-read of the plan) works off these copies, and the stuck arbiter's prompt inlines resolved text — the build skill is the only reader/writer of the copies through the loop. The copies are disposable: every run re-pulls from the server; a scratchpad tree left by a prior run is never trusted or reused.
+Pull `01-spec.md`, `02-plan.md`, and whichever of `03-implementation.md`/`06-summary.md` exist in one message: the List artifacts operation beside one Read artifact per name. The listing's rows are the presence and timestamp source alone — its result is never extracted or written to the scratchpad, and a listing that arrives persisted is read for those signals only. A get that fails for an artifact the listing shows is a storage failure (§12); one the listing does not show is that artifact's absence. The gets' bodies land in a session-scratchpad directory — an ephemeral location outside the repository; nothing is ever materialized under `claudedocs/tickets/`, which is not a ticket store in this mode. `<ticket-folder>` denotes this working-copy directory: every `<ticket-folder>/0N-*.md` read/write site in the skill operates on the copies, with writes pushed per §4. All in-loop reading (including the per-step `Read` offset/limit re-read of the plan) works off these copies, and the stuck arbiter's prompt inlines resolved text — the build skill is the only reader/writer of the copies through the loop. The copies are disposable: every run re-pulls from the server; a scratchpad tree left by a prior run is never trusted or reused.
 
 ## §4 Artifact writes
 
@@ -26,7 +26,7 @@ The worktree binding runs after §3 because both of its parts read and write `03
 
 ## §10 Resumption keying
 
-The routing signals map onto the ticket row plus `pipeline_list_artifacts`, read after State setup's metadata binding and working-copy pull:
+The routing signals map onto the ticket row plus `pipeline_list_artifacts`, the listing that arrived with the working-copy pull (§3):
 
 - The in-review refusal keys on row status `in-review` — the row status is the only state signal in this mode.
 - Artifact presence comes from the listing; the already-complete check reads the first line of the pulled `06-summary.md` body. The handoff's done signal and its `## Rationale` / `## Stuck` sections are read from the pulled `03-implementation.md` body.
