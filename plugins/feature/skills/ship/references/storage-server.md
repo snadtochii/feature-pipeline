@@ -48,3 +48,50 @@ Every shared mutation in a `--parallel` run is orchestrator-only, in the forms [
 ## §7 UI evidence home and hosting
 
 Screenshots go to the evidence home declared in [the close stage's `storage-server.md`](../../close-stage/references/storage-server.md) §8 — its location, its epic form and its gitignore expectation live there — with the filenames fixed by [`ui-checks.md`](../../build/references/ui-checks.md) §3. Nothing is hostable, so the evidence post always takes the path-manifest outcome in `ui-verification.md` step 3 — the per-AC verdict plus the manifest, with no `git check-ignore` probe.
+
+## §8 UI verification write-back
+
+`ui-verification.md` step 4 invokes this section once per covered ticket, with that ticket's parsed tester result in hand. It upserts two artifacts on the ticket's row: `05-tests.md` as a whole, and one section of `06-summary.md`.
+
+**Target row.** The ticket's own ID — for an epic child, the child's ID, never the epic's. There is no epic-level tests artifact.
+
+**`05-tests.md` body.** A whole-body overwrite; nothing of the skip body the close stage wrote under `--no-ui-testing` is kept.
+
+```
+Source: ship end-of-run UI verification — branch <assembled-branch> @ <sha>
+verdict: <pass | partial>
+
+## Acceptance Criteria
+- [x] AC <n> — PASS — <tester's note>
+- [ ] AC <n> — FAIL — <tester's note>
+
+## Failed Criteria
+<one entry per failed criterion or failed required UI check: what failed, where, the screenshot name>
+
+## Observations
+<the tester's observations; for an epic child, the epic-wide findings too, each marked epic-wide>
+```
+
+- `<sha>` is the commit under test: `git rev-parse HEAD` of the checked-out assembled branch at test time.
+- The provenance line is first and `verdict:` second on purpose. Routers take the verdict from `06-summary.md`, never from this artifact's opening lines, and the provenance line is what tells a reader this result came from ship's pass rather than a close-stage checkpoint.
+- One `## Acceptance Criteria` line per criterion of this ticket, numbered as its own spec numbers them.
+- `## Failed Criteria` is present only when a criterion or a required UI check failed. A finding tied to no criterion goes under `## Observations`, never under `## Failed Criteria`.
+
+**Verdict rule.** Every criterion and every required UI check passed → `pass`. `## Failed Criteria` present → `partial`. `fail` is never written. The Write artifact operation (`pipeline_write_artifact`) carries it as the row's `verdict` argument alongside the body, so the board's Tests tab shows the verdict.
+
+**Write mechanics.** Tester text travels only as tool arguments — the artifact body — never through a shell command.
+
+**`06-summary.md` section.** List artifacts (`pipeline_list_artifacts`) for its presence and its row `verdict`, then read its body (`pipeline_get_artifact`), then compose the new whole body: the existing content with any prior `## UI verification` section removed, followed by
+
+```
+## UI verification
+- verdict: <pass | partial> (ship end-of-run pass, branch <assembled-branch> @ <sha>)
+- evidence: <URL of the PR the evidence was posted to>
+- results: 05-tests.md
+```
+
+Upsert it passing the row verdict it already carried back unchanged — omitted when it had none. The first line, the close stage's verdict, and every other section stay as written; a rerun replaces the section rather than adding a second one. A ticket whose listing has no `06-summary.md` gets no summary write, and the gap is reported.
+
+**Order and scope.** The `05-tests.md` upsert completes before the `06-summary.md` upsert, never in parallel with it, so the rows' `updated_at` ordering matches the write order. No row status changes — `pipeline_transition_ticket` is never called here.
+
+**Failure.** A call that fails is reported in the run report, naming the ticket and the artifact, and the run continues to its normal open/merge ending — the `--ui-test` exception to the loud-failure rule of [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md), since the pass never blocks the run. Nothing falls back to local files.
