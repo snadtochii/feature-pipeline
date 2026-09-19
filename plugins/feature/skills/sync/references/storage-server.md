@@ -1,6 +1,6 @@
 # Sync — server-native Storage Mechanics
 
-Canonical logic for sync's storage-touching steps in server-native storage mode. Read when the storage mode detected at sync's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is server-native — an fs-native run never needs this file. Referenced by `sync` only. Operations named below are defined in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md); sections are numbered so the skill body cites `§N`.
+Canonical logic for sync's storage-touching steps in server-native storage mode. Read when the storage mode detected at sync's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is server-native — an fs-native run never needs this file. Referenced by `sync` only. Operations named below are defined in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md); sections are numbered so the skill body cites `§N`. Every `pipeline_*` call passes `project_id` verbatim from the `project:` UUID bound at sync's start — never resolved from a name ([`../../flow/references/storage-server.md`](../../flow/references/storage-server.md)).
 
 ## §1 Scan set
 

@@ -6,12 +6,13 @@ A project runs in exactly one of two **storage modes** — **fs-native** (ticket
 
 Detect the mode **once per skill run**, locally, from `claudedocs/tickets/config.yaml` (model-read with the `Read` tool — never `yq`/`jq`):
 
-- `mode: server-native` **and** `project: <server-project-id>` both present → **server-native**.
+- `mode: server-native` **and** `project: <uuid>` both present → **server-native**. `project` is the UUID (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`) every `pipeline_*` tool takes verbatim as `project_id`.
 - Missing file, missing `mode` key, or `mode: fs-native` → **fs-native**.
-- `mode: server-native` with no `project` key → **config error**: stop with a message naming the missing key. Never proceed in either mode on a half-declared server project.
+- `mode: server-native` with no `project` key → **config error**: stop naming the missing key; never proceed on a half-declared project.
+- `mode: server-native` with a non-UUID `project` → **config error**: stop naming the key, the value seen and the fix (registry UUID, [`advanced.md`](../../../docs/advanced.md#storage-mode-and-the-personal-server)). Never a lookup, never an fs-native fallback.
 - Any other `mode` value → stop and ask the user. Never guess a storage backend.
 
-The detected mode applies to **every storage operation** in the run — no per-operation mixing, no mid-run re-detection. An fs-native run performs no server call of any kind, detection included: the personal server lives in a separate `server-native` connector plugin that an fs-native machine does not install (see [`../../../docs/advanced.md`](../../../docs/advanced.md#storage-mode-and-the-personal-server)). `config.yaml` itself — and `hooks/validate.sh`, which parses only its `validate:` block — stays a local file in both modes: project execution config plus the mode marker, not ticket data.
+The detected mode applies to **every storage operation** in the run — no per-operation mixing, no mid-run re-detection. An fs-native run performs no server call of any kind, detection included: the personal server lives in a separate `server-native` connector plugin that an fs-native machine does not install (see [`../../../docs/advanced.md`](../../../docs/advanced.md#storage-mode-and-the-personal-server)).
 
 ## Per-mode references
 

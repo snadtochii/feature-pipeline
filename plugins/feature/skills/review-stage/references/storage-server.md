@@ -1,6 +1,6 @@
 # Review Stage — server-native Storage Mechanics
 
-Canonical logic for the review stage's storage-touching steps in server-native storage mode. Read when the storage mode detected at the review stage's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is server-native — an fs-native run never needs this file. Referenced by `review-stage`. Operations named below are defined in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md); sections are numbered so the skill body cites `§N`.
+Canonical logic for the review stage's storage-touching steps in server-native storage mode. Read when the storage mode detected at the review stage's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is server-native — an fs-native run never needs this file. Referenced by `review-stage`. Operations named below are defined in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md); sections are numbered so the skill body cites `§N`. Every `pipeline_*` call passes `project_id` verbatim from the `project:` UUID bound at the stage's start (the brief's `Storage mode:` line, or its own detection when standalone) — never resolved from a name ([`../../flow/references/storage-server.md`](../../flow/references/storage-server.md)).
 
 ## §1 Inputs and working copy
 
