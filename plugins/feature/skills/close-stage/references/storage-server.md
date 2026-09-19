@@ -32,7 +32,7 @@ The cross-ticket lessons log is the lesson tools, per [`../../flow/references/le
 
 Performed by the finalizer, which receives the ticket handle and every scratchpad path below as resolved values in its spawn prompt.
 
-- **Ticket id and title for the PR** — there is no `01-spec.md` file to `sed`; the ticket's `id` and `title` are row fields (Read ticket metadata). The injection discipline of [`pr-creation.md`](../../build/references/pr-creation.md) §4 is preserved by changing the source, not the mechanism: write each value to a session-scratchpad file with the Write tool, then load it with the same command substitution (`TICKET_ID=$(cat "<scratchpad id file>")`, likewise the title) — never paste row text into a `"…"` literal. The `--body-file` path is the session working copy of `06-summary.md` (pulled per §1, pushed per §3).
+- **Ticket id and title for the PR** — there is no `01-spec.md` file to `sed`; the ticket's `id` and `title` are row fields (Read ticket metadata). The injection discipline of [`pr-creation.md`](../../build/references/pr-creation.md) §4 is preserved by changing the source, not the mechanism: write each value to a session-scratchpad file with the Write tool, then load it with the same command substitution (`TICKET_ID=$(cat "<scratchpad id file>")`, likewise the title) — never paste row text into a `"…"` literal. The `--body-file` path is the session working copy of `06-summary.md` (pulled per §1, pushed per §3) — or, when screenshots are attached, the close stage's posted-body files `pr-body-attach.md` and `pr-body-manifest.md`, written in the same scratchpad directory beside that working copy and never pushed to the server.
 - **Recording the opened PR** — re-upsert `06-summary.md` with the URL + branch appended (its body is otherwise left as the close stage authored it), and additionally record the URL on the ticket row via Update ticket fields (`pipeline_update_ticket` `pr_url`) — the non-status field write named in [`../../flow/references/state-transitions-server.md`](../../flow/references/state-transitions-server.md) Transition 5.
 
 ## §7 Resumption keying
@@ -57,6 +57,8 @@ Every `ui-tester` capture — the close stage's test checkpoint and ship's end-o
 The spawn prompt carries the resolved absolute path, never a link to this section. Fixed filenames overwrite a prior run's captures.
 
 **Gitignore expectation — stated once, here.** Screenshots are binary run evidence, not an artifact row: they are never pushed to the server and never enter a commit — [`commit.md`](../../build/references/commit.md) §1 excludes `claudedocs/` from the finalizer's commits.
+
+**Attaching.** With attaching enabled ([`ui-attach.md`](../../build/references/ui-attach.md) §1), the selected captures are uploaded to GitHub's attachment storage by the `gh … --attach` call that posts them — GitHub only, never the server.
 
 ## §9 Error handling
 

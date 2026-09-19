@@ -44,7 +44,7 @@ Every shared mutation in a `--parallel` run is orchestrator-only, in the forms [
 
 ## §7 UI evidence home and hosting
 
-Screenshots go to the evidence home declared in [the close stage's `storage-fs.md`](../../close-stage/references/storage-fs.md) §8 — its location, its epic form and its gitignore expectation live there — with the filenames fixed by [`ui-checks.md`](../../build/references/ui-checks.md) §3. Whether they are hostable is ship's decision: run `git check-ignore "<evidence-home>"` (mirror the pre-write guard in `debug` and build's `--pr` flow) and take the **Tracked** or **Ignored** outcome in `ui-verification.md` step 3 accordingly.
+Screenshots go to the evidence home declared in [the close stage's `storage-fs.md`](../../close-stage/references/storage-fs.md) §8 — its location, its epic form and its gitignore expectation live there — with the filenames fixed by [`ui-checks.md`](../../build/references/ui-checks.md) §3. Whether they are hostable is ship's decision: run `git check-ignore "<evidence-home>"` (mirror the pre-write guard in `debug` and build's `--pr` flow) and take the **Tracked** or **Ignored** outcome in `ui-verification.md` step 3 accordingly. With attaching enabled, that decision is the fallback below the **Attached** outcome: Tracked is [`ui-attach.md`](../../build/references/ui-attach.md) §7's hosted-link tier, and Ignored its path manifest.
 
 ## §8 UI verification write-back
 

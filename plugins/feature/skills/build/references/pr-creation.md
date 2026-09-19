@@ -77,9 +77,14 @@ gh pr create --base "<base>" --title "$PR_TITLE" --body-file "<06-summary.md pat
 - **Title** = `<TICKET-ID>: <01-spec.md title>` — the `<TICKET-ID>:` prefix mirrors the commit-message convention ([`commit.md`](commit.md) §2) and is **required** by the §Merge predicate's ID-keyed lookup, which filters on `title startswith "<TICKET-ID>:"`; a prefix-less title makes `sync` miss the PR. **Body** = `06-summary.md` passed via `--body-file` (no shell interpolation of arbitrary text).
 - **Epic child**: title = `<CHILD-ID>: <child title>` (same ID-prefix rule, using the child's own ID); prepend a one-line lead `Part of epic <EPIC-ID> (<epic-slug>).` to the body file; the commit references the child ID.
 - Capture the PR URL from `gh pr create` stdout.
+- **Screenshots** — only when the finalizer prompt names them ([`ui-attach.md`](ui-attach.md)). Before creating, the existing-PR check applies: a PR already open for `<branch>` is reported and never re-created, so nothing is attached twice. Then:
+  - **Attach list present** → run the [`ui-attach.md`](ui-attach.md) §2 probe against `gh pr create`. Passing → `--body-file` is the attach posted body, and the command above gains one double-quoted `--attach "<absolute path>#<alt>"` argument per listed entry, built per [`ui-attach.md`](ui-attach.md) §6. Failing → `--body-file` is the manifest posted body, with no `--attach`.
+  - **Manifest only** → `--body-file` is the manifest posted body, with no `--attach`.
+  - **gh refuses the attach** → one retry of `gh pr create` from the manifest posted body without `--attach` ([`ui-attach.md`](ui-attach.md) §7); a failed retry degrades as below.
+  - Either way the posted bodies already carry the epic lead line, so nothing is prepended to them, and the attach posted body is never sent without its `--attach` arguments. The `Screenshots:` outcome line ([`ui-attach.md`](ui-attach.md) §7) goes into the result's `notes`.
 - **Push rejected**, or **`gh pr create` fails after a successful push** → degrade: report (branch is pushed; PR not opened, with the reason), finalize `done/`, record in `06-summary.md`.
 
-**Injection discipline**: branch slug sanitized to `[a-z0-9-]`; PR title and ticket ID loaded into variables via command substitution from `01-spec.md` (NOT pasted into `"..."` literals — a double-quoted assignment doesn't neutralize backticks / `$()` / quotes) and concatenated into `$PR_TITLE`; PR body via `--body-file`; no `eval`. The push is outward-facing and is authorized only by `--pr`.
+**Injection discipline**: branch slug sanitized to `[a-z0-9-]`; PR title and ticket ID loaded into variables via command substitution from `01-spec.md` (NOT pasted into `"..."` literals — a double-quoted assignment doesn't neutralize backticks / `$()` / quotes) and concatenated into `$PR_TITLE`; PR body via `--body-file`; each `--attach` value passed [`ui-attach.md`](ui-attach.md) §3's name filter and §4's path gate; no `eval`. The push is outward-facing and is authorized only by `--pr`.
 
 **With a worktree bound**, the split runs through the middle of this block — `git push` and `gh pr create` are worktree-bound while the spec and `--body-file` paths stay in the main checkout. [`worktree.md`](worktree.md) §3 enumerates every site in this file, on both sides of that split; follow it there rather than re-deriving the split here.
 
@@ -88,7 +93,7 @@ Where `id`, `title`, and the `--body-file` path come from — the `sed` reads ab
 ## §5 Finalize
 
 - **Success** (PR opened, URL captured) → Transition 5 (`in-progress → review`, status `in-review`). Record the PR URL + branch (PR linkage on the ticket: the close stage's [`storage-fs.md`](../../close-stage/references/storage-fs.md) / [`storage-server.md`](../../close-stage/references/storage-server.md) §6, for the detected mode). The user-facing PR line is the close stage's: it prints it from the finalizer's result (`close-stage/SKILL.md` §6).
-- **Degradation** (any precondition/push/PR failure) → Transition 2 (`done/`). Record the reason + branch in `06-summary.md`. Print the specific degradation line.
+- **Degradation** (any precondition/push/PR failure) → Transition 2 (`done/`). Record the reason + branch in `06-summary.md`. Print the specific degradation line. A degraded run opens no PR, so it attaches nothing.
 - The verdict stays `pass` in both cases — degradation is not a failed close.
 
 ## Merge predicate (single definition — referenced by the close stage's `review/` merge-check row and the `sync` skill)

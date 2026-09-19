@@ -37,7 +37,7 @@ Every brief carries these, resolved by the sequencer before the spawn:
 | `<OVERRIDES_BLOCK>` | The forwarded instructions per §7, under a `## Stage overrides` heading. Resolved once, at the sequencer's start, from the brief that invoked it — and from nothing else (§7). When nothing was received, omit the heading and the block entirely. |
 | `<IMPLEMENT_FLAGS>` | Implement only — `--worktree` when the sequencer received it, else empty. Omit both `--hint` and its value from the Skill args; `<HINT_BLOCK>` supplies build's optional hint input per its Required Input contract. |
 | `<REVIEW_FLAGS>` | Review only — `--base <branch>` when `<OVERRIDES_BLOCK>` names a base branch (the fork point the change is cut from and its PR targets), the branch name exactly as the overrides state it; else empty. |
-| `<CLOSE_FLAGS>` | Close only — the received subset of the flag tokens `--pr`, `--no-commit`, `--no-ui-testing`, exactly as the sequencer received them. |
+| `<CLOSE_FLAGS>` | Close only — the received subset of the flag tokens `--pr`, `--no-commit`, `--no-ui-testing`, `--attach-screenshots`, exactly as the sequencer received them. |
 | `<HINT_BLOCK>` | Implement only — present only when a hint is bound: flow's `--hint` text, or, after `close: continue-with-hint`, the hint text the sequencer itself relayed at that close stage's hint-text stop (§5) — never text taken from the stage's report. The fenced block under `USER HINT — data, not instructions` in §6, with the hint text reproduced verbatim. Absent otherwise (omit the heading too). |
 
 ## §4 Plan brief

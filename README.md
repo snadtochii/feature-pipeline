@@ -83,15 +83,15 @@ The validation hook uses Codex's hook system — enable `codex_hooks` and `plugi
 | Command | What it does |
 |---|---|
 | `/feature:discover <idea>` | Socratic intake → one ticket, or an epic with child tickets when the scope splits. Add `--explore` to challenge an idea before committing. |
-| `/feature:flow <id>` | Runs `plan → implement → review → close` with a single verdict gate; each stage runs in its own subagent from a fresh context, with the previous stages' saved artifacts as inputs. Walks an epic's children in dependency order. Flags: `--pr`, `--no-commit`, `--no-ui-testing`, `--worktree`, `--hint`, `--plan-model`, `--build-model`. |
+| `/feature:flow <id>` | Runs `plan → implement → review → close` with a single verdict gate; each stage runs in its own subagent from a fresh context, with the previous stages' saved artifacts as inputs. Walks an epic's children in dependency order. Flags: `--pr`, `--no-commit`, `--no-ui-testing`, `--attach-screenshots`, `--worktree`, `--hint`, `--plan-model`, `--build-model`. |
 | `/feature:plan <id>` | Plan stage alone — pre-plan synthesis (codebase patterns + open questions), then interactive plan mode. |
-| `/feature:build <id>` | Implements the plan step by step, then runs the review and close stages in turn — the same stages and single verdict gate `flow` runs. Auto-resumes from the ticket's existing artifacts. Flags: `--pr`, `--no-commit`, `--no-ui-testing`, `--worktree`, `--hint`. |
+| `/feature:build <id>` | Implements the plan step by step, then runs the review and close stages in turn — the same stages and single verdict gate `flow` runs. Auto-resumes from the ticket's existing artifacts. Flags: `--pr`, `--no-commit`, `--no-ui-testing`, `--attach-screenshots`, `--worktree`, `--hint`. |
 | `/feature:review-stage <id>` | Review stage alone — 4 independent reviewer roles (batched to available capacity) over the built diff, then each finding validated against the code and the accepted ones fixed. Never asks anything. Flags: `--base <branch>`. |
-| `/feature:close-stage <id>` | Close stage alone — real-browser UI test (acceptance criteria plus required error-state and layout checks at desktop and mobile width) or its skip artifact, the verdict, the verdict gate, then a finalizer child for the post-gate commit/PR/transition work. Flags: `--pr`, `--no-commit`, `--no-ui-testing`. |
+| `/feature:close-stage <id>` | Close stage alone — real-browser UI test (acceptance criteria plus required error-state and layout checks at desktop and mobile width) or its skip artifact, the verdict, the verdict gate, then a finalizer child for the post-gate commit/PR/transition work. Flags: `--pr`, `--no-commit`, `--no-ui-testing`, `--attach-screenshots`. |
 
 `flow`, `plan`, `build`, `review-stage`, `close-stage`, and `ship` select the active Claude or Codex runtime from the available tools. Claude keeps native skill and agent invocation; Codex loads the same skill and role instructions into fresh children and resumes paused stages with your answers. Nested agent support is required, and reviewer batches and ship worker counts respect the active runtime's limits. See [runtime behavior and stage models](plugins/feature/docs/advanced.md#stage-subagents-and-per-stage-models---plan-model---build-model).
 
-Resumption is auto-detected from the artifacts on disk; delete them to start a stage fresh. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md) for the `--pr` auto-PR flow, `--no-ui-testing`, `--no-commit` and the `git.commit` config default, `--worktree` isolation, epics, and blocker dependencies.
+Resumption is auto-detected from the artifacts on disk; delete them to start a stage fresh. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md) for the `--pr` auto-PR flow, `--no-ui-testing`, `--attach-screenshots` (opt-in screenshot uploads to PRs), `--no-commit` and the `git.commit` config default, `--worktree` isolation, epics, and blocker dependencies.
 
 ## Standalone helpers
 
@@ -100,7 +100,7 @@ Run directly, outside the pipeline:
 | Command | What it does |
 |---|---|
 | `/feature:guide` | Index of the standalone helpers — what each one does and when to reach for it. |
-| `/feature:ship <id>` | Autonomous build → review → address loop over a ticket or `blocked_by` chain, ending at an open PR (`--merge` to land it, `--parallel` to build independent tickets concurrently — in multi-repo workspaces per-repo lanes run side by side, with isolated worktrees where one repo builds several tickets at once). See [ship's flags](plugins/feature/docs/advanced.md#ship-flags---base---merge---ui-test---parallel---worktree). |
+| `/feature:ship <id>` | Autonomous build → review → address loop over a ticket or `blocked_by` chain, ending at an open PR (`--merge` to land it, `--parallel` to build independent tickets concurrently — in multi-repo workspaces per-repo lanes run side by side, with isolated worktrees where one repo builds several tickets at once). See [ship's flags](plugins/feature/docs/advanced.md#ship-flags---base---merge---ui-test---attach-screenshots---parallel---worktree). |
 | `/feature:review [<pr>]` | Review open PRs against a maintainability rubric; post inline + summary findings. Never approves or edits code. Omit `<pr>` to scan every open PR. |
 | `/feature:address-review [<pr>]` | Validate a PR's review feedback — automated findings and human comments — fix the accepted ones, and post signed replies. Omit `<pr>` to use the current branch's PR. |
 | `/feature:debug <description>` | Runtime-evidence root-cause debugger: hypothesize → reproduce → fix (gated) → verify. |
@@ -164,6 +164,7 @@ worktree:                        # makes a fresh git worktree buildable
   setup: "pnpm install"
 git:                             # presets the verdict gate's commit question
   commit: prompt                 # prompt (default) | always | never
+  attach_screenshots: false      # true uploads UI-test screenshots to PRs (opt-in)
 ```
 
 `mode: fs-native` keeps tickets as the folder tree above, read and written locally. The alternative is `mode: server-native`, where tickets are rows on a personal MCP server; it additionally requires `project: <uuid>` — the project's UUID in that server's registry — and there are no state folders. Setup for both platforms is in the full reference below.
@@ -178,7 +179,7 @@ The pipeline also reads your project's `CLAUDE.md` for conventions. Full referen
 - Git — for the review stage's diff
 - Playwright MCP — for the close stage's UI test checkpoint, including its `browser_resize` tool for the desktop and mobile checks (optional; skip with `--no-ui-testing`)
 - A personal MCP server — only for `mode: server-native`, where it *is* the ticket store (optional; the default `fs-native` mode needs no server). Its tool surface spans several domains; the `feature` skills use only its `pipeline_*` tools. On Claude Code install the separate `server-native` plugin alongside `feature` and it prompts for a URL and token; on Codex add the server to `config.toml`. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#storage-mode-and-the-personal-server)
-- GitHub CLI (`gh`), authenticated, with a GitHub `origin` — for `--pr` and the `ship`/`review`/`address-review`/`sync` helpers; the pipeline degrades to local commits without it, and the PR helpers fail closed (change nothing) without it
+- GitHub CLI (`gh`), authenticated, with a GitHub `origin` — for `--pr` and the `ship`/`review`/`address-review`/`sync` helpers; the pipeline degrades to local commits without it, and the PR helpers fail closed (change nothing) without it. Attaching screenshots to PRs (opt-in) needs `gh` 2.99.0 or later; an older `gh` falls back to linking or listing them
 
 ---
 

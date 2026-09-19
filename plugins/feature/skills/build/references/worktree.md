@@ -186,7 +186,8 @@ The [`commit.md`](commit.md) and [`pr-creation.md`](pr-creation.md) rows, and §
 | State transitions — folder moves under `claudedocs/tickets/` | Same. |
 | The lessons log | Same. |
 | `sed -n 's/^id: *//p' "<01-spec.md path>"` and the title read | [`pr-creation.md`](pr-creation.md) §4 — reads the real spec, not a fork-point copy. |
-| `gh pr create --body-file "<06-summary.md path>"` | The body is the artifact just written to the main checkout. |
+| `gh pr create --body-file "<06-summary.md path>"`, or the close stage's posted-body file | The body is the artifact just written to the main checkout, or its posted-body copy written beside it. |
+| `gh pr create --attach` paths, and the image references in the posted body ([`ui-attach.md`](ui-attach.md) §4) | Absolute evidence-home paths. gh matches a body reference to an attached file by resolving both from the process working directory, which is `<wt-path>`; a relative path would resolve inside the worktree, where the evidence home does not exist. |
 
 `<ticket-folder>` must therefore be **absolute** for the whole run, and stay bound across every state transition that moves the folder. What this column denotes in the detected storage mode: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §5; §2 step 6's config-presence rule applies either way.
 

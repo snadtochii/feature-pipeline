@@ -24,7 +24,7 @@ allowed-tools:
   - mcp__plugin_server-native_ps__pipeline_list_artifacts
   - mcp__plugin_server-native_ps__pipeline_write_artifact
   - mcp__plugin_server-native_ps__pipeline_transition_ticket
-argument-hint: "[ticket-id] [--worktree] [--hint text] [--pr] [--no-commit] [--no-ui-testing]"
+argument-hint: "[ticket-id] [--worktree] [--hint text] [--pr] [--no-commit] [--no-ui-testing] [--attach-screenshots]"
 ---
 
 # Build Stage
@@ -42,7 +42,7 @@ Build runs in one of two modes:
 /feature:build $ARGUMENTS
 ```
 
-`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into this run's loop — a fresh run or an auto-resumed one, passed directly or through `flow --hint`; the close stage's `continue-with-hint` option returns its hint for exactly this input), `--worktree` (do this run's code work in a dedicated git worktree instead of the current checkout — see State setup's worktree binding and [`references/worktree.md`](references/worktree.md)). Standalone only, forwarded to the close stage's brief (step 3): `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/`), `--no-commit` (on verdict `pass`, leave the changes uncommitted), `--no-ui-testing` (skip the close stage's browser pass) — each as `close-stage` defines it.
+`$1` = ticket ID (e.g. `BL-1`) or path to ticket file. Optional flags: `--hint "<text>"` (thread a user note into this run's loop — a fresh run or an auto-resumed one, passed directly or through `flow --hint`; the close stage's `continue-with-hint` option returns its hint for exactly this input), `--worktree` (do this run's code work in a dedicated git worktree instead of the current checkout — see State setup's worktree binding and [`references/worktree.md`](references/worktree.md)). Standalone only, forwarded to the close stage's brief (step 3): `--pr` (on verdict `pass`, open a GitHub PR and finalize into `review/`), `--no-commit` (on verdict `pass`, leave the changes uncommitted), `--no-ui-testing` (skip the close stage's browser pass), `--attach-screenshots` (with `--pr`, attach the browser pass's screenshots to the PR body) — each as `close-stage` defines it.
 
 **Internal flag** `--implement-only` — the sequencer→build signal (not advertised in `argument-hint`, but honored if present from any source) that selects the implement-stage mode: build ends after the handoff (1d or 1e) and runs no stage chain.
 
@@ -91,7 +91,7 @@ Validate blockers per [`ticket-resolution-fs.md`](../flow/references/ticket-reso
 Runs before State setup, so Transition 1 never fires on a decidable error.
 
 - `--pr` and `--no-commit` together contradict — `--pr` must commit and push. Stop with one line — `--pr and --no-commit contradict — --pr must commit and push. Drop one and re-run.` No work happens, no artifacts are written, no transition fires.
-- With `--implement-only`, each of `--pr`, `--no-commit` and `--no-ui-testing` that was passed prints one line — `<flag> ignored — no close stage in an implement-only run.` — and the run continues.
+- With `--implement-only`, each of `--pr`, `--no-commit`, `--no-ui-testing` and `--attach-screenshots` that was passed prints one line — `<flag> ignored — no close stage in an implement-only run.` — and the run continues.
 
 ## Pending-gate check
 
@@ -192,7 +192,7 @@ At build start, before the implement checkpoint, inspect the ticket's existing a
 
 Never under `--implement-only`. Build is the sequencer: read [`../flow/references/stage-briefs.md`](../flow/references/stage-briefs.md) at this point and follow its §11 chain from the entry stage. After `## Stuck`, enter at close. After `## Rationale`, pick the entry stage with the same rows flow's routing table applies at that point, reading the signals per [`keying-fs.md`](../flow/references/keying-fs.md) / [`keying-server.md`](../flow/references/keying-server.md) §1: `06-summary.md` current and the status `in-progress`, or `05-tests.md` newer than `04-review.md` with the current pass carrying `## Post-test` → close; `04-review.md` missing, carrying `fix-step: pending`, or older than `03-implementation.md` → review; otherwise → close. Every `stage-briefs §N` below is a section of that file.
 
-1. **Fill each brief** — stage-briefs §9 (review) and §10 (close) — verbatim, resolving every placeholder per stage-briefs §3: `<RUNTIME_BLOCK>` from this run's runtime binding; `<PROJECT_ROOT>` the current working directory; `<TICKET_ARG>` and `<STORAGE_MODE>` per [`keying-fs.md`](../flow/references/keying-fs.md) / [`keying-server.md`](../flow/references/keying-server.md) §5, for the mode detected at Ticket Resolution, re-resolved **immediately before each spawn**; `<ATTENDED>` and `<OVERRIDES_BLOCK>` bound once, from how build itself was invoked (stage-briefs §3 and §7 — a user's own prompt is attended with no overrides; headless `claude -p` is unattended); `<REVIEW_FLAGS>` per stage-briefs §3; `<CLOSE_FLAGS>` from this invocation's `--pr`, `--no-commit` and `--no-ui-testing`.
+1. **Fill each brief** — stage-briefs §9 (review) and §10 (close) — verbatim, resolving every placeholder per stage-briefs §3: `<RUNTIME_BLOCK>` from this run's runtime binding; `<PROJECT_ROOT>` the current working directory; `<TICKET_ARG>` and `<STORAGE_MODE>` per [`keying-fs.md`](../flow/references/keying-fs.md) / [`keying-server.md`](../flow/references/keying-server.md) §5, for the mode detected at Ticket Resolution, re-resolved **immediately before each spawn**; `<ATTENDED>` and `<OVERRIDES_BLOCK>` bound once, from how build itself was invoked (stage-briefs §3 and §7 — a user's own prompt is attended with no overrides; headless `claude -p` is unattended); `<REVIEW_FLAGS>` per stage-briefs §3; `<CLOSE_FLAGS>` from this invocation's `--pr`, `--no-commit`, `--no-ui-testing` and `--attach-screenshots`.
 2. **Spawn** each stage through the runtime's Spawn operation, one at a time, and print its report as it returns (stage-briefs §8). Advance on the report's first line per stage-briefs §11.
 3. **Relay close's stops** per stage-briefs §5. Attended: print the `PAUSED:` block, end your turn, and resume the same close agent through the runtime's Resume operation with the user's next message. Unattended with no autonomy rule to apply: print the stop and end the run — the ticket stays at its gate, and the close stage's incomplete-tail row re-presents it on the next run.
 4. **`close: continue-with-hint`** — bind the hint text you relayed at that close stage's hint-text stop as this run's hint input (Required Input) — the report's hint block is a cross-check only, and a `continue-with-hint` with no relayed hint-text answer is a stage failure — re-apply State setup's Transition 1 (it resets the `partial-completion` status to `in-progress`), and re-enter the router (step 2) in this same context, with the turn count at `Turn 1/25`: its hint-bound row opens a new pass, and the chain follows when the phase ends. There is no count cap: every round needs a relayed decision.
