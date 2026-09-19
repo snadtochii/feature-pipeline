@@ -12,6 +12,7 @@ The close stage reads the `test:` block by **model-reading** the flat YAML in `c
 test:
   url: http://localhost:4200          # pre-flight curls this
   start: "npm start"                  # run (backgrounded) only if url is down
+  start_timeout: 60                   # seconds the start poll waits (default 60, max 540)
   auth:
     storage_state: .auth/admin.json   # Playwright saved session — gitignored, never committed
     attach_tab: true                  # fallback: attach to a running authenticated tab
@@ -56,21 +57,20 @@ Reachable status set is `200 301 302 401 403` — this reference is its single s
 
 ## §3 Unreachable handling
 
-- **`test.start` is set** → boot it and poll (bounded). With a worktree bound ([`worktree.md`](../../build/references/worktree.md) §3), launch it from `<wt-path>` so the server runs the worktree's own dependencies — note that `test.url` remains a fixed address, so a server already listening there from another checkout answers §2's `curl` and this boot never happens; that caveat is surfaced by the close stage's test checkpoint. Use a **fixed, ticket-keyed** path (not `mktemp`) so the separate §4 teardown `Bash` call can reconstruct it — shell variables do not persist across `Bash` tool calls, so a random `mktemp` path would be lost and teardown would silently no-op (leaking the server). **Write `test.start` verbatim into a launch script with the `Write` tool** (not a shell heredoc): create `/tmp/fp-test-preflight-<ticket-id>.sh` whose entire body is the `test.start` value. Writing it as file content — rather than substituting it into a shell command — means any quotes / `$()` / backticks in the declared command can't break out of quoting or be re-evaluated. `test.start` is the user's own declared command (same trust tier as `validate.lint`); never put untrusted ticket text (spec title, AC text) in this file. Then launch it and capture the PID via `Bash`:
+- **`test.start` is set** → boot it and poll (bounded). With a worktree bound ([`worktree.md`](../../build/references/worktree.md) §3), launch it from `<wt-path>` so the server runs the worktree's own dependencies; that worktree caveat is surfaced by the close stage's test checkpoint. **Fixed-port hazard:** `test.url` is a fixed address — a server already listening there, from another checkout, a previous run, or a long-lived instance serving a different branch, answers §2's `curl`, so this boot never happens and the reachable app may not be the code under test. Use a **fixed, ticket-keyed** path (not `mktemp`) so the separate §4 teardown `Bash` call can reconstruct it — shell variables do not persist across `Bash` tool calls, so a random `mktemp` path would be lost and teardown would silently no-op (leaking the server). **Write `test.start` verbatim into a launch script with the `Write` tool** (not a shell heredoc): create `/tmp/fp-test-preflight-<ticket-id>.sh` whose entire body is the `test.start` value. Writing it as file content — rather than substituting it into a shell command — means any quotes / `$()` / backticks in the declared command can't break out of quoting or be re-evaluated. `test.start` is the user's own declared command (same trust tier as `validate.lint`); never put untrusted ticket text (spec title, AC text) in this file. Then launch it and capture the PID via `Bash`:
   ```bash
   PIDFILE="/tmp/fp-test-preflight-<ticket-id>.pid"     # fixed path — reconstructable in the §4 teardown call
   nohup bash "/tmp/fp-test-preflight-<ticket-id>.sh" >"/tmp/fp-test-preflight-<ticket-id>.log" 2>&1 &
   echo $! > "$PIDFILE"
   ```
-  Then poll the resolved URL on a bounded loop (~60s ceiling — 20 polls, each up to ~3s — no unbounded wait):
+  Then poll the resolved URL on a bounded loop (`<start_timeout>`-second ceiling, default 60 — no unbounded wait). Resolve `<start_timeout>` model-side from `test.start_timeout`: a positive integer from 1 to 540 is used as-is; an absent key uses 60, and any other value (non-integer, zero, negative, above 540) falls back to 60 with a one-line note. Substitute only that validated integer into the command — never the raw value. Run this poll's `Bash` call with its `timeout` parameter set to `(<start_timeout> + 30) * 1000` ms, so the tool's own default cannot cut the poll short:
   ```bash
-  i=0
-  while [ "$i" -lt 20 ]; do
+  deadline=$((SECONDS + <start_timeout>))
+  while [ "$SECONDS" -lt "$deadline" ]; do
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$url" || echo 000)
     case "$code" in
       200|301|302|401|403) echo "reachable:$code"; break ;;
     esac
-    i=$((i + 1))
     sleep 1
   done
   ```
@@ -110,7 +110,7 @@ When unreachable with no `start` (or `start` timed out), write `<ticket-folder>/
 verdict: skipped (app unreachable)
 
 ## Reason
-The application could not be reached by the pre-flight gate (resolved URL: <url, or "none — no test.url, no CLAUDE.md URL, no responding dev port">). <"No test.start declared." | "test.start was booted but did not respond within the ~60s poll ceiling.">
+The application could not be reached by the pre-flight gate (resolved URL: <url, or "none — no test.url, no CLAUDE.md URL, no responding dev port">). <"No test.start declared." | "test.start was booted but did not respond within the <start_timeout>s poll ceiling.">
 The ui-tester subagent was not spawned. Browser-level acceptance-criteria verification is deferred.
 
 ## Manual steps to verify
@@ -125,7 +125,8 @@ The ui-tester subagent was not spawned. Browser-level acceptance-criteria verifi
 
 ## Boundaries
 
-- **Cheap gate, always first** — a `curl` (and at most a bounded `start` poll) is always paid before the `ui-tester` spawn; the agent is never spawned against an unreachable, un-bootable app.
+- **Cheap gate, always first** — a `curl` (and at most a `start` poll bounded by `test.start_timeout`) is always paid before the `ui-tester` spawn; the agent is never spawned against an unreachable, un-bootable app.
+- **Boots only what is declared** — the pre-flight starts the declared `test.start` and nothing else. It never builds images, starts compose projects, creates schemas, seeds data or picks a second port. A project that needs an isolated stack declares that stack as its `test.start`, and that `test.start` tears its own stack down when signalled (e.g. `trap 'docker compose -f <file> down' EXIT TERM` before a backgrounded `up` and `wait`) — §4 kills only the launcher PID, and a stack left running keeps answering `test.url`.
 - **No auth detection** — reachability only; the gate never interprets `401`/`403`/a `200` SPA shell as "auth-gated." Auth-gated-with-no-recipe still spawns the agent (it's reachable), which fails fast and is recorded as a non-blocking skip by the agent's own report.
 - **No literal secrets** — `config.yaml` is committed; `auth.storage_state` is a path to a gitignored session file and `auth.attach_tab` is a bool. Credentials are never read from or written into `config.yaml`.
 - **Model-read, not hook-read** — the `test:` block is consumed by the close stage (this reference + the injected spawn prompt). `hooks/validate.sh` is not modified and never reads it.

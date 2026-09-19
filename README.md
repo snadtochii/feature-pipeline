@@ -156,9 +156,10 @@ mode: fs-native                  # where tickets live; omit the key and you get 
 validate:                        # lint/typecheck run after each edit (opt-in)
   lint: "bun run lint"
   typecheck: "bun run typecheck"
-test:                            # lets the close stage reach your app for the UI checkpoint
+test:                            # lets the close stage and ship's --ui-test reach your app
   url: http://localhost:4200
   start: "npm start"
+  start_timeout: 60
 worktree:                        # makes a fresh git worktree buildable
   setup: "pnpm install"
 git:                             # presets the verdict gate's commit question
