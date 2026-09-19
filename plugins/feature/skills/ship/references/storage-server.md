@@ -95,3 +95,7 @@ Upsert it passing the row verdict it already carried back unchanged — omitted 
 **Order and scope.** The `05-tests.md` upsert completes before the `06-summary.md` upsert, never in parallel with it, so the rows' `updated_at` ordering matches the write order. No row status changes — `pipeline_transition_ticket` is never called here.
 
 **Failure.** A call that fails is reported in the run report, naming the ticket and the artifact, and the run continues to its normal open/merge ending — the `--ui-test` exception to the loud-failure rule of [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md), since the pass never blocks the run. Nothing falls back to local files.
+
+## §9 Close record
+
+Hop verification reads the ticket's close record from its row with `pipeline_get_artifact`: `06-summary.md`'s validation and test lines, and `04-review.md`'s `## Post-review validation` section. Step 2's provenance comment takes the review stage's result from the same `04-review.md` artifact.
