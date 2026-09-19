@@ -66,16 +66,16 @@ verdict: <pass | partial>
 - [ ] AC <n> — FAIL — <tester's note>
 
 ## Failed Criteria
-<one entry per failed criterion or failed required UI check: what failed, where, the screenshot name>
+<one entry per failed criterion or failed required UI check: what failed, where, the screenshot name; for an epic child, the epic-wide required-check failures too, each marked epic-wide>
 
 ## Observations
-<the tester's observations; for an epic child, the epic-wide findings too, each marked epic-wide>
+<the tester's non-failing notes; for an epic child, the epic-wide notes too, each marked epic-wide>
 ```
 
 - `<sha>` is the commit under test: `git rev-parse HEAD` of the checked-out assembled branch at test time.
 - The provenance line is first and `verdict:` second on purpose. Routers take the verdict from `06-summary.md`, never from this artifact's opening lines, and the provenance line is what tells a reader this result came from ship's pass rather than a close-stage checkpoint.
 - One `## Acceptance Criteria` line per criterion of this ticket, numbered as its own spec numbers them.
-- `## Failed Criteria` is present only when a criterion or a required UI check failed. A finding tied to no criterion goes under `## Observations`, never under `## Failed Criteria`.
+- `## Failed Criteria` is present only when a criterion or a required UI check failed — a required-check failure the tester listed against the implicit `UI states (required check)` criterion counts, even with no numbered criterion to attach it to. `## Observations` holds only non-failing notes, never a failure.
 
 **Verdict rule.** Every criterion and every required UI check passed → `pass`. `## Failed Criteria` present → `partial`. `fail` is never written. The Write artifact operation (`pipeline_write_artifact`) carries it as the row's `verdict` argument alongside the body, so the board's Tests tab shows the verdict.
 
