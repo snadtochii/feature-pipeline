@@ -282,7 +282,7 @@ mode: fs-native        # default — omit the key entirely and you get this
 ```yaml
 prefix: FP
 mode: server-native    # tickets are rows on an MCP server, not files
-project: 00000000-0000-0000-0000-000000000000    # required with server-native — the project's UUID from the server's project registry
+project: <your-project-uuid>    # required with server-native — the project's UUID from the server's project registry
 ```
 
 - **`fs-native`** — tickets are the folder tree under `claudedocs/tickets/` described in the [README](../../../README.md#tickets). A missing `mode` key or a missing `config.yaml` means this. Ticket reads and writes are entirely local.
