@@ -92,3 +92,7 @@ Write it with the same heredoc discipline. The first line — the close stage's 
 **Order and scope.** `05-tests.md` is written before `06-summary.md`, so the summary is never older than it. Neither file is staged or committed — [`commit.md`](../../build/references/commit.md) §1 excludes `claudedocs/`, and the Tracked outcome stages only the evidence home. No `status:` frontmatter changes and no folder moves.
 
 **Failure.** A write that fails is reported in the run report, naming the ticket and the artifact, and the run continues to its normal open/merge ending.
+
+## §9 Close record
+
+Hop verification reads the ticket's close record from its folder with `Read`: `06-summary.md`'s validation and test lines, and `04-review.md`'s `## Post-review validation` section. Step 2's provenance comment takes the review stage's result from the same `04-review.md`. Locate the folder as §8's **Target folder** does, immediately before the read — an epic child's subtree stays in `in-progress/` while a sibling is still in progress (§6), so the folder is never assumed to be in `review/`.
