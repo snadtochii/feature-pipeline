@@ -45,3 +45,50 @@ Every shared mutation in a `--parallel` run is orchestrator-only, in the forms [
 ## §7 UI evidence home and hosting
 
 Screenshots go to the evidence home declared in [the close stage's `storage-fs.md`](../../close-stage/references/storage-fs.md) §8 — its location, its epic form and its gitignore expectation live there — with the filenames fixed by [`ui-checks.md`](../../build/references/ui-checks.md) §3. Whether they are hostable is ship's decision: run `git check-ignore "<evidence-home>"` (mirror the pre-write guard in `debug` and build's `--pr` flow) and take the **Tracked** or **Ignored** outcome in `ui-verification.md` step 3 accordingly.
+
+## §8 UI verification write-back
+
+`ui-verification.md` step 4 invokes this section once per covered ticket, with that ticket's parsed tester result in hand. It rewrites two files in the ticket folder: `05-tests.md` as a whole, and one section of `06-summary.md`.
+
+**Target folder.** Re-resolve the ticket folder immediately before writing — never reuse the path SETUP resolved for §3, because the run's own transitions moved the folder since. A solo or multi-solo ticket resolves by the search order in [`../../flow/references/ticket-resolution-fs.md`](../../flow/references/ticket-resolution-fs.md); an epic child by `Glob` `claudedocs/tickets/*/<EPIC>/tasks/<ID>/`, since the epic subtree moves as a unit and the child never leaves `tasks/`. The result is an absolute path. No match, or more than one → write nothing for that ticket and report it.
+
+**`05-tests.md` body.** A whole-file overwrite; nothing of the skip body the close stage wrote under `--no-ui-testing` is kept.
+
+```
+Source: ship end-of-run UI verification — branch <assembled-branch> @ <sha>
+verdict: <pass | partial>
+
+## Acceptance Criteria
+- [x] AC <n> — PASS — <tester's note>
+- [ ] AC <n> — FAIL — <tester's note>
+
+## Failed Criteria
+<one entry per failed criterion or failed required UI check: what failed, where, the screenshot name; for an epic child, the epic-wide required-check failures too, each marked epic-wide>
+
+## Observations
+<the tester's non-failing notes; for an epic child, the epic-wide notes too, each marked epic-wide>
+```
+
+- `<sha>` is the commit under test: `git rev-parse HEAD` of the checked-out assembled branch at test time, or the Tracked outcome's `<pushed-sha>` when step 3 pushed screenshots on top of it.
+- The provenance line is first and `verdict:` second on purpose. Routers read only `06-summary.md`'s first line, never this file's, and the provenance line is what tells a reader this result came from ship's pass rather than a close-stage checkpoint.
+- One `## Acceptance Criteria` line per criterion of this ticket, numbered as its own spec numbers them.
+- `## Failed Criteria` is present only when a criterion or a required UI check failed — a required-check failure the tester listed against the implicit `UI states (required check)` criterion counts, even with no numbered criterion to attach it to. `## Observations` holds only non-failing notes, never a failure.
+
+**Verdict rule.** Every criterion and every required UI check passed → `pass`. `## Failed Criteria` present → `partial`. `fail` is never written.
+
+**Write mechanics.** Ship holds Bash and no `Write`, so each file is written by one Bash call: a single-quoted heredoc redirected to the absolute target path, `cat > "<ticket-folder>/05-tests.md" <<'<nonce>'`. The delimiter is a fresh nonce per write, verified absent from every line of the body before the call is composed; regenerate it on a collision. The quoted delimiter disables all expansion, so backticks, `$()` and quotes in tester text land as file content. Tester text never appears on a command line and never passes through `eval` — the discipline of [`../../review/references/pr-comments.md`](../../review/references/pr-comments.md) §5 and §7.
+
+**`06-summary.md` section.** `Read` the file, then compose its new whole body: the existing content with any prior `## UI verification` section removed, followed by
+
+```
+## UI verification
+- verdict: <pass | partial> (ship end-of-run pass, branch <assembled-branch> @ <sha>)
+- evidence: <URL of the PR the evidence was posted to>
+- results: 05-tests.md
+```
+
+Write it with the same heredoc discipline. The first line — the close stage's verdict — and every other section stay as written; a rerun replaces the section rather than adding a second one. A ticket without `06-summary.md` gets no summary write, and the gap is reported.
+
+**Order and scope.** `05-tests.md` is written before `06-summary.md`, so the summary is never older than it. Neither file is staged or committed — [`commit.md`](../../build/references/commit.md) §1 excludes `claudedocs/`, and the Tracked outcome stages only the evidence home. No `status:` frontmatter changes and no folder moves.
+
+**Failure.** A write that fails is reported in the run report, naming the ticket and the artifact, and the run continues to its normal open/merge ending.
