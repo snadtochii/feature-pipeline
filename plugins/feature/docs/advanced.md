@@ -285,11 +285,19 @@ mode: fs-native        # default — omit the key entirely and you get this
 ```yaml
 prefix: FP
 mode: server-native    # tickets are rows on an MCP server, not files
-project: my-project    # required with server-native — the project's id in the server's registry
+project: <your-project-uuid>    # required with server-native — the project's UUID from the server's project registry
 ```
 
 - **`fs-native`** — tickets are the folder tree under `claudedocs/tickets/` described in the [README](../../../README.md#tickets). A missing `mode` key or a missing `config.yaml` means this. Ticket reads and writes are entirely local.
-- **`server-native`** — tickets are authoritative rows on a personal MCP server, and `project:` names the project in that server's registry. That server's tool surface spans several domains; the `feature` skills use only its `pipeline_*` tools. The state folders (`backlog/`, `in-progress/`, `review/`, `done/`) do not exist, and artifact bodies carry no frontmatter — the row is the only metadata source. `mode: server-native` with no `project` key is a config error, not a fallback.
+- **`server-native`** — tickets are authoritative rows on a personal MCP server, and `project:` is the project's UUID, exactly as the server's `pipeline_*` tools take it as `project_id`. That server's tool surface spans several domains; the `feature` skills use only its `pipeline_*` tools. The state folders (`backlog/`, `in-progress/`, `review/`, `done/`) do not exist, and artifact bodies carry no frontmatter — the row is the only metadata source. `mode: server-native` with no `project` key is a config error, not a fallback.
+
+Read the UUID from your personal server's project registry — the id its `pipeline_*` tools take as `project_id` — and paste it as-is: the canonical 36-character form, hex digits in 8-4-4-4-12 groups, either case, no braces or `urn:uuid:` prefix. A slug or project name is not accepted, and no skill resolves one: with no tool that maps a name to a UUID, a non-UUID value stops the run before any server call, with this message:
+
+```
+Config error in claudedocs/tickets/config.yaml: `project` must be the server project's UUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx), found "<value>". Replace it with the project's UUID from your personal server's project registry. Stopping before any server call; no lookup is attempted and the run does not fall back to fs-native.
+```
+
+A well-formed UUID the server does not know fails at the first `pipeline_*` call instead, and that failure names the same `project` key as the value to fix.
 
 `config.yaml` itself stays local in both modes: it is project execution config plus the mode marker, not ticket data.
 

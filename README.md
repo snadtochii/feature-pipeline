@@ -166,7 +166,7 @@ git:                             # presets the verdict gate's commit question
   commit: prompt                 # prompt (default) | always | never
 ```
 
-`mode: fs-native` keeps tickets as the folder tree above, read and written locally. The alternative is `mode: server-native`, where tickets are rows on a personal MCP server; it additionally requires `project: <id>` naming the project in that server's registry, and there are no state folders. Setup for both platforms is in the full reference below.
+`mode: fs-native` keeps tickets as the folder tree above, read and written locally. The alternative is `mode: server-native`, where tickets are rows on a personal MCP server; it additionally requires `project: <uuid>` — the project's UUID in that server's registry — and there are no state folders. Setup for both platforms is in the full reference below.
 
 `worktree.setup` pairs with a committed `.worktreeinclude` file at each repo's root — gitignore-style patterns listing the gitignored files (`.env`, auth sessions) a worktree creator copies into a fresh worktree before running setup. In a multi-repo workspace, `worktree.setup` is workspace-level and repo-agnostic (manifest sniffing); see the worktree contract in the full reference below.
 

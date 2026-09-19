@@ -2,7 +2,7 @@
 
 Canonical logic for the storage operations in server-native storage mode: the loud-failure doctrine, the status values, the CAS conflict doctrine, the tool-name binding, and the operation vocabulary. Read when the storage mode detected per [`storage.md`](storage.md) is server-native — an fs-native run never needs this file. Referenced by [`ticket-resolution-server.md`](ticket-resolution-server.md), [`state-transitions-server.md`](state-transitions-server.md), [`lessons-log-server.md`](lessons-log-server.md), and the stage skills.
 
-Tickets are authoritative rows on a personal server, spoken to only through the pipeline MCP tools; the `project` value from `config.yaml` is the project's identifier in the server's registry, and every `pipeline_*` call is scoped by it. Detection never consults the server registry — the `project` id is taken on trust; a wrong id surfaces later as a loud operation failure, not as a detection-time round-trip. `config.yaml`'s `prefix` plays no part in allocation — server IDs come from the registry-configured prefix. Artifact bodies are **frontmatter-free** — the row is the sole metadata source, so there is no second copy to drift.
+Tickets are authoritative rows on a personal server, spoken to only through the pipeline MCP tools; the `project` value from `config.yaml` is the server project's UUID, and every `pipeline_*` call passes it verbatim as `project_id`. It is never resolved from a name — no tool maps a name to a UUID, and no run queries the server's API, container or database for one; its shape is checked at detection ([`storage.md`](storage.md) §Mode detection). Detection never consults the server registry — the UUID is taken on trust; a well-formed but unknown one surfaces later as a loud operation failure, not as a detection-time round-trip. `config.yaml`'s `prefix` plays no part in allocation — server IDs come from the registry-configured prefix. `config.yaml` itself — and `hooks/validate.sh`, which parses only its `validate:` block — stays a local file: project execution config plus the mode marker, not ticket data. Artifact bodies are **frontmatter-free** — the row is the sole metadata source, so there is no second copy to drift.
 
 ---
 
@@ -11,8 +11,10 @@ Tickets are authoritative rows on a personal server, spoken to only through the 
 When the pipeline MCP tools are unavailable (not exposed in the session) or a call fails, the skill **stops** with a clear message naming the personal server and the failed operation, e.g.:
 
 ```
-Server-native storage operation failed: <operation> (pipeline_<tool>) against the personal server for project <server-project-id>. <error detail>. Stopping — fix the server/MCP connection and re-run. Setup: plugins/feature/docs/advanced.md, "Storage mode and the personal server".
+Server-native storage operation failed: <operation> (pipeline_<tool>) against the personal server for project <uuid>. <error detail>. Stopping — fix the server/MCP connection and re-run. Setup: plugins/feature/docs/advanced.md, "Storage mode and the personal server".
 ```
+
+When the failure is a project-not-found or unknown-`project_id` error, the message names `project` in `claudedocs/tickets/config.yaml` as the value to fix, and the run stops without looking the project up.
 
 It never creates or edits files under `claudedocs/tickets/` as a fallback — a server-native project has exactly one source of truth, and silently forking it into local files is worse than stopping.
 

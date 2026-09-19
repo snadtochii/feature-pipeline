@@ -34,7 +34,7 @@ Read the spec body via the Read artifact operation: `01-spec.md` for a solo/chil
 
 Needed for codebase operations during the stage.
 
-1. Determine the project name: the workspace containing `claudedocs/tickets/config.yaml` (the mode marker) is the project — its `project:` key names the server-side project the tickets belong to.
+1. Determine the project: the workspace containing `claudedocs/tickets/config.yaml` (the mode marker) is the project. Its `project:` value is the server scope — the UUID every `pipeline_*` call takes as `project_id` — and plays no part in locating a directory.
 2. Locate the project directory:
    - If the current working directory matches the project, use it
    - Otherwise check common paths — ask the user if ambiguous
