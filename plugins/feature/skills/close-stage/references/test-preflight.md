@@ -63,7 +63,7 @@ Reachable status set is `200 301 302 401 403` — this reference is its single s
   nohup bash "/tmp/fp-test-preflight-<ticket-id>.sh" >"/tmp/fp-test-preflight-<ticket-id>.log" 2>&1 &
   echo $! > "$PIDFILE"
   ```
-  Then poll the resolved URL on a bounded loop (`<start_timeout>`-second ceiling, default 60 — no unbounded wait). Resolve `<start_timeout>` model-side from `test.start_timeout`: a positive integer from 1 to 540 is used as-is; an absent key uses 60, and any other value (non-integer, zero, negative, above 540) falls back to 60 with a one-line note. Substitute only that validated integer into the command — never the raw value. Run this poll's `Bash` call with its `timeout` parameter set to `(<start_timeout> + 30) * 1000` ms, so the tool's own default cannot cut the poll short:
+  Then poll the resolved URL on a bounded loop (`<start_timeout>`-second ceiling, default 60 — no unbounded wait). Resolve `<start_timeout>` model-side from `test.start_timeout`: a positive integer from 1 to 540 is used as-is; an absent key uses 60, and any other value (non-integer, zero, negative, above 540) falls back to 60 with a one-line note. Substitute only that validated integer into the command — never the raw value. Give this poll's shell call a timeout of at least `(<start_timeout> + 30)` seconds, so the runtime's default cannot cut the poll short — the runtime reference's Tool results section names the parameter:
   ```bash
   deadline=$((SECONDS + <start_timeout>))
   while [ "$SECONDS" -lt "$deadline" ]; do
@@ -85,10 +85,15 @@ A dev server **started by pre-flight** (a PID was captured in §3) is torn down 
 ```bash
 PIDFILE="/tmp/fp-test-preflight-<ticket-id>.pid"     # same literal path written in §3
 if [ -f "$PIDFILE" ]; then
-  kill "$(cat "$PIDFILE")" 2>/dev/null || true       # best-effort; ignore if already exited
+  pid=$(cat "$PIDFILE")
+  kill "$pid" 2>/dev/null || true                    # best-effort; ignore if already exited
+  i=0
+  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
   rm -f "$PIDFILE" "/tmp/fp-test-preflight-<ticket-id>.sh"
 fi
 ```
+
+The bounded wait (30s) lets a `test.start` that tears its own stack down on the signal (see Boundaries) finish before teardown returns, so the next probe — a later ticket's pre-flight on a multi-ticket ship pass — does not find the old stack still answering the URL. A launcher still alive after the wait is left as is.
 
 A server that was **already running** when pre-flight first probed (no PID captured) is **never** touched. Teardown is best-effort: `kill` of the captured PID may leave orphaned child processes (e.g. a launcher that forks a server) — that is acceptable per the spec's best-effort contract.
 
