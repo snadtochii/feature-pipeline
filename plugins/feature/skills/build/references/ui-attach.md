@@ -127,13 +127,17 @@ Falling through:
 
 - **Probe fails** (§2) → next tier, reason `gh has no --attach`.
 - **Path gate fails** (§4), or selection leaves nothing attachable → next tier, reason `evidence path not attach-safe` / `no attachable captures`.
-- **gh exits non-zero on the attach command** → reason `gh refused --attach: <gh's first error line>`, then **one** retry with the next tier. The GHES, token-type and role refusals happen before any upload. A failure part-way through the uploads (network) can leave uploaded assets no post references; the outcome notes `uploads may be orphaned`, since an upload cannot be deleted.
-- A refused attach never fails the stage or the run, and a body is never posted half-attached.
+- **gh exits non-zero on the attach command** → first reconcile whether the post landed, because gh still creates the PR (or posts the edit) with the uploads that succeeded, prints its URL and exits non-zero when a later upload fails:
+  - **Post landed** — `gh pr create` printed a PR URL on stdout, or a PR is now open for the branch (`gh pr view "<branch>" --json url,state`); for a comment post, §8's dedupe read now finds the marker. The post stands: no retry, and the outcome is `attached <k> (partial: <gh's first error line>)`, where `<k>` counts the attached captures the post references.
+  - **Nothing posted** → reason `gh refused --attach: <gh's first error line>`, then **one** retry with the next tier.
+
+  The GHES, token-type and role refusals happen before any upload. A failure part-way through the uploads (network) can leave uploaded assets no post references; the outcome notes `uploads may be orphaned`, since an upload cannot be deleted.
+- A refused attach never fails the stage or the run, and a retry never re-posts to a PR the failed command already created or commented on.
 
 **Outcome line** — the caller reports exactly one:
 
 ```
-Screenshots: attached <n> (+<m> local only) | tracked | manifest (<reason>) | already posted | none
+Screenshots: attached <n> (+<m> local only) | attached <k> (partial: <reason>) | tracked | manifest (<reason>) | already posted | none
 ```
 
 When the reason is `gh has no --attach`, one more line follows: `gh ≥ 2.99.0 adds --attach — upgrade to attach screenshots inline.`
