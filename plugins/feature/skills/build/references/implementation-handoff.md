@@ -85,14 +85,16 @@ The review stage writes `## Post-review` after it applies fixes. The close stage
 
 ## 5. Write timing
 
-- **Step entries ride with validation.** A step's `## Steps` entry is appended in the same Bash call as that step's final validation command, never in a turn of its own:
+- **Step entries ride with validation.** A step's `## Steps` entry is appended in the same Bash call as that step's validation, never in a turn of its own. `<validate>` is the whole set of checks the project documents, as build's §1b collected them, in one chain with a formatting check first — so a check that ran before a reformat never has to run again after it:
 
   ```bash
-  set -o pipefail; <validate> && cat >> "<ticket-folder>/03-implementation.md" <<'HANDOFF_<N.M>_END'
+  set -o pipefail; <format> && <lint> && <typecheck> && <tests> && cat >> "<ticket-folder>/03-implementation.md" <<'HANDOFF_<N.M>_END'
   ### Step N.M — <goal>
   ...
   HANDOFF_<N.M>_END
   ```
+
+  A project that documents fewer checks chains fewer; the shape is the same.
 
   The heredoc delimiter is quoted, so `$`, backticks and quotes in the entry are written literally. Quoting does not stop a line that equals the delimiter from closing the heredoc early and running every line after it as a shell command, so the delimiter must appear on no line of the entry: use a per-write token such as `HANDOFF_<N.M>_END`, never a generic `EOF`, and check the entry for it before sending. Every append to this file follows this rule. The first step's call also writes the `## Steps` heading, and the title when the file does not exist yet. A red validation run writes nothing, because `&&` stops the append. That guard holds only when the exit status of `<validate>` is the validation's own, so two rules bind every chained write, the phase-end write included. Several validation commands are joined with `&&`, never `;`, because a `;` list reports only its last command's status. The call opens with `set -o pipefail`, so validation output piped through a trimming command (`npm run lint 2>&1 | tail -40`) fails when the validation fails instead of taking `tail`'s status. Fix the failure, then issue the combined call again. An entry therefore always records a green step.
 - **No validation commands.** When the project declares none, the entry's append runs as a parallel call in the same turn as the next step's first tool call. The last step's entry goes with the phase-end write.

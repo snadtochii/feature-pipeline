@@ -236,6 +236,14 @@ Before committing changes to skills or agents, walk [docs/contributing/validatio
 - An edit to a shared section of a `-fs`/`-server` pair lands in both files.
 - A new validation script gets a step in `.github/workflows/validation.yml`, or it stays manual-only.
 
+The full check command, run from the repo root:
+
+```bash
+bash scripts/check-tool-parity.sh && bash scripts/check-mode-split.sh && bash scripts/check-md-links.sh && bash scripts/check-runtime-contract.sh
+```
+
+Add `node scripts/check-tidy-checks.mjs` to that chain when the change touches tidy-loop checks. There is no lint, typecheck, format or test command in this repo — it ships markdown, shell and JSON, and these validators are the whole set.
+
 ---
 
 ## Commit discipline

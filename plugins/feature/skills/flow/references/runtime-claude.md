@@ -32,9 +32,13 @@ Launch the review stage's four independent reviewers concurrently when capacity 
 
 Count subagent layers below the current caller: `flow → stage → role` needs two; `ship → worker → stage → role` needs three. The finalizer and the UI tester are role layers under the close stage, and the reviewers a role layer under the review stage — all at the same depth, so these counts are unchanged. Check exposed depth constraints before dispatch; a missing nested spawn tool or explicit depth rejection stops that stage with a capability error, preserving artifacts. Do not assume a universal numeric limit or modify user settings. For `ship --parallel`, reserve capacity for each worker's stage plus at least one leaf role; reduce the effective worker count and print the change when the exposed limit requires it.
 
+## File edits
+
+The structured edit tool is `Edit` for a file that exists and `Write` for one being created. `Edit` matches its `old_string` against the file's current text and fails the call when that text has moved or changed, so a stale assumption stops loudly instead of landing silently — that property is what the pipeline routes content edits through it for. Replacing one text throughout a file is a single `Edit` with `replace_all`, so an all-occurrences change stays one call for that file. File content never passes through a shell command, so nothing in it is parsed, expanded, or inspected as a command line.
+
 ## Tool results
 
-A tool result past about 20KB — a shell print or an MCP call's return — is not returned to the conversation: Claude Code persists it to a file and shows a 2KB preview, so reading it back is a further call and the same tokens twice. Fetch a file through `Read`, which returns its content inline, and keep a Bash print to small items — a config, a frontmatter, a listing, a grep. One message may carry several tool calls in parallel; the window is re-read once per message, not once per call.
+A large tool result — a shell print or an MCP call's return — is not returned to the conversation: Claude Code persists it to a file and shows a 2KB preview, so reading it back is a further call and the same tokens twice. The cutover is not a fixed byte count — results have been persisted from 23KB upward and returned inline at up to 47KB — so treat any bulky print as likely to cost twice. Fetch a file through `Read`, which returns its content inline, and keep a Bash print to small items — a config, a frontmatter, a listing, a grep. One message may carry several tool calls in parallel; the window is re-read once per message, not once per call.
 
 A shell call a reference gives a minimum timeout — `test-preflight.md` §3's `test.start` poll — sets `Bash`'s `timeout` parameter in milliseconds (seconds × 1000). Claude caps it at 600000 ms, which is why `test.start_timeout` stops at 540 seconds.
 

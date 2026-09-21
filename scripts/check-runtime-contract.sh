@@ -30,7 +30,7 @@ for runtime in ("claude", "codex"):
         errors.append(f"missing runtime file: {path.name}")
         continue
     headings = re.findall(r"^## (.+)$", path.read_text(), re.M)
-    for operation in ("Invoke skill", "Spawn and models", "Wait and resume", "Capacity"):
+    for operation in ("Invoke skill", "Spawn and models", "Wait and resume", "Capacity", "Tool results", "File edits"):
         if operation not in headings:
             errors.append(f"{path.name}: missing operation {operation}")
 
