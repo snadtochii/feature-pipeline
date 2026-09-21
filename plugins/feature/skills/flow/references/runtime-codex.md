@@ -47,9 +47,13 @@ When a stage returns `PAUSED:`, keep its ID. After the caller answers, use **`fo
 
 Use stage-briefs §5's artifact fallback only when no available operation can resume the child. Do not re-spawn merely because a child returned a final `PAUSED:` message.
 
+## File edits
+
+The structured edit tool is `apply_patch`, or the patch tool the active surface exposes under its own name — inspect the active tool schemas, since names may be namespaced and arguments differ. It both edits an existing file and creates a new one. A patch whose context no longer matches the file's current text is rejected rather than applied, so a stale assumption stops loudly instead of landing silently — that property is what the pipeline routes content edits through it for. One patch carries every hunk a file needs, so an all-occurrences change stays one call for that file. Where the surface exposes no patch tool, use its structured file-write tool; file content then never passes through a shell command, so nothing in it is parsed, expanded, or inspected as a command line.
+
 ## Tool results
 
-The active surface truncates or offloads an oversized tool result by its own rule; inspect that rule rather than assume Claude's 20KB persistence. The operation is the same either way: fetch a file through the surface's read tool, which returns its content inline, and keep a shell print to small items — a config, a frontmatter, a listing, a grep. Independent tool calls issued together in one turn re-read the window once.
+The active surface truncates or offloads an oversized tool result by its own rule; inspect that rule rather than assume a fixed byte figure. The operation is the same either way: fetch a file through the surface's read tool, which returns its content inline, and keep a shell print to small items — a config, a frontmatter, a listing, a grep. Independent tool calls issued together in one turn re-read the window once.
 
 A shell call a reference gives a minimum timeout — `test-preflight.md` §3's `test.start` poll — sets the active shell tool's own timeout field to at least that bound; check the surface's maximum rather than assume Claude's.
 

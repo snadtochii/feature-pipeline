@@ -218,10 +218,10 @@ fix-step: pending|complete
 
 On the resume route, start here from the decisions recorded in `04-review.md`. A finding whose fix already landed before an interruption reads as already applied against the current code: record it `applied`.
 
-- Work through every accepted finding, whatever its severity, **smallest change first**. A fix touches a file outside the diff only when the finding requires it.
+- Work through every accepted finding, whatever its severity, **smallest change first**. A fix touches a file outside the diff only when the finding requires it. Every content edit to a project source file goes through the runtime's structured edit tool ([`../flow/references/runtime-claude.md`](../flow/references/runtime-claude.md) / [`../flow/references/runtime-codex.md`](../flow/references/runtime-codex.md) §File edits) — single-file edits without exception, whatever the session's permission mode allows.
 - **Validate after each edit**: the `PostToolUse` hook plus the commands resolved above.
 - **At most 2 edit-validate attempts per accepted finding** — the review stage's hard maximum ([`../build/references/stuck-detection.md`](../build/references/stuck-detection.md), Hard maximum per stage), counted within this invocation. After the second red run, the fix is reverted and recorded `fix-failed`.
-- **A fix that will not validate, or cannot be made cleanly, is reverted** with `Edit`, restoring that finding's pre-edit text, and recorded `fix-failed — <error>`. Never use `git checkout`, `git restore` or `git stash` on a file: the implement phase's uncommitted work lives in the same files. A fix that did not land is never reported as applied.
+- **A fix that will not validate, or cannot be made cleanly, is reverted** with the same structured edit tool, restoring that finding's pre-edit text, and recorded `fix-failed — <error>`. Never use `git checkout`, `git restore` or `git stash` on a file: the implement phase's uncommitted work lives in the same files. A fix that did not land is never reported as applied.
 - **Watch for stuck patterns** 1–5 in [`../build/references/stuck-detection.md`](../build/references/stuck-detection.md) (action↔observation repetition, action↔error repetition, monologue, ping-pong, repeated context errors). On detection, stop fixing, mark every remaining accepted finding `not attempted`, and continue to step 8 with result `stuck`, naming the pattern.
 
 ### 8. Post-review validation and the handoff append

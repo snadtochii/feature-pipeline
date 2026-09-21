@@ -1,6 +1,6 @@
 # Validation Hook
 
-Build runs lint and typecheck on its edits. The recommended delivery is a `PostToolUse` hook on `Write|Edit`, which fires on every edit, with skill-body validation — once per plan step — as the always-on companion. The two layers are intentionally redundant — see "Why both layers always run" below.
+Build runs the checks the project documents on its edits. The recommended delivery is a `PostToolUse` hook on `Write|Edit`, which fires on every edit and runs the lint and typecheck commands from `config.yaml`, with skill-body validation — one chained run of the documented set per plan step — as the always-on companion. The two layers are intentionally redundant, and Layer 1's set is a deliberate subset of Layer 2's — see "Why both layers always run" below.
 
 ## Layer 1 — Hook (recommended in Claude Code and Codex)
 
@@ -89,24 +89,24 @@ Aider doesn't expose `PostToolUse` natively. Its closest equivalent is the `--au
 
 ## Layer 2 — Skill-body fallback (always on)
 
-Build's body always runs lint and typecheck via `Bash` once per plan step, after the step's edit message, regardless of whether a hook is configured. The skill body:
+Build's body always runs the checks the project documents via `Bash` once per plan step, after the step's edit message, regardless of whether a hook is configured. The skill body:
 
-1. Reads project `CLAUDE.md` at build start
-2. Extracts lint/typecheck commands (looks for `## Commands`, `## Validation`, `## Testing`, or inline references like `npm run lint`/`pnpm test`/`cargo check`/`pytest`)
-3. Runs each documented check once per plan step in the implement loop, after the step's edit message
+1. Reads the project instruction files for both runtimes — `CLAUDE.md` and `AGENTS.md` — at build start, the current runtime's primary file first
+2. Collects every check they document — lint, typecheck, and format or tests where declared (a heading whose text contains `Commands`, `Validation` or `Testing`, or inline references like `npm run lint`/`pnpm test`/`cargo check`/`pytest`)
+3. Runs the collected set as one `&&`-chained command once per plan step in the implement loop, after the step's edit message, a formatting check first
 4. Fixes failures in-context before proceeding
 
-If project `CLAUDE.md` documents no validation commands, build logs a one-line warning and proceeds without validation. Graceful degradation — the skill still works on projects without a documented setup.
+If neither instruction file documents a validation command, build logs a one-line warning and proceeds without validation. Graceful degradation — the skill still works on projects without a documented setup.
 
 ## Why both layers always run
 
-The two layers run simultaneously by design. Trade-off acknowledged: the hook runs the lint/typecheck commands on every edit, and the skill body runs them once more per step. Acceptable because:
+The two layers run simultaneously by design, and their sets differ on purpose: the hook runs the lint and typecheck commands from `config.yaml` on every edit, while the per-step chain runs everything the project documents. Trade-off acknowledged: the commands both layers hold run on the edit and again in the step's chain. Acceptable because:
 
 1. **Lint caches make the second run near-free.** ESLint, ruff, mypy, tsc all cache aggressively; a no-op second invocation is typically sub-second.
 2. **"Always run" eliminates a class of false-confidence bugs.** "Did the hook actually fire?" is a real question — hook configuration drift, harness updates, or matcher mismatches can silently disable validation. The skill-body fallback is the floor.
 3. **The build skill stays correct in harnesses without hooks.** Aider, Copilot CLI, and generic SDKs lack `PostToolUse`; conditional logic that disables fallback when "a hook is detected" would require per-harness branching the skill body shouldn't carry.
 
-If a project genuinely cannot tolerate the duplication (e.g., a slow custom validator), users can omit lint/typecheck commands from their project `CLAUDE.md` and rely on the hook alone. The skill-body fallback gracefully no-ops in that case.
+The caching argument is weakest for a slow check, which is why Layer 1 keeps the narrower set: a suite the project documents runs once per plan step, never once per edit. If a project genuinely cannot tolerate even that, the escape hatch is documentation-based — don't document the slow check in `CLAUDE.md`/`AGENTS.md`, and Layer 2 never collects it, while the hook's `validate:` block keeps lint and typecheck running on every edit. A project that documents nothing gets the one-line warning and the bare path.
 
 ## Verdict-side handling
 

@@ -29,6 +29,8 @@ Runtime reference: <RUNTIME_FILE>
 Plugin root: <PLUGIN_ROOT>
 Read that runtime reference before acting and use its operations for every skill call,
 spawn, wait, and resume in this task. Resolve plugin files under this root.
+Fetch the references you start from with the runtime's file-read tool, several in one
+message, never a shell print of several files.
 Project/worktree root: <ABSOLUTE_WORKING_ROOT>
 ```
 

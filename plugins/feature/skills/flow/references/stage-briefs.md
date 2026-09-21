@@ -28,7 +28,7 @@ Every brief carries these, resolved by the sequencer before the spawn:
 
 | Placeholder | Value |
 |---|---|
-| `<RUNTIME_BLOCK>` | Runtime reference, plugin root and project/worktree root, resolved per [runtime.md](runtime.md). Include the caller's capacity reservation when one exists. Prefix every stage brief with it. Authoritative for the stage: it binds all three from the block and reads no runtime file of its own. |
+| `<RUNTIME_BLOCK>` | Runtime reference, plugin root and project/worktree root, plus the entry-read rule, resolved per [runtime.md](runtime.md). Include the caller's capacity reservation when one exists. Prefix every stage brief with it. Authoritative for the stage: it binds all three from the block and reads no runtime file of its own. |
 | `<STAGE_INVOCATION>` | The selected runtime's rendered Invoke skill instruction: plan (`plan`) with `<TICKET_ARG> --auto`; implement (`build`) with `<TICKET_ARG> --implement-only <IMPLEMENT_FLAGS>`; review (`review-stage`) with `<TICKET_ARG> <REVIEW_FLAGS>`; close (`close-stage`) with `<TICKET_ARG> <CLOSE_FLAGS>`. Use the absolute skill path when required by that runtime. |
 | `<PROJECT_ROOT>` | The absolute path of the sequencer's own current working directory — nothing more. The stage runs its skill invocation from there. The ticket argument is independent of it, and a workdir directive in `<OVERRIDES_BLOCK>` takes precedence over it (§7). |
 | `<TICKET_ARG>` | The ticket argument the stage passes to its skill — resolved **immediately before each spawn**, since plan's and implement's Transition 1 and close's finalizer can move the ticket. |
@@ -118,6 +118,10 @@ Follow that skill end to end: it implements `02-plan.md` step by step, validatin
 and appending it to `03-implementation.md`, and ends after the handoff. The stuck arbiter is
 your only child. Collect every child's result before ending your turn; never end a turn while
 a child you spawned is running. You never pause: nothing in this stage asks a human.
+Every content edit to a project source file goes through the runtime's structured edit tool,
+single-file edits without exception, whatever your permission mode allows; the one carve-out
+is a mechanical change spanning 3 or more files, which may be one shell command that prints
+its match count for you to check against the number you expected.
 
 <HINT_BLOCK>
 
@@ -182,6 +186,8 @@ Follow that skill end to end: it reviews the diff with four independent reviewer
 every finding, fixes the accepted ones, and writes `04-review.md`. The four reviewers are your
 children. Collect every child's result before ending your turn; never end a turn while a child
 you spawned is running. The skill is non-interactive: you never pause.
+Every content edit to a project source file goes through the runtime's structured edit tool,
+single-file edits without exception, whatever your permission mode allows.
 
 <OVERRIDES_BLOCK>
 
@@ -209,6 +215,8 @@ Follow that skill end to end — its test checkpoint, verdict, summary, lessons 
 verdict gate and finalizer handoff all run inside you. `ui-tester` and the post-gate
 `finalizer` are your children. Collect every child's result before ending your turn; never
 end a turn while a child you spawned is running.
+Every content edit to a project source file goes through the runtime's structured edit tool,
+single-file edits without exception, whatever your permission mode allows.
 
 <OVERRIDES_BLOCK>
 
