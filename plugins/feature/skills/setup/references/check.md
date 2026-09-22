@@ -62,7 +62,7 @@ In this order. A check marked *needs config* prints `-- <check>: not run — con
    - `mode: server-native` with no `project` key → `FAIL config: mode: server-native without a project key — add project: <registry UUID>, or re-run /feature:setup`.
    - Otherwise → `ok config: mode <mode>`, with `(no mode key — the default)` when the key is absent. A `project` that is not a UUID is the other config error of that contract; check 2 reports it, once.
 
-   Then load the file for the declared mode — `fs-native` or `server-native`, including a server-native declaration that failed on its `project` — once, in full: [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md).
+   Then load the file for the detected mode — `fs-native`, which a config with no `mode` key detects as, or `server-native`, including a server-native declaration that failed on its `project` — once, in full: [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md).
 2. **`storage`** — *needs config.* Defined by `§5` of the file check 1 loaded. With no file loaded (unknown `mode`) → `-- storage: not run — no storage mode declared (check 1)`.
 3. **`validate`** — *needs config.* Each command the `validate:` block declares exits `0`, run once by the hook itself, as it runs after an edit at the repository root. The hook starts its project-marker walk at the edited file's directory, so where the project sits in a subdirectory, per-edit runs start there and this check speaks for the repository root only.
    - Neither `validate.lint` nor `validate.typecheck` set → `-- validate: no validate.lint or validate.typecheck — the per-edit hook runs nothing; re-run /feature:setup to add them`.
