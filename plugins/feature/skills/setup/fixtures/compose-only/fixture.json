@@ -1,0 +1,5 @@
+{
+  "git_init": ["."],
+  "gitignore": { ".": [".envrc"] },
+  "create": [".envrc"]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "pnpm-vite-app",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}
