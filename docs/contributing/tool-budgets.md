@@ -6,7 +6,7 @@ Per-skill `allowed-tools` and per-agent `tools` budgets for the `feature` plugin
 
 Typical budget per role, expressed as unordered tool sets. The `review-stage` *skill* may write to `claudedocs/` to save its merged review artifact, the build *skill* its handoff, and the `close-stage` *skill* its test and summary artifacts, but the *reviewer agents* are read-only — they must not mutate the tree they review.
 
-Rows listing **pipeline MCP tools** — in this table and in the Agents table below — use them only in server-native storage mode, except `setup`'s `ping`, the connector check it runs before a mode is chosen. Those entries are dual-listed in `allowed-tools` (skills) or `tools` (agents) under both bindings — the Claude-scoped `mcp__plugin_server-native_ps__*` and the bare `pipeline_*` form, which stands in for Codex's `mcp__<server>__*` from the user's MCP config. The scoped prefix is derived, not authored — `skills/flow/references/storage-server.md` owns that derivation.
+Rows listing **pipeline MCP tools** — in this table and in the Agents table below — use them only in server-native storage mode, except `setup`'s `ping`, the connector check it runs before a mode is chosen. Those entries are dual-listed in `allowed-tools` (skills) or `tools` (agents) under both bindings — the Claude-scoped `mcp__plugin_server-native_ps__*` and the bare name (`pipeline_*` or `ping`), which stands in for Codex's `mcp__<server>__*` from the user's MCP config. The scoped prefix is derived, not authored — `skills/flow/references/storage-server.md` owns that derivation.
 
 | Skill | Typical budget |
 |---|---|
