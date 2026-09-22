@@ -1,0 +1,15 @@
+{
+  "prefix": "MM",
+  "package_manager": null,
+  "validate": { "lint": "make lint", "typecheck": "pyright", "test": "pytest" },
+  "test": { "url": "http://localhost:9000", "start": null },
+  "worktree_setup": null,
+  "worktreeinclude_candidates": [".env.production", ".envrc"],
+  "claudedocs_ignored": true,
+  "instruction_files": {
+    "CLAUDE.md": { "exists": true, "commands_section": true },
+    "AGENTS.md": { "exists": true, "commands_section": false }
+  },
+  "compose_file": "docker-compose.yml",
+  "workspace_shape": "single-repo"
+}

@@ -1,0 +1,15 @@
+{
+  "prefix": "YCA",
+  "package_manager": "yarn",
+  "validate": { "lint": "yarn run lint", "typecheck": "yarn run type-check", "test": "yarn run test" },
+  "test": { "url": "http://localhost:4100", "start": "yarn run dev" },
+  "worktree_setup": "yarn install --frozen-lockfile",
+  "worktreeinclude_candidates": [],
+  "claudedocs_ignored": false,
+  "instruction_files": {
+    "CLAUDE.md": { "exists": false, "commands_section": false },
+    "AGENTS.md": { "exists": false, "commands_section": false }
+  },
+  "compose_file": null,
+  "workspace_shape": "single-repo"
+}
