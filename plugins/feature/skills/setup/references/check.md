@@ -67,13 +67,16 @@ In this order. A check marked *needs config* prints `-- <check>: not run — con
 3. **`validate`** — *needs config.* Each command the `validate:` block declares exits `0`, run once by the hook itself, as it runs after an edit at the repository root. The hook starts its project-marker walk at the edited file's directory, so where the project sits in a subdirectory, per-edit runs start there and this check speaks for the repository root only.
    - Neither `validate.lint` nor `validate.typecheck` set → `-- validate: no validate.lint or validate.typecheck — the per-edit hook runs nothing; re-run /feature:setup to add them`.
    - The probe printed `jq: no` → `-- validate: not run — the validation hook needs jq (check 6)`.
-   - Otherwise run the pipeline's validation hook, [`validate.sh`](../../../hooks/validate.sh), once per repository — `<project-root>` in a single-repo workspace, each `repo:` child in a multi-repo one — with a path at that repository's root as its input. The path is never created: the hook uses it only to walk up to `config.yaml` and the project root, as it does after an edit there. Capture stdout and stderr together and keep the exit code; give the call the longest timeout the runtime's shell tool allows:
+   - Otherwise run the pipeline's validation hook, [`validate.sh`](../../../hooks/validate.sh), once per repository — `<project-root>` in a single-repo workspace, each `repo:` child in a multi-repo one — with a path at that repository's root as its input. The path is never created: the hook uses it only to walk up to `config.yaml` and the project root, as it does after an edit there. `FEATURE_VALIDATE_REPORT=1` makes the hook also say what its own parse resolved: a `[validate.<name>] ok` line after a passing command, a `[validate.<name>] no command` line for a key it read no command from. Capture stdout and stderr together and keep the exit code; give the call the longest timeout the runtime's shell tool allows:
      ```bash
-     jq -n --arg p "<repo>/.setup-check" '{tool_input:{file_path:$p}}' | bash "<plugin-root>/hooks/validate.sh" 2>&1; echo "exit: $?"
+     jq -n --arg p "<repo>/.setup-check" '{tool_input:{file_path:$p}}' | FEATURE_VALIDATE_REPORT=1 bash "<plugin-root>/hooks/validate.sh" 2>&1; echo "exit: $?"
      ```
+     Read each key the `validate:` block declares against the hook's lines, never against silence:
+     - `[validate.<name>] ok` → `ok validate.<name>`.
      - A `[validate.<name>] command failed (exit <rc>)` block → `FAIL validate.<name>: exits <rc> from <repo> — fix the reported errors, or the command in validate.<name> (re-run /feature:setup)`, with the block beneath as detail, capped as the hook caps it.
-     - Every declared key with no failure block, when the output carries no `[validate]` line → `ok validate.<name>`.
+     - `[validate.<name>] no command` → `FAIL validate.<name>: declared, but the hook reads no command from it, so no edit runs it — set it as an indented <name>: "<command>" line under validate:, the block form the hook reads with or without yq`.
      - `[validate] config.yaml malformed; skipping` → `FAIL validate: the hook's yq parse rejects config.yaml — fix its YAML syntax`.
+     - A declared key with none of these lines → `FAIL validate.<name>: the hook stopped before running it — run the command above by hand from <repo> and read its output`.
      - The call times out → `FAIL validate: timed out — the commands outlast a shell call; run them by hand from <repo>`.
 4. **`test.url`** — *needs config.*
    - No `test:` block → `-- test.url: no test: block — the test checkpoint discovers a URL itself`.
