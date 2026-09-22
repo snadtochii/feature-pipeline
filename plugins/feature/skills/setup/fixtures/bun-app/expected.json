@@ -1,0 +1,15 @@
+{
+  "prefix": "BA",
+  "package_manager": "bun",
+  "validate": { "lint": "bun run lint", "typecheck": null, "test": "bun run test" },
+  "test": { "url": null, "start": null },
+  "worktree_setup": "bun install --frozen-lockfile",
+  "worktreeinclude_candidates": [],
+  "claudedocs_ignored": false,
+  "instruction_files": {
+    "CLAUDE.md": { "exists": false, "commands_section": false },
+    "AGENTS.md": { "exists": false, "commands_section": false }
+  },
+  "compose_file": null,
+  "workspace_shape": "single-repo"
+}

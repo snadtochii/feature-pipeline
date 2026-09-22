@@ -1,0 +1,15 @@
+{
+  "prefix": "PP",
+  "package_manager": "uv",
+  "validate": { "lint": "uv run ruff check .", "typecheck": "uv run mypy .", "test": "make test" },
+  "test": { "url": null, "start": null },
+  "worktree_setup": null,
+  "worktreeinclude_candidates": [],
+  "claudedocs_ignored": false,
+  "instruction_files": {
+    "CLAUDE.md": { "exists": false, "commands_section": false },
+    "AGENTS.md": { "exists": false, "commands_section": false }
+  },
+  "compose_file": null,
+  "workspace_shape": "single-repo"
+}

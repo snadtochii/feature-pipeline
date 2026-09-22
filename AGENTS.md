@@ -231,7 +231,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 
 Before committing changes to skills or agents, walk [docs/contributing/validation.md](docs/contributing/validation.md); it also holds the add-a-stage and add-an-agent checklists. Always:
 
-- `scripts/check-tool-parity.sh`, `scripts/check-mode-split.sh`, `scripts/check-md-links.sh`, and `bash scripts/check-runtime-contract.sh` exit 0; `node scripts/check-tidy-checks.mjs` too when the change touches tidy-loop checks.
+- `scripts/check-tool-parity.sh`, `scripts/check-mode-split.sh`, `scripts/check-md-links.sh`, `bash scripts/check-runtime-contract.sh`, and `bash scripts/check-setup-detect.sh` exit 0; `node scripts/check-tidy-checks.mjs` too when the change touches tidy-loop checks.
 - Reviewer agents (`code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect`) list no `Bash` or `Edit`; `finalizer` keeps `Bash` — `scripts/check-runtime-contract.sh` asserts both directions.
 - An edit to a shared section of a `-fs`/`-server` pair lands in both files.
 - A new validation script gets a step in `.github/workflows/validation.yml`, or it stays manual-only.
@@ -239,7 +239,7 @@ Before committing changes to skills or agents, walk [docs/contributing/validatio
 The full check command, run from the repo root:
 
 ```bash
-bash scripts/check-tool-parity.sh && bash scripts/check-mode-split.sh && bash scripts/check-md-links.sh && bash scripts/check-runtime-contract.sh
+bash scripts/check-tool-parity.sh && bash scripts/check-mode-split.sh && bash scripts/check-md-links.sh && bash scripts/check-runtime-contract.sh && bash scripts/check-setup-detect.sh
 ```
 
 Add `node scripts/check-tidy-checks.mjs` to that chain when the change touches tidy-loop checks. There is no lint, typecheck, format or test command in this repo — it ships markdown, shell and JSON, and these validators are the whole set.

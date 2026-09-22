@@ -1,0 +1,15 @@
+{
+  "prefix": "CO",
+  "package_manager": null,
+  "validate": { "lint": null, "typecheck": null, "test": null },
+  "test": { "url": "http://localhost:8080", "start": null },
+  "worktree_setup": null,
+  "worktreeinclude_candidates": [".envrc"],
+  "claudedocs_ignored": false,
+  "instruction_files": {
+    "CLAUDE.md": { "exists": false, "commands_section": false },
+    "AGENTS.md": { "exists": false, "commands_section": false }
+  },
+  "compose_file": "compose.yaml",
+  "workspace_shape": "single-repo"
+}

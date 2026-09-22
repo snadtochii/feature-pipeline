@@ -21,9 +21,11 @@ Before committing changes to skills or agents:
 13. **Runtime contract** — run `bash scripts/check-runtime-contract.sh`; it must exit 0. This checks the six runtime consumers, required runtime operations, neutral stage-template placeholders, the complete read-only reviewer roster in `review-stage` with its confidence-scale injection, and the mutating finalizer role — that `close-stage` names `feature:finalizer`, that its definition exists, and that its budget keeps `Bash` while holding no delegating tool. Real runtime behavior still needs a smoke run in a separate consuming project.
 14. **Tidy-loop checks** — run `node scripts/check-tidy-checks.mjs`; it must exit 0 with every `ok` line. It installs each fixture's pinned toolchain with `npm ci` (Node ≥ 20, npm, and git on PATH) and diffs every checks command's JSON document against the committed expected one. CI runs it too, on changes touching the checks subtree or the runner (`.github/workflows/tidy-checks.yml`).
 
-15. **CI mirror** — `.github/workflows/validation.yml` runs expectations 8, 10, 11, and 13 on every pull request and on every push to `main` or an `integration/**` branch (both workflows filter `push` that way, so a pull-request commit is checked once). Adding a validation script means adding a step there, or it stays a manual-only check.
+15. **Setup detection** — run `bash scripts/check-setup-detect.sh`; it must exit 0 with an `ok` line per fixture. It materializes every fixture under `plugins/feature/skills/setup/fixtures/` into a throwaway directory (jq and git on PATH), with the developer's own git configuration kept out of the run, and diffs `detect.sh`'s document against the fixture's committed `expected.json`.
 
-The skills and agents have no automated test suite; validation there is by manual pipeline runs on real tickets. The tidy-loop checks script is the exception — it is covered by its fixtures through `scripts/check-tidy-checks.mjs`, which CI runs alongside the three validation scripts.
+16. **CI mirror** — `.github/workflows/validation.yml` runs expectations 8, 10, 11, 13, and 15 on every pull request and on every push to `main` or an `integration/**` branch (both workflows filter `push` that way, so a pull-request commit is checked once). Adding a validation script means adding a step there, or it stays a manual-only check.
+
+The skills and agents have no automated test suite; validation there is by manual pipeline runs on real tickets. Two scripts are the exception, each covered by its fixtures: the tidy-loop checks through `scripts/check-tidy-checks.mjs`, which CI runs in its own workflow, and the setup detection script through `scripts/check-setup-detect.sh`.
 
 ## Adding a new stage
 

@@ -1,0 +1,15 @@
+{
+  "prefix": "NNA",
+  "package_manager": "npm",
+  "validate": { "lint": "npm run lint", "typecheck": "npm run type-check", "test": null },
+  "test": { "url": "http://localhost:4000", "start": "npm run dev" },
+  "worktree_setup": "npm ci",
+  "worktreeinclude_candidates": [],
+  "claudedocs_ignored": false,
+  "instruction_files": {
+    "CLAUDE.md": { "exists": false, "commands_section": false },
+    "AGENTS.md": { "exists": true, "commands_section": false }
+  },
+  "compose_file": null,
+  "workspace_shape": "single-repo"
+}

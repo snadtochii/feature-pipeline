@@ -1,0 +1,6 @@
+{
+  "git_init": ["."],
+  "gitignore": { ".": [".env", ".env.local", "claudedocs/"] },
+  "create": [".env", ".env.local", ".env.example", "claudedocs/tickets/config.yaml"],
+  "write": { "CLAUDE.md": "# App\n\n## Commands\n- Lint: `pnpm run lint`\n" }
+}
