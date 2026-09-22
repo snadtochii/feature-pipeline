@@ -70,6 +70,9 @@ verdict: <pass | partial>
 
 ## Observations
 <the tester's non-failing notes; for an epic child, the epic-wide notes too, each marked epic-wide>
+
+## Screenshots
+<one entry per capture, or the empty-home line>
 ```
 
 - `<sha>` is the commit under test: `git rev-parse HEAD` of the checked-out assembled branch at test time.
@@ -79,7 +82,9 @@ verdict: <pass | partial>
 
 **Verdict rule.** Every criterion and every required UI check passed → `pass`. `## Failed Criteria` present → `partial`. `fail` is never written. The Write artifact operation (`pipeline_write_artifact`) carries it as the row's `verdict` argument alongside the body, so the board's Tests tab shows the verdict.
 
-**Write mechanics.** Tester text travels only as tool arguments — the artifact body — never through a shell command.
+**`## Screenshots` section.** Composed by the rules in [the close stage's `storage-server.md`](../../close-stage/references/storage-server.md) §8 — the same listing, availability probe, path gate, candidate filter, `asset upload` call, one-JSON-object-per-line parse, exit-code→reason mapping, not-uploaded form, order, entry form, unsafe-name demotion and empty-home line — applied before each covered ticket's body is composed. What repeats per ticket and what does not: an epic pass shares one evidence home (§7), so the listing goes out **once** for the whole pass, and `command -v personal-server` answers for the machine, so it is probed **once** and its result holds for the run — the rule [`ui-attach.md`](../../build/references/ui-attach.md) §8 already states for its own probe. The candidate set, the upload call and the parse are the per-covered-ticket part. The upload carries exactly one ticket's candidates per call, with that ticket's own `--ticket` value, so an epic pass makes one call per child over the captures whose names carry that child's `<ticket-id>-` prefix ([`ui-checks.md`](../../build/references/ui-checks.md) §3) and never mixes two children's files into one call. All of it fits ship's existing Bash-only budget: `command -v personal-server`, the listing and `personal-server asset upload` are shell commands, and nothing needs a `Write`.
+
+**Write mechanics.** Tester text travels only as tool arguments — the artifact body — never through a shell command. The upload is the one Bash command in this section, and it carries no tester text: its argv holds the project UUID, the ticket ID and capture paths whose basenames already passed the candidate filter of [the close stage's `storage-server.md`](../../close-stage/references/storage-server.md) §8, which includes [`ui-attach.md`](../../build/references/ui-attach.md) §3's safe-name regex. Each path is its own quoted entry, and a basename failing that filter is never an argv entry at all — it takes the plain-text not-uploaded form in the body instead.
 
 **`06-summary.md` section.** List artifacts (`pipeline_list_artifacts`) for its presence and its row `verdict`, then read its body (`pipeline_get_artifact`), then compose the new whole body: the existing content with any prior `## UI verification` section removed, followed by
 
@@ -88,6 +93,7 @@ verdict: <pass | partial>
 - verdict: <pass | partial> (ship end-of-run pass, branch <assembled-branch> @ <sha>)
 - evidence: <URL of the PR the evidence was posted to>
 - results: 05-tests.md
+- screenshots: <n> captures, listed in 05-tests.md
 ```
 
 Upsert it passing the row verdict it already carried back unchanged — omitted when it had none. The first line, the close stage's verdict, and every other section stay as written; a rerun replaces the section rather than adding a second one. A ticket whose listing has no `06-summary.md` gets no summary write, and the gap is reported.

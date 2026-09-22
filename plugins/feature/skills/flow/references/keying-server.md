@@ -28,6 +28,8 @@ The resumption routing table's signals are read from the server:
 
 The artifact names in the Artifact Convention key artifact rows on the ticket (Write artifact / List artifacts); artifact bodies are frontmatter-free, and every piece of ticket metadata — `status`, `kind`, `parent_id`, `blocked_by` — is a row field. An epic's children are rows with `parent_id` set; the epic "advancing" with its children is the epic row's own `status`, flipped by the CAS transitions in [`state-transitions-server.md`](state-transitions-server.md) (Transitions 1, 2, and 3 each have epic-child variants), never a relocation of anything.
 
+The Convention's `screenshots/` directory has no counterpart in the ticket store: a browser pass's captures are uploaded as per-ticket assets, and `05-tests.md` links their root-relative asset URLs, so no artifact row and no directory here holds an image file.
+
 ## §5 Stage-brief values
 
 The two mode-valued placeholders in [`stage-briefs.md`](stage-briefs.md) §3 resolve here; the sequencer — flow, or standalone build's stage chain — fills them before each spawn.

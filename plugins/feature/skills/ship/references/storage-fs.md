@@ -67,6 +67,9 @@ verdict: <pass | partial>
 
 ## Observations
 <the tester's non-failing notes; for an epic child, the epic-wide notes too, each marked epic-wide>
+
+## Screenshots
+<one entry per capture, or the empty-home line>
 ```
 
 - `<sha>` is the commit under test: `git rev-parse HEAD` of the checked-out assembled branch at test time, or the Tracked outcome's `<pushed-sha>` when step 3 pushed screenshots on top of it.
@@ -75,6 +78,13 @@ verdict: <pass | partial>
 - `## Failed Criteria` is present only when a criterion or a required UI check failed — a required-check failure the tester listed against the implicit `UI states (required check)` criterion counts, even with no numbered criterion to attach it to. `## Observations` holds only non-failing notes, never a failure.
 
 **Verdict rule.** Every criterion and every required UI check passed → `pass`. `## Failed Criteria` present → `partial`. `fail` is never written.
+
+**`## Screenshots` section.** Composed by the rules in [the close stage's `storage-fs.md`](../../close-stage/references/storage-fs.md) §8 — the same one `wc -c -- "<evidence-home>"/*.png` listing, the same order, entry form, relative-path rule, unsafe-name demotion to plain text and empty-home line — issued before the body is composed, since its names and sizes are inputs to that body. An epic pass shares one evidence home (§7), so that listing goes out **once** for the whole pass and every covered child's section is composed from the one result. Two rules arise only here:
+
+- **Which home a child reads.** A pass covering an epic writes each child's artifact from the epic-level evidence home (§7), never from the child's own, so the epic-level-home case of that §8's relative-path rule is the one governing every entry in that child's section.
+- **Per-child filtering.** Each child lists only the captures whose names carry its own `<ticket-id>-` prefix ([`ui-checks.md`](../../build/references/ui-checks.md) §3), never a sibling's.
+
+Two honest limits: a name reaches the body only after the capture-time grammar of [`ui-checks.md`](../../build/references/ui-checks.md) §3, and a name that fails [`ui-attach.md`](../../build/references/ui-attach.md) §3's safe-name regex takes the plain-text form, so no metacharacter and no heredoc-terminator collision can arrive through a link; and while the Tracked outcome (§7) commits the evidence home, `05-tests.md` itself stays out of every pipeline commit ([`commit.md`](../../build/references/commit.md) §1 excludes `claudedocs/`), so these links render on GitHub only where the consumer versions the ticket folder itself.
 
 **Write mechanics.** Ship holds Bash and no `Write`, so each file is written by one Bash call: a single-quoted heredoc redirected to the absolute target path, `cat > "<ticket-folder>/05-tests.md" <<'<nonce>'`. The delimiter is a fresh nonce per write, verified absent from every line of the body before the call is composed; regenerate it on a collision. The quoted delimiter disables all expansion, so backticks, `$()` and quotes in tester text land as file content. Tester text never appears on a command line and never passes through `eval` — the discipline of [`../../review/references/pr-comments.md`](../../review/references/pr-comments.md) §5 and §7.
 
@@ -85,6 +95,7 @@ verdict: <pass | partial>
 - verdict: <pass | partial> (ship end-of-run pass, branch <assembled-branch> @ <sha>)
 - evidence: <URL of the PR the evidence was posted to>
 - results: 05-tests.md
+- screenshots: <n> captures, listed in 05-tests.md
 ```
 
 Write it with the same heredoc discipline. The first line — the close stage's verdict — and every other section stay as written; a rerun replaces the section rather than adding a second one. A ticket without `06-summary.md` gets no summary write, and the gap is reported.

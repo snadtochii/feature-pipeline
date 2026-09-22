@@ -43,6 +43,13 @@ Every browser pass — the close stage's test checkpoint and ship's `--ui-test` 
 
 Screenshots go to one evidence home per storage mode: `<ticket-folder>/screenshots/` in fs-native mode, `claudedocs/ui-evidence/<id>/` in server-native mode. Both sit under `claudedocs/`, which the pipeline's commits exclude; a stray write to the Playwright MCP's default `.playwright-mcp/` directory is held back from the pipeline's commits unless the project ignores it, and ship's screenshot commit stages only the evidence home. With [attaching](#attach-screenshots-to-prs---attach-screenshots) enabled, the selected captures are also uploaded to GitHub.
 
+Every browser pass also records what it captured in the ticket's own `05-tests.md`, under a `## Screenshots` section — written whether or not attaching is enabled, and on none of the skip paths (`--no-ui-testing`, no UI work in the plan, an unreachable app). Its shape follows the storage mode:
+
+- **fs-native** — one Markdown image link per capture, relative to `05-tests.md` itself: `screenshots/<name>.png`, or `../../screenshots/<name>.png` where a pass covering an epic writes a child's artifact from the epic-level home. A relative link survives the ticket folder moving between state folders, resolves in any Markdown preview, and renders on GitHub wherever the project versions `claudedocs/tickets/`.
+- **server-native** — the captures are uploaded as per-ticket assets by the `personal-server` CLI (prerequisites: [Storage mode and the personal server](#storage-mode-and-the-personal-server)), and each entry links the asset URL the CLI returns, so the board renders them inline. A capture that could not be uploaded is listed as a local path with the reason, so the section is complete either way.
+
+Ordering is the attach tier order — failing criteria first, then one desktop capture per passed criterion, then mobile captures, then the error, empty and disabled states — with any name outside that grammar listed after them alphabetically. There is no 15-capture ceiling here; that is an upload rule. A pass whose `ui-tester` crashed still gets the section, since partial captures are what a human needs after a crash. `06-summary.md` gets one plain-text line with the capture count and no link, because that body becomes the PR body, the commit body and a sibling's reviewer context, where a relative link would dangle.
+
 ## Skip browser testing (`--no-ui-testing`)
 
 The close stage's test checkpoint verifies UI tickets in a real browser via the `ui-tester` subagent (Playwright/Chrome MCP), which needs interactive MCP permission. That permission isn't available in a non-interactive/headless run (e.g. `claude -p`), so a UI ticket can stall at the browser checkpoint.
@@ -323,6 +330,14 @@ A well-formed UUID the server does not know fails at the first `pipeline_*` call
 The skills read the mode once per run and then load one reference per storage concern for that mode. Under `plugins/feature/skills/flow/references/`, `storage.md` is the detection stub and each cross-stage concern (storage, ticket-resolution, state-transitions, lessons-log) plus the two flow-private ones (epic-walk, keying) is a `<concern>-fs.md` / `<concern>-server.md` pair — the stub's pointer table is the authoritative list. A skill with storage mechanics of its own keeps a skill-local pair at `skills/<skill>/references/storage-fs.md` / `storage-server.md` — `build`, `review-stage`, `close-stage`, `sync`, `ship`, and `discover` today — loaded once at the skill's start and cited by section number from then on. A file for the other mode is never opened, so an fs-native run carries no server prose and a server-native run no folder choreography; each mode file opens with a "never needs this file" header naming the mode it serves. `scripts/check-mode-split.sh` enforces the split.
 
 Nothing else in this section matters unless you run `server-native`. If a `pipeline_*` tool is unavailable or a call fails in that mode, the skill **stops** naming the server and the failed operation — it never silently writes local files instead.
+
+**Screenshot uploads (server-native only).** The `## Screenshots` section of `05-tests.md` hosts its captures through the `personal-server` CLI, which the pipeline invokes but never installs or configures. Three things have to be in the agent's environment:
+
+- The CLI on `PATH`. A non-interactive shell usually does not have it — if you installed it globally with pnpm, export pnpm's global bin directory (`export PATH="$(pnpm bin -g):$PATH"`) from the profile that shell actually reads.
+- `PERSONAL_SERVER_URL`.
+- `PERSONAL_SERVER_CLIENT_TOKEN`, a token carrying the `pipeline` capability. Only the CLI reads it, from its own environment; no skill reads it into context, prints it, or passes it as a flag.
+
+The CLI's own install steps live in the personal-server repo. Without any of the three the pass still completes: every capture is listed in `05-tests.md` as a local path with its reason (`personal-server CLI not on PATH`, `server unreachable`, `server rejected: …`), the verdict is untouched, and nothing is retried. On a machine that has not exported the CLI that is the expected outcome, not a failure. This is the one deliberate exception to the stop-loudly rule above — hosting evidence is not what the test checkpoint decides.
 
 #### Words loaded per stage and mode
 

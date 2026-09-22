@@ -28,6 +28,8 @@ The resumption routing table's signals are read from the ticket folder:
 
 The folder trees in the Artifact Convention are the layout as it exists on disk: every artifact is a file inside the ticket folder, ticket metadata is the frontmatter of `01-spec.md` (per-child) or `prd.md` (epic), and the ticket folder — or the whole epic subtree, as a unit — moves between the state folders per [`state-transitions-fs.md`](state-transitions-fs.md) (Transitions 1, 2, and 3 each have epic-child variants).
 
+The Convention's `screenshots/` directory exists here as a real directory: a browser pass's captures are files inside the ticket folder (at the epic folder when the pass covered an epic), so they move with it, which is why `05-tests.md` links them with paths relative to itself rather than to the project root.
+
 ## §5 Stage-brief values
 
 The two mode-valued placeholders in [`stage-briefs.md`](stage-briefs.md) §3 resolve here; the sequencer — flow, or standalone build's stage chain — fills them before each spawn.
