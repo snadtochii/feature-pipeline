@@ -4,7 +4,7 @@ Procedure for `/feature:setup --check`, the read-only doctor: it verifies a conf
 
 ## §1 Rules
 
-- **Read-only end to end.** No project file is written, no server is mutated, and no process is started — `test.start` is never booted. The only files created are check 5's pattern files, in a `mktemp -d` directory that each check 5 run creates and removes on exit, whatever it found. A configured `validate.*` command has the effects it has on every edit's hook run (check 3); the doctor adds none.
+- **Read-only end to end.** No project file is written, no server is mutated, and no process is started — `test.start` is never booted. The only files created are check 5's pattern and match lists, in a `mktemp -d` directory that each check 5 run creates and removes on exit, whatever it found. A configured `validate.*` command has the effects it has on every edit's hook run (check 3); the doctor adds none.
 - **Asks nothing.** No question, no approval, no default taken from silence. The run is the same with a user present and in a headless run.
 - **Calls.** One server call: check 2's read-only round-trip, which only the server-native `§5` makes. One network probe: check 4's `curl` of `test.url`. Nothing else leaves the machine.
 - **Never stops.** A problem is a `FAIL` line with its fix; a check that does not apply or cannot run is a `--` line with the reason; the run always reaches the summary. A probe that errors — `git` absent, `curl` missing — becomes that check's `FAIL` or `--` line.
@@ -85,23 +85,31 @@ In this order. A check marked *needs config* prints `-- <check>: not run — con
 5. **`.worktreeinclude`** — per repository, as check 3. Every pattern matches at least one existing file, and every match is gitignored — the gate a fresh worktree's copy relies on ([advanced.md](../../../docs/advanced.md#the-worktreeinclude-file)).
    - `git: no`, or the repository is not a git repository → `-- .worktreeinclude: not a git repository`.
    - No file → `-- .worktreeinclude: none — a fresh worktree gets no gitignored file copied`.
-   - Otherwise run, from the repository root, one `Bash` call that reads the file line by line — each pattern stays in a shell variable and reaches `git` through its own file `p<n>`, never through the command line — in a temp directory the call creates and removes on exit:
+   - Otherwise run, from the repository root, one `Bash` call that reads the file line by line — each pattern stays in a shell variable and reaches `git` through its own file `p<n>`, read with gitignore syntax as `.worktreeinclude` itself is, never through the command line — in a temp directory the call creates and removes on exit:
      ```bash
      tmp=$(mktemp -d) || exit 1; trap 'rm -rf "$tmp"' EXIT
+     g() { git -c core.quotePath=false "$@"; }
+     g ls-files -d > "$tmp/deleted"
      n=0; neg=0
-     while read -r line || [ -n "$line" ]; do
-       case "$line" in ''|'#'*) continue ;; '!'*) neg=$((neg+1)); continue ;; esac
+     while IFS= read -r line || [ -n "$line" ]; do
+       case "$line" in *[![:space:]]*) ;; *) continue ;; esac
+       case "$line" in '#'*) continue ;; '!'*) neg=$((neg+1)); continue ;; esac
        n=$((n+1)); printf '%s\n' "$line" > "$tmp/p$n"
-       c=$(git ls-files -c -o -i --directory --no-empty-directory --exclude-from="$tmp/p$n" | tee -a "$tmp/matches" | wc -l | tr -d ' ')
+       c=$(g ls-files -c -o -i --exclude-from="$tmp/p$n" | grep -vxF -f "$tmp/deleted" | tee -a "$tmp/matches" | wc -l | tr -d ' ')
        printf 'p%s: %s\t%s\n' "$n" "$c" "$line"
      done < .worktreeinclude
      echo "negations: $neg"
-     [ -s "$tmp/matches" ] && sort -u "$tmp/matches" | git check-ignore --stdin -n -v
+     if [ -s "$tmp/matches" ]; then
+       sort -u "$tmp/matches" > "$tmp/unique"; echo "matches: $(wc -l < "$tmp/unique" | tr -d ' ')"
+       g check-ignore --stdin -n -v < "$tmp/unique" | grep '^::'
+     fi
+     g status --porcelain -- .worktreeinclude ':(glob)**/.gitignore'
      true
      ```
-     `read` trims each line. No `p<n>:` line → `-- .worktreeinclude: no positive patterns`. `p<n>: 0` names a pattern that matches nothing, the pattern after the tab. A `::<tab><path>` line from `check-ignore` names a match that is not ignored — tracked, or untracked and unlisted. One line for the repository:
+     Each line is kept as written: a leading space is part of a gitignore pattern, and a line of blanks is skipped. Matches are files — tracked, or present untracked — never a collapsed directory and never a tracked file deleted from the working tree. No `p<n>:` line → `-- .worktreeinclude: no positive patterns`. `p<n>: 0` names a pattern that matches nothing, the pattern after the tab. `matches:` counts the distinct matched files. A `::<tab><path>` line from `check-ignore` names a match that is not ignored — tracked, or untracked and unlisted. A `git status` line names a `.gitignore` or the `.worktreeinclude` with uncommitted changes. One line for the repository:
      - all matched and all ignored → `ok .worktreeinclude: <p> patterns, <m> matches, all gitignored`, noting `<k> negation lines not checked` when `negations:` is not `0`;
      - else → `FAIL .worktreeinclude: <each problem, separated by "; "> — <the fixes>`, where a pattern with no match reads `pattern '<pattern>' matches no file` with the fix `remove the line, or create the file in the main checkout`, and an unignored match reads `<path> is not gitignored` with the fix `add it to .gitignore, and untrack it with git rm --cached if it is committed`.
+     - Either line, when `git status` printed any path, ends `; uncommitted: <paths> — commit them before a --worktree run, which reads the base branch's committed .gitignore`. The note alone never turns `ok` into `FAIL`: build's worktree provisioning re-checks each copied file against the worktree's own ignore rules before any commit.
 
      A multi-repo run issues one such call per repository; each removes only its own temp directory.
 6. **`jq`** — the probe's `jq:` line. `yes` → `ok jq`; `no` → `FAIL jq: not on PATH — install jq; the validation hook and setup's detector need it`.
