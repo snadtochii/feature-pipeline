@@ -1,0 +1,10 @@
+{
+  "git_init": ["."],
+  "gitignore": { ".": [".env*", "claudedocs/"] },
+  "create": [".env.production", ".envrc"],
+  "write": {
+    "package.json": "{ \"scripts\": { \"lint\": \"eslint .\"\n",
+    "CLAUDE.md": "# Service\n\n## Testing philosophy\nIntegration tests over mocks.\n",
+    "AGENTS.md": "# Service\n\n```markdown\n## Commands\n- make lint\n```\n"
+  }
+}

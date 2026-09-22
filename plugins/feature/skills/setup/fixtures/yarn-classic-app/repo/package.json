@@ -1,0 +1,10 @@
+{
+  "name": "yarn-classic-app",
+  "private": true,
+  "scripts": {
+    "dev": "vite --port=4100",
+    "lint": "eslint .",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}

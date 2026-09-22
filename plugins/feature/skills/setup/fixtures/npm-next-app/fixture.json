@@ -1,0 +1,5 @@
+{
+  "git_init": ["."],
+  "create": [".env"],
+  "write": { "AGENTS.md": "# Notes\n" }
+}

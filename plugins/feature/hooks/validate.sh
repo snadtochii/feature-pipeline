@@ -4,6 +4,10 @@
 # validate: block after every Write/Edit/MultiEdit. Silent no-op outside an
 # FP-managed workspace or when the validate: block is empty/absent.
 #
+# FEATURE_VALIDATE_REPORT=1 (set by /feature:setup --check, never by the
+# PostToolUse entry) adds a stderr line per key: "[validate.<name>] ok" after a
+# passing command, "[validate.<name>] no command" when the parse resolved none.
+#
 # Concurrency: assumes Claude Code serializes hook execution per turn (no locking).
 # Bash version: targets bash 3.2 (macOS default) — no associative arrays, no mapfile.
 
@@ -109,7 +113,15 @@ else
     parse_with_grep
 fi
 
+report() {
+    if [ "${FEATURE_VALIDATE_REPORT:-}" = "1" ]; then
+        printf '%s\n' "$1" >&2
+    fi
+}
+
 if [ -z "$lint_cmd" ] && [ -z "$typecheck_cmd" ]; then
+    report "[validate.lint] no command"
+    report "[validate.typecheck] no command"
     exit 0
 fi
 
@@ -155,6 +167,7 @@ run_check() {
     local name="$1"
     local cmd="$2"
     if [ -z "$cmd" ]; then
+        report "[validate.$name] no command"
         return 0
     fi
     set +e
@@ -174,6 +187,8 @@ run_check() {
             printf '[validate.%s] command failed (exit %d)\n%s\n' "$name" "$rc" "$output" >&2
         fi
         had_failure=1
+    else
+        report "[validate.$name] ok"
     fi
 }
 

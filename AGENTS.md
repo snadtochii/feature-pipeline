@@ -180,6 +180,7 @@ Not every stage runs as a subagent. The rule:
 | `ship` (standalone autonomous build→review→merge orchestrator; spawns the per-ticket implementer subagent, never runs as one) | |
 | `lessons-consolidate` (standalone `_lessons.md` sweep; proposes a diff, rewrites on approval; spawns no subagents) | |
 | `guide` (standalone skill index; static guidance only; spawns no subagents) | |
+| `setup` (interactive project-configuration dialogue; runs the detection script, writes config after approved diffs; `--check` is its read-only doctor, which asks nothing and writes nothing; spawns no subagents) | |
 
 **Rule:** run in main context only when you need *interactivity* or *plan mode* from the user's own session. Otherwise prefer a subagent — it keeps the main context clean. A stage that needs a decision while running as a subagent does not move to main context; it pauses and flow relays the decision (`stage-briefs.md` §5).
 
@@ -201,8 +202,8 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 
 - **Prefix** per project (e.g. `FP`, `MYAPP`, `WEB`). Stored as the `prefix` field in `claudedocs/tickets/config.yaml`. Discover creates the file on first run and infers from existing tickets if it's missing. `config.yaml` is the canonical home for tickets-system configuration — future fields (status flow customization, complexity scale, etc.) go here, not in new dotfiles.
 - **Storage mode** lives in the same `claudedocs/tickets/config.yaml` as optional top-level `mode` and `project` keys — the fs-native ↔ server-native switch, model-read at skill start per `skills/flow/references/storage.md`:
-  - `mode: fs-native`, a missing key, or a missing file — tickets are the folder tree described in this section, fully offline (zero network, detection included). The personal server ships as the separate `server-native` connector plugin, which an fs-native machine simply does not install — so nothing is declared and nothing connects (see `plugins/feature/docs/advanced.md`).
-  - `mode: server-native` with `project: <server-project-uuid>` (the UUID the `pipeline_*` tools take as `project_id`; a non-UUID value is a config error) — tickets are rows on the personal server (reached through the `pipeline_*` tools); the state folders don't exist and artifact bodies are frontmatter-free (the row is the sole metadata source). Pipeline tools unavailable or a call failing → the skill stops loudly, never falls back to fs writes.
+  - `mode: fs-native`, a missing key, or a missing file — tickets are the folder tree described in this section, fully offline (zero network, detection included; the one server call any skill makes before a mode is known is `setup`'s read-only `ping`, and only on a machine with the connector installed; `setup --check` makes the same `ping` as its doctor round-trip, and only for a server-native config). The personal server ships as the separate `server-native` connector plugin, which an fs-native machine simply does not install — so nothing is declared and nothing connects (see `plugins/feature/docs/advanced.md`).
+  - `mode: server-native` with `project: <server-project-uuid>` (the UUID the `pipeline_*` tools take as `project_id`; a non-UUID value is a config error) — tickets are rows on the personal server (reached through the `pipeline_*` tools); the state folders don't exist and artifact bodies are frontmatter-free (the row is the sole metadata source). Pipeline tools unavailable or a call failing → the skill stops loudly, never falls back to fs writes. `setup` is the one exception: an unanswered `ping` leaves server-native unavailable at its mode question — and is a failed check line under `--check` — and a missing, failing or empty `pipeline_list_projects` falls back to asking for the UUID.
   - `config.yaml` itself and `hooks/validate.sh` stay fs-local in both modes — the file is project execution config plus the mode marker, not ticket data. `prefix` remains meaningful only for fs allocation (server IDs come from the registry-configured prefix).
 - **Execution config** — the optional `validate:`, `test:`, `git:`, and `worktree:` blocks live in the same `config.yaml`; keys and trust rules are in `docs/advanced.md`. Only `validate:` is read by `hooks/validate.sh`; the others are model-read.
 - **ID format:** `<PREFIX>-<N>` — no leading zeros.
@@ -231,7 +232,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 
 Before committing changes to skills or agents, walk [docs/contributing/validation.md](docs/contributing/validation.md); it also holds the add-a-stage and add-an-agent checklists. Always:
 
-- `scripts/check-tool-parity.sh`, `scripts/check-mode-split.sh`, `scripts/check-md-links.sh`, and `bash scripts/check-runtime-contract.sh` exit 0; `node scripts/check-tidy-checks.mjs` too when the change touches tidy-loop checks.
+- `scripts/check-tool-parity.sh`, `scripts/check-mode-split.sh`, `scripts/check-md-links.sh`, `bash scripts/check-runtime-contract.sh`, and `bash scripts/check-setup-detect.sh` exit 0; `node scripts/check-tidy-checks.mjs` too when the change touches tidy-loop checks.
 - Reviewer agents (`code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect`) list no `Bash` or `Edit`; `finalizer` keeps `Bash` — `scripts/check-runtime-contract.sh` asserts both directions.
 - An edit to a shared section of a `-fs`/`-server` pair lands in both files.
 - A new validation script gets a step in `.github/workflows/validation.yml`, or it stays manual-only.
@@ -239,7 +240,7 @@ Before committing changes to skills or agents, walk [docs/contributing/validatio
 The full check command, run from the repo root:
 
 ```bash
-bash scripts/check-tool-parity.sh && bash scripts/check-mode-split.sh && bash scripts/check-md-links.sh && bash scripts/check-runtime-contract.sh
+bash scripts/check-tool-parity.sh && bash scripts/check-mode-split.sh && bash scripts/check-md-links.sh && bash scripts/check-runtime-contract.sh && bash scripts/check-setup-detect.sh
 ```
 
 Add `node scripts/check-tidy-checks.mjs` to that chain when the change touches tidy-loop checks. There is no lint, typecheck, format or test command in this repo — it ships markdown, shell and JSON, and these validators are the whole set.

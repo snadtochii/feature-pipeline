@@ -1,8 +1,8 @@
 # Storage — server-native Operations
 
-Canonical logic for the storage operations in server-native storage mode: the loud-failure doctrine, the status values, the CAS conflict doctrine, the tool-name binding, and the operation vocabulary. Read when the storage mode detected per [`storage.md`](storage.md) is server-native — an fs-native run never needs this file. Referenced by [`ticket-resolution-server.md`](ticket-resolution-server.md), [`state-transitions-server.md`](state-transitions-server.md), [`lessons-log-server.md`](lessons-log-server.md), and the stage skills.
+Canonical logic for the storage operations in server-native storage mode: the loud-failure doctrine, the status values, the CAS conflict doctrine, the tool-name binding, and the operation vocabulary. Read when the storage mode detected per [`storage.md`](storage.md) is server-native — an fs-native run never needs this file. Referenced by [`ticket-resolution-server.md`](ticket-resolution-server.md), [`state-transitions-server.md`](state-transitions-server.md), [`lessons-log-server.md`](lessons-log-server.md), the stage skills, and `setup`.
 
-Tickets are authoritative rows on a personal server, spoken to only through the pipeline MCP tools; the `project` value from `config.yaml` is the server project's UUID, and every `pipeline_*` call passes it verbatim as `project_id`. It is never resolved from a name — no tool maps a name to a UUID, and no run queries the server's API, container or database for one; its shape is checked at detection ([`storage.md`](storage.md) §Mode detection). Detection never consults the server registry — the UUID is taken on trust; a well-formed but unknown one surfaces later as a loud operation failure, not as a detection-time round-trip. `config.yaml`'s `prefix` plays no part in allocation — server IDs come from the registry-configured prefix. `config.yaml` itself — and `hooks/validate.sh`, which parses only its `validate:` block — stays a local file: project execution config plus the mode marker, not ticket data. Artifact bodies are **frontmatter-free** — the row is the sole metadata source, so there is no second copy to drift.
+Tickets are authoritative rows on a personal server, spoken to only through the pipeline MCP tools; the `project` value from `config.yaml` is the server project's UUID, and every `pipeline_*` call other than List projects passes it verbatim as `project_id`. It is never resolved from a name — no stage run queries the server's API, container or database for it, and the only project list any skill reads is the registry list `setup` shows the operator to pick from (List projects, below); its shape is checked at detection ([`storage.md`](storage.md) §Mode detection). Detection never consults the server registry — the UUID is taken on trust; a well-formed but unknown one surfaces later as a loud operation failure, not as a detection-time round-trip. The one stated exception is not detection: `setup --check`'s doctor round-trip, a single read-only `ping` (Connectivity check, below) that confirms the connector answers and still looks no project up. `config.yaml`'s `prefix` plays no part in allocation — server IDs come from the registry-configured prefix. `config.yaml` itself — and `hooks/validate.sh`, which parses only its `validate:` block — stays a local file: project execution config plus the mode marker, not ticket data. Artifact bodies are **frontmatter-free** — the row is the sole metadata source, so there is no second copy to drift.
 
 ---
 
@@ -17,6 +17,8 @@ Server-native storage operation failed: <operation> (pipeline_<tool>) against th
 When the failure is a project-not-found or unknown-`project_id` error, the message names `project` in `claudedocs/tickets/config.yaml` as the value to fix, and the run stops without looking the project up.
 
 It never creates or edits files under `claudedocs/tickets/` as a fallback — a server-native project has exactly one source of truth, and silently forking it into local files is worse than stopping.
+
+Two uses degrade instead of stopping, both in `setup` and neither in a stage run: the connector check (Connectivity check, below), where an unanswered `ping` makes server-native unavailable — or, in `setup --check`, is reported as a failed check line — and an operation whose entry marks it optional, which degrades as that entry states.
 
 ---
 
@@ -44,10 +46,10 @@ Defined once here; the transition procedures in `state-transitions-server.md` ci
 
 ## Operation vocabulary
 
-Every reference in this plugin **names** the MCP tools by their bare `pipeline_*` names — that is the vocabulary, here and in every other reference file. The **runtime binding** differs per platform:
+Every reference in this plugin **names** the MCP tools by their bare names — the `pipeline_*` tools plus `ping`, the one server tool without the `pipeline_` prefix — and that is the vocabulary, here and in every other reference file. The **runtime binding** differs per platform:
 
-- **Claude Code** — the separate `server-native` connector plugin declares the server, so the callable name is derived: `mcp__plugin_` + the connector's plugin name `server-native` + `_` + its `mcpServers` key `ps` (personal server) + `__` + the tool, giving `mcp__plugin_server-native_ps__pipeline_*`. **This derivation is the canonical one**; every scoped literal elsewhere in this plugin is an instance of it, so changing the connector's plugin name or server key changes all of them. The connector is a separate install precisely so a project that never runs server-native has no server declared at all.
-- **Codex** — the server comes from the user's own MCP config, and the callable name is `mcp__<server>__pipeline_*`, where `<server>` is whatever key that user chose. There is no server key for the plugin to derive from, which is why none is hardcoded.
+- **Claude Code** — the separate `server-native` connector plugin declares the server, so the callable name is derived: `mcp__plugin_` + the connector's plugin name `server-native` + `_` + its `mcpServers` key `ps` (personal server) + `__` + the tool, giving `mcp__plugin_server-native_ps__pipeline_*` and `mcp__plugin_server-native_ps__ping`. **This derivation is the canonical one**; every scoped literal elsewhere in this plugin is an instance of it, so changing the connector's plugin name or server key changes all of them. The connector is a separate install precisely so a project that never runs server-native has no server declared at all.
+- **Codex** — the server comes from the user's own MCP config, and the callable name is `mcp__<server>__pipeline_*` (and `mcp__<server>__ping`), where `<server>` is whatever key that user chose. There is no server key for the plugin to derive from, which is why none is hardcoded.
 
 Each skill's `allowed-tools` therefore lists two entries per tool: the Claude-scoped name, which is the grant the harness matches on that platform, and the bare name, which is how this plugin's prose refers to the tool and stands in for the user-keyed Codex form. A skill never assembles a namespace at runtime and never speaks raw HTTP: it calls a tool the harness has granted, or it stops per Loud failure above. Setup for both platforms: [`../../../docs/advanced.md`](../../../docs/advanced.md#storage-mode-and-the-personal-server).
 
@@ -98,3 +100,11 @@ Write non-status fields — `title`, `priority`, `complexity`, `tags`, `blocked_
 ### Lessons produce / consume
 
 The contract lives in [`lessons-log-server.md`](lessons-log-server.md) — lessons go through the lesson tools (`pipeline_add_lesson`, `pipeline_list_lessons`, `pipeline_update_lesson`, `pipeline_delete_lesson`). This vocabulary entry exists so lessons are reached through the same seam; the format, supersession, and grep-scoping rules are owned there.
+
+### Connectivity check
+
+`ping`, no arguments, read-only — used only by `setup`: before its storage-mode question, to learn whether the connector answers, and once in its `--check` doctor, which reports the answer as a check line. A non-error result means it answers. It is not mode detection, and no stage run calls it.
+
+### List projects (optional)
+
+`pipeline_list_projects`, no arguments — returns the server's registry projects, each with its name, prefix and UUID, so `setup`'s operator can pick the project to bind. Optional: a server without it, or a failed call, degrades to asking the operator for the UUID. It never creates a project.

@@ -1,0 +1,9 @@
+{
+  "name": "bun-app",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "lint": "biome check .",
+    "test": "bun test"
+  }
+}

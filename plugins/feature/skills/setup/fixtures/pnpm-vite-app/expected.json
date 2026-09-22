@@ -1,0 +1,15 @@
+{
+  "prefix": "PVA",
+  "package_manager": "pnpm",
+  "validate": { "lint": "pnpm run lint", "typecheck": "pnpm run typecheck", "test": "pnpm run test" },
+  "test": { "url": "http://localhost:5173", "start": "pnpm run dev" },
+  "worktree_setup": "pnpm install --frozen-lockfile",
+  "worktreeinclude_candidates": [".env", ".env.local", "claudedocs/tickets/config.yaml"],
+  "claudedocs_ignored": true,
+  "instruction_files": {
+    "CLAUDE.md": { "exists": true, "commands_section": true },
+    "AGENTS.md": { "exists": false, "commands_section": false }
+  },
+  "compose_file": null,
+  "workspace_shape": "single-repo"
+}

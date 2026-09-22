@@ -57,7 +57,7 @@ codex plugin list                           # verify feature@feature-local is in
 
 Set `CODEX_HOME` to test against an isolated Codex home, or `FEATURE_CODEX_LOCAL_MARKETPLACE` to choose a different staging root. Both locations must be outside the checkout. Re-run the helper after local edits, then start a new Codex task to load the refreshed plugin.
 
-Whichever platform you develop against, run the validation scripts from the checkout root before opening a pull request: `scripts/check-tool-parity.sh` checks that every `pipeline_*` tool a skill lists is dual-listed in its frontmatter (bare and Claude-scoped); `scripts/check-mode-split.sh` checks that no storage-mode reference file leaks the other mode, that every `-fs`/`-server` pair is complete, and that every relative `.md` link in the repository's own markdown resolves under both `plugins/feature/skills/` and `plugins/tidy-loop/` (vendored and generated trees are pruned from the walk); `scripts/check-runtime-contract.sh` checks runtime dispatch, shared stage templates, and the independent reviewer roster; and `scripts/check-tidy-checks.mjs` drives the tidy-loop checks commands against their committed fixtures and diffs the JSON byte-for-byte (it needs Node, npm, and Git, and installs each fixture's pinned toolchain, so it is slower than the other three). All four must exit 0.
+Whichever platform you develop against, run the validation scripts from the checkout root before opening a pull request: `scripts/check-tool-parity.sh` checks that every server tool (`pipeline_*` and `ping`) a skill lists is dual-listed in its frontmatter (bare and Claude-scoped); `scripts/check-mode-split.sh` checks that no storage-mode reference file leaks the other mode, that every `-fs`/`-server` pair is complete, and that every relative `.md` link in the repository's own markdown resolves under both `plugins/feature/skills/` and `plugins/tidy-loop/` (vendored and generated trees are pruned from the walk); `scripts/check-runtime-contract.sh` checks runtime dispatch, shared stage templates, and the independent reviewer roster; `scripts/check-setup-detect.sh` runs the setup detection script against its committed fixtures and diffs each JSON document against the expected one (it needs jq and Git); and `scripts/check-tidy-checks.mjs` drives the tidy-loop checks commands against their committed fixtures and diffs the JSON byte-for-byte (it needs Node, npm, and Git, and installs each fixture's pinned toolchain, so it is slower than the others). All five must exit 0.
 
 Switch back to the stable GitHub installation:
 
@@ -100,6 +100,7 @@ Run directly, outside the pipeline:
 | Command | What it does |
 |---|---|
 | `/feature:guide` | Index of the standalone helpers — what each one does and when to reach for it. |
+| `/feature:setup` | Configure a project in one guided run: detect its commands, ask what detection leaves open, bind the server project for server-native storage, and write `config.yaml`, the fs-native ticket folders, `.worktreeinclude` and optional `.gitignore` / `## Commands` lines, each after an approved diff. Re-runs keep what exists. `--check` verifies a configured project read-only, one line per check with its fix — run it before `ship` and after changing `config.yaml`. See [Configuration](#configuration). |
 | `/feature:ship <id>` | Autonomous build → review → address loop over a ticket or `blocked_by` chain, ending at an open PR (`--merge` to land it, `--parallel` to build independent tickets concurrently — in multi-repo workspaces per-repo lanes run side by side, with isolated worktrees where one repo builds several tickets at once). See [ship's flags](plugins/feature/docs/advanced.md#ship-flags---base---merge---ui-test---attach-screenshots---parallel---worktree). |
 | `/feature:review [<pr>]` | Review open PRs against a maintainability rubric; post inline + summary findings. Never approves or edits code. Omit `<pr>` to scan every open PR. |
 | `/feature:address-review [<pr>]` | Validate a PR's review feedback — automated findings and human comments — fix the accepted ones, and post signed replies. Omit `<pr>` to use the current branch's PR. |
@@ -148,7 +149,7 @@ claudedocs/tickets/<state>/FP-1/
 
 ## Configuration
 
-Project config lives in `claudedocs/tickets/config.yaml`. Every block below the prefix is optional:
+Project config lives in `claudedocs/tickets/config.yaml`, and `/feature:setup` writes it: detected values and documented defaults, each confirmed by you. Every block below the prefix is optional:
 
 ```yaml
 prefix: FP
@@ -180,7 +181,7 @@ The pipeline also reads your project's `CLAUDE.md` for conventions. Full referen
 - Claude Code CLI or Codex CLI
 - Git — for the review stage's diff
 - Playwright MCP — for the close stage's UI test checkpoint, including its `browser_resize` tool for the desktop and mobile checks (optional; skip with `--no-ui-testing`)
-- A personal MCP server — only for `mode: server-native`, where it *is* the ticket store (optional; the default `fs-native` mode needs no server). Its tool surface spans several domains; the `feature` skills use only its `pipeline_*` tools. On Claude Code install the separate `server-native` plugin alongside `feature` and it prompts for a URL and token; on Codex add the server to `config.toml`. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#storage-mode-and-the-personal-server)
+- A personal MCP server — only for `mode: server-native`, where it *is* the ticket store (optional; the default `fs-native` mode needs no server). Its tool surface spans several domains; the `feature` skills use only its `pipeline_*` tools and its `ping`. On Claude Code install the separate `server-native` plugin alongside `feature` and it prompts for a URL and token; on Codex add the server to `config.toml`. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#storage-mode-and-the-personal-server)
 - GitHub CLI (`gh`), authenticated, with a GitHub `origin` — for `--pr` and the `ship`/`review`/`address-review`/`sync` helpers; the pipeline degrades to local commits without it, and the PR helpers fail closed (change nothing) without it. Attaching screenshots to PRs (opt-in) needs `gh` 2.99.0 or later; an older `gh` falls back to linking or listing them
 
 ---

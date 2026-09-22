@@ -1,0 +1,15 @@
+{
+  "prefix": "YBA",
+  "package_manager": "yarn",
+  "validate": { "lint": null, "typecheck": "yarn run tsc", "test": null },
+  "test": { "url": "http://localhost:3000", "start": "yarn run dev" },
+  "worktree_setup": "yarn install --immutable",
+  "worktreeinclude_candidates": null,
+  "claudedocs_ignored": null,
+  "instruction_files": {
+    "CLAUDE.md": { "exists": false, "commands_section": false },
+    "AGENTS.md": { "exists": false, "commands_section": false }
+  },
+  "compose_file": null,
+  "workspace_shape": "single-repo"
+}

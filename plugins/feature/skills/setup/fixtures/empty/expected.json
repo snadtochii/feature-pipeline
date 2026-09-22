@@ -1,0 +1,15 @@
+{
+  "prefix": "EM",
+  "package_manager": null,
+  "validate": { "lint": null, "typecheck": null, "test": null },
+  "test": { "url": null, "start": null },
+  "worktree_setup": null,
+  "worktreeinclude_candidates": null,
+  "claudedocs_ignored": null,
+  "instruction_files": {
+    "CLAUDE.md": { "exists": false, "commands_section": false },
+    "AGENTS.md": { "exists": false, "commands_section": false }
+  },
+  "compose_file": null,
+  "workspace_shape": "single-repo"
+}
