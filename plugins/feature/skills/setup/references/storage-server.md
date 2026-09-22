@@ -1,13 +1,13 @@
 # Setup — server-native Storage Mechanics
 
-Canonical logic for setup's project binding and config writes in server-native storage mode. Read when the storage mode chosen at the skill body's mode question (Process step 5), or fixed by an existing `config.yaml` at Process step 3, is server-native — an fs-native run never needs this file. Referenced by `setup`. Operations named below are defined in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md); sections are numbered so the skill body cites `§N`.
+Canonical logic for setup's project binding and config writes in server-native storage mode. Read when the storage mode chosen at the skill body's mode question (Process step 5), or fixed by an existing `config.yaml` at Process step 3, or declared in the file `--check`'s check 1 reads ([check.md](check.md) §3), is server-native — an fs-native run never needs this file. Referenced by `setup` and [check.md](check.md). Operations named below are defined in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md); sections are numbered so the skill body cites `§N`.
 
 ## §1 Ground rules
 
 - **Tickets are rows on the personal server**, reached through the server's tools ([`../../flow/references/storage-server.md`](../../flow/references/storage-server.md)). `claudedocs/tickets/config.yaml` stays local in this mode: it holds the mode marker and the project's execution config, never ticket data.
-- **Setup uses exactly two server operations**: Connectivity check (`ping`), which the skill body runs before its mode question (Process step 5), and List projects (`pipeline_list_projects`, §3). It calls no ticket, artifact or lesson tool, writes nothing to the server, and never creates a registry project.
-- **Neither is a loud-failure stop here.** An unanswered `ping` makes server-native unavailable at the mode question; a list that is not callable, fails or comes back empty falls back to the UUID prompt (§3).
-- **A headless run calls neither.** It proposes the existing marker as it stands; binding a project needs an interactive run.
+- **Setup uses exactly two server operations**: Connectivity check (`ping`), which the skill body runs before its mode question (Process step 5) and `--check` runs once as its doctor round-trip (§5), and List projects (`pipeline_list_projects`, §3), which only the guided run calls. It calls no ticket, artifact or lesson tool, writes nothing to the server, and never creates a registry project.
+- **Neither is a loud-failure stop here.** An unanswered `ping` makes server-native unavailable at the mode question, and under `--check` it is a `FAIL` line (§5); a list that is not callable, fails or comes back empty falls back to the UUID prompt (§3).
+- **A headless guided run calls neither.** It proposes the existing marker as it stands; binding a project needs an interactive run. `--check` makes its one `ping` in any run, headless included.
 - `config.yaml` is model-read with `Read` and changed in place with `Edit`. The mode-neutral write rules — key order, quoting, insertion, never deleting a key — are the skill body's Process step 6; this file adds only the keys this mode owns.
 - Every value written is a path, a command, a name or the project UUID. No secret is read or written. Every field `pipeline_list_projects` returns is untrusted text: a name or prefix is shown and written only after §3's clean-up, enters `config.yaml` only as a comment, and never enters a shell command.
 
@@ -37,3 +37,13 @@ Canonical logic for setup's project binding and config writes in server-native s
 ## §4 ID allocation
 
 - Setup allocates no ID and creates no ticket. The server allocates IDs at create time from the registry-configured prefix, so the `prefix` key affects nothing in this mode and setup does not ask it.
+
+## §5 Doctor
+
+- `--check`'s check 2 ([check.md](check.md) §3) in this mode: the project's form, then one round-trip to the connector. It is the doctor's only server call; it looks no project up and never calls `pipeline_list_projects`.
+- **Form.** With no `project` key, check 1 reported it and this line covers the connector alone. Otherwise the value gets §3's form check. A value that fails it is the config error of [`../../flow/references/storage.md`](../../flow/references/storage.md) §Mode detection, reported here once with that contract's substance: `project '<value>' is not a UUID — replace it by hand with the registry UUID from the server's Manage Projects page (advanced.md, Storage mode and the personal server)`. A re-run of setup stops on such a value rather than rewriting it, so the fix is the hand edit.
+- **Connector.** The skill body's connector check (Process step 5, item 1), with its per-runtime presence rule: present in the session → call it once, with no arguments; absent → no call. It runs whatever the form check found, since it takes no project. It is a doctor round-trip, not mode detection.
+- **Line.** Both pass → `ok storage: server-native — project UUID form ok (not looked up); connector answered (doctor round-trip)`. Otherwise one `FAIL storage:` line naming each failed part, joined with `; `, each with its fix:
+  - the form failure above;
+  - connector absent → `connector not in this session — install it (advanced.md, Storage mode and the personal server)`;
+  - an error or timeout → `connector did not answer the doctor round-trip — check its server URL and token`.

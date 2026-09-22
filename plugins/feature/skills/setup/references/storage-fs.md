@@ -1,6 +1,6 @@
 # Setup — fs-native Storage Mechanics
 
-Canonical logic for setup's ticket-store and config writes in fs-native storage mode. Read when the storage mode chosen at the skill body's mode question (Process step 5) is fs-native — a run in the other storage mode never needs this file. Referenced by `setup`. Sections are numbered so the skill body cites `§N`.
+Canonical logic for setup's ticket-store and config writes in fs-native storage mode. Read when the storage mode chosen at the skill body's mode question (Process step 5), or detected by `--check`'s check 1 ([check.md](check.md) §3), is fs-native — a run in the other storage mode never needs this file. Referenced by `setup` and [check.md](check.md). Sections are numbered so the skill body cites `§N`.
 
 ## §1 Ground rules
 
@@ -26,3 +26,8 @@ Canonical logic for setup's ticket-store and config writes in fs-native storage 
 - Setup allocates no ID and creates no ticket.
 - Discover allocates `<PREFIX>-<N>` by scanning every folder name under `claudedocs/tickets/` for the configured prefix ([`../../discover/references/storage-fs.md`](../../discover/references/storage-fs.md) §3). A prefix that already names ticket folders is therefore fixed: changing it would leave those tickets outside the scan and restart the numbering. Setup shows it as fixed and does not ask.
 - With no `config.yaml` but existing ticket folders, the prefix is inferred as discover's §2 step 3 does: the `<PREFIX>` of the `<PREFIX>-<N>` folder names Process step 3 found. Folder names carrying more than one prefix leave it open: the prefix question lists them, with no default.
+
+## §5 Doctor
+
+- `--check`'s check 2 ([check.md](check.md) §3) in this mode. The ticket store is local, so the check reads only what check 1 already read and makes no call.
+- The line is `ok storage: fs-native — local ticket store`, with `; no prefix — discover asks for one on its first run` appended when `config.yaml` has no `prefix` key. Neither case fails: discover's first run supplies a missing prefix.
