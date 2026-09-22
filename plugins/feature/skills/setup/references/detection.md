@@ -63,8 +63,8 @@ Keys are emitted in this order:
 ## §4 Repository shape and the git test
 
 - **`workspace_shape`** follows [discover's workspace-shape predicate](../../discover/SKILL.md): `multi-repo` iff the root has no `.git` entry and at least one immediate child directory has one (a `.git` file, as in a git worktree, counts). Immediate children only, no recursion. Anything else is `single-repo`.
-- **Git-derived facts** (§10) require `git` on `PATH` and `git -C <root> rev-parse --is-inside-work-tree` printing `true`. A subdirectory of a repository passes this test while its shape stays `single-repo`. Outside a git repository every git-derived field is `null` — not `false`, not `[]`.
-- **Multi-repo roots are not repositories**, so their git-derived fields are `null`, and the root-level manifest rules usually find nothing. A consumer wanting per-repository facts runs the script once per child: `bash …/detect.sh <root>/<child>`.
+- **Git-derived facts** (§10) require `git` on `PATH` and `git -C <root> rev-parse --is-inside-work-tree` printing `true`. A subdirectory of a repository passes this test; its shape still comes from the `.git` entries alone. Outside a git repository every git-derived field is `null` — not `false`, not `[]`.
+- **The two tests are independent.** A multi-repo root is usually not inside any repository, so its git-derived fields are `null` and the root-level manifest rules usually find nothing. The exception is a root that sits inside a repository without its own `.git` and has a child holding one (a submodule or worktree): the shape is `multi-repo`, as discover sees it, while the git test passes and the git-derived fields are set from the enclosing repository. A consumer wanting per-repository facts runs the script once per child: `bash …/detect.sh <root>/<child>`.
 
 ## §5 `prefix`
 
