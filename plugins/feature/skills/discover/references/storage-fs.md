@@ -26,8 +26,9 @@ Canonical logic for discover's ticket-store steps in fs-native storage mode. Rea
      prefix: <PREFIX>
      ```
      This file is the source of truth for tickets-system configuration. Future fields go here too — do not introduce new dotfiles for additional config.
+   - Print one line: `Run /feature:setup for validation, test and worktree config.`
 3. If `claudedocs/tickets/` already exists, read the prefix from `claudedocs/tickets/config.yaml` (parse the YAML and extract the `prefix` field)
-   - If `config.yaml` is missing, scan existing ticket filenames to infer the prefix, or ask the user. Once known, write `config.yaml` so the next run doesn't repeat the inference.
+   - If `config.yaml` is missing, scan existing ticket filenames to infer the prefix, or ask the user. Once known, write `config.yaml` so the next run doesn't repeat the inference, then print the same one line: `Run /feature:setup for validation, test and worktree config.`
 
 The template read (Phase 0's last step) follows in the skill body. Phase 1's workspace-shape detection runs in this mode as the skill body states — `repos` is a frontmatter field here.
 

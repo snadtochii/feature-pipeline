@@ -180,6 +180,7 @@ Not every stage runs as a subagent. The rule:
 | `ship` (standalone autonomous build→review→merge orchestrator; spawns the per-ticket implementer subagent, never runs as one) | |
 | `lessons-consolidate` (standalone `_lessons.md` sweep; proposes a diff, rewrites on approval; spawns no subagents) | |
 | `guide` (standalone skill index; static guidance only; spawns no subagents) | |
+| `setup` (interactive project-configuration dialogue; runs the detection script, writes config after approved diffs; spawns no subagents) | |
 
 **Rule:** run in main context only when you need *interactivity* or *plan mode* from the user's own session. Otherwise prefer a subagent — it keeps the main context clean. A stage that needs a decision while running as a subagent does not move to main context; it pauses and flow relays the decision (`stage-briefs.md` §5).
 

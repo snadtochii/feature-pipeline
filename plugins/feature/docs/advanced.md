@@ -151,7 +151,7 @@ repos: [big-leaves-api, big-leaves-astro]
 
 ## Configuration reference
 
-All project config lives in `claudedocs/tickets/config.yaml`. Everything except `prefix` is optional.
+All project config lives in `claudedocs/tickets/config.yaml`. `/feature:setup` writes it in one guided run, proposing detected values and documented defaults for you to confirm. Everything except `prefix` is optional.
 
 ### Project conventions (CLAUDE.md)
 
@@ -160,6 +160,7 @@ The pipeline reads your project's `CLAUDE.md` for conventions. Declaring your co
 ```markdown
 ## Commands
 - Lint: `npm run lint`
+- Typecheck: `npm run typecheck`
 - Test: `npm test`
 - Build: `npm run build`
 ```
@@ -327,7 +328,7 @@ A well-formed UUID the server does not know fails at the first `pipeline_*` call
 
 `config.yaml` itself stays local in both modes: it is project execution config plus the mode marker, not ticket data.
 
-The skills read the mode once per run and then load one reference per storage concern for that mode. Under `plugins/feature/skills/flow/references/`, `storage.md` is the detection stub and each cross-stage concern (storage, ticket-resolution, state-transitions, lessons-log) plus the two flow-private ones (epic-walk, keying) is a `<concern>-fs.md` / `<concern>-server.md` pair — the stub's pointer table is the authoritative list. A skill with storage mechanics of its own keeps a skill-local pair at `skills/<skill>/references/storage-fs.md` / `storage-server.md` — `build`, `review-stage`, `close-stage`, `sync`, `ship`, and `discover` today — loaded once at the skill's start and cited by section number from then on. A file for the other mode is never opened, so an fs-native run carries no server prose and a server-native run no folder choreography; each mode file opens with a "never needs this file" header naming the mode it serves. `scripts/check-mode-split.sh` enforces the split.
+The skills read the mode once per run and then load one reference per storage concern for that mode. Under `plugins/feature/skills/flow/references/`, `storage.md` is the detection stub and each cross-stage concern (storage, ticket-resolution, state-transitions, lessons-log) plus the two flow-private ones (epic-walk, keying) is a `<concern>-fs.md` / `<concern>-server.md` pair — the stub's pointer table is the authoritative list. A skill with storage mechanics of its own keeps a skill-local pair at `skills/<skill>/references/storage-fs.md` / `storage-server.md` — `build`, `review-stage`, `close-stage`, `sync`, `ship`, `discover`, and `setup` today — loaded once, at the skill's start (`setup`: at its storage-mode question, since there the mode is an answer rather than a detection), and cited by section number from then on. A file for the other mode is never opened, so an fs-native run carries no server prose and a server-native run no folder choreography; each mode file opens with a "never needs this file" header naming the mode it serves. `scripts/check-mode-split.sh` enforces the split.
 
 Nothing else in this section matters unless you run `server-native`. If a `pipeline_*` tool is unavailable or a call fails in that mode, the skill **stops** naming the server and the failed operation — it never silently writes local files instead.
 
