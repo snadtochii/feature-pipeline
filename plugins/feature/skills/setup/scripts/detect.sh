@@ -289,9 +289,24 @@ if [ -f "$root/pyproject.toml" ]; then
     fi
 fi
 
-# Makefile: a rule line for the target, not a := assignment.
+# Makefile: a rule line naming the target among the words before its first
+# colon (`test:`, `lint typecheck:`), not a variable assignment (`=`, `:=`, `::=`).
 make_has_target() {
-    grep -Eq "^$1:([^=]|\$)" "$root/Makefile" 2>/dev/null
+    awk -v t="$1" '
+        /^[ \t#]/ { next }
+        {
+            i = index($0, ":")
+            if (i == 0) { next }
+            head = substr($0, 1, i - 1)
+            rest = substr($0, i + 1)
+            if (head ~ /=/ || rest ~ /^:?=/) { next }
+            n = split(head, words, /[ \t]+/)
+            for (k = 1; k <= n; k++) {
+                if (words[k] == t) { found = 1; exit }
+            }
+        }
+        END { exit found ? 0 : 1 }
+    ' "$root/Makefile" 2>/dev/null
 }
 
 if [ -f "$root/Makefile" ]; then

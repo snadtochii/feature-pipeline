@@ -82,7 +82,7 @@ Each of `lint`, `typecheck` and `test` is resolved on its own, from the first so
 
 1. **`package.json` scripts** — a non-empty string script named `lint`; for `typecheck` the first present of `typecheck`, `type-check`, `tsc`; `test`. The command is `<package_manager> run <script-name>` for every manager (`npm run test`, `pnpm run lint`, `bun run test`). The `run` form is uniform because a manager's built-in of the same name is a different command — `bun test` is bun's own test runner, not the project's `test` script.
 2. **`pyproject.toml` tool sections** — a table header line: `[tool.ruff]` or `[tool.ruff.<sub>]` → `ruff check .` for `lint`; `[tool.mypy…]` → `mypy .`, else `[tool.pyright…]` → `pyright`, for `typecheck`; `[tool.pytest…]` → `pytest` for `test`. With `uv.lock` present the command is prefixed `uv run `; else with `poetry.lock` present, `poetry run ` — lockfile evidence of how the project runs its tools.
-3. **`Makefile` targets** — a rule line starting with the target name followed by `:` that is not a `:=` assignment (`lint:`, `typecheck:`, `test:`) → `make <target>`.
+3. **`Makefile` targets** — an unindented rule line naming the target among the space-separated words before its first `:` (`test:`, or a multi-target rule such as `lint typecheck:`), where that colon does not start a `:=` or `::=` assignment and no `=` precedes it → `make <target>`.
 
 No source declares it → `null`.
 
