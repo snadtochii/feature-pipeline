@@ -107,6 +107,8 @@ The detected Node manager's frozen-lockfile install: `pnpm install --frozen-lock
 
 For each of `CLAUDE.md` and `AGENTS.md` at the root: `exists` is whether the file exists; `commands_section` is whether it holds a Markdown ATX heading (one to six `#`) whose text contains `commands`, `validation` or `testing`, case-insensitively, outside fenced code blocks — the heading predicate build's Layer 2 collects checks from ([validation-hook.md](../../build/references/validation-hook.md) §Layer 2). A missing file has both fields `false`.
 
+`commands_section: true` means Layer 2 has a heading to scan in that file, not that the section lists a runnable command: a file whose only match is `## Testing philosophy` reports `true`. A consumer deciding whether a file still needs a `## Commands` snippet reads the matched section's content rather than trusting this field alone.
+
 ## Boundaries
 
 - **Read-only** — no file is written, created or modified; no command from the repository is executed.
