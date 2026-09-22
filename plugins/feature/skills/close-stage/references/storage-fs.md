@@ -51,6 +51,15 @@ The spawn prompt carries the resolved absolute path, never a link to this sectio
 
 **Attaching.** With attaching enabled ([`ui-attach.md`](../../build/references/ui-attach.md) §1), the selected captures are uploaded to GitHub's attachment storage by the `gh … --attach` call that posts them — the only place they go beyond this directory.
 
+**Screenshot section — stated once, here.** `05-tests.md` carries a `## Screenshots` section on every browser pass. Its input is one Bash listing of the evidence home, `wc -c -- "<evidence-home>"/*.png`, whose names and sizes are inputs to the artifact body — so the listing goes out in the message *before* the one that writes `05-tests.md`, never in it.
+
+- **Order.** Names matching [`ui-attach.md`](../../build/references/ui-attach.md) §3's recognized grammar come first, in its tier order; the remaining names follow alphabetically. §3's 15-file ceiling is a GitHub-upload rule and does not apply here — the section lists every capture the listing returned.
+- **Entry.** `- ![<alt>](<relative-path>) — <size>`. `<alt>` is [`ui-attach.md`](../../build/references/ui-attach.md) §4's alt text for a recognized name, and the bare filename for a name that passes §3's safe-name regex without matching either grammar. `<size>` is the listed byte count in KiB to one decimal.
+- **Relative path.** `<relative-path>` is relative to the folder holding `05-tests.md`: `screenshots/<name>.png` when the evidence home is the ticket-pass home, `../../screenshots/<name>.png` when a child's artifact is written from the epic-level home. Never project-root-relative, never absolute — the ticket's folder moves between state folders with everything inside it ([`flow/SKILL.md`](../../flow/SKILL.md)'s Artifact Convention), so only a self-relative link survives that move, and it resolves in any Markdown preview.
+- **Unsafe name.** A name that fails §3's safe-name regex `^[A-Za-z0-9-]+\.png$` can hold `)`, `[`, `#` or a space, so its entry is plain text with no link syntax — `- <name> — <size>` — sorted with the alphabetical remainder. No unescaped name ever reaches a Markdown link.
+- **Empty home.** A listing that matches nothing — an absent evidence home included — gives the section one line, `No captures were written.`, and leaves the verdict untouched.
+- **When.** Every browser pass writes the section, a pass whose `ui-tester` crashed or timed out included: partial captures are exactly the evidence a human needs after a crash. Each fix iteration recomposes it from the evidence home's current contents. A skip variant carries no section at all.
+
 ## §9 Error handling
 
 A failed write or folder move is an ordinary tool error: stop, return `error` with `failed-step: storage`, and report the last artifact written. The move-then-frontmatter ordering in [`../../flow/references/state-transitions-fs.md`](../../flow/references/state-transitions-fs.md) keeps the prior state recoverable.

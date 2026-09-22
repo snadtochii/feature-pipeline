@@ -199,7 +199,8 @@ claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlo
 ├── 03-implementation.md    # Implementer handoff: per-step entries (live — appended per plan step) + rationale; review and close append their fix notes
 ├── 04-review.md            # Review stage: merged findings (4 reviewer subagents) and their decisions
 ├── 05-tests.md             # Close stage: UI test results, skip artifact, or Failed Criteria section
-└── 06-summary.md           # Close stage summary (always written, content varies per verdict)
+├── 06-summary.md           # Close stage summary (always written, content varies per verdict)
+└── screenshots/            # Browser-pass captures (close stage, or ship's --ui-test) — 05-tests.md links them relative to itself
 ```
 
 ### Epic with children layout (discover multi-mode output)
@@ -208,6 +209,7 @@ claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlo
 claudedocs/tickets/<state>/<EPIC-ID>/   # epic folder; <state> follows most-advanced child
 ├── prd.md                  # Parent PRD (frontmatter: kind: epic, children: [...]) — flow walks children in epic-mode; every stage refuses to run directly against this
 ├── exploration.md          # Shared exploration, lives once for all siblings
+├── screenshots/            # Captures from a pass covering the epic; a per-child pass writes the child folder's own screenshots/
 └── tasks/
     ├── <CHILD-1-ID>/       # child ticket folder — same internal structure as a solo ticket above
     │   ├── 01-spec.md      # frontmatter: parent: <EPIC-ID>, blocked_by: [...] (optional)
@@ -228,6 +230,7 @@ How the epic and its children advance together as a unit, and where per-child an
 - `02`–`06` are reserved for canonical stages in order: `02-plan.md`, `03-implementation.md`, `04-review.md`, `05-tests.md`, `06-summary.md`. Don't reuse numbers.
 - Plain (un-numbered) filenames at the ticket-folder root are reserved for pre-spec / pre-stage artifacts (currently just `exploration.md`) and for the close stage's derived PR-body files `pr-body-attach.md` / `pr-body-manifest.md`, written only when a `--pr` close attaches screenshots ([`ui-attach.md`](../build/references/ui-attach.md) §5) and rewritten on every such run; for child tickets of an epic, the shared `exploration.md` lives one level up at the epic folder, not in the child folder.
 - The ticket folder moves between state folders (`backlog/` → `in-progress/` → `review/` → `done/`) as the pipeline advances. Everything inside moves with it. (`review/` is on the path only for `--pr` runs; a non-`--pr` `pass` goes straight `in-progress/` → `done/`.)
+- `screenshots/` is the one reserved **directory** name at the ticket-folder root — the rule above reserves plain filenames, not directories. It is the browser pass's evidence home, and `05-tests.md` links into it with paths relative to itself, which is durable precisely because everything inside the folder moves with it (the rule above). Whether this directory exists at all is mode-specific: [`keying-fs.md`](references/keying-fs.md) / [`keying-server.md`](references/keying-server.md) §4.
 
 ---
 

@@ -5,12 +5,15 @@ Canonical logic for attaching `ui-tester` screenshots to a GitHub pull request w
 - **`close-stage`** ([`../../close-stage/SKILL.md`](../../close-stage/SKILL.md)) — §1 binding, §3 selection, §4 alt text and path gate, and §5 posted bodies, for the PR body its finalizer opens on `--pr`.
 - **The `feature:finalizer`**, through [`pr-creation.md`](pr-creation.md) §4 — §2 probe, §6 command and §7 fallback, when it opens that PR.
 - **Ship's end-of-run pass** ([`../../ship/references/ui-verification.md`](../../ship/references/ui-verification.md) step 3) — every section, for its evidence comment.
+- **The `05-tests.md` `## Screenshots` section**, written by `close-stage`'s test checkpoint and by ship's end-of-run pass — §3's recognized-name grammar, tier order and safe-name regex, and §4's alt-text grammar, on every browser pass whether or not attaching is enabled. §3's empty-and-oversize filter and its ceiling are upload rules and do not bound that section. The entry shapes it renders stay in each writer's storage file.
 
 Where the evidence home is, and whether a caller has a hosted-link fallback, stay in each caller's storage file for the mode detected at the caller's start.
 
 ## When it runs
 
-Only when attaching is enabled (§1) **and** the run produced screenshots. With attaching disabled, nothing in this file applies: the PR body and the evidence comment are exactly what the caller posts without it. A run with no captures — a skip artifact, `--no-ui-testing`, a repo with no app — attaches nothing and posts no UI-evidence section, enabled or not.
+§1, §2 and §5–§8 — the enablement switches, the capability probe, the posted bodies, the command construction, the fallback order and the dedupe — run only when attaching is enabled (§1) **and** the run produced screenshots. With attaching disabled, nothing in those sections applies: the PR body and the evidence comment are exactly what the caller posts without it. A run with no captures — a skip artifact, `--no-ui-testing`, a repo with no app — attaches nothing and posts no UI-evidence section, enabled or not.
+
+§3's recognized-name grammar, tier order and safe-name regex, and §4's alt-text grammar, are independent of that switch: they are cited on every browser pass to order and label the `05-tests.md` `## Screenshots` section, so a run with attaching off still reads them. §3's empty-and-oversize filter and its ceiling stay upload rules, and that section applies neither. §4's **path gate** guards an argv that carries the absolute evidence-home path — it is a precondition for that command line, not for the section, whose entries carry no absolute path.
 
 ## §1 Enablement
 
@@ -38,7 +41,7 @@ A passing probe does not promise acceptance. gh refuses the attach itself on a G
 
 ## §3 Selection
 
-**Input**: the `*.png` files in the evidence home with their byte sizes, from one Bash listing — `wc -c -- "<evidence-home>"/*.png`, issued only after the evidence home has passed §4's path gate — plus the failed criteria — `05-tests.md`'s `## Failed Criteria` on the close path, the tester's report on ship's.
+**Input**: the `*.png` files in the evidence home with their byte sizes, from one Bash listing — `wc -c -- "<evidence-home>"/*.png`, which quotes the directory and so has no precondition of its own; §4's path gate is a precondition of the command lines that carry that absolute path as an argv value, never of this listing — plus the failed criteria — `05-tests.md`'s `## Failed Criteria` on the close path, the tester's report on ship's.
 
 **Recognized names** — the [`ui-checks.md`](ui-checks.md) §3 grammar, with its optional `<ticket-id>-` epic prefix:
 
