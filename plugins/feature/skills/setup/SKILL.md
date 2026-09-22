@@ -1,6 +1,6 @@
 ---
 name: setup
-description: "Configure a project for the feature pipeline: detect its commands, ask what detection leaves open, check the connector and bind the project for server-native storage, and write claudedocs/tickets/config.yaml, the fs-native ticket folders, .worktreeinclude and a commands snippet, each after its diff is approved."
+description: "Configure a project for the feature pipeline: detect its commands, ask what detection leaves open, check the connector and bind the project for server-native storage, and write claudedocs/tickets/config.yaml, the fs-native ticket folders, .worktreeinclude and a commands snippet, each after its diff is approved. With --check, verify a configured project read-only and print one line per check with its fix."
 disable-model-invocation: true
 allowed-tools:
   - Read
@@ -22,9 +22,9 @@ argument-hint: "[--check]"
 
 Run the detection script against the project, propose a value for every `claudedocs/tickets/config.yaml` key — the existing one on a re-run, else the detected one, else a documented default for a policy key — and ask about each value the findings leave open. For server-native storage, that includes checking that the connector answers and binding the server project the tickets live in. Then show every write as a diff and apply each one only on its own approval: `config.yaml`, the ticket folders an fs-native project needs, `.worktreeinclude`, an optional `claudedocs/` line in `.gitignore`, and an optional `## Commands` section in an existing `CLAUDE.md` / `AGENTS.md`. A re-run reads what is there, keeps it, and proposes only what is missing or differs.
 
-**Storage mode.** Setup is the one skill where the storage mode is an output rather than an input: it does not detect the mode at entry per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection — it asks for it, with an existing `config.yaml`'s `mode` (read at Process step 3) as the default. The mode question and the connector check before it live in this body; the pair [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) holds only the mechanics that follow the decision — the ticket store, the keys the mode owns, the project binding and ID allocation. The file for the chosen mode is loaded once, in full — at Process step 3 when an existing `config.yaml` fixes `mode: server-native`, at step 5 otherwise, and at step 2 in a headless run — and every later `§N` cite refers to that file.
+**Storage mode.** Setup is the one skill where the storage mode is an output rather than an input: it does not detect the mode at entry per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection — it asks for it, with an existing `config.yaml`'s `mode` (read at Process step 3) as the default. The mode question and the connector check before it live in this body; the pair [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) holds only the mechanics that follow the decision — the ticket store, the keys the mode owns, the project binding and ID allocation. The file for the chosen mode is loaded once, in full — at Process step 3 when an existing `config.yaml` fixes `mode: server-native`, at step 5 otherwise, and at step 2 in a headless run — and every later `§N` cite refers to that file. `--check` is the exception that reads the mode rather than asking it: its check 1 detects the mode per `storage.md` §Mode detection and loads the declared mode's file once, in full, for that file's `§5` ([check.md](references/check.md)).
 
-**This skill runs in the main conversation, standalone** — **not a pipeline stage**. It spawns no subagents (no `Task`), performs no ticket transition and commits nothing. Its only MCP calls are the connector's read-only `ping` before the mode question and `pipeline_list_projects` once server-native is chosen ([storage-server.md](references/storage-server.md) §1).
+**This skill runs in the main conversation, standalone** — **not a pipeline stage**. It spawns no subagents (no `Task`), performs no ticket transition and commits nothing. Its only MCP calls are the connector's read-only `ping` — before the mode question, and once under `--check` — and `pipeline_list_projects` once server-native is chosen in the guided run ([storage-server.md](references/storage-server.md) §1).
 
 ## Arguments
 
@@ -33,13 +33,13 @@ Run the detection script against the project, propose a value for every `clauded
 ```
 
 - No argument — the guided run: detect, ask, then write what you approve.
-- `--check` — prints `--check arrives with the doctor mode` and exits. Nothing is read or written.
+- `--check` — the read-only doctor: verify a configured project against the contracts the stages apply, printing one line per check with its fix, then an `OK` / `FAIL (n)` summary line. It asks nothing, writes nothing and boots nothing ([check.md](references/check.md)); it does run each configured `validate.*` command once, as every edit's hook does, so those commands' own effects apply and they run as trusted code. Run it before `ship`, and after changing `config.yaml`.
 - Anything else — prints `Usage: /feature:setup [--check]` and stops.
 
 ## When NOT to run
 
 - To create a ticket → `/feature:discover`. A throwaway project needs no setup: discover's first run asks for a prefix and writes a minimal `config.yaml` itself.
-- To inspect the current config without changing anything → `--check` is reserved for that and prints a notice rather than a report.
+- To verify the current config without changing anything — before a `ship`, or after editing `config.yaml` → `/feature:setup --check`, not the guided run.
 - To change one key → edit `config.yaml` by hand; every key is documented in [advanced.md](../../docs/advanced.md#configuration-reference).
 
 ## Process
@@ -48,6 +48,7 @@ Run the detection script against the project, propose a value for every `clauded
 
 - `<project-root>` — the current working directory: the repository whose `claudedocs/tickets/` this run configures, or, in a multi-repo workspace, the folder holding the child repositories.
 - `<plugin-root>` — the parent of the `skills/` directory that holds this skill, the plugin's root; on Claude Code, the path `${CLAUDE_PLUGIN_ROOT}` resolves to. Plugin files — the detection script and the storage pair — resolve against `<plugin-root>`, never against the consuming project.
+- **`--check`** → follow [check.md](references/check.md) from here and stop after its report. Steps 2–7 do not run.
 
 ### 2. Headless check
 
@@ -168,13 +169,15 @@ The `server-native — unavailable` line appears only when the connector check f
 - Read, print or copy the content of a dotenv-family file or any other secret — `.worktreeinclude` names are checked with `git check-ignore`, never opened.
 - Delete or regenerate a `config.yaml` key or a `.worktreeinclude` name.
 - Rewrite an existing server-native `mode:` / `project:` pair.
-- Make a network call or call an MCP tool other than the connector's `ping` and `pipeline_list_projects`, or call either in a headless run.
+- Make a network call or call an MCP tool other than the guided run's connector `ping` and `pipeline_list_projects` — neither of them in a headless run — and `--check`'s connector `ping` and `test.url` probe.
+- Under `--check`, write a project file, boot `test.start` or any other server, ask a question, or call `pipeline_list_projects`: `--check` writes nothing, boots nothing and asks nothing.
 - Create a registry project, or resolve a project UUID from a name or look one up.
 - Commit, stage or push anything.
 - Allocate a ticket ID or create a ticket.
 
 ## Error Handling
 
+- **Under `--check`** → none of the stops below applies: a check that cannot run prints a `--` line, and a problem prints a `FAIL` line with its fix ([check.md](references/check.md) §1). The run always reaches its summary line.
 - **Detector exit `1`** (`jq` missing) → reported; every question is asked with no detected default.
 - **Detector exit `2`, or output that is not one JSON object** → stop and report it as a setup error; nothing is written.
 - **`config.yaml` present but unparseable** → stop and report it; never overwrite it.
