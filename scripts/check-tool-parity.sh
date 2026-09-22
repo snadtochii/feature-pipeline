@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Check that every skill's `pipeline_*` allowed-tools entries are dual-listed
-# correctly: one bare name and one plugin-scoped name per tool, with the two
-# sets identical.
+# Check that every skill's server-tool (`pipeline_*` and `ping`) allowed-tools
+# entries are dual-listed correctly: one bare name and one plugin-scoped name
+# per tool, with the two sets identical.
 #
 # The scoped prefix is DERIVED from the connector plugin's manifest — its
 # `name` plus its single `mcpServers` key — so renaming either is caught here
@@ -45,9 +45,41 @@ if not plugin_name or len(servers) != 1:
 prefix = f"mcp__plugin_{plugin_name}_{servers[0]}__"
 print(f"derived scoped prefix: {prefix}")
 
-bare_re = re.compile(r"^  - (pipeline_\w+)$")
-scoped_re = re.compile(r"^  - " + re.escape(prefix) + r"(pipeline_\w+)$")
-stray_re = re.compile(r"^  - (mcp__plugin_\S*?pipeline_\w+)$")
+# A server tool is any `pipeline_*` name plus `ping`, the connector's one tool
+# without that prefix; `$` anchoring keeps `pinger` or `ping_x` out.
+tool = r"(pipeline_\w+|ping)"
+bare_re = re.compile(r"^  - " + tool + r"$")
+scoped_re = re.compile(r"^  - " + re.escape(prefix) + tool + r"$")
+stray_re = re.compile(r"^  - (mcp__plugin_\S*?(?:pipeline_\w+|__ping))$")
+
+# Regression probes — every string in `caught` must match, none in `clean`.
+probes = {
+    bare_re: (
+        ["  - ping", "  - pipeline_get_ticket"],
+        ["  - pinger", "  - ping_x", f"  - {prefix}ping"],
+    ),
+    scoped_re: (
+        [f"  - {prefix}ping", f"  - {prefix}pipeline_list_projects"],
+        [f"  - {prefix}pinger", "  - ping"],
+    ),
+    stray_re: (
+        ["  - mcp__plugin_feature_ps__ping", "  - mcp__plugin_feature_ps__pipeline_get_ticket"],
+        ["  - mcp__playwright__ping", "  - ping", "  - mcp__plugin_x_ps__typing"],
+    ),
+}
+probe_failures = []
+for rx, (caught, clean) in probes.items():
+    for s in caught:
+        if not rx.match(s):
+            probe_failures.append(f"regex {rx.pattern[:40]!r}… should catch {s!r}")
+    for s in clean:
+        if rx.match(s):
+            probe_failures.append(f"regex {rx.pattern[:40]!r}… should not catch {s!r}")
+if probe_failures:
+    print(f"FAIL: token-rule regression ({len(probe_failures)}):", file=sys.stderr)
+    for f in probe_failures:
+        print(f"  - {f}", file=sys.stderr)
+    sys.exit(1)
 
 failures = []
 checked = 0
@@ -100,7 +132,7 @@ for name, skill in targets:
         print(f"  ok  {name}: {len(bare)} tool(s) dual-listed")
 
 if not checked:
-    print("FAIL: nothing declared any pipeline_* tools — check the skills/agents paths", file=sys.stderr)
+    print("FAIL: nothing declared any server tools (pipeline_* or ping) — check the skills/agents paths", file=sys.stderr)
     sys.exit(1)
 
 if failures:

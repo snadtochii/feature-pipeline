@@ -316,9 +316,9 @@ project: <your-project-uuid>    # required with server-native — the project's 
 ```
 
 - **`fs-native`** — tickets are the folder tree under `claudedocs/tickets/` described in the [README](../../../README.md#tickets). A missing `mode` key or a missing `config.yaml` means this. Ticket reads and writes are entirely local.
-- **`server-native`** — tickets are authoritative rows on a personal MCP server, and `project:` is the project's UUID, exactly as the server's `pipeline_*` tools take it as `project_id`. That server's tool surface spans several domains; the `feature` skills use only its `pipeline_*` tools. The state folders (`backlog/`, `in-progress/`, `review/`, `done/`) do not exist, and artifact bodies carry no frontmatter — the row is the only metadata source. `mode: server-native` with no `project` key is a config error, not a fallback.
+- **`server-native`** — tickets are authoritative rows on a personal MCP server, and `project:` is the project's UUID, exactly as the server's `pipeline_*` tools take it as `project_id`. That server's tool surface spans several domains; the `feature` skills use only its `pipeline_*` tools and its `ping`. The state folders (`backlog/`, `in-progress/`, `review/`, `done/`) do not exist, and artifact bodies carry no frontmatter — the row is the only metadata source. `mode: server-native` with no `project` key is a config error, not a fallback.
 
-Read the UUID from your personal server's project registry — the id its `pipeline_*` tools take as `project_id` — and paste it as-is: the canonical 36-character form, hex digits in 8-4-4-4-12 groups, either case, no braces or `urn:uuid:` prefix. A slug or project name is not accepted, and no skill resolves one: with no tool that maps a name to a UUID, a non-UUID value stops the run before any server call, with this message:
+Read the UUID from your personal server's project registry — the id its `pipeline_*` tools take as `project_id` — and paste it as-is: the canonical 36-character form, hex digits in 8-4-4-4-12 groups, either case, no braces or `urn:uuid:` prefix. A slug or project name is not accepted, and no skill resolves one: a non-UUID value stops the run before any server call, with this message:
 
 ```
 Config error in claudedocs/tickets/config.yaml: `project` must be the server project's UUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx), found "<value>". Replace it with the project's UUID from your personal server's project registry. Stopping before any server call; no lookup is attempted and the run does not fall back to fs-native.
@@ -330,7 +330,7 @@ A well-formed UUID the server does not know fails at the first `pipeline_*` call
 
 The skills read the mode once per run and then load one reference per storage concern for that mode. Under `plugins/feature/skills/flow/references/`, `storage.md` is the detection stub and each cross-stage concern (storage, ticket-resolution, state-transitions, lessons-log) plus the two flow-private ones (epic-walk, keying) is a `<concern>-fs.md` / `<concern>-server.md` pair — the stub's pointer table is the authoritative list. A skill with storage mechanics of its own keeps a skill-local pair at `skills/<skill>/references/storage-fs.md` / `storage-server.md` — `build`, `review-stage`, `close-stage`, `sync`, `ship`, `discover`, and `setup` today — loaded once, at the skill's start (`setup`: at its storage-mode question, since there the mode is an answer rather than a detection), and cited by section number from then on. A file for the other mode is never opened, so an fs-native run carries no server prose and a server-native run no folder choreography; each mode file opens with a "never needs this file" header naming the mode it serves. `scripts/check-mode-split.sh` enforces the split.
 
-Nothing else in this section matters unless you run `server-native`. If a `pipeline_*` tool is unavailable or a call fails in that mode, the skill **stops** naming the server and the failed operation — it never silently writes local files instead.
+Nothing else in this section matters unless you run `server-native`. If a `pipeline_*` tool is unavailable or a call fails in that mode, the skill **stops** naming the server and the failed operation — it never silently writes local files instead. `/feature:setup` is the one exception: a connector that does not answer its `ping` leaves server-native unavailable, and a missing or failing project list falls back to asking for the UUID.
 
 **Screenshot uploads (server-native only).** The `## Screenshots` section of `05-tests.md` hosts its captures through the `personal-server` CLI, which the pipeline invokes but never installs or configures. Three things have to be in the agent's environment:
 
@@ -367,7 +367,7 @@ The server is **not** declared by the `feature` plugin. It lives in a second, se
 That split is the whole opt-in mechanism. Install `feature` alone and no MCP server is declared, so none connects and there is nothing to configure or switch off. Install `server-native` alongside it only when you actually run server-native projects:
 
 ```
-feature                    → the 13 skills. Everyone installs this.
+feature                    → the pipeline skills. Everyone installs this.
 feature + server-native    → the same skills, plus the personal server.
 ```
 
@@ -383,6 +383,8 @@ Three layers decide what a skill can call, and it pays to keep them apart:
 - **The server** owns which tools exist. It is the sole source of truth for the tool surface — the connector cannot add, remove, or hide a tool, only reach the ones the server already exposes.
 - **The manifest** owns the connection, the credential storage, and the namespace. Claude Code namespaces plugin-declared tools by their **declaring** plugin, so the callable names are `mcp__plugin_server-native_ps__pipeline_get_ticket` and friends — note `server-native`, not `feature`. A skill in one plugin may use a server declared by another.
 - **`allowed-tools`** in a skill's frontmatter is a per-turn permission grant. Listing a tool lets the skill call it without prompting you; leaving one out does not remove it from the session — the call still happens, it just asks first. So a scoped name that has gone stale degrades into a permission prompt per call rather than an error.
+
+With the connector configured, run `/feature:setup` in the project: it checks that the connector answers, lets you pick the project from the server's list or paste its UUID, and writes `mode: server-native` and `project:` to `config.yaml`.
 
 #### Codex setup
 
@@ -403,3 +405,5 @@ export PERSONAL_SERVER_MCP_TOKEN='…'
 ```
 
 Codex namespaces MCP tools without a plugin segment, so keying the block `ps` (as above) yields `mcp__ps__pipeline_get_ticket`. The skills' `allowed-tools` list the bare `pipeline_*` names alongside the Claude-scoped ones; the bare entry is how the skills name the tool, standing in for whatever your `config.toml` key makes the callable name. If your Codex version enforces `allowed-tools` against the qualified MCP name, add the qualified form to the affected skill's frontmatter — that name depends on your server key, which is why the plugin does not hardcode one.
+
+With the server added, run `/feature:setup` in the project: it checks that the server's `ping` answers, lets you pick the project from the server's list or paste its UUID, and writes `mode: server-native` and `project:` to `config.yaml`.
