@@ -104,12 +104,14 @@ In this order. A check marked *needs config* prints `-- <check>: not run — con
      echo "negations: $neg"
      if [ -s "$tmp/matches" ]; then
        sort -u "$tmp/matches" > "$tmp/unique"; echo "matches: $(wc -l < "$tmp/unique" | tr -d ' ')"
-       g check-ignore --stdin -n -v < "$tmp/unique" | grep '^::'
+       g check-ignore --stdin < "$tmp/unique" > "$tmp/ignored"; rc=$?
+       if [ "$rc" -gt 1 ]; then echo "check-ignore: error $rc"
+       else grep -vxF -f "$tmp/ignored" "$tmp/unique" | sed 's/^/unignored: /'; fi
      fi
      g status --porcelain -- .worktreeinclude ':(glob)**/.gitignore'
      true
      ```
-     Each line is kept as written: a leading space is part of a gitignore pattern, and a line of blanks is skipped. Matches are files — tracked, or present untracked — never a collapsed directory and never a tracked file deleted from the working tree. No `p<n>:` line → `-- .worktreeinclude: no positive patterns`. `p<n>: 0` names a pattern that matches nothing, the pattern after the tab. `matches:` counts the distinct matched files. A `::<tab><path>` line from `check-ignore` names a match that is not ignored — tracked, or untracked and unlisted. A `git status` line names a `.gitignore` or the `.worktreeinclude` with uncommitted changes. One line for the repository:
+     Each line is kept as written: a leading space is part of a gitignore pattern, and a line of blanks is skipped. Matches are files — tracked, or present untracked — never a collapsed directory and never a tracked file deleted from the working tree. No `p<n>:` line → `-- .worktreeinclude: no positive patterns`. `p<n>: 0` names a pattern that matches nothing, the pattern after the tab. `matches:` counts the distinct matched files. `check-ignore` lists the matches that are ignored, so an `unignored: <path>` line names a match that is not — tracked, untracked and unlisted, or re-included by a `!` rule in a `.gitignore`. `check-ignore: error <rc>` means git could not answer, and the line is `FAIL .worktreeinclude: git check-ignore failed (exit <rc>) — run git check-ignore by hand from <repo>`. A `git status` line names a `.gitignore` or the `.worktreeinclude` with uncommitted changes. One line for the repository:
      - all matched and all ignored → `ok .worktreeinclude: <p> patterns, <m> matches, all gitignored`, noting `<k> negation lines not checked` when `negations:` is not `0`;
      - else → `FAIL .worktreeinclude: <each problem, separated by "; "> — <the fixes>`, where a pattern with no match reads `pattern '<pattern>' matches no file` with the fix `remove the line, or create the file in the main checkout`, and an unignored match reads `<path> is not gitignored` with the fix `add it to .gitignore, and untrack it with git rm --cached if it is committed`.
      - Either line, when `git status` printed any path, ends `; uncommitted: <paths> — commit them before a --worktree run, which reads the base branch's committed .gitignore`. The note alone never turns `ok` into `FAIL`: build's worktree provisioning re-checks each copied file against the worktree's own ignore rules before any commit.
