@@ -18,7 +18,7 @@ argument-hint: "[--check]"
 
 Run the detection script against the project, propose a value for every `claudedocs/tickets/config.yaml` key — the existing one on a re-run, else the detected one, else a documented default for a policy key — and ask about each value the findings leave open. Then show every write as a diff and apply each one only on its own approval: `config.yaml`, the ticket folders, `.worktreeinclude`, an optional `claudedocs/` line in `.gitignore`, and an optional `## Commands` section in an existing `CLAUDE.md` / `AGENTS.md`. A re-run reads what is there, keeps it, and proposes only what is missing or differs.
 
-**Storage mode.** Setup is the one skill where the storage mode is an output rather than an input: it does not detect the mode at entry per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection — it asks for it, with an existing `config.yaml`'s `mode` (read at Process step 3) as the default. The mode question lives in this body; the pair [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) holds only the mechanics that follow the decision — the ticket store, the keys the mode owns and ID allocation. The file for the chosen mode is loaded once, in full, at Process step 5, and every later `§N` cite refers to that file.
+**Storage mode.** Setup is the one skill where the storage mode is an output rather than an input: it does not detect the mode at entry per [`../flow/references/storage.md`](../flow/references/storage.md) §Mode detection — it asks for it, with an existing `config.yaml`'s `mode` (read at Process step 3) as the default. The mode question lives in this body; the pair [`storage-fs.md`](references/storage-fs.md) / [`storage-server.md`](references/storage-server.md) holds only the mechanics that follow the decision — the ticket store, the keys the mode owns and ID allocation. The file for the chosen mode is loaded once, in full, at Process step 5 — at step 2 in a headless run — and every later `§N` cite refers to that file.
 
 **This skill runs in the main conversation, standalone** — **not a pipeline stage**. It spawns no subagents (no `Task`), calls no MCP tool, performs no ticket transition and commits nothing.
 
@@ -43,11 +43,11 @@ Run the detection script against the project, propose a value for every `clauded
 ### 1. Bind roots
 
 - `<project-root>` — the current working directory: the repository whose `claudedocs/tickets/` this run configures, or, in a multi-repo workspace, the folder holding the child repositories.
-- `<plugin-root>` — the directory two levels above this `SKILL.md`, the plugin's root; on Claude Code, the path `${CLAUDE_PLUGIN_ROOT}` resolves to. Plugin files — the detection script and the storage pair — resolve against `<plugin-root>`, never against the consuming project.
+- `<plugin-root>` — the parent of the `skills/` directory that holds this skill, the plugin's root; on Claude Code, the path `${CLAUDE_PLUGIN_ROOT}` resolves to. Plugin files — the detection script and the storage pair — resolve against `<plugin-root>`, never against the consuming project.
 
 ### 2. Headless check
 
-Every write needs an answer from a person. When no user is reachable — a headless run, or a surface with neither a question tool nor a conversational channel — run steps 3 and 4, then print the proposal: the findings, each open question with its proposed answer (existing value, else detected value, else the documented default), and every write step 6 would make, as a diff. Print the step 7 report with `nothing written`, and **stop without writing**. On Codex, `AskUserQuestion` maps per [`runtime-codex.md`](../flow/references/runtime-codex.md); that mapping is cited here, not restated. An answer is never assumed from silence — not in a headless run, and not for a question the user leaves unanswered.
+Every write needs an answer from a person. When no user is reachable — a headless run, or a surface with neither a question tool nor a conversational channel — run steps 3 and 4, load [storage-fs.md](references/storage-fs.md) once, in full — the proposed mode is `fs-native`, since an existing `mode: server-native` already stopped the run at step 3 — then print the proposal: the findings, each open question with its proposed answer (existing value, else detected value, else the documented default), and every write step 6 would make, as a diff. Print the step 7 report with `nothing written`, and **stop without writing**. On Codex, `AskUserQuestion` maps per [`runtime-codex.md`](../flow/references/runtime-codex.md); that mapping is cited here, not restated. An answer is never assumed from silence — not in a headless run, and not for a question the user leaves unanswered.
 
 ### 3. Read existing state
 
@@ -79,7 +79,7 @@ In this order:
    - `server-native` → print `server-native binding arrives with the connector check` and stop before any write.
    - `fs-native` → load [storage-fs.md](references/storage-fs.md) now, once, in full.
 2. **Prefix** — asked only when no prefix is fixed per §3 and §4: no `prefix` in `config.yaml`, and no ticket folders to infer one from. Default: the detector's `prefix`. A fixed prefix is shown in the review block; folder names carrying more than one prefix are listed in the question, with no default.
-3. **`validate.lint`** and **`validate.typecheck`** — default: the detector's `validate.lint` / `validate.typecheck`. The detector's `validate.test` has no `config.yaml` key ([detection.md](references/detection.md) §7); it feeds the commands snippet (item 11). An answer containing `"` or `\` is re-asked with a request to rephrase, per step 6's quoting rule. Multi-repo: a value is proposed only when every child's detection agrees; otherwise the question carries no default and points at the repo-agnostic, manifest-sniffing command form in [advanced.md](../../docs/advanced.md#worktree-setup).
+3. **`validate.lint`**, **`validate.typecheck`** and the **test command** — default: the detector's `validate.lint` / `validate.typecheck` / `validate.test`. The test command has no `config.yaml` key ([detection.md](references/detection.md) §7); it feeds only the commands snippet (item 11). A `validate.lint` or `validate.typecheck` answer containing `"` or `\` is re-asked with a request to rephrase, per step 6's quoting rule. Multi-repo, for each of the three: a value is proposed only when every child's detection agrees; otherwise the question carries no default and points at the repo-agnostic, manifest-sniffing command form in [advanced.md](../../docs/advanced.md#worktree-setup).
 4. **`test.url`** and **`test.start`** — default: the detector's `test.url` / `test.start`. When `compose_file` is set and `test.start` is null, the recommended `test.start` is the isolated stack described in [advanced.md](../../docs/advanced.md#app-test-config), built from that file: `trap 'docker compose -f <compose_file> down' EXIT TERM; docker compose -f <compose_file> up & wait`.
 5. **`test.start_timeout`** — asked only when the isolated-stack `test.start` was chosen, since a stack that builds an image can outlast the 60-second default. Default: `leave unset`; otherwise a whole number of seconds, at most 540.
 6. **`git.commit`** — `prompt` (default), `always` or `never`, each with its one-line meaning from [advanced.md](../../docs/advanced.md#commit-behavior).
@@ -87,13 +87,13 @@ In this order:
 8. **`worktree.setup`** — default: the detector's `worktree_setup`. Multi-repo: proposed as for `validate.*`.
 9. **`claudedocs/` in `.gitignore`** — its own yes/no question, with neither option marked recommended, asked only when `claudedocs_ignored` is `false`. It changes a committed file every contributor shares, so it is asked explicitly and never inferred from a general go-ahead. `true` → shown as already ignored. `null` (not a git repository, or a multi-repo root) → not asked; the reason goes in the report.
 10. **`.worktreeinclude` names** — one include-or-not question per detected candidate the file does not already list, plus:
-    - `claudedocs/tickets/config.yaml`, when `claudedocs/` is ignored (already, or by item 9's line) and it is not already a candidate: a fresh worktree has no copy of an ignored config.
-    - An optional free-text "add another name". Each typed name is kept only when `git -C <repo> check-ignore -q -- <name>` exits `0`, else dropped with the reason; it is never opened.
+    - `claudedocs/tickets/config.yaml`, in a single-repo workspace only, when `claudedocs/` is ignored (already, or by item 9's line) and it is not already a candidate: a fresh worktree has no copy of an ignored config. In a multi-repo workspace `config.yaml` sits above every child repository, where a repo-relative name cannot reach it and need not ([advanced.md](../../docs/advanced.md#worktree-setup)).
+    - An optional free-text "add another name". The typed text never enters a command line: `Write` each name as the single line of a file in a temp directory whose path a prior `mktemp -d` printed, and keep the name only when `git -C <repo> check-ignore -q --stdin < <file>` exits `0`, else drop it with the reason, and remove the temp directory once the names are checked. The named file itself is never opened.
 
     Multi-repo: asked per child repository, for that child's root. Not a git repository → not asked; the reason goes in the report.
-11. **`## Commands` snippet** — one yes/no question per instruction file the root detection reports as existing, showing the lines it would append: `- Lint:` and `- Typecheck:` from the confirmed `validate.*` answers, and `- Test:` from the detector's `validate.test`, each only when non-null. A file is not offered, and the reason goes in the report, when:
+11. **`## Commands` snippet** — one yes/no question per instruction file the root detection reports as existing, showing the lines it would append: `- Lint:`, `- Typecheck:` and `- Test:` from the confirmed item 3 answers, each only when set. A file is not offered, and the reason goes in the report, when:
     - its `commands_section` is `true` and the matched section already lists a runnable command — read the section to tell ([detection.md](references/detection.md) §11);
-    - it is `CLAUDE.md`, it imports `@AGENTS.md`, and `AGENTS.md` exists — build reads both files, so a snippet in each would run every check twice, and only `AGENTS.md` is offered;
+    - it is `CLAUDE.md` and `AGENTS.md` exists — build reads both files whenever both exist, so a snippet in each would run every check twice, and only `AGENTS.md` is offered;
     - there are no lines to write.
 
     A missing instruction file is never created.
@@ -113,10 +113,10 @@ In this order:
    ## Commands
    - Lint: `<validate.lint>`
    - Typecheck: `<validate.typecheck>`
-   - Test: `<detected validate.test>`
+   - Test: `<test command>`
    ```
 
-   A line whose command is null is omitted.
+   A line whose command is unset is omitted.
 
 **`config.yaml` write rules.** These hold in either storage mode; the keys the chosen mode owns come from §3.
 
