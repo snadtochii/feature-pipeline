@@ -21,8 +21,8 @@ Each entry is **atomic and date-stamped: exactly one subject (one concrete path,
 
 Examples (row fields, then body):
 
-- `ticket_id: FP-7`, `verdict: pass` — `hooks/validate.sh must stay bash-3.2 compatible (macOS default) — no associative arrays or mapfile.`
-- `ticket_id: FP-12`, `verdict: partial` — `validate.lint must keep ESLint — bun's typecheck doesn't surface unused-import errors.`
+- `ticket_id: FP-7`, `verdict: pass` — `skills/setup/scripts/detect.sh must stay bash-3.2 compatible (macOS default) — no associative arrays or mapfile.`
+- `ticket_id: FP-12`, `verdict: partial` — `CLAUDE.md's lint command must stay ESLint — bun's typecheck doesn't surface unused-import errors.`
 - `ticket_id: FP-15`, no `verdict` (the run exited `stuck`) — `(stuck) canonical auth-middleware path is src/security/auth.ts (after the lib/ → src/ rename).`
 
 ## §3 What to capture

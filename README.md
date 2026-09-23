@@ -67,8 +67,6 @@ codex plugin add feature@feature
 codex plugin list                           # verify feature@feature is installed
 ```
 
-The validation hook uses Codex's hook system — enable `codex_hooks` and `plugin_hooks` in your Codex config. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#validation-hook) for the hook setup.
-
 ## Quick start
 
 ```bash
@@ -154,9 +152,6 @@ Project config lives in `claudedocs/tickets/config.yaml`, and `/feature:setup` w
 ```yaml
 prefix: FP
 mode: fs-native                  # where tickets live; omit the key and you get this
-validate:                        # lint/typecheck run after each edit (opt-in)
-  lint: "bun run lint"
-  typecheck: "bun run typecheck"
 test:                            # lets the close stage and ship's --ui-test reach your app
   url: http://localhost:4200
   start: "npm start"
@@ -174,7 +169,7 @@ git:                             # presets the verdict gate's commit question
 
 Every browser pass records its captures in the ticket's own `05-tests.md` — as links relative to that file in `fs-native` mode, as uploaded server assets in `server-native` mode — so the visual record lives with the ticket whether or not you attach screenshots to PRs. Section shape and the server-native prerequisites: [Required UI checks](plugins/feature/docs/advanced.md#required-ui-checks).
 
-The pipeline also reads your project's `CLAUDE.md` for conventions. Full reference — auth/`storage_state`, hook internals, the worktree contract, and MCP setup — is in [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#configuration-reference).
+The pipeline also reads your project's `CLAUDE.md` / `AGENTS.md` for conventions and for the lint, typecheck and test commands build validates each plan step with. Full reference — auth/`storage_state`, the worktree contract, and MCP setup — is in [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#configuration-reference).
 
 ## Requirements
 

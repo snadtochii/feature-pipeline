@@ -128,7 +128,7 @@ Run `worktree.setup` inside the worktree under the declared-command trust discip
 cd "<wt-path>" && bash "/tmp/fp-worktree-setup-<TICKET-ID>.sh"
 ```
 
-Never substitute the command into a shell command line; never let ticket-derived text (spec title, AC text, branch slug) near this file. `worktree.setup` is the user's own declared command — the same trust tier as `validate.lint` and `test.start`.
+Never substitute the command into a shell command line; never let ticket-derived text (spec title, AC text, branch slug) near this file. `worktree.setup` is the user's own declared command — the same trust tier as `test.start`.
 
 - **Missing `worktree:` block or missing `setup` key** → skip with one line: `--worktree: no worktree.setup declared; skipping dependency setup (install manually in <wt-path> if the build needs it).`
 - **Failure** → report the exit code and the last lines of output, then apply the caller's **setup-failure policy** (§0). This is the one place the two provisioning consumers legitimately diverge, which is why it is an input rather than forked mechanics.
@@ -137,7 +137,7 @@ The `/tmp` path is fixed and ticket-keyed rather than `mktemp` for the same reas
 
 ### Step 6 — Config presence
 
-The PostToolUse validation hook locates `claudedocs/tickets/config.yaml` by walking **up** from the edited file (`hooks/validate.sh`), and storage-mode detection reads the same file. A worktree that no ancestor chain reaches would silently lose per-edit validation and misdetect the storage mode.
+Storage-mode detection reads `claudedocs/tickets/config.yaml`. A worktree that no ancestor chain reaches would misdetect the storage mode.
 
 Walk up from `<wt-path>` looking for `claudedocs/tickets/config.yaml`:
 
@@ -190,10 +190,6 @@ The [`commit.md`](commit.md) and [`pr-creation.md`](pr-creation.md) rows, and §
 | `gh pr create --attach` paths, and the image references in the posted body ([`ui-attach.md`](ui-attach.md) §4) | Absolute evidence-home paths. gh matches a body reference to an attached file by resolving both from the process working directory, which is `<wt-path>`; a relative path would resolve inside the worktree, where the evidence home does not exist. |
 
 `<ticket-folder>` must therefore be **absolute** for the whole run, and stay bound across every state transition that moves the folder. What this column denotes in the detected storage mode: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §5; §2 step 6's config-presence rule applies either way.
-
-### Needs no binding
-
-The PostToolUse validation hook. It derives its working directory by walking up from the **edited file**, not from an ambient cwd, so edits inside the worktree resolve correctly on their own once §2 step 6 holds.
 
 ---
 

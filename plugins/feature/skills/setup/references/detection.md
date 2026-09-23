@@ -51,7 +51,7 @@ Keys are emitted in this order:
 |---|---|---|
 | `prefix` | string or null | §5 |
 | `package_manager` | `pnpm` \| `yarn` \| `bun` \| `npm` \| `uv` \| `poetry` \| null | §6 |
-| `validate.lint`, `validate.typecheck`, `validate.test` | string or null | §7 |
+| `validate` (`lint`, `typecheck`, `test`) | object; each command a string or null | §7 |
 | `test.url`, `test.start` | string or null | §8 |
 | `worktree_setup` | string or null | §9 |
 | `worktreeinclude_candidates` | array of strings, or null outside git | §10 |
@@ -86,7 +86,7 @@ Each of `lint`, `typecheck` and `test` is resolved on its own, from the first so
 
 No source declares it → `null`.
 
-These are the same commands a `## Commands` snippet in `CLAUDE.md` / `AGENTS.md` would carry, so the per-step validation build collects from those files ([validation-hook.md](../../build/references/validation-hook.md) §Layer 2) and this document agree. Only `lint` and `typecheck` belong in `config.yaml`'s `validate:` block, the per-edit hook's deliberately narrower set; `test` feeds the `## Commands` snippet alone and has no `config.yaml` key.
+These are the same commands a `## Commands` snippet in `CLAUDE.md` / `AGENTS.md` carries — setup composes that snippet from them — so the per-step validation build collects from those files ([validation-chain.md](../../build/references/validation-chain.md)) and this document agree. None of the three has a `config.yaml` key.
 
 ## §8 `test` and `compose_file`
 
@@ -105,9 +105,9 @@ The detected Node manager's frozen-lockfile install: `pnpm install --frozen-lock
 
 ## §11 `instruction_files`
 
-For each of `CLAUDE.md` and `AGENTS.md` at the root: `exists` is whether the file exists; `commands_section` is whether it holds a Markdown ATX heading (one to six `#`) whose text contains `commands`, `validation` or `testing`, case-insensitively, outside fenced code blocks — the heading predicate build's Layer 2 collects checks from ([validation-hook.md](../../build/references/validation-hook.md) §Layer 2). A missing file has both fields `false`.
+For each of `CLAUDE.md` and `AGENTS.md` at the root: `exists` is whether the file exists; `commands_section` is whether it holds a Markdown ATX heading (one to six `#`) whose text contains `commands`, `validation` or `testing`, case-insensitively, outside fenced code blocks — the heading predicate build's per-step chain collects checks from ([validation-chain.md](../../build/references/validation-chain.md) §Where the commands come from). A missing file has both fields `false`.
 
-`commands_section: true` means Layer 2 has a heading to scan in that file, not that the section lists a runnable command: a file whose only match is `## Testing philosophy` reports `true`. A consumer deciding whether a file still needs a `## Commands` snippet reads the matched section's content rather than trusting this field alone.
+`commands_section: true` means build has a heading to scan in that file, not that the section lists a runnable command: a file whose only match is `## Testing philosophy` reports `true`. A consumer deciding whether a file still needs a `## Commands` snippet reads the matched section's content rather than trusting this field alone.
 
 ## Boundaries
 
