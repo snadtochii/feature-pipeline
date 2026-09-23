@@ -28,7 +28,7 @@ The `review/` refusal keys on the ticket folder being in `review/`. Artifact pre
 
 ## §11 Config presence in a worktree
 
-A missing `config.yaml` is valid — the file is optional, and its absence means the default storage mode with no `validate:`/`test:`/`git:`/`worktree:` config (per [`../../flow/references/storage.md`](../../flow/references/storage.md) §Mode detection). [`worktree.md`](worktree.md) §2 step 6's no-source case is therefore a no-op: copying a source that does not exist would strand a freshly-created worktree over a supported configuration.
+A missing `config.yaml` is valid — the file is optional, and its absence means the default storage mode with no `test:`/`git:`/`worktree:` config (per [`../../flow/references/storage.md`](../../flow/references/storage.md) §Mode detection). [`worktree.md`](worktree.md) §2 step 6's no-source case is therefore a no-op: copying a source that does not exist would strand a freshly-created worktree over a supported configuration.
 
 ## §12 Error handling
 

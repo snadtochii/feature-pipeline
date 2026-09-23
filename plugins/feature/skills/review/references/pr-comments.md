@@ -26,7 +26,7 @@ Every automated review embeds one HTML comment, invisible in GitHub's rendered v
 ```
 
 - `head=<SHA>` is **load-bearing** — it is the full current head SHA of the PR at review time (`gh pr view <N> --json headRefOid --jq '.headRefOid'`). Idempotency is keyed on it: a PR is "already reviewed" only when a marker for its **current** head SHA exists. When new commits land (head moves), the old marker no longer matches and the PR is reviewed again.
-- `agent=<codex|claude>` is **informational** (which runtime posted). Detect it from the runtime that already discriminates the two harnesses: `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`. This mirrors `../build/references/validation-hook.md`'s `PLUGIN_ROOT` (Codex) vs `CLAUDE_PLUGIN_ROOT` (Claude Code) resolution. It never gates idempotency — only `head` does.
+- `agent=<codex|claude>` is **informational** (which runtime posted). Detect it from the runtime that already discriminates the two harnesses: `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`. This is the same predicate build uses to pick the primary instruction file: `PLUGIN_ROOT` (Codex) vs `CLAUDE_PLUGIN_ROOT` (Claude Code). It never gates idempotency — only `head` does.
 
 The marker goes in the **review body** on the Reviews-API path (§4), or in the **single issue comment** on the fallback path (§5). Either way it must be findable by the idempotency scan (§3), which reads both surfaces.
 

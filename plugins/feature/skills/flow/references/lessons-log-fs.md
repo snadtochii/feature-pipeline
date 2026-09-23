@@ -26,8 +26,8 @@ Each entry is a `^## ` header line that is **atomic and date-stamped: exactly on
 
 Examples:
 
-- `## FP-7 (pass, 2026-07-06): hooks/validate.sh must stay bash-3.2 compatible (macOS default) — no associative arrays or mapfile.`
-- `## FP-12 (partial, 2026-07-06): validate.lint must keep ESLint — bun's typecheck doesn't surface unused-import errors.`
+- `## FP-7 (pass, 2026-07-06): skills/setup/scripts/detect.sh must stay bash-3.2 compatible (macOS default) — no associative arrays or mapfile.`
+- `## FP-12 (partial, 2026-07-06): CLAUDE.md's lint command must stay ESLint — bun's typecheck doesn't surface unused-import errors.`
 - `## FP-15 (stuck, 2026-07-06): canonical auth-middleware path is src/security/auth.ts (after the lib/ → src/ rename).`
 
 ## §3 What to capture

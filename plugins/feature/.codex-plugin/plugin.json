@@ -2,7 +2,7 @@
   "name": "feature",
   "displayName": "Feature Pipeline",
   "description": "Agentic feature development pipeline.",
-  "version": "3.12.3",
+  "version": "3.13.0",
   "author": {
     "name": "Serhii Nadtochii",
     "url": "https://github.com/snadtochii"
@@ -19,7 +19,6 @@
   ],
   "skills": "./skills/",
   "agents": "./agents/",
-  "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "Feature Pipeline",
     "shortDescription": "Plan and build ticketed features with agentic checkpoints.",

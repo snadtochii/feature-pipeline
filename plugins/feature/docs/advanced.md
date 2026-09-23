@@ -15,7 +15,6 @@ Deeper material that doesn't belong in the [README](../../../README.md) front do
 - [Configuration reference](#configuration-reference)
   - [Project conventions (CLAUDE.md)](#project-conventions-claudemd)
   - [Ticket prefix](#ticket-prefix)
-  - [Validation hook](#validation-hook)
   - [App test config](#app-test-config)
   - [Commit behavior](#commit-behavior)
   - [Worktree setup](#worktree-setup)
@@ -54,7 +53,7 @@ Ordering is the attach tier order — failing criteria first, then one desktop c
 
 The close stage's test checkpoint verifies UI tickets in a real browser via the `ui-tester` subagent (Playwright/Chrome MCP), which needs interactive MCP permission. That permission isn't available in a non-interactive/headless run (e.g. `claude -p`), so a UI ticket can stall at the browser checkpoint.
 
-Pass `--no-ui-testing` to skip **only** the browser portion of the test checkpoint — non-browser verification (your `validate.lint`/`validate.typecheck` checks) still runs and still gates the verdict. `05-tests.md` records that browser testing was skipped by flag (not "passed"), so the verdict and any PR stay honest about what was verified; browser-level verification then falls to a human at PR review. The flag propagates `flow → close stage` and, in epic mode, is forwarded to every child.
+Pass `--no-ui-testing` to skip **only** the browser portion of the test checkpoint — non-browser verification (the lint/typecheck commands your `CLAUDE.md`/`AGENTS.md` documents) still runs and still gates the verdict. `05-tests.md` records that browser testing was skipped by flag (not "passed"), so the verdict and any PR stay honest about what was verified; browser-level verification then falls to a human at PR review. The flag propagates `flow → close stage` and, in epic mode, is forwarded to every child.
 
 ## Attach screenshots to PRs (`--attach-screenshots`)
 
@@ -165,6 +164,8 @@ The pipeline reads your project's `CLAUDE.md` for conventions. Declaring your co
 - Build: `npm run build`
 ```
 
+These commands are the pipeline's validation: build runs the checks `CLAUDE.md` and `AGENTS.md` document as one chained run per plan step, and the review and close stages' fixes run lint and typecheck after each fix edit ([validation-chain.md](../skills/build/references/validation-chain.md)). `/feature:setup` offers to append this section from the commands it detects.
+
 ### Ticket prefix
 
 On the first run of `/feature:discover` in a project, you'll be asked for a ticket prefix (e.g. `FP`, `MYAPP`, `WEB`). It's saved to `config.yaml` and reused for all subsequent tickets.
@@ -173,34 +174,9 @@ On the first run of `/feature:discover` in a project, you'll be asked for a tick
 prefix: FP
 ```
 
-### Validation hook
-
-The plugin ships an optional `PostToolUse` hook (`hooks/hooks.json` + `hooks/validate.sh`) that runs lint and typecheck after file-edit tools. It matches `Write|Edit|MultiEdit|apply_patch`, so the same hook covers Claude Code edit tools and Codex patch edits. Opt in with a `validate:` block:
-
-```yaml
-prefix: FP
-validate:
-  lint: "bun run lint"
-  typecheck: "bun run typecheck"
-```
-
-Without the block, the hook is a silent no-op. It auto-detects the project root by walking up from the edited file looking for `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Gemfile`, `composer.json`, `mix.exs`, or `tsconfig.json`. Override the marker list with `validate.cwd_markers`. Build's body-level fallback runs the same checks regardless of whether the hook is configured — the two layers are intentionally redundant.
-
-`jq` is required for the hook script; `yq` is recommended for richer YAML support but not required (a grep-based fallback handles the common case).
-
-For Codex, hooks require `[features] codex_hooks = true` in `config.toml`; bundled plugin hooks also require `plugin_hooks = true`:
-
-```toml
-[features]
-codex_hooks = true
-plugin_hooks = true
-```
-
-The hook command resolves either `PLUGIN_ROOT` (Codex) or `CLAUDE_PLUGIN_ROOT` (Claude Code), so the same `hooks/hooks.json` is shared by both runtimes.
-
 ### App test config
 
-The close stage's test checkpoint can read an optional `test:` block. It declares how to reach (and optionally start and authenticate) your app, so a cheap reachability pre-flight runs before the browser test subagent is spawned — the subagent is never launched against an app it can't reach. Unlike `validate:`, the `test:` block is read by the `close-stage` skill and by ship's `--ui-test` pass, not by the validation hook.
+The close stage's test checkpoint can read an optional `test:` block. It declares how to reach (and optionally start and authenticate) your app, so a cheap reachability pre-flight runs before the browser test subagent is spawned — the subagent is never launched against an app it can't reach. The block is model-read, by the `close-stage` skill and by ship's `--ui-test` pass.
 
 ```yaml
 prefix: FP
@@ -221,7 +197,7 @@ Ship's `--ui-test` pass needs `test.url` and `test.start`, which the pass boots 
 
 ### Commit behavior
 
-An optional `git:` block presets the close stage's verdict-gate commit question for passing non-`--pr` builds, and opts the project into attaching screenshots to PRs. Like `test:`, it is model-read by the skills — `close-stage`, and `ship` for `attach_screenshots` — never by `hooks/validate.sh`.
+An optional `git:` block presets the close stage's verdict-gate commit question for passing non-`--pr` builds, and opts the project into attaching screenshots to PRs. Like `test:`, it is model-read by the skills — `close-stage`, and `ship` for `attach_screenshots`.
 
 ```yaml
 prefix: FP
@@ -239,7 +215,7 @@ An unrecognized value degrades to `prompt` with a one-line notice — a config t
 
 ### Worktree setup
 
-An optional `worktree:` block declares how to make a fresh `git worktree` buildable. A new worktree starts without gitignored files (`.env`, auth storage-state, local config) and without installed dependencies; this contract fixes both, declared once per project. Like `test:`, the block is read by the model, never by `hooks/validate.sh` (the hook's parsers extract only the `validate:` block).
+An optional `worktree:` block declares how to make a fresh `git worktree` buildable. A new worktree starts without gitignored files (`.env`, auth storage-state, local config) and without installed dependencies; this contract fixes both, declared once per project. Like `test:`, the block is read by the model.
 
 Two things consume it: [`ship --parallel`](#ship-flags---base---merge---ui-test---attach-screenshots---parallel---worktree), which needs the contract and walks serially without it, and [`--worktree`](#worktree-isolation---worktree), which creates the worktree either way and only skips the setup step when the block is absent.
 
@@ -279,7 +255,7 @@ worktree:
 
 A fresh worktree then receives `.env` and `.auth/admin.json` (the Playwright storage-state file that `test.auth.storage_state` points at) copied from the main checkout — both remain gitignored in the worktree — and `pnpm install` produces its `node_modules`. The worktree builds, validates, and UI-tests like the main checkout.
 
-**Trust and secrets.** `worktree.setup` is the user's own declared command — the same trust tier as `validate.lint` and `test.start` — and follows the same execution discipline as `test.start` (see `skills/close-stage/references/test-preflight.md`): the command is written verbatim into a script file with the Write tool — on a Bash-only surface, via a nonce-delimited single-quoted heredoc (`skills/review/references/pr-comments.md` §4) — never substituted into a shell command line, and ticket-derived text never goes into it. **No secrets in `config.yaml` or `.worktreeinclude`** — both are committed; patterns reference paths, never secret values, and the copied files stay gitignored in the worktree too.
+**Trust and secrets.** `worktree.setup` is the user's own declared command — the same trust tier as `test.start` — and follows the same execution discipline as `test.start` (see `skills/close-stage/references/test-preflight.md`): the command is written verbatim into a script file with the Write tool — on a Bash-only surface, via a nonce-delimited single-quoted heredoc (`skills/review/references/pr-comments.md` §4) — never substituted into a shell command line, and ticket-derived text never goes into it. **No secrets in `config.yaml` or `.worktreeinclude`** — both are committed; patterns reference paths, never secret values, and the copied files stay gitignored in the worktree too.
 
 **Multi-repo workspaces.** In a [multi-repo workspace](#multi-repo-workspaces) — where `config.yaml` is workspace-level and tickets carry `repos:` frontmatter — the contract splits along that line: `worktree.setup` is workspace-level config shared by every repo, so write it as **one repo-agnostic command** via manifest sniffing, while `.worktreeinclude` stays at each child repo's root (each repo lists its own gitignored needs; a repo may have none). Worked example for a workspace mixing Node and Go repos:
 
@@ -289,7 +265,7 @@ worktree:
   setup: "if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; fi; if [ -f go.mod ]; then go mod download; fi"
 ```
 
-The command runs inside whichever repo's worktree is being provisioned and sniffs that repo's manifests — the Node repos install dependencies, the Go repo downloads modules, and a repo matching neither runs nothing. The trust discipline above applies unchanged. Note on validation: a repo-relative `.worktreeinclude` pattern cannot reach the workspace-level `config.yaml` (it sits above the repo root) — and doesn't need to: multi-repo worktrees are created under the workspace root, so the validation hook's ancestor walk-up finds the workspace `config.yaml` and per-edit validation keeps firing inside them.
+The command runs inside whichever repo's worktree is being provisioned and sniffs that repo's manifests — the Node repos install dependencies, the Go repo downloads modules, and a repo matching neither runs nothing. The trust discipline above applies unchanged. Note on config: a repo-relative `.worktreeinclude` pattern cannot reach the workspace-level `config.yaml` (it sits above the repo root) — and doesn't need to: multi-repo worktrees are created under the workspace root, so an ancestor walk-up from a worktree finds the workspace `config.yaml`.
 
 ### MCP servers
 
@@ -384,7 +360,7 @@ Three layers decide what a skill can call, and it pays to keep them apart:
 - **The manifest** owns the connection, the credential storage, and the namespace. Claude Code namespaces plugin-declared tools by their **declaring** plugin, so the callable names are `mcp__plugin_server-native_ps__pipeline_get_ticket` and friends — note `server-native`, not `feature`. A skill in one plugin may use a server declared by another.
 - **`allowed-tools`** in a skill's frontmatter is a per-turn permission grant. Listing a tool lets the skill call it without prompting you; leaving one out does not remove it from the session — the call still happens, it just asks first. So a scoped name that has gone stale degrades into a permission prompt per call rather than an error.
 
-With the connector configured, run `/feature:setup` in the project: it checks that the connector answers, lets you pick the project from the server's list or paste its UUID, and writes `mode: server-native` and `project:` to `config.yaml`. Then run `/feature:setup --check`, and again before a `ship` and after any change to `config.yaml`: it reads the config without changing anything, confirms the project UUID's form and that the connector answers its `ping`, runs the validation commands, probes `test.url`, and prints one line per check with its fix.
+With the connector configured, run `/feature:setup` in the project: it checks that the connector answers, lets you pick the project from the server's list or paste its UUID, and writes `mode: server-native` and `project:` to `config.yaml`. Then run `/feature:setup --check`, and again before a `ship` and after any change to `config.yaml`: it reads the config without changing anything, confirms the project UUID's form and that the connector answers its `ping`, probes `test.url`, checks the `.worktreeinclude` patterns, `jq` and Playwright, and prints one line per check with its fix.
 
 #### Codex setup
 
@@ -406,4 +382,4 @@ export PERSONAL_SERVER_MCP_TOKEN='…'
 
 Codex namespaces MCP tools without a plugin segment, so keying the block `ps` (as above) yields `mcp__ps__pipeline_get_ticket`. The skills' `allowed-tools` list the bare `pipeline_*` names alongside the Claude-scoped ones; the bare entry is how the skills name the tool, standing in for whatever your `config.toml` key makes the callable name. If your Codex version enforces `allowed-tools` against the qualified MCP name, add the qualified form to the affected skill's frontmatter — that name depends on your server key, which is why the plugin does not hardcode one.
 
-With the server added, run `/feature:setup` in the project: it checks that the server's `ping` answers, lets you pick the project from the server's list or paste its UUID, and writes `mode: server-native` and `project:` to `config.yaml`. Then run `/feature:setup --check`, and again before a `ship` and after any change to `config.yaml`: it reads the config without changing anything, confirms the project UUID's form and that the server's `ping` answers, runs the validation commands, probes `test.url`, and prints one line per check with its fix.
+With the server added, run `/feature:setup` in the project: it checks that the server's `ping` answers, lets you pick the project from the server's list or paste its UUID, and writes `mode: server-native` and `project:` to `config.yaml`. Then run `/feature:setup --check`, and again before a `ship` and after any change to `config.yaml`: it reads the config without changing anything, confirms the project UUID's form and that the server's `ping` answers, probes `test.url`, checks the `.worktreeinclude` patterns, `jq` and Playwright, and prints one line per check with its fix.

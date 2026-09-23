@@ -79,7 +79,6 @@ Add temporary probes that will *prove or kill* the current hypotheses.
   - Python — `print(json.dumps({"marker":"DEBUG_PROBE_a1b3c9f2","hyp":1,"loc":"cart.py:42","label":"qty","value":qty}), file=sys.stderr)  # DEBUG_PROBE_a1b3c9f2`
   - Go — `fmt.Fprintln(os.Stderr, "DEBUG_PROBE_a1b3c9f2", ...) // DEBUG_PROBE_a1b3c9f2`
   - Prefer appending to the sink file directly (open-append) so multi-process repros aggregate into one stream; stderr/stdout is an acceptable fallback the user pastes back.
-- **Tolerate transient validation noise.** A `PostToolUse` validator (where configured) fires on each injection and may report a lint/typecheck failure (unused import, stray log) — it exits non-fatally and never rolls the edit back. Expect this during instrument/repro; the strip phase is responsible for leaving the tree clean.
 
 ### PHASE 3: REPRODUCE
 

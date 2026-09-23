@@ -33,7 +33,7 @@ Run the detection script against the project, propose a value for every `clauded
 ```
 
 - No argument — the guided run: detect, ask, then write what you approve.
-- `--check` — the read-only doctor: verify a configured project against the contracts the stages apply, printing one line per check with its fix, then an `OK` / `FAIL (n)` summary line. That final line is the machine-readable result — a headless run greps it for `^OK:`; the skill sets no exit status. It asks nothing, writes nothing and boots nothing ([check.md](references/check.md)); it does run each configured `validate.*` command once, as every edit's hook does, so those commands' own effects apply and they run as trusted code. Run it before `ship`, and after changing `config.yaml`.
+- `--check` — the read-only doctor: verify a configured project against the contracts the stages apply, printing one line per check with its fix, then an `OK` / `FAIL (n)` summary line. That final line is the machine-readable result — a headless run greps it for `^OK:`; the skill sets no exit status. It asks nothing, writes nothing and boots nothing ([check.md](references/check.md)). Run it before `ship`, and after changing `config.yaml`.
 - Anything else — prints `Usage: /feature:setup [--check]` and stops.
 
 ## When NOT to run
@@ -69,7 +69,7 @@ The `config.yaml` and `.worktreeinclude` reads below and step 4's root detection
 
 - Run `bash "<plugin-root>/skills/setup/scripts/detect.sh" "<project-root>"`. Invocation, exit codes and output schema: [detection.md](references/detection.md) §1–§3. The script is the only thing that shells out to parse the project; its JSON and `config.yaml` are model-read.
   - Exit `0` → bind the JSON document.
-  - Exit `1` (`jq` missing) → report it, noting that the validation hook needs `jq` too, and continue with no detected values: every question in step 5 is asked with no detected default.
+  - Exit `1` (`jq` missing) → report it and continue with no detected values: every question in step 5 is asked with no detected default.
   - Exit `2`, or stdout that is not one JSON object → stop and report it as a setup error. Nothing is written.
 - **`workspace_shape: multi-repo`** → also run the script once per immediate child directory holding a `.git` entry ([detection.md](references/detection.md) §4), binding each child's document by directory name. The per-child runs, with each child's `.worktreeinclude` read, go out as one message of parallel calls. The root run supplies `prefix` and `instruction_files`; the per-repository facts come from the children.
 - Present the findings as one compact review block: one line per fact, `null` shown as `not detected`, and the existing `config.yaml` value beside any fact it differs from. A `.worktreeinclude` candidate is shown by name only; its content is never read or printed.
@@ -87,12 +87,12 @@ In this order:
    - `server-native` while the connector answers → load [storage-server.md](references/storage-server.md) now, once, in full, and ask its §3 project question. Switching a project whose `config.yaml` is fs-native, or that has local ticket folders, carries the §2 warning into the `config.yaml` diff.
    - `server-native` while the connector is unavailable → print the install pointer and stop before any write.
 2. **Prefix** — fs-native only ([storage-server.md](references/storage-server.md) §4 asks none). Asked only when no prefix is fixed per §3 and §4: no `prefix` in `config.yaml`, and no ticket folders to infer one from. Default: the detector's `prefix`. A fixed prefix is shown in the review block; folder names carrying more than one prefix are listed in the question, with no default.
-3. **`validate.lint`**, **`validate.typecheck`** and the **test command** — default: the detector's `validate.lint` / `validate.typecheck` / `validate.test`. The test command has no `config.yaml` key ([detection.md](references/detection.md) §7); it feeds only the commands snippet (item 11). A `validate.lint` or `validate.typecheck` answer containing `"` or `\` is re-asked with a request to rephrase, per step 6's quoting rule. Multi-repo, for each of the three: a value is proposed only when every child's detection agrees; otherwise the question carries no default and points at the repo-agnostic, manifest-sniffing command form in [advanced.md](../../docs/advanced.md#worktree-setup).
+3. **Lint**, **typecheck** and **test commands** — for the commands snippet (item 11), the text build's per-step validation reads ([validation-chain.md](../build/references/validation-chain.md)); none of the three has a `config.yaml` key ([detection.md](references/detection.md) §7). Asked only when item 11 has a file to offer — an existing instruction file its first two exclusions leave in; otherwise the detected commands are shown in the review block and the report gives the reason. Default: the detector's `validate` object (`lint`, `typecheck`, `test`). Multi-repo, for each of the three: a value is proposed only when every child's detection agrees; otherwise the question carries no default and points at the repo-agnostic, manifest-sniffing command form in [advanced.md](../../docs/advanced.md#worktree-setup).
 4. **`test.url`** and **`test.start`** — default: the detector's `test.url` / `test.start`. When `compose_file` is set and `test.start` is null, the recommended `test.start` is the isolated stack described in [advanced.md](../../docs/advanced.md#app-test-config), built from that file: `trap 'docker compose -f <compose_file> down' EXIT TERM; docker compose -f <compose_file> up & wait`.
 5. **`test.start_timeout`** — asked only when the isolated-stack `test.start` was chosen, since a stack that builds an image can outlast the 60-second default. Default: `leave unset`; otherwise a whole number of seconds, at most 540.
 6. **`git.commit`** — `prompt` (default), `always` or `never`, each with its one-line meaning from [advanced.md](../../docs/advanced.md#commit-behavior).
 7. **`git.attach_screenshots`** — `false` (default) or `true`. The question states that uploads are irreversible and world-readable on a public repository, as [advanced.md](../../docs/advanced.md#commit-behavior) does.
-8. **`worktree.setup`** — default: the detector's `worktree_setup`. Multi-repo: proposed as for `validate.*`.
+8. **`worktree.setup`** — default: the detector's `worktree_setup`. Multi-repo: proposed as for item 3.
 9. **`claudedocs/` in `.gitignore`** — its own yes/no question, with neither option marked recommended, asked only when `claudedocs_ignored` is `false`. It changes a committed file every contributor shares, so it is asked explicitly and never inferred from a general go-ahead. `true` → shown as already ignored. `null` (not a git repository, or a multi-repo root) → not asked; the reason goes in the report.
 10. **`.worktreeinclude` names** — one include-or-not question per detected candidate the file does not already list, plus:
     - `claudedocs/tickets/config.yaml`, in a single-repo workspace only, when `claudedocs/` is ignored (already, or by item 9's line) and it is not already a candidate: a fresh worktree has no copy of an ignored config. In a multi-repo workspace `config.yaml` sits above every child repository, where a repo-relative name cannot reach it and need not ([advanced.md](../../docs/advanced.md#worktree-setup)).
@@ -119,8 +119,8 @@ In this order:
 
    ```markdown
    ## Commands
-   - Lint: `<validate.lint>`
-   - Typecheck: `<validate.typecheck>`
+   - Lint: `<lint command>`
+   - Typecheck: `<typecheck command>`
    - Test: `<test command>`
    ```
 
@@ -128,9 +128,9 @@ In this order:
 
 **`config.yaml` write rules.** These hold in either storage mode; the keys the chosen mode owns come from §3.
 
-- **Order** — `prefix`, `mode`, `project`, `validate` (`lint`, `typecheck`), `test` (`url`, `start`, `start_timeout`), `worktree` (`setup`), `git` (`commit`, `attach_screenshots`); sub-keys indented two spaces under their block.
-- **Only answered keys** — every answered key is written explicitly, `mode` included; a key left unset is omitted. `test.auth.*` and `validate.cwd_markers` are never asked or written; the report points at [advanced.md](../../docs/advanced.md#configuration-reference) for them.
-- **Quoting** — `validate.lint` and `validate.typecheck` are one-line double-quoted strings with no trailing comment, so both of the validation hook's parsers read them identically; a value containing `"` or `\` was re-asked at step 5 and never reaches this write. `test.start` and `worktree.setup` are double-quoted, or single-quoted when the value contains `"` or `\`, with each embedded `'` written `''` — so the isolated-stack `trap '…'` form survives. `project`, written only in server-native, is bare with the trailing comment [storage-server.md](references/storage-server.md) §3 defines — the one key written with a comment. Every other value is written bare.
+- **Order** — `prefix`, `mode`, `project`, `test` (`url`, `start`, `start_timeout`), `worktree` (`setup`), `git` (`commit`, `attach_screenshots`); sub-keys indented two spaces under their block.
+- **Only answered keys** — every answered key is written explicitly, `mode` included; a key left unset is omitted. `test.auth.*` is never asked or written; the report points at [advanced.md](../../docs/advanced.md#configuration-reference) for it.
+- **Quoting** — `test.start` and `worktree.setup` are double-quoted, or single-quoted when the value contains `"` or `\`, with each embedded `'` written `''` — so the isolated-stack `trap '…'` form survives. `project`, written only in server-native, is bare with the trailing comment [storage-server.md](references/storage-server.md) §3 defines — the one key written with a comment. Every other value is written bare.
 - **New file** → `Write`, keys in the order above.
 - **Existing file** → edited in place with `Edit`, one call per insertion point; the file is never regenerated. A changed value replaces only its own line. A new sub-key goes inside its existing block, after its nearest documented predecessor present; a new block goes, whole with its sub-keys, after the nearest documented block present before it. Every key and block added after the same anchor line goes into that one call's text, so a file holding only `prefix` gains all its new keys in a single `Edit`. Comments, blank lines and keys this skill does not know stay byte-for-byte. No key is ever deleted.
 - **Content** — values are paths, commands and names only. No secret is read or written.
@@ -152,13 +152,14 @@ Written:
 Skipped:
   <file> — declined | nothing to write | section already lists commands | covered by AGENTS.md | not a git repository | not ignored
   server-native — unavailable, connector not answering
-Not asked: test.auth.*, validate.cwd_markers — see docs/advanced.md, Configuration reference
+  commands — no instruction file to take the snippet
+Not asked: test.auth.* — see docs/advanced.md, Configuration reference
 Local tickets under claudedocs/tickets/ are not migrated to the server and not read in server-native mode.
 Commit .gitignore and .worktreeinclude before using --worktree or ship --parallel: a fresh worktree reads the committed ignore rules.
 Next: /feature:discover <idea>
 ```
 
-The `server-native — unavailable` line appears only when the connector check found no answering connector. The local-tickets line appears only on a switch to server-native that carried the [storage-server.md](references/storage-server.md) §2 warning. The commit line appears only when `.gitignore` or `.worktreeinclude` was written. A run that changed nothing prints `Written: no changes`. A headless run, a cancelled dialogue, or a stop before the writes prints `Written: nothing written`, with the proposal or the stop reason above the block.
+The `server-native — unavailable` line appears only when the connector check found no answering connector. The `commands` line appears only when item 3 went unasked because no instruction file exists to take the snippet. The local-tickets line appears only on a switch to server-native that carried the [storage-server.md](references/storage-server.md) §2 warning. The commit line appears only when `.gitignore` or `.worktreeinclude` was written. A run that changed nothing prints `Written: no changes`. A headless run, a cancelled dialogue, or a stop before the writes prints `Written: nothing written`, with the proposal or the stop reason above the block.
 
 ## Boundaries
 

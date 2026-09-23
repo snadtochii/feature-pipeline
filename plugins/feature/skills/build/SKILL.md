@@ -145,9 +145,9 @@ b. **Validation setup.** Read the project instruction files for **both** runtime
 
    The wider set is build's alone. The review stage's fix step and the close stage's bounded fixes stay at lint and typecheck: a fix there touches a handful of lines, and re-running a project's whole documented set per fix is disproportionate. That divergence is intentional — leave it.
 
-   **Always run skill-body validation once per step, after its edit message**, regardless of whether a `PostToolUse` hook is also active — the hook still fires on every edit. The two layers (hook + skill-body) are intentionally redundant — see `references/validation-hook.md` for rationale.
+   **Run the collected set once per step, after its edit message** — [`references/validation-chain.md`](references/validation-chain.md) explains the cadence and the fix-scope split.
 
-   With a worktree bound (State setup), run these commands as `cd "<wt-path>" && <command>` so they see the worktree's own dependencies, and target every edit at an absolute path inside `<wt-path>` — per [`references/worktree.md`](references/worktree.md) §3. The `PostToolUse` hook needs nothing: it walks up from the edited file, so worktree edits resolve on their own.
+   With a worktree bound (State setup), run these commands as `cd "<wt-path>" && <command>` so they see the worktree's own dependencies, and target every edit at an absolute path inside `<wt-path>` — per [`references/worktree.md`](references/worktree.md) §3.
 
 c. **For each step in `02-plan.md`'s Build Sequence, in order:**
    1. **Re-read the current step from `02-plan.md`** — two parallel `Read`s with `offset`/`limit`: the step's Build Sequence line and its matching Implementation Steps bullet, matched by goal text, so the step's "Files" and "Pattern to follow" fields are in hand before its read message is built. `N.M` comes from the Build Sequence line only ([`references/implementation-handoff.md`](references/implementation-handoff.md) §2). On long implementations the plan drifts out of working context by step 4 or 5; re-reading each step against its source is nearly free and prevents plan drift. The first step's re-read is a message of its own; every later step's re-read crosses the step boundary (item 2).
