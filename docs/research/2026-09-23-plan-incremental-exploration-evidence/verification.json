@@ -1,0 +1,74 @@
+{
+  "generator": "measure-session.py --json (rows copied)",
+  "replay_of": "FP-109",
+  "session": "de3b66cf-8b1c-4a23-b38a-1df110cf1fd9",
+  "plugin": "feature 3.13.1 via --plugin-dir",
+  "base_commit": "db5f9e2",
+  "invocation": "claude -p \"/feature:plan FP-109 --auto\" --permission-mode auto",
+  "decision_line": "Incremental exploration: scoped to 1 item — ship's nonce-delimited quoted-heredoc discipline",
+  "session_weighted_units": 857913.85,
+  "agents": [
+    {
+      "agent_id": "root",
+      "role": "root-session",
+      "description": "",
+      "turns": 16,
+      "weighted_units": 589157.8,
+      "first_turn_floor": 67800
+    },
+    {
+      "agent_id": "a0747e991f4b810e1",
+      "role": "feature:code-explorer",
+      "description": "Scoped exploration FP-109",
+      "turns": 8,
+      "weighted_units": 110926.7,
+      "first_turn_floor": 26648
+    },
+    {
+      "agent_id": "ace1c0ca1b8e3afdb",
+      "role": "feature:requirements-analyst",
+      "description": "Open questions analysis FP-109",
+      "turns": 7,
+      "weighted_units": 157829.35,
+      "first_turn_floor": 27420
+    }
+  ],
+  "explorer_tool_calls": {
+    "Read": 5,
+    "Grep": 4,
+    "Glob": 1
+  },
+  "explorer_budget_calls": 6,
+  "original_explorer": {
+    "agent_id": "af1913e1abdfd5f9b",
+    "turns": 27,
+    "weighted_units": 496560.3,
+    "tool_calls": 45
+  },
+  "plan_comparison": {
+    "sections": "Codebase Context + Implementation Steps, cited files resolved as in explorer_reads.py",
+    "original_files": 24,
+    "replay_files": 20,
+    "only_original": [
+      "plugins/feature/agents/ui-tester.md",
+      "plugins/feature/skills/close-stage/references/storage-server.md",
+      "plugins/feature/skills/flow/SKILL.md",
+      "plugins/feature/skills/flow/references/ticket-resolution-fs.md",
+      "scripts/check-md-links.sh",
+      "scripts/check-runtime-contract.sh"
+    ],
+    "only_replay": [
+      "plugins/feature/skills/build/references/commit.md",
+      "plugins/feature/skills/flow/references/storage-server.md"
+    ],
+    "original_explorer_only_files_kept_in_replay": [
+      "docs/contributing/validation.md",
+      "plugins/feature/skills/flow/references/state-transitions-fs.md",
+      "plugins/feature/skills/review/references/pr-comments.md",
+      "plugins/feature/skills/ship/references/storage-server.md"
+    ],
+    "original_explorer_only_files_absent_from_replay": [
+      "plugins/feature/skills/flow/references/ticket-resolution-fs.md"
+    ]
+  }
+}
