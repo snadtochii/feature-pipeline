@@ -129,8 +129,11 @@ the next; sections that sit next to each other, as `5-verify.md`'s `## Degradati
 - A `[security]` finding whose outcome is not `applied` — dismissed, deferred, `fix-failed` or
   not attempted — is never copied: the pull request body outlives the pull request, and an
   unpatched vulnerability with its location does not belong in it. Section 4 carries their count
-  instead, as `security: <n> findings not applied — see <reports>/5-verify.md ## Reviewers`, and
-  the full text stays in that local report.
+  instead, as `security: <n> findings not applied — see reports/<run-id>/5-verify.md ## Reviewers`,
+  and the full text stays in that local report.
+- A path this stage itself writes into the pack is relative to `<state_dir>` — `reports/<run-id>/<file>` — never
+  absolute: the body is published on GitHub, where the operator's home-directory layout means
+  nothing to a reader and does not belong.
 
 **The lead**, above section 1, one line each:
 
@@ -168,7 +171,8 @@ the next; sections that sit next to each other, as `5-verify.md`'s `## Degradati
    `rename_map:` block, as a fenced block), section 8 (the `targets:` line and its `CONTEXT.md` and
    ADR diffs, each as a fenced `diff` block, or `targets: none`); section 5's `delete` lines, and
    its `rewrite` lines under `deleted — a human rewrites these on the pull request`
-   ([decision-record.md](decision-record.md) §5); and the record's absolute path.
+   ([decision-record.md](decision-record.md) §5); and the record's path,
+   `reports/<run-id>/decision-record.md`.
 6. **`## Degradations`** — every line under `## Degradations` in `1-discover.md`,
    `2-characterize.md`, `3-decide.md` and `5-verify.md`, and `4-implement.md`'s degradation lines
    — its report has no such heading, so one `Grep` over it for
@@ -188,7 +192,7 @@ the next; sections that sit next to each other, as `5-verify.md`'s `## Degradati
 `wc -c < "<runs>/pack.md"` above 65000 → `cp "<runs>/pack.md" "<runs>/pack-full.md"`, then
 choose the cuts once, in this order, until the bytes they remove bring the pack under 65000:
 section 5's diff blocks, then the longest remaining lists in sections 2 and 4 — each cut replaced
-by the line `truncated — full text in <reports>/pack-full.md`. Rewrite `<runs>/pack.md` with one
+by the line `truncated — full text in reports/<run-id>/pack-full.md`. Rewrite `<runs>/pack.md` with one
 `Write` carrying every chosen cut, and measure it once more. The lead and sections 1, 3, 6 and 7
 are never cut. The report's `## Pack` names each cut. Still above 65000 with every cut taken →
 the pack cannot be a pull request body: §6 runs steps 1 and 2, skips the `gh pr create` call, and
