@@ -79,7 +79,8 @@ Read only what routing needs, never the whole report: its first two lines (`Read
   - `<d>` is `<q>` → the last `decision:` line answers the stop. Run §1 (binding only — its
     report lines are already written), then route by `§<n>`:
     - `§2` — the server stop: `retry` → §2 again, round `k`, its round directory and
-      `<run_dir>/verify-<k>/` emptied first;
+      `<run_dir>/verify-<k>/` removed first
+      (`rm -rf "<runs>/round-v<k>" "<run_dir>/verify-<k>"`);
       anything else → the same question again as a new stop.
     - `§3` — the unpredicted-changed stop: §3's answer handling.
     - `§5` — the architect's fail: §5's answer handling.
@@ -138,7 +139,7 @@ On a fresh stage only, the report lines:
    [stage-2-characterize.md](stage-2-characterize.md) §2 step 1, the instant the inventory's
    `now:` line records. `<run_dir>/verify-<k>/` must not exist yet — else
    `verify: aborted — <run_dir>/verify-<k>/ already exists`, since a QA role holding `Bash` can
-   reach any round's directory; §0's `§2` retry empties it first. Then
+   reach any round's directory; §0's `§2` retry removes it first. Then
    `mkdir -p "<runs>/round-v<k>" "<run_dir>/verify-<k>/screenshots"`.
 2. **Server.** [dev-server.md](dev-server.md) §2–§6 with round `v<k>` and no coverage env. A
    port-busy or not-ready stop writes the report (§9) with
