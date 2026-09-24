@@ -163,14 +163,22 @@ git -C "<WT>" status --porcelain -z --no-renames          # empty, exclusion-lis
 git -C "<CLONE>" rev-parse --verify "refs/heads/<branch>" # resolves
 ```
 
+The remove takes `--force` exactly when the status listed exclusion-list paths and nothing else:
+
 ```bash
-git -C "<CLONE>" worktree remove "<WT>"
+git -C "<CLONE>" worktree remove "<WT>"          # the status was empty
+git -C "<CLONE>" worktree remove --force "<WT>"  # the status listed exclusion-list paths only
 git -C "<CLONE>" worktree prune
 ```
 
+Exclusion-list paths are untracked and not ignored (§4), and a plain `remove` refuses a tree
+holding one — while the copy it would leave behind may be a secrets file, which must not outlive
+the run. Ignored files, `app.install`'s output among them, never block a plain `remove`.
+
 The predicate keeps uncommitted work from being discarded: once the commits are on `<branch>`,
-the worktree holds nothing the repository does not. `--force` is permitted only to clear what
-`app.install` created or the exclusion-list copies, never to discard commits. Predicate fails →
-leave the worktree in place and print its path.
+the worktree holds nothing the repository does not. `--force` is permitted only to clear the
+exclusion-list copies, never to discard commits or a path outside that list. Predicate fails →
+leave the worktree in place and print its path. A `remove` that exits non-zero → leave it too,
+and print its path with the command's first stderr line.
 
 Clear `<common-dir>/deepen-fence.json` in either case.

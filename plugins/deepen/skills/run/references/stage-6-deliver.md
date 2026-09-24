@@ -326,9 +326,12 @@ Step 2 of the run skill's exit sequence, in its delivered form ([../SKILL.md](..
 §7), performed here so this report records the outcome — on both paths:
 
 1. **The worktree** — [worktree.md](worktree.md) §8: its predicate (the status empty, the
-   exclusion list aside; `refs/heads/<branch>` resolves), then `worktree remove` and
-   `worktree prune`. The predicate failing → leave it: `worktree: left at <WT> — <the half that
-   failed>`. §3 found none on a decline → `worktree: none`.
+   exclusion list aside; `refs/heads/<branch>` resolves), then `worktree remove` — with
+   `--force` when the status listed exclusion-list paths, and only then — and `worktree prune`.
+   The predicate failing → leave it: `worktree: left at <WT> — <the half that failed>`. The
+   `remove` exiting non-zero → `worktree: left at <WT> — remove failed: <reason>`, `<reason>`
+   cleaned as §6 cleans it; the tree may still hold an exclusion-list copy, so the line is never
+   dropped. §3 found none on a decline → `worktree: none`.
 2. **The fence file** — remove `<common-dir>/deepen-fence.json` ([fence.md](fence.md) §1), in
    either case; `<common-dir>` is
    `git -C "<CLONE>" rev-parse --path-format=absolute --git-common-dir`.

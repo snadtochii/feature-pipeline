@@ -315,5 +315,6 @@ sequence with two differences:
 - **After step 3**, it removes `<state_dir>/runs/<run-id>/` — a clean run's working files have no
   reader left; its reports stay, the evidence pack among them.
 
-Then it prints the report directory, each written report's status line, and the clone line when
-step 3a printed one.
+Then it prints the report directory, each written report's status line, the deliver report's
+`worktree: left at …` line when its teardown left the worktree, and the clone line when step 3a
+printed one.
