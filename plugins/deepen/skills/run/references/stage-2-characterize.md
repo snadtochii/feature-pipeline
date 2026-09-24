@@ -228,7 +228,15 @@ Red after the repair pass → abort `characterize: aborted — checks red on the
    path ([worktree.md](worktree.md) §4). The staged set,
    `git -C "<WT>" diff --cached -z --name-only --no-renames`, is non-empty and lies wholly under
    `<inventory><slug>/` — else abort naming the paths.
-3. **Commit** — `git -C "<WT>" commit -q -m "deepen: behavior inventory — <candidate-id> <name>"`.
+3. **Commit**, with no repository hook:
+
+   ```bash
+   git -C "<WT>" -c core.hooksPath=/dev/null commit -q --no-verify -m "deepen: behavior inventory — <candidate-id> <name>"
+   ```
+
+   Hooks are off because a hook the QA role planted in the common directory, which no status check
+   sees, would otherwise run with the stage's authority, and a project hook (a formatter, a staged-file linter) could rewrite or refuse the
+   inventory files after the staged set was asserted.
 4. **Assert:**
    - the first line of `git -C "<WT>" rev-list --reverse "<BASE_SHA>..HEAD"` is `HEAD` — the
      inventory commit is the branch's first, and alone; `<INV_SHA>` is derived from the branch
