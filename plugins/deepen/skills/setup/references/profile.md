@@ -294,12 +294,14 @@ Under `state_dir` the loop owns exactly:
 ```
 <state_dir>/readiness.md                   # the readiness report — written by deepen:setup,
                                            # its tier line read by every run
-<state_dir>/memory.md                      # declined candidates, one line per candidate id
-                                           # with the reason; setup creates it with a header
+<state_dir>/memory.md                      # one line per candidate the loop has acted on —
+                                           # opened, declined or merged (run/references/
+                                           # memory.md); setup creates it with its header
 <state_dir>/reports/<run-id>/              # one run's stage reports
 <state_dir>/inventory-drafts/<run-id>/     # the QA role's drafts and screenshots before commit
 <state_dir>/runs/<run-id>/                 # one run's working files and command scripts,
-                                           # discarded with the run
+                                           # removed when the run completes; kept after
+                                           # an abort or a pause, for inspection
 <state_dir>/tmp/<run-id>-*                 # a run's scratch files, removed before it exits
 ```
 

@@ -30,6 +30,11 @@ In priority order:
 | Skill | When | Shape |
 | --- | --- | --- |
 | `setup` | once per repo, and again after the project adds a capability | interactive — probes the repo read-only, renders a readiness report, provisions the loop clone and state directory, writes `.deepen.yaml` after an approved diff. `--check` re-probes and refreshes the report without asking anything or touching the profile. |
+| `run` | from the loop clone, once per candidate | semi-attended — validates the profile, takes the run lock, then dispatches the stages in order and stops wherever a decision is the human's. `--pin <candidate-id \| hint>` names the candidate, or where to look for one; without it, discover stops for a pick from the top three. |
+
+Stage 1 (discover) ranks candidates with the read-only `explorer` agent, starting from a
+churn × indentation hotspot table and filtering on what the loop already did with each candidate
+(`<state_dir>/memory.md`).
 
 ## Configuration
 

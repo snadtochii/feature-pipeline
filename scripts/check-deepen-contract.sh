@@ -29,7 +29,10 @@
 #   - an agent listing Write, Edit, MultiEdit, NotebookEdit or Bash has a
 #     FENCE_MAP row and lists neither Agent nor Task;
 #   - an agent with no row lists none of Bash, Write, Edit, MultiEdit,
-#     NotebookEdit, Agent, Task.
+#     NotebookEdit, Agent, Task;
+#   - plugins/deepen/skills/run/scripts/hotspots.sh and candidate-id.sh are
+#     executable and their --self-test reproduces the worked example of their
+#     contract (hotspots.md §8, candidates.md §4).
 #
 # Usage:  scripts/check-deepen-contract.sh
 # Exit:   0 every assertion holds; 1 on any failure, one FAIL line each.
@@ -220,3 +223,25 @@ print(
     "hooks.json binds fence.sh on PreToolUse; hook executable"
 )
 PY
+
+# The run's two cross-run numbers — the hotspot table and the candidate id —
+# are shipped as scripts whose --self-test reproduces the worked example of
+# their contract. Running them here pins the encoding in CI, so a prose edit
+# and the script cannot drift apart unnoticed.
+selftest_failed=0
+for script in hotspots.sh candidate-id.sh; do
+    path="$repo_root/plugins/deepen/skills/run/scripts/$script"
+    if [ ! -x "$path" ]; then
+        printf 'FAIL: %s is missing or not executable\n' "plugins/deepen/skills/run/scripts/$script" >&2
+        selftest_failed=1
+        continue
+    fi
+    if ! output=$(bash "$path" --self-test 2>&1); then
+        printf 'FAIL: %s --self-test: %s\n' "$script" "$output" >&2
+        selftest_failed=1
+    fi
+done
+if [ "$selftest_failed" -ne 0 ]; then
+    exit 1
+fi
+echo "OK: hotspots.sh and candidate-id.sh self-tests reproduce their worked examples"
