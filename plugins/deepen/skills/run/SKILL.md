@@ -152,14 +152,15 @@ state, command scripts, the exclusion list, the stage clock — under `<state_di
 | 2 | characterize | [references/stage-2-characterize.md](references/stage-2-characterize.md) | `2-characterize.md` | the pick, the repo, the profile, the running app — never a plan | the run worktree; the inventory and its checks as their own commit on `<BASE_SHA>`; drafts and screenshots |
 | 3 | decide | [references/stage-3-decide.md](references/stage-3-decide.md) | `3-decide.md` | the pick, the inventory summary, the source at `<CLONE>` outside `paths.inventory` — never the checks | `decision-record.md`, with the `CONTEXT.md` and ADR edits proposed in it; no working tree |
 | 4 | implement | [references/stage-4-implement.md](references/stage-4-implement.md) | `4-implement.md` | the decision record, the repo | source commits on the run branch |
-| 5 | verify | `references/stage-5-verify.md` | `5-verify.md` | the changed tree, the inventory, the decision record | the verification report |
+| 5 | verify | [references/stage-5-verify.md](references/stage-5-verify.md) | `5-verify.md` | the changed tree, the inventory, the decision record, the inventory summary, the coverage lines of `2-characterize.md`, `4-implement.md` after a re-entry | the verification report; QA drafts and screenshots; through stage 4's re-entry, source commits on the run branch, reset after a failed fix round and kept as `fix-round.patch` |
 | 6 | deliver | `references/stage-6-deliver.md` | `6-deliver.md` | every report | the draft pull request, `memory.md`, worktree teardown |
 
 A body named as a code span is not yet in this plugin; §4 stops the run when dispatch reaches it.
 
-The order is fixed, but not strictly linear: the verify stage's fix round re-enters stage 4 with a
-`failing_check` ([stage-4-implement.md](references/stage-4-implement.md) §4), and that re-entry
-belongs to stage 5's body, not to this table.
+The order is fixed, but not strictly linear: the verify stage re-enters stage 4 — with a
+`failing_check` on a send-back, with `findings` on its fix round
+([stage-4-implement.md](references/stage-4-implement.md) §4) — and that re-entry belongs to stage
+5's body, not to this table.
 
 ### Report grammar
 
@@ -175,7 +176,9 @@ Every stage report opens with exactly one status line:
 
 `<stage>` is the name in the table. `complete — no candidate` is the discover stage's alone;
 `complete — declined` is the decide stage's alone, and the line directly under it is
-`declined: <reason>`. A
+`declined: <reason>`. One more line is the implement stage's alone,
+`implement: fix round: exhausted — <n> attempts, <elapsed>`: written only after the verify
+stage's fix round, read only by the verify stage, never dispatched on (§4). A
 `needs-decision` report whose stop takes an answer carries an `## Options` section — one
 `- <label> — <what choosing it does>` line per answer, at most four, labels a few words each. When
 the options fill four slots, one of them ends the run, and the stage says which. A report with no
@@ -213,7 +216,7 @@ After stage 6 reports `complete` → §7.
 
 1. `AskUserQuestion` with the report's question and its `## Options`. When the stage offered
    fewer than four, add `abort — end the run and keep its evidence` as the last one. A report
-   with no `## Options` — stage 4's stops — is asked with exactly two:
+   with no `## Options` — stage 4's stops, and stage 5's relay of one — is asked with exactly two:
    `pause — keep the lock and the evidence; the run stops here` and the `abort` above.
 2. Append `decision: <the answer, verbatim>` under the report's `## Decisions` heading with
    `Edit` — creating the heading at the end of the report when absent. A free-text answer is

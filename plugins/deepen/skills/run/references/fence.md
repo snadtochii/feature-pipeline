@@ -23,7 +23,8 @@ and rewrites them, the self-test before every fenced spawn, and what counts as a
   to — the root `hooks/hooks.json` names. A reference loaded with Read expands no variable, so
   every run-side call uses the bound path, never `${CLAUDE_PLUGIN_ROOT}` or a bare `fence.sh`.
 - **Cited by** the run skill's stage 2 ([stage-2-characterize.md](stage-2-characterize.md)), stage 4
-  ([stage-4-implement.md](stage-4-implement.md)) and stage 5 (verify, and the fix round) bodies,
+  ([stage-4-implement.md](stage-4-implement.md)) and stage 5
+  ([stage-5-verify.md](stage-5-verify.md) — verify, and the fix round) bodies,
   and by [worktree.md](worktree.md) for clearing the file. Each cites the section it needs and
   never restates it.
 
@@ -250,7 +251,8 @@ it would be allowed. A `status --porcelain -z` record is `XY <path>`, so its pat
 `<WT>/<p>`.
 
 After every agent return — with a commit or without — the run asserts the list below; a
-characterize-mode QA return takes the characterize clause after it instead:
+characterize-mode QA return takes the characterize clause after it instead, and a verify-mode QA
+return takes the list plus the verify clause:
 
 - **Commit paths** — every path in
   `git -C "<WT>" diff -z --name-only --no-renames "<prev>..HEAD"`, piped through
@@ -286,6 +288,19 @@ inventory commit exists, and leaves its files uncommitted for the stage to commi
 
 The stage's own commit is then asserted by the stage itself: it is the first commit after
 `<BASE_SHA>`, every path under `<inventory><slug>/`, the tree clean.
+
+**Verify clause.** A verify-mode QA spawn runs after the change, with the fence file holding the
+verify form, and writes only under `<run_dir>/verify-<k>/`. The set allows all of `<run_dir>`, so
+this clause is what holds the characterize stage's evidence there — its `characterize.md`,
+touched-function list and screenshots — unchanged. After its return the run asserts the list
+above, plus:
+
+- **No commit** — `git -C "<WT>" rev-parse HEAD` equals `<prev>`.
+- **Stage-2 evidence unchanged** — right before the spawn, `shasum -a 256` over every file of
+  `find "<run_dir>" -type f -not -path "<run_dir>/verify-*" -print0`, read per the path-set rule
+  above, the digests kept in context and never in a file; after the return, the same again. A file
+  added, removed or changed →
+  `fence-violation: qa-characterizer — stage-2 evidence changed — <paths>`.
 
 Any failure prints one report line,
 

@@ -10,7 +10,7 @@ before it is written, the one measure of a change's size, and which stage reads 
   ([agents/architect.md](../../../agents/architect.md)); by the implement stage
   ([stage-4-implement.md](stage-4-implement.md)) — verbatim in the implementer's brief, section
   by section in its pre-spawn target check and its spec-mover brief; by the verify stage
-  (`stage-5-verify.md`), which matches the inventory's `changed` statements against the
+  ([stage-5-verify.md](stage-5-verify.md)), which matches the inventory's `changed` statements against the
   predictions and judges the diff against the named next change; and by the deliver stage
   (`stage-6-deliver.md`), which lists the record in the evidence pack.
 
@@ -137,5 +137,5 @@ it. A split is proposed when the estimate is strictly greater than `run.split_ab
 | implement — the implementer's brief | the whole record, verbatim | the change to make |
 | implement — the pre-spawn target check ([stage-4-implement.md](stage-4-implement.md) §2) | the `targets:` line; the spec moves in section 6; section 5 | probing every planned write against the fence |
 | implement — the rename-map check and the spec-mover | sections 5 and 6 | the declared entries; the paths the spec-mover may delete |
-| verify | sections 9 and 11 | intended `changed` statements; the architect's diff premise |
+| verify | sections 2, 3, 6, 9 and 11 | the declared rename map, passed to the mutation runner; intended `changed` statements; the architect's diff premise; sections 2, 3, 9 and 11 as the reviewers' declared scope |
 | deliver | the whole record | the evidence pack; section 5's `rewrite` lines listed as deleted for a human to rewrite on the pull request |
