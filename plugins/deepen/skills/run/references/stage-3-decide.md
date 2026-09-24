@@ -376,7 +376,9 @@ On the answer:
 - **`proceed`** → the line `architect: fail — overridden by the human` under the round, with the
   `decisions` or `intent` reason quoted when `escalate` was `true`. → §9.
 - **`decline`** → §10.
-- **Free text** → read as `revise`, the text carried to the reopened questions as a hint.
+- **Free text** → read as `revise`, the text carried to the reopened questions as a hint — while
+  `revise` was offered. After three rounds it was not, so free text asks the same question again
+  with `proceed` and `decline` only.
 
 ---
 
