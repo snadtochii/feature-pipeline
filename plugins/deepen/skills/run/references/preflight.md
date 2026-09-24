@@ -47,13 +47,15 @@ so without it the `mkdir` resolves against the shell's current directory and eit
 takes a lock inside an unrelated repository. Every worktree of the clone shares one common dir,
 so the absolute form also makes the lock cover the clone and all its run worktrees together.
 
-- **Succeeds** → write `<run-id>` and an ISO-8601 timestamp into a file inside the lock
-  directory, and **release the lock on every exit path** — a completed run, every abort in this
-  file, and every abort a later stage adds.
+- **Succeeds** → write `<run-id>` and an ISO-8601 timestamp into `owner` inside the lock
+  directory — `run_id: <run-id>` and `started: <timestamp>`, one per line — and **release the
+  lock on every exit path** — a completed run, every abort in this file, and every abort a later
+  stage adds.
 - **Fails, and the lock is younger than 24 hours** → another run is live. Abort, naming the
   lock's recorded run id, and write nothing.
 - **Fails, and the lock is older than 24 hours** → no legitimate run takes a day. Take it over,
-  and **say so loudly**: the takeover is the first line of the stage 1 report and a line in the
+  and **say so loudly**: the takeover is the line directly under the stage 1 report's status
+  line and a line in the
   evidence pack, naming the stale run id and its timestamp. A stale lock means a previous run
   died, and what it left behind is residue a human should look at.
 
@@ -127,3 +129,6 @@ support when the report was last refreshed.
 
 A missing `readiness.md`, or one without a tier line, stops the run, releasing the lock:
 `readiness: <state_dir>/readiness.md — missing or has no tier line — run /deepen:setup --check`.
+
+The tier line `Tier: cannot run` stops the run the same way, before any stage spawns a role:
+`readiness: <state_dir>/readiness.md — Tier: cannot run — supply the missing rows, then run /deepen:setup --check`.

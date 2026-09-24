@@ -206,7 +206,8 @@ In order:
    class, expand its `~` per §3, check §4 rule 6 on the expanded path, then create the expanded
    `state_dir` with the layout in
    [profile.md](references/profile.md) §5: `reports/`, `inventory-drafts/`, `runs/`, `tmp/`, and
-   `memory.md` holding one header line when it is absent. An existing `memory.md` is left as is.
+   `memory.md` holding the header line of [memory.md](../run/references/memory.md) §1 when it is
+   absent. An existing `memory.md` is left as is.
 2. **Readiness report.** Re-render the report with the §4 answers folded in, and write it through
    [readiness.md](references/readiness.md) §5, printing its diff. It is written now, before the
    profile diff, so a declined profile still leaves the report on disk — §7 says so.
