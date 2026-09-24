@@ -32,9 +32,14 @@ candidate's files, four tab-separated fields, no header, LF line endings:
 | `name` | the function's name as the language gives it — for an anonymous function assigned to a binding, the binding's name |
 | `side` | `server` when it runs in the server process, `browser` when only the browser runs it |
 
-The stage validates every row before use: `file` is one of the pick's files, and `name` appears on
-that line (`grep -F` over the line `sed -n "<line>p"` prints). A row that fails is dropped with the
-report line `touched list: dropped <file>:<line> <name> — <why>`; the rows that pass are written,
+The stage validates every row before use, the format first, since the fenced role wrote the file:
+the row has exactly four tab-separated fields; `line` matches `^[1-9][0-9]*$`; `side` is `server`
+or `browser`; `file` equals one of the pick's files, compared as a string. Only then is `name`
+checked against the source — it appears on that line — in one shell loop that reads the file with
+`while IFS=$'\t' read -r f l n s` and tests `sed -n "${l}p" "<WT>/$f" | grep -F -q -e "$n"`, so
+every field stays a shell variable's value and is never written into a command line. A row that
+fails is dropped with the report line `touched list: dropped <file>:<line> <name> — <why>`; the
+rows that pass are written,
 unchanged, to `<runs>/touched-functions.tsv`, the only list the script reads. The stage also writes
 the pick's files, one per line, to `<runs>/touched-files`.
 
