@@ -208,12 +208,20 @@ In order:
    re-asks the §4 question. Expand `loop_clone`'s `~` per §3 before it reaches any command.
    Bind `origin_url` by command substitution
    (`origin_url=$(git remote get-url origin)`), never by pasting it.
-   - Path absent →
+   - Path absent → first check [profile.md](references/profile.md) §4 rule 4, so a missing
+     `base` is caught before anything is cloned:
+     ```bash
+     git ls-remote --exit-code --heads origin "$base"
+     ```
+     A non-zero exit re-asks the §4 base question and clones nothing. Then:
      ```bash
      git clone "$origin_url" "$loop_clone"
      git -C "$loop_clone" checkout "$base"
      ```
-     with both values held in shell variables. Nothing is installed or built in the clone.
+     with both values held in shell variables. Nothing is installed or built in the clone. A
+     failed `clone` or `checkout` → **stop**, naming the command that failed and what it left:
+     after a failed `checkout` the fresh clone sits on the remote's default branch, and the
+     remedy is to delete `<loop_clone>` and re-run setup, since a present path is never re-cloned.
    - Path present → it must be a git checkout whose `origin` URL equals this repo's, on `base`,
      with an empty `git status --porcelain`. Anything else → **stop** with what differs and the
      remedy. Never re-clone, reset or clean it.
