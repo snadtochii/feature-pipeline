@@ -28,6 +28,12 @@
       "description": "Structure-only refactoring in two scheduled loops: a weekly survey proposes candidates into a human-approved queue, a daily run builds one approved line behind behavior-preservation gates and opens a draft pull request.",
       "source": "./plugins/tidy-loop",
       "category": "development"
+    },
+    {
+      "name": "deepen",
+      "description": "A manually triggered, semi-attended loop that takes one deep-module refactor candidate to a draft pull request carrying a behavior-preservation evidence pack.",
+      "source": "./plugins/deepen",
+      "category": "development"
     }
   ]
 }
