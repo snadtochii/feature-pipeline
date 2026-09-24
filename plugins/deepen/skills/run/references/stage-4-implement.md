@@ -98,7 +98,12 @@ data, never as a link:
 
 1. `<WT>` as the project root, and that every command runs there.
 2. The decision record, verbatim.
-3. The check command — `checks.runner`, with `app.prelude` prefixed when set.
+3. The check command — `checks.runner`, with `app.prelude` prefixed when set — and whether a
+   spec-mover pass is still to come (step 4 of "After it returns"). While one is, a spec failing
+   only because it imports, mocks or names a path or symbol the declared rename map moves is
+   expected: the spec-mover repoints it after the commit, and the gate (step 5) runs after that.
+   The implementer leaves such a spec failing and never adds a re-export or alias shim at the old
+   path or name.
 4. The `implementer` set, exactly as written into the fence file for this spawn
    ([fence.md](fence.md) §3, §5), as never-write.
 5. The exclusion list as never-stage.

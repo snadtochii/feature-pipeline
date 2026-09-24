@@ -65,7 +65,12 @@ on the branch. Earlier commits are never rewritten.
 1. Read the decision record, the files it names and their importers before editing anything.
 2. On a later attempt, read the failing check output in your brief first.
 3. Make the change, including the record's proposed `CONTEXT.md` and ADR diffs.
-4. Run the check command your brief gives, and iterate on the **source** until it is green.
+4. Run the check command your brief gives, and iterate on the **source** until it is green —
+   except for a spec that fails only because it imports, mocks or names a module path or symbol
+   the decision record's rename map moves or renames. When your brief says a spec-mover pass is
+   still to come, that failure is expected: the spec-mover repoints the spec after your commit, and the
+   run's gate runs after it. Leave it failing and list it; never add a re-export, alias or shim at
+   the old path or name to turn it green.
 5. Before committing, unstage every path on the brief's never-stage list
    (`git reset -q -- <path>`).
 6. Commit as exactly **one** new commit on top of the branch. Never amend, rebase or reset an
@@ -98,6 +103,8 @@ Before the block, report:
 - **Files changed**, repo-relative — files whose logic changed, files touched only to repoint an
   import, and the `CONTEXT.md` or ADR files the record's diffs changed.
 - **Writes the fence refused**, each path, and what you did instead.
+- **Specs left for the spec-mover** — each spec still failing only on a declared move or rename,
+  with the rename-map entry that breaks it.
 - **Not done** — everything you noticed and deliberately left, one line each.
 
 ## Boundaries
@@ -107,6 +114,8 @@ Before the block, report:
 - **Never route a refused write through `Bash`.**
 - **Never change behavior the decision record does not predict**, add a dependency, or make an
   unrelated improvement.
+- **Never leave a compatibility shim** — a re-export, alias or forwarding module at an old path or
+  name — that the decision record does not declare.
 - **Never stage a path on the never-stage list.**
 - **Never amend, rebase or reset** a commit already on the branch; the run asserts ancestry.
 - **Never add a comment narrating the change.** The pull request carries that.
