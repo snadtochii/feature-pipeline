@@ -21,9 +21,12 @@ operates in the loop clone and never in the user's own checkout.
 3. Evaluate every rule in [profile.md](../../setup/references/profile.md) §4 **in its order**, and
    **stop on the first failure** with that rule's one-line message. The run never repairs the
    profile.
-4. Expand `~` in `loop_clone`; it must equal `<CLONE>`. A mismatch stops the run:
+4. Expand `~` in `loop_clone` and `state_dir` per the `~` expansion rule in
+   [profile.md](../../setup/references/profile.md) §3; every later `<loop_clone>` and
+   `<state_dir>` in this file, and in every stage after it, is the expanded absolute path.
+   `loop_clone` must equal `<CLONE>`. A mismatch stops the run:
    `profile: loop_clone — this run was started outside the loop clone — run from <loop_clone>`.
-5. `state_dir` must exist, created by `deepen:setup` with the layout in
+5. The expanded `state_dir` must exist, created by `deepen:setup` with the layout in
    [profile.md](../../setup/references/profile.md) §5. Missing → stop, naming the path and pointing
    at `/deepen:setup`.
 
@@ -107,7 +110,7 @@ Every other setting rebinds from the re-read copy.
 
 ## §5 Readiness tier line
 
-Read `<state_dir>/readiness.md` and take its tier line — the single line matching `^Tier: `, in
+Read `<state_dir>/readiness.md` — the absolute path, `state_dir` expanded in §1 — and take its tier line — the single line matching `^Tier: `, in
 the format [readiness.md](../../setup/references/readiness.md) §3 defines — **verbatim**, and copy
 it into the stage 1 report. The line tells the reader of every run which checks this project could
 support when the report was last refreshed.

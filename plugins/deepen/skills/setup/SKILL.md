@@ -196,7 +196,8 @@ A cancelled or unanswered question writes nothing further; §7 reports what was 
 In order:
 
 1. **State directory.** Re-check the answer against [profile.md](references/profile.md) §3's path
-   class and §4 rule 6, then create `state_dir` with the layout in
+   class, expand its `~` per §3, check §4 rule 6 on the expanded path, then create the expanded
+   `state_dir` with the layout in
    [profile.md](references/profile.md) §5: `reports/`, `inventory-drafts/`, `runs/`, `tmp/`, and
    `memory.md` holding one header line when it is absent. An existing `memory.md` is left as is.
 2. **Readiness report.** Re-render the report with the §4 answers folded in, and write it through
@@ -204,7 +205,8 @@ In order:
    profile diff, so a declined profile still leaves the report on disk — §7 says so.
 3. **Loop clone**, with the permission from §4. Before any command, check `loop_clone` and
    `base` against [profile.md](references/profile.md) §3's classes without a shell; a failure
-   re-asks the §4 question. Bind `origin_url` by command substitution
+   re-asks the §4 question. Expand `loop_clone`'s `~` per §3 before it reaches any command.
+   Bind `origin_url` by command substitution
    (`origin_url=$(git remote get-url origin)`), never by pasting it.
    - Path absent →
      ```bash
@@ -262,7 +264,8 @@ A refresh, read-only against the repo, the profile and the loop clone. It asks n
 only write is `<state_dir>/readiness.md`.
 
 1. No `.deepen.yaml` → print `No .deepen.yaml — run /deepen:setup first.` and stop.
-2. `Read` the profile and re-probe per §2.
+2. `Read` the profile and re-probe per §2. `loop_clone` and `state_dir` are used only after the
+   `~` expansion in [profile.md](references/profile.md) §3.
 3. Evaluate every rule in [profile.md](references/profile.md) §4 and print one line per rule:
    - `ok <field>` — the rule holds;
    - `FAIL <field>: <what is wrong> — <the fix>` — the fix is the key to change, or

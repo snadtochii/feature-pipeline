@@ -135,7 +135,9 @@ changed. It writes nothing but `<state_dir>/readiness.md`.
 1. Render the new report per §2–§4 in conversation.
 2. Create a scratch directory with `mktemp -d` and `Write` the new report to
    `<scratch>/readiness.md`.
-3. In one `Bash` call, with both paths held in shell variables:
+3. In one `Bash` call, with both paths held in shell variables. `<state_dir>` is the absolute
+   path after the `~` expansion in [profile.md](profile.md) §3 — a quoted `~` is never expanded,
+   so an unexpanded value would read and write `./~/…` under the current directory:
 
    ```bash
    new="<scratch>/readiness.md"; old="<state_dir>/readiness.md"

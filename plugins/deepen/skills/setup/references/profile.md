@@ -231,6 +231,14 @@ parameters.
 | `run.split_above`, `run.retries`, `run.coverage_threshold` | non-negative integers | compared numerically |
 | `run.max_wall_time` | `^[0-9]+[mh]$` | a duration the run converts to seconds |
 
+**`~` expansion.** `loop_clone` and `state_dir` may start with `~/`. Every consumer expands that
+leading `~/` to the absolute home directory (bound with `home=$(printf '%s' "$HOME")`) **once,
+right after the class check and before any other use** — a shell command, a `Read` or `Write`
+path, or a comparison. The shell never expands a `~` inside quotes, and the file tools take
+absolute paths only, so an unexpanded value would name `./~/…` relative to the current directory
+— inside a working tree. Everywhere else in this plugin, `<loop_clone>` and `<state_dir>` mean
+the expanded path.
+
 ---
 
 ## §4 Validation rules
@@ -251,9 +259,9 @@ Nothing runs after a failure, and the run does not edit the profile.
    any other value fails as an unknown mode.
 3. Every present field matches its §3 class.
 4. `base` exists on `origin`.
-5. `loop_clone` resolves (after `~` expansion) to a git checkout whose current branch is `base`
+5. `loop_clone` resolves (after §3's `~` expansion) to a git checkout whose current branch is `base`
    and whose `origin` URL is the `origin` of the repo holding this profile.
-6. `state_dir` is outside every working tree. Expand `~`; take the nearest existing ancestor of
+6. `state_dir` is outside every working tree. Expand `~` per §3; take the nearest existing ancestor of
    `state_dir`; it must not be inside `loop_clone` nor inside
    `<loop_clone>/../<clone-dirname>-worktrees/`, and `git -C <ancestor> rev-parse --show-toplevel`
    must fail. Remedy: choose a directory outside every checkout, such as under `~/.deepen/`.
@@ -266,7 +274,7 @@ Nothing runs after a failure, and the run does not edit the profile.
 12. Every glob in `paths.specs` matches at least one tracked file.
 13. `run.retries ≥ 1`, `run.split_above ≥ 1`, and `run.coverage_threshold` is between 1 and 100.
 14. `loop_clone` (after `~` expansion) is not the `loop_clone` of another loop's profile at the
-    repo root — `.tidyloop.yaml`'s `loop_clone`, `~` expanded, when that file exists. Remedy:
+    repo root — `.tidyloop.yaml`'s `loop_clone`, `~` expanded the same way, when that file exists. Remedy:
     choose a separate clone path.
 
 A failed rule names the field and the remedy. Rules 4–6, 12 and 14 describe the machine and the
