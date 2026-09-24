@@ -218,12 +218,13 @@ After stage 6 reports `complete` → §7.
 2. Append `decision: <the answer, verbatim>` under the report's `## Decisions` heading with
    `Edit` — creating the heading at the end of the report when absent. A free-text answer is
    recorded the same way; the stage decides what it means. Newlines in an answer are flattened to
-   ` / ` first, so every `decision:` is one line.
+   ` / ` first, so every `decision:` is one line. A pause — below — writes no `decision:` line, so
+   every `decision:` line is an answer the stage acts on, one per stop it answers.
 3. `abort` → the common abort (§6), the aborting line `<stage>: aborted by the human at
    needs-decision`. `pause` → the pause below. Any other answer to a report with `## Options` →
    re-enter the same stage from the top of its body; such a body opens with a re-entry check that
    reads its own report and its `## Decisions`, so the answer is taken from disk. A report with no
-   `## Options` is never re-entered: a free-text answer to it is recorded and read as `pause`.
+   `## Options` is never re-entered: a free-text answer to it is read as `pause`.
 
 **A `pause` answer, or a question the human cancels or leaves unanswered, is a pause, not an
 abort.** Print the lock

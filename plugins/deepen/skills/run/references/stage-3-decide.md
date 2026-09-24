@@ -60,13 +60,19 @@ check.
 - **No report** → a fresh stage: §1.
 - **Status `complete`, `complete — declined` or `aborted`** → the stage already ended; return
   without touching anything.
-- **Status `needs-decision`** → the status line names `Q<n>` and its field. Take the last
-  `decision:` line under `## Decisions`:
-  - no `decision:` line newer than `Q<n>` — a pause recovered by hand → ask `Q<n>` again: the same
-    status line and `## Options`, and return.
-  - otherwise append `A<n> | <the answer>` under `## Answers` with `Edit`, unless an `A<n>` line is
-    already there, and continue at the section that owns the field (§4's field table) — §1's
-    re-entry reads run first; §2 and §3 do not.
+- **Status `needs-decision`** → the status line names `Q<n>` and its field. Answers pair with
+  questions by count, never by position in the file: every question gets exactly one
+  `decision:` line once answered, a pause writes none (the run skill's §5), and the stage asks the
+  next question only after the previous one's answer — so the `k`-th `decision:` line under
+  `## Decisions` answers `Q<k>`. Count them as `<d>`:
+  - `<d>` is `<n> - 1` — `Q<n>` is unanswered, a pause recovered by hand → ask `Q<n>` again: the
+    same status line and `## Options`, and return.
+  - `<d>` is `<n>` → the last `decision:` line is `Q<n>`'s answer. Append `A<n> | <the answer>`
+    under `## Answers` with `Edit`, unless an `A<n>` line is already there, and continue at the
+    section that owns the field (§4's field table) — §1's re-entry reads run first; §2 and §3 do
+    not.
+  - any other count → `decide: aborted — <d> decisions recorded for Q<n>; answers and questions
+    are out of step`.
 
 A re-entry never re-invokes the skills of §3, never re-asserts §2 over a summary already on disk,
 and never re-takes a snapshot that exists. The
