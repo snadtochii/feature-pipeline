@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# deepen PreToolUse write fence: `fence.sh <mode> <set>`.
-# Bound from an agent's own frontmatter, never from a plugin hooks.json, so it
-# applies to exactly the agent that declares it — no other agent, and not the run
-# skill's own edits. The contract this script implements is
-# skills/run/references/fence.md (§1 the file, §2 roots, globs and modes, §3 the
-# named sets); this header explains the mechanics, not the policy.
+# deepen PreToolUse write fence: `fence.sh`, no arguments.
+# Bound once, plugin-wide, by hooks/hooks.json — Claude Code ignores `hooks:` in
+# a plugin agent's frontmatter, while a plugin hook also fires inside subagents
+# with the subagent's `agent_type` in its payload. The script therefore fires on
+# every write-tool call of every session that has the plugin enabled, and
+# dispatches on `agent_type` to find the role it governs (see AGENT DISPATCH).
+# The contract this script implements is skills/run/references/fence.md (§1 the
+# file, §2 roots, globs and modes, §3 the named sets and the agents bound to
+# them); this header explains the mechanics, not the policy.
 #
 # WHY THIS ONE DENIES. The run's central claim is that the role making a change
 # structurally cannot edit what the change is judged against — the behavior
@@ -13,15 +16,27 @@
 # weakening a check was never reachable; an advisory hook a role may talk itself
 # past would make that unverifiable, so the denial is the mechanism.
 #
-# Arguments — both supplied by the binding agent's frontmatter, never looked up
-# from the stdin payload:
-#   $1 mode   deny-match  refuse a write whose target matches the named set
-#             allow-only  refuse a write whose target matches none of it
-#   $2 set    a key of the fence file's `sets`, matching [a-z][a-z0-9-]*
+# AGENT DISPATCH. The payload's `agent_type` names the agent making the call. An
+# optional leading `plugin:` is stripped, since the plugin-scoped spelling is
+# documented both as `plugin:<plugin>:<agent>` and as `<plugin>:<agent>`.
+#   - no `agent_type` (the main conversation), or one outside the `deepen:`
+#     namespace (every other plugin's agents, the built-in agents): exit 0, no
+#     output, before jq or git is consulted — the fence governs deepen's roles
+#     and nothing else;
+#   - `deepen:<agent>` with a row in FENCE_MAP below: that row's <mode> <set>;
+#   - `deepen:<agent>` with no row: every write is refused. Deepen's own
+#     namespace fails closed, so a writing agent added without a row is fenced
+#     off from writing rather than left free.
+# The run skill calls the script the same way, with `agent_type` in the payload,
+# so what the fence refuses in a spawn and what the run's own checks refuse are
+# one decision.
+#   mode   deny-match  refuse a write whose target matches the named set
+#          allow-only  refuse a write whose target matches none of it
+#   set    a key of the fence file's `sets`, matching [a-z][a-z0-9-]*
 # Both modes govern writes only (Write, Edit, MultiEdit, NotebookEdit).
 #
-# Input:  the PreToolUse payload on stdin (tool_name, tool_input.file_path or
-#         tool_input.notebook_path, cwd).
+# Input:  the PreToolUse payload on stdin (agent_type, tool_name,
+#         tool_input.file_path or tool_input.notebook_path, cwd).
 # Output: on a denial, one JSON object on stdout, exit 0 —
 #   {"hookSpecificOutput":{"hookEventName":"PreToolUse",
 #     "permissionDecision":"deny","permissionDecisionReason":"…"}}
@@ -35,14 +50,16 @@
 # at once never see each other's. A target in the QA run directory lies outside
 # every repository, so it always resolves through `cwd`, which is the run worktree.
 #
-# FAILS OPEN FOR READS, CLOSED FOR WRITES. The script runs only inside a fenced
-# spawn of a live run, so a write with nothing to consult is a write nothing is
-# governing. A write is DENIED when jq is absent, the binding is malformed (an
-# unknown mode or set name), no repository can be located, or the fence file is
+# FAILS OPEN FOR READS, CLOSED FOR WRITES — for a deepen agent. Once dispatch has
+# matched a `deepen:` agent the call comes from a fenced role, so a write with
+# nothing to consult is a write nothing is governing. A write is DENIED when jq
+# is absent, the agent has no FENCE_MAP row, its row is malformed (an unknown
+# mode or set name), no repository can be located, or the fence file is
 # missing, unparseable, lacks a root, or carries no globs for the named set, and
-# when the script itself fails unexpectedly. A read in the same state is allowed. Without jq the payload cannot be parsed
-# safely, so the tool name alone is taken with a bash regex and the denial is a
-# fixed string that needs no escaping.
+# when the script itself fails unexpectedly. A read in the same state is
+# allowed. Without jq the payload cannot be parsed safely, so the agent and the
+# tool name alone are taken with a bash regex and the denial is a fixed string
+# that needs no escaping.
 #
 # ROOTS. A write is considered only under `repo_root` (the run worktree) or
 # `run_dir` (the QA run directory); outside both it is refused in both modes. A
@@ -80,8 +97,69 @@ shopt -s extglob
 
 FENCE_BASENAME="deepen-fence.json"
 
-mode="${1:-}"
-set_name="${2:-}"
+# The one agent-to-set mapping: `<agent> <mode> <set>`, one row per fenced deepen
+# agent, <agent> being the name after `deepen:`. fence.md §3 carries the same
+# rows and scripts/check-deepen-contract.sh holds the two in lockstep.
+# BEGIN FENCE_MAP
+FENCE_MAP='
+implementer deny-match implementer
+spec-mover allow-only specs
+qa-characterizer allow-only qa
+'
+# END FENCE_MAP
+
+input=$(cat)
+if [ -z "$input" ]; then
+    exit 0
+fi
+
+# Cheap exit for every call the fence does not govern. Without the key text
+# anywhere in the payload there is no `agent_type`, so this is the main
+# conversation; nothing is spawned to decide it.
+case "$input" in
+    *'"agent_type"'*) ;;
+    *) exit 0 ;;
+esac
+
+have_jq=0
+if command -v jq >/dev/null 2>&1; then
+    have_jq=1
+fi
+
+agent_type=""
+if [ "$have_jq" -eq 1 ]; then
+    agent_type=$(jq -r 'if (.agent_type | type) == "string" then .agent_type else empty end' <<<"$input" 2>/dev/null || true)
+fi
+# Without jq, or on a payload jq cannot read, take the key with a regex. Inside a
+# JSON string every `"` is escaped, so `"agent_type"` followed by `:` matches only
+# a real key, never text inside a written file's content.
+if [ -z "$agent_type" ]; then
+    agent_re='"agent_type"[[:space:]]*:[[:space:]]*"([^"\\]*)"'
+    if [[ "$input" =~ $agent_re ]]; then
+        agent_type="${BASH_REMATCH[1]}"
+    fi
+fi
+
+agent_type="${agent_type#plugin:}"
+case "$agent_type" in
+    deepen:*) ;;
+    *) exit 0 ;;
+esac
+agent="${agent_type#deepen:}"
+
+mode=""
+set_name=""
+mapped=0
+while read -r row_agent row_mode row_set; do
+    if [ -n "$row_agent" ] && [ "$row_agent" = "$agent" ]; then
+        mode="$row_mode"
+        set_name="$row_set"
+        mapped=1
+        break
+    fi
+done <<FENCE_MAP_END
+$FENCE_MAP
+FENCE_MAP_END
 
 bad_binding=0
 case "$mode" in
@@ -97,14 +175,9 @@ case "$set_name" in
     *) bad_binding=1 ;;
 esac
 
-input=$(cat)
-if [ -z "$input" ]; then
-    exit 0
-fi
-
 # Without jq nothing can be parsed or emitted safely. Reads pass; every other
-# tool call is refused with a fixed denial.
-if ! command -v jq >/dev/null 2>&1; then
+# tool call of a deepen agent is refused with a fixed denial.
+if [ "$have_jq" -eq 0 ]; then
     tool_re='"tool_name"[[:space:]]*:[[:space:]]*"([A-Za-z]+)"'
     bare_tool=""
     if [[ "$input" =~ $tool_re ]]; then
@@ -163,8 +236,11 @@ no_fence() {
     deny "$1 Report the refused write; do not route it through a shell command instead."
 }
 
+if [ "$mapped" -eq 0 ]; then
+    no_fence "The deepen agent '$agent' has no write fence mapping, so its writes are refused."
+fi
 if [ "$bad_binding" -eq 1 ]; then
-    no_fence "This agent's write fence binding is malformed, so its writes are refused."
+    no_fence "The write fence mapping for the deepen agent '$agent' is malformed, so its writes are refused."
 fi
 
 # Locate the clone from the call. `--path-format=absolute` is load-bearing: `-C`

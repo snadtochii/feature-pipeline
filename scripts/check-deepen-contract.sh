@@ -1,28 +1,34 @@
 #!/usr/bin/env bash
-# The deepen plugin's role contract: every agent that can write is fenced to a
-# named set the fence contract defines, and every agent that is not fenced can
-# neither write nor delegate.
+# The deepen plugin's role contract: the fence hook is bound plugin-wide, every
+# agent that can write is fenced to a named set the fence contract defines, and
+# every agent that is not fenced can neither write nor delegate.
 #
-# The fence is the run's central control. A writing agent with no binding, a
-# binding that names a set the contract does not define, or a binding whose mode
-# disagrees with the contract's table would each leave a role free to edit what
-# its change is judged against — silently, since an unbound agent simply writes.
-# There are no per-agent exceptions: the rule is the same for every file under
-# plugins/deepen/agents/.
+# The fence is the run's central control. Claude Code ignores `hooks:` in a
+# plugin agent's frontmatter, so deepen binds one PreToolUse hook in its own
+# hooks/hooks.json and fence.sh dispatches on the payload's `agent_type` through
+# its FENCE_MAP. A missing or mis-matched binding, a writing agent with no map
+# row, or a map row that disagrees with the contract's table would each leave a
+# role free to edit what its change is judged against — silently, since an
+# unfenced write simply lands. There are no per-agent exceptions: the rule is
+# the same for every file under plugins/deepen/agents/.
 #
 # Asserts:
 #   - plugins/deepen/skills/run/references/fence.md's `## §3 Sets` table yields
-#     at least one `| `<set>` | `<mode>` |` row, mode deny-match or allow-only;
+#     at least one `| `<set>` | `<mode>` | `deepen:<agent>` |` row, mode
+#     deny-match or allow-only, no set or agent twice;
 #   - plugins/deepen/hooks/fence.sh exists and is executable;
-#   - plugins/deepen/agents/ holds at least one agent, and each declares its
-#     tools as a YAML list (an omitted `tools:` inherits every tool);
-#   - an agent listing Write, Edit, MultiEdit, NotebookEdit or Bash has exactly
-#     one PreToolUse binding of the exact form
-#     `"${CLAUDE_PLUGIN_ROOT}/hooks/fence.sh <mode> <set>"`, whose set is a row
-#     of the table in that row's mode, whose matcher covers Write, Edit,
-#     MultiEdit and every file-write tool the agent lists, and it lists neither
-#     Agent nor Task;
-#   - an agent with no binding lists none of Bash, Write, Edit, MultiEdit,
+#   - plugins/deepen/hooks/hooks.json exists, parses as JSON, and binds exactly
+#     one command hook, `${CLAUDE_PLUGIN_ROOT}/hooks/fence.sh`, under
+#     `PreToolUse`, whose matcher covers Write, Edit, MultiEdit, NotebookEdit;
+#   - fence.sh's FENCE_MAP block holds `<agent> <mode> <set>` rows, and the rows
+#     equal the §3 table's (agent, mode, set) triples, in both directions;
+#   - plugins/deepen/agents/ holds at least one agent, each declares its tools as
+#     a YAML list (an omitted `tools:` inherits every tool), and none carries a
+#     `hooks:` frontmatter key (Claude Code ignores it on a plugin agent, so it
+#     would read as a fence that is not there);
+#   - an agent listing Write, Edit, MultiEdit, NotebookEdit or Bash has a
+#     FENCE_MAP row and lists neither Agent nor Task;
+#   - an agent with no row lists none of Bash, Write, Edit, MultiEdit,
 #     NotebookEdit, Agent, Task.
 #
 # Usage:  scripts/check-deepen-contract.sh
@@ -32,6 +38,7 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 python3 - "$repo_root" <<'PY'
+import json
 import os
 import pathlib
 import re
@@ -41,19 +48,21 @@ root = pathlib.Path(sys.argv[1])
 plugin = root / "plugins/deepen"
 fence_md = plugin / "skills/run/references/fence.md"
 hook = plugin / "hooks/fence.sh"
+hooks_json = plugin / "hooks/hooks.json"
 errors = []
 
 MODES = {"deny-match", "allow-only"}
 FILE_WRITE = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 MUTATING = FILE_WRITE | {"Bash"}
 DELEGATING = {"Agent", "Task"}
-BINDING_RE = re.compile(
-    r'^\s+command: "\$\{CLAUDE_PLUGIN_ROOT\}/hooks/fence\.sh (\S+) (\S+)"$'
+HOOK_COMMAND = "${CLAUDE_PLUGIN_ROOT}/hooks/fence.sh"
+ROW_RE = re.compile(
+    r"^\| `([a-z][a-z0-9-]*)` \| `([a-z-]+)` \| `deepen:([a-z][a-z0-9-]*)`", re.M
 )
-ROW_RE = re.compile(r"^\| `([a-z][a-z0-9-]*)` \| `([a-z-]+)` \|", re.M)
+NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 
-# The set table.
-sets = {}
+# The set table: set -> (mode, agent).
+table = {}
 if not fence_md.is_file():
     errors.append(f"missing fence contract: {fence_md.relative_to(root)}")
 else:
@@ -63,21 +72,98 @@ else:
     if not section:
         errors.append("fence.md: missing `## §3 Sets` section")
     else:
-        for name, mode in ROW_RE.findall(section.group(1)):
+        seen_agents = set()
+        for name, mode, agent in ROW_RE.findall(section.group(1)):
             if mode not in MODES:
                 errors.append(f"fence.md §3: set `{name}` has unknown mode `{mode}`")
-            elif name in sets:
+            elif name in table:
                 errors.append(f"fence.md §3: set `{name}` defined twice")
+            elif agent in seen_agents:
+                errors.append(f"fence.md §3: agent `deepen:{agent}` bound to two sets")
             else:
-                sets[name] = mode
-        if not sets and not any("fence.md §3" in e for e in errors):
+                table[name] = (mode, agent)
+                seen_agents.add(agent)
+        if not table and not any("fence.md §3" in e for e in errors):
             errors.append("fence.md §3: the Sets table defines no set")
+table_triples = {(agent, mode, name) for name, (mode, agent) in table.items()}
 
-# The hook every binding names.
+# The hook script and its agent-to-set map.
+fence_map = {}
 if not hook.is_file():
     errors.append(f"missing fence hook: {hook.relative_to(root)}")
-elif not os.access(hook, os.X_OK):
-    errors.append(f"fence hook is not executable: {hook.relative_to(root)}")
+else:
+    if not os.access(hook, os.X_OK):
+        errors.append(f"fence hook is not executable: {hook.relative_to(root)}")
+    block = re.search(
+        r"^# BEGIN FENCE_MAP\n(.*?)^# END FENCE_MAP$", hook.read_text(), re.M | re.S
+    )
+    if not block:
+        errors.append("fence.sh: no `# BEGIN FENCE_MAP` ... `# END FENCE_MAP` block")
+    else:
+        for line in block.group(1).split("\n"):
+            line = line.strip()
+            if line in ("", "FENCE_MAP='", "'"):
+                continue
+            parts = line.split()
+            if len(parts) != 3 or not NAME_RE.match(parts[0]) or not NAME_RE.match(parts[2]):
+                errors.append(f"fence.sh FENCE_MAP: malformed row: {line}")
+                continue
+            agent, mode, set_name = parts
+            if mode not in MODES:
+                errors.append(f"fence.sh FENCE_MAP: `{agent}` has unknown mode `{mode}`")
+            if agent in fence_map:
+                errors.append(f"fence.sh FENCE_MAP: `{agent}` mapped twice")
+                continue
+            fence_map[agent] = (mode, set_name)
+        if not fence_map:
+            errors.append("fence.sh FENCE_MAP: no rows")
+map_triples = {(agent, mode, name) for agent, (mode, name) in fence_map.items()}
+if table and fence_map:
+    for agent, mode, name in sorted(map_triples - table_triples):
+        errors.append(
+            f"fence.sh FENCE_MAP row `{agent} {mode} {name}` has no matching fence.md §3 row"
+        )
+    for agent, mode, name in sorted(table_triples - map_triples):
+        errors.append(
+            f"fence.md §3 row `{name}` ({mode}, deepen:{agent}) has no matching fence.sh FENCE_MAP row"
+        )
+
+# The plugin-level binding.
+if not hooks_json.is_file():
+    errors.append(f"missing hook binding: {hooks_json.relative_to(root)}")
+else:
+    try:
+        config = json.loads(hooks_json.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        config = None
+        errors.append(f"hooks.json does not parse: {exc}")
+    if config is not None:
+        events = config.get("hooks") if isinstance(config, dict) else None
+        if not isinstance(events, dict):
+            errors.append("hooks.json: no top-level `hooks` object")
+            events = {}
+        bindings = []
+        for event, groups in events.items():
+            for group in groups if isinstance(groups, list) else []:
+                if not isinstance(group, dict):
+                    continue
+                for entry in group.get("hooks") or []:
+                    command = entry.get("command", "") if isinstance(entry, dict) else ""
+                    if "fence.sh" in str(command):
+                        bindings.append((event, group.get("matcher", ""), entry))
+        if len(bindings) != 1:
+            errors.append(f"hooks.json: {len(bindings)} fence.sh bindings — exactly one allowed")
+        for event, matcher, entry in bindings:
+            if event != "PreToolUse":
+                errors.append(f"hooks.json: fence.sh is bound under `{event}`, not `PreToolUse`")
+            if entry.get("type") != "command" or entry.get("command") != HOOK_COMMAND:
+                errors.append(
+                    f"hooks.json: fence binding is not the command `{HOOK_COMMAND}`: {json.dumps(entry)}"
+                )
+            covered = set(str(matcher).split("|"))
+            missing = sorted(FILE_WRITE - covered)
+            if missing:
+                errors.append(f"hooks.json: fence matcher `{matcher}` does not cover {missing}")
 
 # The agents.
 agents = sorted((plugin / "agents").glob("*.md")) if (plugin / "agents").is_dir() else []
@@ -94,6 +180,12 @@ for path in agents:
         continue
     frontmatter = text.split("---", 2)[1]
 
+    if re.search(r"^hooks:", frontmatter, re.M):
+        errors.append(
+            f"{name}: `hooks:` in frontmatter — Claude Code ignores it on a plugin agent; "
+            "the fence is bound in hooks/hooks.json and mapped in fence.sh's FENCE_MAP"
+        )
+
     # An omitted `tools:` inherits every tool, and an inline or unindented list
     # would parse as no tools — each would pass as read-only, so each fails.
     if not re.search(r"^tools:", frontmatter, re.M):
@@ -105,55 +197,18 @@ for path in agents:
         continue
     tools = set(re.findall(r"^  - (\S+)$", tools_block.group(1), re.M))
 
-    # Every line naming the hook must be an exact binding.
-    bindings = []
-    matcher = None
-    event = None
-    for line in frontmatter.split("\n"):
-        event_m = re.match(r"^  ([A-Za-z]+):\s*$", line)
-        if event_m:
-            event = event_m.group(1)
-        matcher_m = re.match(r'^\s+- matcher: "([^"]*)"\s*$', line)
-        if matcher_m:
-            matcher = matcher_m.group(1)
-        if "fence.sh" in line:
-            binding_m = BINDING_RE.match(line)
-            if not binding_m:
-                errors.append(f"{name}: malformed fence binding: {line.strip()}")
-                continue
-            bindings.append((binding_m.group(1), binding_m.group(2), matcher, event))
-
-    held_mutating = sorted(tools & MUTATING)
     held_delegating = sorted(tools & DELEGATING)
-
-    if not bindings:
+    if name not in fence_map:
         banned = sorted(tools & (MUTATING | DELEGATING))
         if banned:
-            errors.append(f"{name}: lists {banned} with no fence binding")
+            errors.append(f"{name}: lists {banned} with no fence.sh FENCE_MAP row")
         else:
             read_only.append(name)
         continue
 
-    if len(bindings) != 1:
-        errors.append(f"{name}: {len(bindings)} fence bindings — exactly one allowed")
-        continue
-    mode, set_name, bound_matcher, bound_event = bindings[0]
-    if bound_event != "PreToolUse":
-        errors.append(f"{name}: fence binding is under `{bound_event}`, not `PreToolUse`")
-    if mode not in MODES:
-        errors.append(f"{name}: fence binding mode `{mode}` is not deny-match or allow-only")
-    if set_name not in sets:
-        errors.append(f"{name}: fence binding names set `{set_name}`, which fence.md §3 does not define")
-    elif sets[set_name] != mode:
-        errors.append(
-            f"{name}: fence binding runs set `{set_name}` in `{mode}`; fence.md §3 defines it as `{sets[set_name]}`"
-        )
-    covered = set((bound_matcher or "").split("|"))
-    missing = sorted(({"Write", "Edit", "MultiEdit"} | (tools & FILE_WRITE)) - covered)
-    if missing:
-        errors.append(f"{name}: fence matcher `{bound_matcher}` does not cover {missing}")
     if held_delegating:
         errors.append(f"{name}: fenced agent lists {held_delegating}")
+    mode, set_name = fence_map[name]
     fenced.append(f"{name}: {mode} {set_name}")
 
 if errors:
@@ -161,6 +216,7 @@ if errors:
     sys.exit(1)
 print(
     f"OK: {len(agents)} deepen agents — {len(fenced)} fenced ({', '.join(fenced)}), "
-    f"{len(read_only)} read-only; {len(sets)} sets in fence.md; hook executable"
+    f"{len(read_only)} read-only; {len(table)} sets in fence.md, {len(fence_map)} FENCE_MAP rows; "
+    "hooks.json binds fence.sh on PreToolUse; hook executable"
 )
 PY

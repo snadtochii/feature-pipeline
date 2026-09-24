@@ -54,13 +54,12 @@ In order; each failure aborts per [worktree.md](worktree.md) §7 with the line s
 Before the first spawn, catch every planned write the fence would refuse, so a decision record
 that cannot be implemented as approved stops here rather than burning attempts.
 
-Write the fence file per [fence.md](fence.md) §5 step 1, then probe with the hook, using
-[fence.md](fence.md) §6's payload shape:
+Write the fence file per [fence.md](fence.md) §5 step 1, then probe with the hook: pipe a payload
+in [fence.md](fence.md) §6's shape to `"<plugin-root>/hooks/fence.sh"` for
 
-- each target of the record's `CONTEXT.md` and ADR diffs through
-  `"<plugin-root>/hooks/fence.sh" deny-match implementer`;
-- each destination of the rename map's spec moves, and each path on the spec delete list, through
-  `"<plugin-root>/hooks/fence.sh" allow-only specs`.
+- each target of the record's `CONTEXT.md` and ADR diffs, with `agent_type: "deepen:implementer"`;
+- each destination of the rename map's spec moves, and each path on the spec delete list, with
+  `agent_type: "deepen:spec-mover"`.
 
 Any denial stops the run for a human:
 

@@ -8,14 +8,20 @@ and rewrites them, the self-test before every fenced spawn, and what counts as a
   spawn. No spawned role ever writes or edits the fence file or the hook script, and no role's
   writable set can reach either: the file sits in the clone's git common directory, outside both
   roots, and the hook ships inside the plugin, outside every worktree.
-- **Read by `hooks/fence.sh`.** The hook is a `PreToolUse` command bound in each fenced agent's
-  own frontmatter as `fence.sh <mode> <set>`. It is a pure decision function over this file:
-  it reads the file, decides, and prints a denial or nothing. It never writes.
+- **Read by `hooks/fence.sh`.** The hook is one plugin-level `PreToolUse` command, bound in
+  `hooks/hooks.json` as `${CLAUDE_PLUGIN_ROOT}/hooks/fence.sh` on
+  `Write|Edit|MultiEdit|NotebookEdit` — the only binding Claude Code honors for a plugin's agents,
+  which ignore `hooks:` in their own frontmatter. A plugin hook fires inside subagents too, with
+  the subagent's `agent_type` in the payload, so the script dispatches on it (§3): a `deepen:`
+  agent is fenced in its row's `<mode> <set>`, and every other call — the main conversation's, any
+  other plugin's agent's — passes untouched. It is a pure decision function over this file: it
+  reads the file, decides, and prints a denial or nothing. It never writes.
 - **Run by the run skill as the matcher.** The self-test (§6), stage 4's pre-spawn target check
-  and the commit-path assertion (§7) pipe payloads to `"<plugin-root>/hooks/fence.sh" <mode> <set>`.
-  The run skill binds `<plugin-root>` once, as the path `${CLAUDE_PLUGIN_ROOT}` resolves to — the
-  root the agent frontmatter names. A reference loaded with Read expands no variable, so every
-  run-side call uses the bound path, never `${CLAUDE_PLUGIN_ROOT}` or a bare `fence.sh`.
+  and the commit-path assertion (§7) pipe payloads to `"<plugin-root>/hooks/fence.sh"`, each
+  carrying the role's `agent_type`, so the run's checks go through the same dispatch as a live
+  write. The run skill binds `<plugin-root>` once, as the path `${CLAUDE_PLUGIN_ROOT}` resolves
+  to — the root `hooks/hooks.json` names. A reference loaded with Read expands no variable, so
+  every run-side call uses the bound path, never `${CLAUDE_PLUGIN_ROOT}` or a bare `fence.sh`.
 - **Cited by** the run skill's stage 2 (characterize), stage 4
   ([stage-4-implement.md](stage-4-implement.md)) and stage 5 (verify, and the fix round) bodies,
   and by [worktree.md](worktree.md) for clearing the file. Each cites the section it needs and
@@ -110,15 +116,18 @@ on stdout, and exit 0. The hook never blocks by exit code.
 
 ## §3 Sets
 
-The fixed table of set names and modes. Every fence binding in an agent's frontmatter names one
-row, in that row's mode; `scripts/check-deepen-contract.sh` parses this table and holds every
-binding to it.
+The fixed table of set names, modes and the agent each binds. `fence.sh` carries the same rows
+as its `FENCE_MAP` — `<agent> <mode> <set>`, `<agent>` the name after `deepen:` — and dispatches
+on the payload's `agent_type`: `deepen:<agent>`, or `plugin:deepen:<agent>` with the `plugin:`
+stripped. A `deepen:` agent with no row has every write refused; an `agent_type` outside the
+`deepen:` namespace, or none, is not governed at all. `scripts/check-deepen-contract.sh` holds
+this table and the map in lockstep, and requires a row for every deepen agent that can write.
 
 | Set | Mode | Bound by | Contents |
 | --- | --- | --- | --- |
-| `implementer` | `deny-match` | the `implementer` agent | `<inventory>**`, every `paths.specs` glob, `.deepen.yaml`, every `paths.forbidden` glob, `<run_dir>/**` |
-| `specs` | `allow-only` | the `spec-mover` agent | every `paths.specs` glob |
-| `qa` | `allow-only` | the QA role (stage 2 characterize, stage 5 verify) | characterize: `<inventory>**` and `<run_dir>/**`; verify: `<run_dir>/**` alone |
+| `implementer` | `deny-match` | `deepen:implementer` | `<inventory>**`, every `paths.specs` glob, `.deepen.yaml`, every `paths.forbidden` glob, `<run_dir>/**` |
+| `specs` | `allow-only` | `deepen:spec-mover` | every `paths.specs` glob |
+| `qa` | `allow-only` | `deepen:qa-characterizer` (stage 2 characterize, stage 5 verify) | characterize: `<inventory>**` and `<run_dir>/**`; verify: `<run_dir>/**` alone |
 
 - **`implementer`** — everything the change is judged against, plus the QA directory. The
   implementer changes the source until the checks pass as written; it can never touch the checks.
@@ -180,18 +189,19 @@ run from the outside, so the fence is never assumed live. Before each fenced spa
 
 1. `jq` is on `PATH`. Without it the hook refuses every write, so the run aborts naming it
    rather than spawning a role that cannot write.
-2. `<plugin-root>/hooks/fence.sh` exists and is executable — the script the agent frontmatter
+2. `<plugin-root>/hooks/fence.sh` exists and is executable — the script `hooks/hooks.json`
    names through `${CLAUDE_PLUGIN_ROOT}`.
-3. Build a `PreToolUse` payload with `jq -n` — `tool_name: "Write"`, `tool_input.file_path` the
-   probe path, `cwd` = `<WT>` — and pipe it to the script **in the spawn's own `<mode> <set>`**.
+3. Build a `PreToolUse` payload with `jq -n` — `agent_type` the spawn's own agent
+   (`deepen:<agent>`, §3), `tool_name: "Write"`, `tool_input.file_path` the probe path, `cwd` =
+   `<WT>` — and pipe it to the script.
    Two probes per spawn, one in each direction, so a fence that denies everything cannot pass:
    one must print `permissionDecision: "deny"`, the other must print nothing.
 
 | Spawn | Must be denied | Must be allowed |
 | --- | --- | --- |
-| implementer (`deny-match implementer`) | a real inventory file, and a real spec file | a real tracked source file matching no set |
-| spec-mover (`allow-only specs`) | a real tracked source file | a real spec file |
-| QA (`allow-only qa`) | a real tracked source file | `<run_dir>/fence-probe`; in characterize mode also `<inventory>fence-probe` |
+| implementer (`deepen:implementer`, `deny-match implementer`) | a real inventory file, and a real spec file | a real tracked source file matching no set |
+| spec-mover (`deepen:spec-mover`, `allow-only specs`) | a real tracked source file | a real spec file |
+| QA (`deepen:qa-characterizer`, `allow-only qa`) | a real tracked source file | `<run_dir>/fence-probe`; in characterize mode also `<inventory>fence-probe` |
 
 **Probe paths are real files** from `git -C "<WT>" ls-files`, never a glob's own text and never a
 path invented to look like one: a probe built from a glob can match it trivially while no real
@@ -205,10 +215,11 @@ file does. The two `fence-probe` paths are the exception — the inventory may n
   is not needed; the implementer is never spawned before the inventory commit.
 - A missing fence file at this point is the run skill's own bug and aborts.
 
-**What it does not prove.** It proves the script is present, runnable, and decides as it should
-in this spawn's mode. It does not prove the binding fires: whether `${CLAUDE_PLUGIN_ROOT}` expands
-inside agent frontmatter cannot be observed from outside a spawn. §7's assertions close that gap,
-and they are mandatory for that reason.
+**What it does not prove.** It proves the script is present, runnable, dispatches the spawn's
+`agent_type` to its row, and decides as it should in that row's mode. It does not prove the
+binding fires: whether Claude Code loaded `hooks/hooks.json`, and spells the spawn's `agent_type`
+as §3 expects, cannot be observed from outside a spawn. §7's assertions close that gap, and they
+are mandatory for that reason.
 
 ---
 
@@ -219,7 +230,7 @@ return — with a commit or without — the run asserts:
 
 - **Commit paths** — every path in
   `git -C "<WT>" diff --name-only --no-renames "<prev>..HEAD"`, piped through
-  `"<plugin-root>/hooks/fence.sh"` in the role's own `<mode> <set>` as a `Write` payload
+  `"<plugin-root>/hooks/fence.sh"` as a `Write` payload carrying the role's own `agent_type`
   (§6 shape). Any denial is a violation. Using the
   hook as the matcher keeps one glob implementation: what the fence refuses and what the
   assertion checks can never diverge. `--no-renames` lists a rename's source and destination
@@ -265,5 +276,5 @@ writes in its reply, and the stage records them in its report.
 - **Case.** `deny-match` matches case-insensitively, so a differently cased spelling of a fenced
   path on a case-insensitive filesystem is still refused. `allow-only` matches case-sensitively;
   a differently cased spelling there is refused, the loud direction.
-- **Frontmatter expansion is unobservable** from outside a spawn (§6), which is why §7 runs after
-  every return.
+- **The live binding is unobservable** from outside a spawn (§6) — that the plugin hook fired and
+  received the `agent_type` §3 names — which is why §7 runs after every return.

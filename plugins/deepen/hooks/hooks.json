@@ -1,0 +1,16 @@
+{
+  "description": "deepen write fence: refuses a fenced deepen agent's writes outside its named set, dispatched on the payload's agent_type; a no-op for every other agent and for the main conversation.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/fence.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

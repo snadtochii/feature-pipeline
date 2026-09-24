@@ -12,12 +12,6 @@ tools:
   - Edit
   - Bash
 model: opus
-hooks:
-  PreToolUse:
-    - matcher: "Write|Edit|MultiEdit"
-      hooks:
-        - type: command
-          command: "${CLAUDE_PLUGIN_ROOT}/hooks/fence.sh deny-match implementer"
 ---
 
 # Deepen Implementer
