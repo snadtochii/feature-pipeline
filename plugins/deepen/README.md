@@ -36,6 +36,11 @@ Stage 1 (discover) ranks candidates with the read-only `explorer` agent, startin
 churn × indentation hotspot table and filtering on what the loop already did with each candidate
 (`<state_dir>/memory.md`).
 
+Stage 2 (characterize) creates the run worktree at the base commit, has the fenced
+`qa-characterizer` agent write the behavior inventory against the running app without seeing any
+plan, replays every check itself, measures how much of the candidate's functions the checks reach,
+and commits the inventory alone as the run branch's first commit, before any source change.
+
 ## Configuration
 
 The profile contract — schema, field semantics, grammar, validation rules and state layout — is

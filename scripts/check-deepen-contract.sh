@@ -22,6 +22,7 @@
 #     `PreToolUse`, whose matcher covers Write, Edit, MultiEdit, NotebookEdit;
 #   - fence.sh's FENCE_MAP block holds `<agent> <mode> <set>` rows, and the rows
 #     equal the §3 table's (agent, mode, set) triples, in both directions;
+#   - every FENCE_MAP row names an existing plugins/deepen/agents/<agent>.md;
 #   - plugins/deepen/agents/ holds at least one agent, each declares its tools as
 #     a YAML list (an omitted `tools:` inherits every tool), and none carries a
 #     `hooks:` frontmatter key (Claude Code ignores it on a plugin agent, so it
@@ -30,9 +31,10 @@
 #     FENCE_MAP row and lists neither Agent nor Task;
 #   - an agent with no row lists none of Bash, Write, Edit, MultiEdit,
 #     NotebookEdit, Agent, Task;
-#   - plugins/deepen/skills/run/scripts/hotspots.sh and candidate-id.sh are
-#     executable and their --self-test reproduces the worked example of their
-#     contract (hotspots.md §8, candidates.md §4).
+#   - plugins/deepen/skills/run/scripts/hotspots.sh, candidate-id.sh and
+#     touched-coverage.mjs are executable and their --self-test reproduces the
+#     worked example of their contract (hotspots.md §8, candidates.md §4,
+#     coverage.md §2); the .mjs script runs under node, whose absence fails.
 #
 # Usage:  scripts/check-deepen-contract.sh
 # Exit:   0 every assertion holds; 1 on any failure, one FAIL line each.
@@ -121,6 +123,11 @@ else:
         if not fence_map:
             errors.append("fence.sh FENCE_MAP: no rows")
 map_triples = {(agent, mode, name) for agent, (mode, name) in fence_map.items()}
+# A row whose agent has no definition dispatches for nothing: the lockstep holds
+# while the role the table promises is missing.
+for agent in sorted(fence_map):
+    if not (plugin / "agents" / f"{agent}.md").is_file():
+        errors.append(f"fence.sh FENCE_MAP row `{agent}` names no agent file")
 if table and fence_map:
     for agent, mode, name in sorted(map_triples - table_triples):
         errors.append(
@@ -224,19 +231,30 @@ print(
 )
 PY
 
-# The run's two cross-run numbers — the hotspot table and the candidate id —
-# are shipped as scripts whose --self-test reproduces the worked example of
-# their contract. Running them here pins the encoding in CI, so a prose edit
-# and the script cannot drift apart unnoticed.
+# The run's measured numbers — the hotspot table, the candidate id and the
+# touched-function coverage — are shipped as scripts whose --self-test
+# reproduces the worked example of their contract. Running them here pins the
+# encoding in CI, so a prose edit and the script cannot drift apart unnoticed.
 selftest_failed=0
-for script in hotspots.sh candidate-id.sh; do
+for script in hotspots.sh candidate-id.sh touched-coverage.mjs; do
     path="$repo_root/plugins/deepen/skills/run/scripts/$script"
     if [ ! -x "$path" ]; then
         printf 'FAIL: %s is missing or not executable\n' "plugins/deepen/skills/run/scripts/$script" >&2
         selftest_failed=1
         continue
     fi
-    if ! output=$(bash "$path" --self-test 2>&1); then
+    case "$script" in
+        *.mjs)
+            if ! command -v node >/dev/null 2>&1; then
+                printf 'FAIL: %s --self-test needs node, which is not on PATH\n' "$script" >&2
+                selftest_failed=1
+                continue
+            fi
+            interpreter=node
+            ;;
+        *) interpreter=bash ;;
+    esac
+    if ! output=$("$interpreter" "$path" --self-test 2>&1); then
         printf 'FAIL: %s --self-test: %s\n' "$script" "$output" >&2
         selftest_failed=1
     fi
@@ -244,4 +262,4 @@ done
 if [ "$selftest_failed" -ne 0 ]; then
     exit 1
 fi
-echo "OK: hotspots.sh and candidate-id.sh self-tests reproduce their worked examples"
+echo "OK: hotspots.sh, candidate-id.sh and touched-coverage.mjs self-tests reproduce their worked examples"

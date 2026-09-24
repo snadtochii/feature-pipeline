@@ -32,10 +32,14 @@ It composes these contracts and restates none of them:
 - [references/fence.md](references/fence.md) — the write fence every writing role runs under.
 - [references/worktree.md](references/worktree.md) — the run worktree, its abort part and
   teardown.
+- [references/dev-server.md](references/dev-server.md) — the app under test, and the stop the
+  common abort runs first.
 - The stage bodies in §3's table, and the contracts they cite:
   [references/hotspots.md](references/hotspots.md),
   [references/candidates.md](references/candidates.md),
-  [references/memory.md](references/memory.md).
+  [references/memory.md](references/memory.md),
+  [references/inventory.md](references/inventory.md),
+  [references/coverage.md](references/coverage.md).
 - [../setup/references/profile.md](../setup/references/profile.md) — the profile, and the state
   layout (§5) every path below lives in.
 
@@ -108,7 +112,7 @@ binding `<CLONE>`, `<state_dir>`, the profile and `<BASE_SHA>`.
   and `mkdir "<state_dir>/runs/<run-id>"`, without `-p`. A failure means the run id collided with
   an earlier run's, whose directories the common abort would write into and clean — so this stop
   bypasses §6: `rmdir` the directory the first `mkdir` created when only the second failed,
-  release the lock as §6 step 3, print `run: aborted — run id <run-id> collides with an earlier
+  release the lock as §6 step 4, print `run: aborted — run id <run-id> collides with an earlier
   run's directories`, and stop. Nothing is written into either directory.
 - **§3–§5 stops** after the lock go through the common abort (§6), which releases it.
 
@@ -144,7 +148,7 @@ state, command scripts, the exclusion list, the stage clock — under `<state_di
 | # | Stage | Body | Report | Reads | Writes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | discover | [references/stage-1-discover.md](references/stage-1-discover.md) | `1-discover.md` | the repo, `CONTEXT.md`, `docs/adr/`, `memory.md`, the pin | the report; `candidate_id` and `slug` in the run state; `memory.md` reconciliation rewrites |
-| 2 | characterize | `references/stage-2-characterize.md` | `2-characterize.md` | the pick, the repo, the profile, the running app — never a plan | the run worktree; the inventory and its checks as their own commit on `<BASE_SHA>`; drafts and screenshots |
+| 2 | characterize | [references/stage-2-characterize.md](references/stage-2-characterize.md) | `2-characterize.md` | the pick, the repo, the profile, the running app — never a plan | the run worktree; the inventory and its checks as their own commit on `<BASE_SHA>`; drafts and screenshots |
 | 3 | decide | `references/stage-3-decide.md` | `3-decide.md` | the pick, the inventory summary — never the checks | `decision-record.md`; `CONTEXT.md` and ADR edits proposed in it |
 | 4 | implement | [references/stage-4-implement.md](references/stage-4-implement.md) | `4-implement.md` | the decision record, the repo | source commits on the run branch |
 | 5 | verify | `references/stage-5-verify.md` | `5-verify.md` | the changed tree, the inventory, the decision record | the verification report |
@@ -230,9 +234,11 @@ remedy for giving the run up before then: remove `<common-dir>/deepen.lock/owner
 
 Every stop after the lock was taken, whatever its stage, ends here, in this order:
 
-1. **The worktree's part.** When `<state_dir>/reports/<run-id>/abort.md` already exists, the
+1. **A live dev server.** When `<state_dir>/runs/<run-id>/dev.pid` exists, stop the server per
+   [dev-server.md](references/dev-server.md) §7 before anything else touches the worktree.
+2. **The worktree's part.** When `<state_dir>/reports/<run-id>/abort.md` already exists, the
    aborting stage body performed [worktree.md](references/worktree.md) §7 steps 1–4 itself — stage
-   4 and a fence violation do — so its evidence is kept as written: go to step 2. Otherwise, when
+   4 and a fence violation do — so its evidence is kept as written: go to step 3. Otherwise, when
    the run state names a `slug` and
    `git -C "<CLONE>" worktree list --porcelain` lists `<WT>`
    ([worktree.md](references/worktree.md) §1) → perform
@@ -241,8 +247,8 @@ Every stop after the lock was taken, whatever its stage, ends here, in this orde
    `<state_dir>/reports/<run-id>/abort.md` with `Write` — the aborting line, the stage, the
    evidence that decided it, and the paths of the reports written so far — and remove
    `<common-dir>/deepen-fence.json` if present ([fence.md](references/fence.md) §1).
-2. **Scratch files.** Remove `<state_dir>/tmp/<run-id>-*`.
-3. **The lock, last.** Read `<common-dir>/deepen.lock/owner`. Its `run_id` equals `<run-id>` →
+3. **Scratch files.** Remove `<state_dir>/tmp/<run-id>-*`.
+4. **The lock, last.** Read `<common-dir>/deepen.lock/owner`. Its `run_id` equals `<run-id>` →
    remove the file, then `rmdir` the lock directory. Any other id → leave the lock and print
    `lock: held by <id> — not released by <run-id>`.
 
@@ -259,7 +265,7 @@ ends clean — after stage 6, or at `discover: complete — no candidate` — th
 1. Removes `<state_dir>/tmp/<run-id>-*`.
 2. Removes `<state_dir>/runs/<run-id>/` — a clean run's working files have no reader left; its
    reports stay.
-3. Releases the lock, last, as §6 step 3.
+3. Releases the lock, last, as §6 step 4.
 4. Prints the report directory and each written report's status line.
 
 A run that ended with no candidate created no worktree and wrote no fence file, so there is
