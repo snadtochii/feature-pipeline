@@ -12,7 +12,7 @@ before it is written, the one measure of a change's size, and which stage reads 
   by section in its pre-spawn target check and its spec-mover brief; by the verify stage
   ([stage-5-verify.md](stage-5-verify.md)), which matches the inventory's `changed` statements against the
   predictions and judges the diff against the named next change; and by the deliver stage
-  (`stage-6-deliver.md`), which lists the record in the evidence pack.
+  ([stage-6-deliver.md](stage-6-deliver.md) §4), which lists the record in the evidence pack.
 
 The record is written with `Write` and read with `Read`. Its paths — the spec paths, the spec
 moves' destinations and the `targets:` paths — do reach a command line, as values in the

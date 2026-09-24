@@ -51,6 +51,29 @@ against the human's named next change; a fail is the human's call to revise, ove
 When the estimated diff exceeds `run.split_above`, the architect proposes a sequence of
 independently verifiable pull requests for the human to confirm or override.
 
+Stage 4 (implement) has the fenced `implementer` agent make the change the decision record
+describes, in the run worktree, and gates it on the project's check runner; a red gate is another
+attempt, bounded by `run.retries` and `run.max_wall_time`. The fenced `spec-mover` agent applies
+the record's spec moves and deletions and nothing else. Neither agent can write the inventory.
+
+Stage 5 (verify) replays the inventory against the changed tree and classifies every statement
+`preserved`, `changed` or `unverifiable`: a `changed` statement the record predicted is intended,
+and one it did not is a regression the human rules on. It runs the mutation pass over the changed
+lines when the profile names a runner, has the `architect` judge the diff against the named next
+change, and has the `feature` plugin's four reviewers report findings; the accepted ones go to one
+fenced fix round.
+
+Stage 6 (deliver) re-checks stage 5's gate — an empty verification table or a missing coverage
+line fails the run, pushes nothing, and keeps the branch diff as `abort.patch` — then renders the
+evidence pack and opens it as the body of a draft pull request: the candidate and its named next
+change; the verification table, with every `changed` statement's before and after; touched-function
+coverage, the uncovered functions and the mutation result; the architect's verdict on the diff and
+the reviewers' findings; the decision record; the degradations that applied; and the run's cost.
+It records the candidate in `<state_dir>/memory.md` — `opened` with the pull request's URL, or
+`declined` with the human's reason when stage 3 ended declined, plus a suggested ADR when that
+reason states a rule — removes the worktree, and keeps the branch. The pack stays in the run's
+report directory whether or not the pull request opened.
+
 ## Configuration
 
 The profile contract — schema, field semantics, grammar, validation rules and state layout — is
@@ -81,4 +104,50 @@ renders the same rows as its readiness report.
 
 ## Runtime dependencies
 
-A run depends on the `feature` plugin's reviewer agents and on the `mattpocock-skills` plugin.
+None of these is checked at install. A run looks for each one when it needs it, and a missing one
+is a line in the report — never a silent fallback.
+
+- **`mattpocock-skills`** — tested against 1.2.3 (commit `2ab9580`, from
+  `github.com/mattpocock/skills`). A run invokes three of its skills, each with its own fallback
+  line:
+  - `codebase-design`, at discover —
+    `codebase-design unavailable — explorer used its inline vocabulary summary`;
+  - `grilling`, at decide —
+    `grilling unavailable — inline dialogue used the stage's own question list`;
+  - `domain-modeling`, at decide —
+    `domain-modeling unavailable — CONTEXT.md and ADR diffs drafted from the stage's own format notes`.
+
+  The version is not checked at runtime. If a later release changes these skills in a way the
+  stages cannot use, vendor the vocabulary the stages need into this plugin rather than chase the
+  upstream.
+- **`feature`** — the verify stage spawns its four reviewer agents: `code-reviewer`,
+  `security-engineer`, `performance-engineer` and `code-architect`. Not installed →
+  `reviewer pass skipped — feature plugin reviewer agents not installed`.
+- **`gh`** — the deliver stage pushes the run branch and opens the draft pull request; discover
+  reconciles earlier pull requests against `memory.md`. Missing or unauthenticated → the deliver
+  report's `pr: not opened — gh …` line, naming the pushed branch and the kept pack, and discover's
+  `memory: gh unavailable — …` line.
+- **`jq`** — the write fence parses every hook payload with it. Missing → the fence refuses every
+  write, so the run aborts before it spawns a writing role.
+- **`node`** — runs the touched-coverage script on the measured path. Missing → the script fails
+  and coverage takes the estimate path, labelled `estimate (weak)` with the reason.
+- **Browser tools** (Playwright or Chrome DevTools) — tier 1 when the profile has no e2e runner.
+  Missing → `tier 1 unavailable — browser tools not installed`.
+
+## First run — what the project must supply
+
+A run is only as good as the checks it can run against the app. Three pieces of ordinary
+test-mode infrastructure decide how many statements a run can check rather than record as
+unverifiable:
+
+- **A frozen clock** (`app.clock`) — an env var the server reads for today's date, so a statement
+  about dates holds on every replay.
+- **A stubbed network** (`app.network`) — an env var that makes the server answer external calls
+  from local stubs, so a statement about external data does not depend on a third party.
+- **Fixture seed and reset** (`app.seed`, `app.reset`) — a script that loads a fixture file into
+  the development data store and one that empties it, so every check group starts from known data.
+
+They are the project's work, not this plugin's, and a prerequisite of the first run rather than
+something the run can build: the plugin ships no project facts. Until they exist, a first run's
+verification is mostly `unverifiable` lines, and its success cannot be judged. `/deepen:setup`
+probes for each and its readiness report says what is missing and what would supply it.

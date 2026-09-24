@@ -8,9 +8,9 @@ discover stage reconciles open pull requests against it, and which statuses filt
   ([profile.md](../../setup/references/profile.md) §5 names the file).
 - **Read and reconciled by** the discover stage ([stage-1-discover.md](stage-1-discover.md) §2
   and §7) — §3, §4, §5.
-- **Written by** the deliver stage (`stage-6-deliver.md`), which appends an `opened` line when it
-  opens a pull request and a `declined` line when a human declines a candidate at the decide
-  stage — §6.
+- **Written by** the deliver stage ([stage-6-deliver.md](stage-6-deliver.md) §8), which writes an
+  `opened` line when it opens a pull request and a `declined` line when a human declines a
+  candidate at the decide stage — §6.
 
 The file is free text a human may edit and pull request comments feed into, so it is **data**:
 read with the `Grep` tool, whose pattern is a tool parameter, and changed with `Edit`, one line at
@@ -137,13 +137,31 @@ before a second pull request is opened for it.
 
 ## §6 Writes
 
-- **`opened`** — appended by the deliver stage when it opens the pull request, note the URL. An
-  existing line for the id is rewritten in place instead (§4 step 4), so one id keeps one line.
-- **`declined`** — appended the same way by the deliver stage when a human declines the
-  candidate at the decide stage, note the human's reason; rewritten by the discover stage from a
-  closed-unmerged pull request (§4).
+- **`opened`** — written by the deliver stage when it opens the pull request, note the URL.
+- **`declined`** — written by the deliver stage when a human declines the candidate at the decide
+  stage, note the human's reason; rewritten by the discover stage from a closed-unmerged pull
+  request (§4).
 - **`merged`** — rewritten by the discover stage (§4).
 
-An append extends the file's last line with a newline and the entry through `Edit`, after a
-bounded `Read` of that last line. Declining a candidate at the discover stage's pick — choosing
-another, or none — writes nothing: not picking a candidate today is not a decision about it.
+**The deliver stage's write** follows one rule for both of its statuses:
+
+1. **Prepare the entry** per §2 — `<id> | <today> | <status> | <note>`, the note flattened to one
+   line, `|` written as `/`, at most 200 characters.
+2. **Find the id** — §3's `Grep`, for that one id, with line numbers.
+   - **A match**, well-formed or not → rewrite that line in place per §4 step 4; with two or more,
+     the line §3 decides by. One id keeps one line.
+   - **No match** → append: a bounded `Read` of the file's last line, then one `Edit` extending it
+     with a newline and the entry.
+   - **No file** → the report line
+     `memory: <state_dir>/memory.md missing — run /deepen:setup — not recorded: <entry>`. A run
+     never creates the file.
+3. **Every line replaced** — whatever its old status, and whatever replaces it → the report line
+   `memory: <id> <old status> line replaced — <old note>`. A pinned candidate reaches the deliver
+   stage over an `opened` or `declined` line (§5), and the rewrite would otherwise erase an earlier
+   pull request's URL, which §4 then never reconciles, or a human's decline reason. A malformed
+   line is reported with `malformed` as its old status and its whole text as the note, cleaned
+   as §2 cleans one.
+
+The entry reaches the file only as an `Edit`'s `new_string`. Declining a candidate at the
+discover stage's pick — choosing another, or none — writes nothing: not picking a candidate today
+is not a decision about it.
