@@ -427,6 +427,14 @@ fi
 matched=0
 while IFS= read -r glob; do
     [ -z "$glob" ] && continue
+    # Expanded into a variable and checked here, not inside the heredoc below: a
+    # substitution in a heredoc is covered by neither `set -e` nor the ERR trap,
+    # so a failed expansion would hand back a short pattern list and deny-match
+    # would allow the write. A non-empty glob always expands to at least one line.
+    patterns=""
+    if ! patterns=$(expand_braces "$glob") || [ -z "$patterns" ]; then
+        deny "The write fence could not expand the glob '$glob' of the '$set_name' set, so this write is refused. Report the refused write; do not route it through a shell command instead."
+    fi
     while IFS= read -r pattern; do
         [ -z "$pattern" ] && continue
         collapsed="${pattern//\/\*\*\//\/}"
@@ -460,7 +468,7 @@ while IFS= read -r glob; do
         esac
         [ "$matched" -eq 1 ] && break
     done <<FENCE_PATTERNS_END
-$(expand_braces "$glob")
+$patterns
 FENCE_PATTERNS_END
     [ "$matched" -eq 1 ] && break
 done <<FENCE_GLOBS_END
