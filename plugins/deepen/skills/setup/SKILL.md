@@ -167,6 +167,13 @@ Ask with `AskUserQuestion`, at most four questions per call, so the five questio
 calls. Every question's first option is the recommendation: the existing profile value, else the
 probed value, else the documented default.
 
+**Every proposed field carries a one-line rationale** — on the recommended option of each
+question, and beside each value in the review block. The rationale names where the value came
+from: `existing profile`, the probe evidence (the file, script, route or env var name §2 saw —
+never a value read from an env file), or `documented default` with the rule it follows (a
+[profile.md](references/profile.md) §1 default or §2 proposal). A field proposed as `null` or
+omitted says what was looked for and not found.
+
 1. **Base branch** — from §1.
 2. **Loop clone path, and permission to create it** — default `<repo-parent>/<repo-name>-deepen`.
    This question is also the authorization for `git clone`, which uses the network and writes
@@ -183,7 +190,7 @@ probed value, else the documented default.
 
 Alongside the questions, show a **review block** (not asked): `app.*` commands, URL and readiness
 probe, `seams` with their auth, `checks.*`, `paths.specs`, `app.install` / `app.prelude`,
-`attendance: semi`, and the `run.*` defaults. A user correcting a value there is expected; a
+`attendance: semi`, and the `run.*` defaults — each with its rationale. A user correcting a value there is expected; a
 value the user supplies that the probe cannot confirm is scored `unverified`. An unmatched spec
 glob is shown as a blocking finding: §6's validation will reject it.
 
