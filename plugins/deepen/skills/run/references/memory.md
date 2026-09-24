@@ -94,13 +94,18 @@ closed or merged since the last run is not still treated as open.
    gh pr view "<url>" --json state,closedAt,comments --jq '
      .closedAt as $c
      | [ .state,
-         ( [ .comments[] | select($c != null and .createdAt <= $c) ] | last | .body // ""
+         ( [ .comments[]
+           | select($c != null and .createdAt <= $c)
+           | select(.body | test("<!-- fp-(review|address) ") | not) ]
+         | last | .body // ""
            | gsub("[\r\n\t]+"; " ") | gsub("\\|"; "/") | .[0:200] ) ]
      | @tsv'
    ```
 
-   prints the state and the closing comment — the last comment posted at or before the close —
-   already flattened to one line.
+   prints the state and the closing comment — the last comment posted at or before the close
+   that carries no `fp-review` or `fp-address` marker — already flattened to one line. An
+   automated review or its address reply is often the last comment before a silent close, and
+   its text is not a human's reason for declining.
    - `MERGED` → rewrite the line to `<id> | <today> | merged | <url>`.
    - `CLOSED` → rewrite the line to `<id> | <today> | declined | <closing comment>`, or
      `closed without reason` when there is none. The candidate is filtered from this run on (§5).
