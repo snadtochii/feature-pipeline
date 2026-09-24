@@ -256,7 +256,7 @@ function mappedFunctions(docs, repo, candidateFiles) {
         unmapped += 1;
         continue;
       }
-      let touchedCandidate = false;
+      const located = [];
       for (const fn of script.functions || []) {
         const range = (fn.ranges || [])[0];
         if (!range || (fn.functionName === '' && range.startOffset === 0)) {
@@ -266,13 +266,27 @@ function mappedFunctions(docs, repo, candidateFiles) {
         if (where === null || !candidateFiles.has(where.file)) {
           continue;
         }
+        located.push({ fn, range, where });
+      }
+      // A function whose range lies inside another candidate function's range in the same
+      // script is part of that function (a callback, a closure), never a function of its own.
+      const inside = (a, b) =>
+        a !== b &&
+        b.range.startOffset <= a.range.startOffset &&
+        a.range.endOffset <= b.range.endOffset &&
+        (b.range.startOffset < a.range.startOffset || a.range.endOffset < b.range.endOffset);
+      const touchedCandidate = located.length > 0;
+      for (const item of located) {
+        const { fn, range, where } = item;
         const { file } = where;
-        touchedCandidate = true;
+        const nested = located.some((other) => inside(item, other));
         const key = `${file}\t${where.line}\t${fn.functionName}`;
         const prior = found.get(key);
         const count = Number(range.count) || 0;
         if (!prior || count > prior.count) {
-          found.set(key, { file, line: where.line, name: fn.functionName, count });
+          found.set(key, { file, line: where.line, name: fn.functionName, count, nested: nested || Boolean(prior && prior.nested) });
+        } else if (nested) {
+          prior.nested = true;
         }
       }
       if (touchedCandidate) {
@@ -336,7 +350,8 @@ export function measure({ repo, coverageDir, functionsFile, filesFile }) {
     out.push({ file: row.file, hit, line: row.line, name: row.name, origin: 'listed', side: 'server' });
   }
   for (const fn of v8) {
-    if (!claimed.has(fn)) {
+    // A nested function no row claims is counted with the function enclosing it.
+    if (!claimed.has(fn) && !fn.nested) {
       out.push({ file: fn.file, hit: fn.count > 0, line: fn.line, name: fn.name, origin: 'unlisted', side: 'server' });
     }
   }
@@ -408,6 +423,8 @@ function selfTest() {
           functions: [
             { functionName: '', ranges: [{ startOffset: 0, endOffset: generated.length, count: 1 }] },
             { functionName: 'add', ranges: [{ startOffset: offsetOf(generated, 'function add'), endOffset: 60, count: 3 }] },
+            // An anonymous closure inside `add`, on its second line and never run: folded into `add`.
+            { functionName: '', ranges: [{ startOffset: offsetOf(generated, 'return a + b'), endOffset: offsetOf(generated, 'return a + b') + 4, count: 0 }] },
             { functionName: 'sub', ranges: [{ startOffset: offsetOf(generated, 'function sub'), endOffset: 100, count: 0 }] },
           ],
         },

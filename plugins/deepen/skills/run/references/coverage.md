@@ -44,7 +44,9 @@ unchanged, to `<runs>/touched-functions.tsv`, the only list the script reads. Th
 the pick's files, one per line, to `<runs>/touched-files`.
 
 The list cannot shrink the denominator: the script adds every function V8 saw in a candidate file
-that no row claims, as an `unlisted` server function.
+that no row claims, as an `unlisted` server function. A function whose range lies inside another
+candidate function's range in the same script — a callback, a closure — is part of the function
+that encloses it: unclaimed, it is never counted on its own, so the list needs no row for it.
 
 ---
 
@@ -85,7 +87,8 @@ no covered script maps into a candidate file — with the reason on stderr; `2` 
 
 **Worked example**, which `--self-test` reproduces: `src/calc.ts` defines `add` (line 1) and `sub`
 (line 4), served as a transformed module two lines longer with an inline map; V8 counts `add` 3,
-`sub` 0. `src/plain.mjs` is served untransformed and its `mul` runs twice but is not listed.
+`sub` 0, and an anonymous closure inside `add`, on its second line, 0 — folded into `add`, never
+counted. `src/plain.mjs` is served untransformed and its `mul` runs twice but is not listed.
 `src/widget.ts`'s `render` is listed `browser`; V8 loads it with count 0, and a V8 function a
 `browser` row claims never enters the server count. One script has no file behind it. Result: `add`
 hit, `sub` miss, `mul` hit as `unlisted`; `hit 2`, `total 3`, `percent 66.7`, `browser 1`,
