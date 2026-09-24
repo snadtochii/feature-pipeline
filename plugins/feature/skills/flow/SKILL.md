@@ -89,7 +89,7 @@ Each stage reads and writes artifacts in `<ticket-folder>/`. This contract is lo
 
 | Stage | Reads | Writes |
 |---|---|---|
-| `plan` | `01-spec.md`, `exploration.md` (optional seed — used for incremental Phase 1 synthesis if present) | `02-plan.md` (includes Codebase Context + Open Questions Resolved sections from Phase 1 synthesis) |
+| `plan` | `01-spec.md`, `exploration.md` (optional seed — Phase 1 explores only what it leaves uncovered or stale) | `02-plan.md` (includes Codebase Context + Open Questions Resolved sections from Phase 1 synthesis) |
 | implement (`build --implement-only`) | `01-spec.md`, `02-plan.md`, `03-implementation.md` when present (auto-resumption); optional user hint from the implement brief's `<HINT_BLOCK>`, per build's Required Input contract; flag `--worktree` | `03-implementation.md` (implementer handoff: per-step entries, then `## Rationale` or `## Stuck`) |
 | review (`review-stage`) | `01-spec.md`, `02-plan.md`, `03-implementation.md`, each blocker's `06-summary.md` (reviewer blocker context), `04-review.md` when present; `--base <branch>` when the forwarded overrides name a base branch | `04-review.md` (merged from 4 reviewer subagents, with a decision per finding), `## Post-review` in `03-implementation.md` |
 | close (`close-stage`) | `01-spec.md` through `05-tests.md`, `06-summary.md` when present; flags `--pr`, `--no-commit`, `--no-ui-testing`, `--attach-screenshots` | `05-tests.md` (UI test results, or a skip artifact — no-UI, `--no-ui-testing` flag-skip, or app-unreachable), `06-summary.md` (always written, content varies per verdict), `## Post-test` in `03-implementation.md`; owns the verdict gate |

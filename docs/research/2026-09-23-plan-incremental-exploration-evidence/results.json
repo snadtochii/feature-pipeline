@@ -1,0 +1,897 @@
+{
+  "generator": "explorer_reads.py",
+  "runs": [
+    {
+      "ticket": "FP-109",
+      "session": "9f881c61-3955-49f2-8996-f63f451ae33c",
+      "agent": "af1913e1abdfd5f9b",
+      "exploration_date": "2026-09-19",
+      "explorer_started": "2026-09-19T09:01:29Z",
+      "tree_at_run": "db5f9e26d080",
+      "reads_total": 22,
+      "reads_ticket_artifacts": 2,
+      "reads_outside_repo": 0,
+      "reads_repo_calls": 20,
+      "reads_repo_files": 19,
+      "reads_already_cited": 10,
+      "reads_new": 9,
+      "read_calls_on_new_files_used_in_plan": 8,
+      "other_calls_total": 23,
+      "other_calls_by_tool": {
+        "Glob": 2,
+        "Grep": 21
+      },
+      "exploration_cited_files": 13,
+      "exploration_ambiguous_citations": 1,
+      "plan_cited_files": 24,
+      "new_paths_used_in_plan": [
+        "docs/contributing/validation.md",
+        "plugins/feature/docs/advanced.md",
+        "plugins/feature/skills/flow/references/state-transitions-fs.md",
+        "plugins/feature/skills/flow/references/ticket-resolution-fs.md",
+        "plugins/feature/skills/review/references/pr-comments.md",
+        "plugins/feature/skills/ship/references/storage-server.md",
+        "scripts/check-runtime-contract.sh",
+        "scripts/check-tool-parity.sh"
+      ],
+      "new_paths_used_in_plan_not_spec_named": [
+        "docs/contributing/validation.md",
+        "plugins/feature/skills/flow/references/state-transitions-fs.md",
+        "plugins/feature/skills/flow/references/ticket-resolution-fs.md",
+        "plugins/feature/skills/review/references/pr-comments.md",
+        "plugins/feature/skills/ship/references/storage-server.md"
+      ],
+      "spec_named_paths": [
+        {
+          "path": "docs/contributing/tool-budgets.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/.claude-plugin/plugin.json",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/.codex-plugin/plugin.json",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/docs/advanced.md",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/close-stage/SKILL.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/close-stage/references/storage-fs.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/ship/references/ui-verification.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-md-links.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-mode-split.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-runtime-contract.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-tool-parity.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        }
+      ],
+      "skip_test": {
+        "named_paths": 11,
+        "to_create": [],
+        "uncovered_by_exploration": [
+          "plugins/feature/.claude-plugin/plugin.json",
+          "plugins/feature/.codex-plugin/plugin.json",
+          "plugins/feature/docs/advanced.md",
+          "scripts/check-md-links.sh",
+          "scripts/check-mode-split.sh",
+          "scripts/check-runtime-contract.sh",
+          "scripts/check-tool-parity.sh"
+        ],
+        "uncovered_by_exploration_or_instructions": [],
+        "stale": [],
+        "outcome_exploration_only": "bounded",
+        "outcome_with_instruction_files": "skip (paths only)"
+      },
+      "already_cited_files": [
+        "docs/contributing/tool-budgets.md",
+        "plugins/feature/agents/ui-tester.md",
+        "plugins/feature/skills/build/references/ui-checks.md",
+        "plugins/feature/skills/close-stage/SKILL.md",
+        "plugins/feature/skills/close-stage/references/storage-fs.md",
+        "plugins/feature/skills/close-stage/references/storage-server.md",
+        "plugins/feature/skills/flow/SKILL.md",
+        "plugins/feature/skills/ship/SKILL.md",
+        "plugins/feature/skills/ship/references/storage-fs.md",
+        "plugins/feature/skills/ship/references/ui-verification.md"
+      ],
+      "new_files": [
+        "docs/contributing/validation.md",
+        "plugins/feature/docs/advanced.md",
+        "plugins/feature/skills/flow/references/state-transitions-fs.md",
+        "plugins/feature/skills/flow/references/ticket-resolution-fs.md",
+        "plugins/feature/skills/review/references/pr-comments.md",
+        "plugins/feature/skills/ship/references/parallel-walk.md",
+        "plugins/feature/skills/ship/references/storage-server.md",
+        "scripts/check-runtime-contract.sh",
+        "scripts/check-tool-parity.sh"
+      ],
+      "turns": 27,
+      "weighted_units": 496560.3,
+      "first_turn_floor": 26724
+    },
+    {
+      "ticket": "FP-120",
+      "session": "cf946ddc-c732-4847-97d2-9567a36bc87d",
+      "agent": "a59b4bd0083d046cd",
+      "exploration_date": "2026-09-23",
+      "explorer_started": "2026-09-23T14:15:02Z",
+      "tree_at_run": "32397a52e4c2",
+      "reads_total": 28,
+      "reads_ticket_artifacts": 2,
+      "reads_outside_repo": 0,
+      "reads_repo_calls": 26,
+      "reads_repo_files": 24,
+      "reads_already_cited": 19,
+      "reads_new": 5,
+      "read_calls_on_new_files_used_in_plan": 2,
+      "other_calls_total": 35,
+      "other_calls_by_tool": {
+        "Glob": 2,
+        "Grep": 33
+      },
+      "exploration_cited_files": 41,
+      "exploration_ambiguous_citations": 7,
+      "plan_cited_files": 45,
+      "new_paths_used_in_plan": [
+        "plugins/feature/skills/flow/references/storage.md",
+        "plugins/feature/skills/setup/references/storage-fs.md"
+      ],
+      "new_paths_used_in_plan_not_spec_named": [
+        "plugins/feature/skills/flow/references/storage.md",
+        "plugins/feature/skills/setup/references/storage-fs.md"
+      ],
+      "spec_named_paths": [
+        {
+          "path": ".github/workflows/validation.yml",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "CLAUDE.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "docs/contributing/tool-budgets.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "docs/contributing/validation.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/.claude-plugin/plugin.json",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/.codex-plugin/plugin.json",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/docs/advanced.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/hooks/hooks.json",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/hooks/validate.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/build/SKILL.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/build/references/implementation-handoff.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/build/references/storage-fs.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/build/references/validation-hook.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/build/references/worktree.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/close-stage/references/test-preflight.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/flow/references/storage-server.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/review/references/pr-comments.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/setup/references/check.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/setup/references/detection.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/setup/scripts/detect.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/ship/references/parallel-walk.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-md-links.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-mode-split.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-runtime-contract.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-setup-detect.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-tidy-checks.mjs",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-tool-parity.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        }
+      ],
+      "skip_test": {
+        "named_paths": 27,
+        "to_create": [],
+        "uncovered_by_exploration": [
+          "scripts/check-mode-split.sh"
+        ],
+        "uncovered_by_exploration_or_instructions": [],
+        "stale": [],
+        "outcome_exploration_only": "bounded",
+        "outcome_with_instruction_files": "skip (paths only)"
+      },
+      "already_cited_files": [
+        ".github/workflows/validation.yml",
+        "docs/contributing/tool-budgets.md",
+        "docs/contributing/validation.md",
+        "plugins/feature/.codex-plugin/plugin.json",
+        "plugins/feature/docs/advanced.md",
+        "plugins/feature/skills/build/SKILL.md",
+        "plugins/feature/skills/build/references/implementation-handoff.md",
+        "plugins/feature/skills/build/references/validation-hook.md",
+        "plugins/feature/skills/build/references/worktree.md",
+        "plugins/feature/skills/close-stage/SKILL.md",
+        "plugins/feature/skills/flow/references/lessons-log-fs.md",
+        "plugins/feature/skills/flow/references/lessons-log-server.md",
+        "plugins/feature/skills/flow/references/storage-server.md",
+        "plugins/feature/skills/review-stage/SKILL.md",
+        "plugins/feature/skills/review/references/pr-comments.md",
+        "plugins/feature/skills/setup/SKILL.md",
+        "plugins/feature/skills/setup/references/check.md",
+        "plugins/feature/skills/setup/references/detection.md",
+        "scripts/check-setup-detect.sh"
+      ],
+      "new_files": [
+        "README.md",
+        "plugins/feature/skills/flow/references/storage-fs.md",
+        "plugins/feature/skills/flow/references/storage.md",
+        "plugins/feature/skills/setup/references/storage-fs.md",
+        "scripts/install-codex-local.sh"
+      ],
+      "turns": 36,
+      "weighted_units": 733551.1,
+      "first_turn_floor": 27500
+    },
+    {
+      "ticket": "FP-116",
+      "session": "13957db5-4e18-419c-b9d0-04e0b52cdc11",
+      "agent": "aa9255e14c044d662",
+      "exploration_date": "2026-09-20",
+      "explorer_started": "2026-09-22T11:41:10Z",
+      "tree_at_run": "c2ec757525bc",
+      "reads_total": 26,
+      "reads_ticket_artifacts": 2,
+      "reads_outside_repo": 0,
+      "reads_repo_calls": 24,
+      "reads_repo_files": 20,
+      "reads_already_cited": 13,
+      "reads_new": 7,
+      "read_calls_on_new_files_used_in_plan": 7,
+      "other_calls_total": 12,
+      "other_calls_by_tool": {
+        "Glob": 1,
+        "Grep": 11
+      },
+      "exploration_cited_files": 20,
+      "exploration_ambiguous_citations": 3,
+      "plan_cited_files": 20,
+      "new_paths_used_in_plan": [
+        "docs/contributing/tool-budgets.md",
+        "plugins/feature/.claude-plugin/plugin.json",
+        "plugins/feature/.codex-plugin/plugin.json",
+        "scripts/check-md-links.sh",
+        "scripts/check-mode-split.sh",
+        "scripts/check-runtime-contract.sh",
+        "scripts/check-tool-parity.sh"
+      ],
+      "new_paths_used_in_plan_not_spec_named": [
+        "docs/contributing/tool-budgets.md"
+      ],
+      "spec_named_paths": [
+        {
+          "path": "plugins/feature/.claude-plugin/plugin.json",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/.codex-plugin/plugin.json",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/docs/advanced.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/build/references/ui-attach.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/build/references/ui-checks.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/close-stage/SKILL.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": true
+        },
+        {
+          "path": "plugins/feature/skills/flow/SKILL.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/flow/references/runtime-claude.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": true
+        },
+        {
+          "path": "plugins/feature/skills/ship/references/storage-fs.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/feature/skills/ship/references/storage-server.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-md-links.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-mode-split.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-runtime-contract.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "scripts/check-tool-parity.sh",
+          "existed_at_run": true,
+          "cited_in_exploration": false,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        }
+      ],
+      "skip_test": {
+        "named_paths": 14,
+        "to_create": [],
+        "uncovered_by_exploration": [
+          "plugins/feature/.claude-plugin/plugin.json",
+          "plugins/feature/.codex-plugin/plugin.json",
+          "scripts/check-md-links.sh",
+          "scripts/check-mode-split.sh",
+          "scripts/check-runtime-contract.sh",
+          "scripts/check-tool-parity.sh"
+        ],
+        "uncovered_by_exploration_or_instructions": [],
+        "stale": [
+          "plugins/feature/skills/close-stage/SKILL.md",
+          "plugins/feature/skills/flow/references/runtime-claude.md"
+        ],
+        "outcome_exploration_only": "bounded",
+        "outcome_with_instruction_files": "bounded"
+      },
+      "already_cited_files": [
+        "plugins/feature/agents/ui-tester.md",
+        "plugins/feature/docs/advanced.md",
+        "plugins/feature/skills/build/references/ui-attach.md",
+        "plugins/feature/skills/build/references/ui-checks.md",
+        "plugins/feature/skills/close-stage/SKILL.md",
+        "plugins/feature/skills/close-stage/references/storage-fs.md",
+        "plugins/feature/skills/close-stage/references/storage-server.md",
+        "plugins/feature/skills/flow/SKILL.md",
+        "plugins/feature/skills/flow/references/runtime-claude.md",
+        "plugins/feature/skills/ship/SKILL.md",
+        "plugins/feature/skills/ship/references/storage-fs.md",
+        "plugins/feature/skills/ship/references/storage-server.md",
+        "plugins/feature/skills/ship/references/ui-verification.md"
+      ],
+      "new_files": [
+        "docs/contributing/tool-budgets.md",
+        "plugins/feature/.claude-plugin/plugin.json",
+        "plugins/feature/.codex-plugin/plugin.json",
+        "scripts/check-md-links.sh",
+        "scripts/check-mode-split.sh",
+        "scripts/check-runtime-contract.sh",
+        "scripts/check-tool-parity.sh"
+      ],
+      "turns": 19,
+      "weighted_units": 502106.8,
+      "first_turn_floor": 27643
+    },
+    {
+      "ticket": "FP-85",
+      "session": "012fe8f0-de55-467d-bedd-5746510a34e7",
+      "agent": "a0fa15b939ef79321",
+      "exploration_date": "2026-09-16",
+      "explorer_started": "2026-09-16T19:58:29Z",
+      "tree_at_run": "83b4499bc3b6",
+      "reads_total": 22,
+      "reads_ticket_artifacts": 0,
+      "reads_outside_repo": 6,
+      "reads_repo_calls": 16,
+      "reads_repo_files": 12,
+      "reads_already_cited": 6,
+      "reads_new": 6,
+      "read_calls_on_new_files_used_in_plan": 3,
+      "other_calls_total": 30,
+      "other_calls_by_tool": {
+        "Glob": 6,
+        "Grep": 24
+      },
+      "exploration_cited_files": 17,
+      "exploration_ambiguous_citations": 1,
+      "plan_cited_files": 16,
+      "new_paths_used_in_plan": [
+        "plugins/feature/skills/build/references/test-preflight.md",
+        "plugins/feature/skills/review/references/pr-comments.md",
+        "scripts/check-tool-parity.sh"
+      ],
+      "new_paths_used_in_plan_not_spec_named": [
+        "plugins/feature/skills/build/references/test-preflight.md",
+        "plugins/feature/skills/review/references/pr-comments.md",
+        "scripts/check-tool-parity.sh"
+      ],
+      "spec_named_paths": [
+        {
+          "path": "CLAUDE.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/tidy-loop/checks/CONTRACT.md",
+          "existed_at_run": false,
+          "cited_in_exploration": false,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/tidy-loop/checks/ts-vitest/coverage-hit.mjs",
+          "existed_at_run": false,
+          "cited_in_exploration": false,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/tidy-loop/checks/ts-vitest/exported-surface.mjs",
+          "existed_at_run": false,
+          "cited_in_exploration": false,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/tidy-loop/checks/ts-vitest/test-names.mjs",
+          "existed_at_run": false,
+          "cited_in_exploration": false,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        }
+      ],
+      "skip_test": {
+        "named_paths": 5,
+        "to_create": [
+          "plugins/tidy-loop/checks/CONTRACT.md",
+          "plugins/tidy-loop/checks/ts-vitest/coverage-hit.mjs",
+          "plugins/tidy-loop/checks/ts-vitest/exported-surface.mjs",
+          "plugins/tidy-loop/checks/ts-vitest/test-names.mjs"
+        ],
+        "uncovered_by_exploration": [],
+        "uncovered_by_exploration_or_instructions": [],
+        "stale": [],
+        "outcome_exploration_only": "skip (paths only)",
+        "outcome_with_instruction_files": "skip (paths only)"
+      },
+      "already_cited_files": [
+        "AGENTS.md",
+        "CLAUDE.md",
+        "plugins/tidy-loop/README.md",
+        "plugins/tidy-loop/skills/tidy-run/SKILL.md",
+        "plugins/tidy-loop/skills/tidy-setup/references/profile.md",
+        "scripts/check-mode-split.sh"
+      ],
+      "new_files": [
+        ".gitignore",
+        "plugins/feature/skills/build/references/test-preflight.md",
+        "plugins/feature/skills/review/references/pr-comments.md",
+        "plugins/tidy-loop/skills/tidy-run/references/gates.md",
+        "scripts/check-runtime-contract.sh",
+        "scripts/check-tool-parity.sh"
+      ],
+      "turns": 35,
+      "weighted_units": 611878.1,
+      "first_turn_floor": 48946
+    },
+    {
+      "ticket": "FP-86",
+      "session": "012fe8f0-de55-467d-bedd-5746510a34e7",
+      "agent": "a51c498b7a8dd2c4e",
+      "exploration_date": "2026-09-16",
+      "explorer_started": "2026-09-17T05:57:40Z",
+      "tree_at_run": "83b4499bc3b6",
+      "reads_total": 14,
+      "reads_ticket_artifacts": 1,
+      "reads_outside_repo": 0,
+      "reads_repo_calls": 13,
+      "reads_repo_files": 8,
+      "reads_already_cited": 2,
+      "reads_new": 6,
+      "read_calls_on_new_files_used_in_plan": 1,
+      "other_calls_total": 25,
+      "other_calls_by_tool": {
+        "Glob": 5,
+        "Grep": 17,
+        "WebFetch": 3
+      },
+      "exploration_cited_files": 17,
+      "exploration_ambiguous_citations": 1,
+      "plan_cited_files": 18,
+      "new_paths_used_in_plan": [
+        "plugins/tidy-loop/checks/ts-vitest/exported-surface.mjs"
+      ],
+      "new_paths_used_in_plan_not_spec_named": [
+        "plugins/tidy-loop/checks/ts-vitest/exported-surface.mjs"
+      ],
+      "spec_named_paths": [
+        {
+          "path": ".github/workflows/tidy-checks.yml",
+          "existed_at_run": false,
+          "cited_in_exploration": false,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "CLAUDE.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": true,
+          "changed_since_exploration": true
+        },
+        {
+          "path": "plugins/tidy-loop/checks/ts-vitest/verify-spec-patch.mjs",
+          "existed_at_run": false,
+          "cited_in_exploration": false,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        }
+      ],
+      "skip_test": {
+        "named_paths": 3,
+        "to_create": [
+          ".github/workflows/tidy-checks.yml",
+          "plugins/tidy-loop/checks/ts-vitest/verify-spec-patch.mjs"
+        ],
+        "uncovered_by_exploration": [],
+        "uncovered_by_exploration_or_instructions": [],
+        "stale": [
+          "CLAUDE.md"
+        ],
+        "outcome_exploration_only": "bounded",
+        "outcome_with_instruction_files": "bounded"
+      },
+      "already_cited_files": [
+        "plugins/feature/skills/build/references/worktree.md",
+        "plugins/tidy-loop/skills/tidy-setup/references/profile.md"
+      ],
+      "new_files": [
+        "plugins/tidy-loop/checks/fixtures/partial-extraction/node_modules/vitest/dist/chunks/cac.DdICfEr1.js",
+        "plugins/tidy-loop/checks/fixtures/partial-extraction/node_modules/vitest/dist/chunks/cli-api.BK8pd4xc.js",
+        "plugins/tidy-loop/checks/fixtures/partial-extraction/node_modules/vitest/dist/chunks/index.UpGiHP7g.js",
+        "plugins/tidy-loop/checks/ts-vitest/exported-surface.mjs",
+        "plugins/tidy-loop/skills/tidy-run/references/gates.md",
+        "scripts/check-tidy-checks.sh"
+      ],
+      "turns": 25,
+      "weighted_units": 490122.5,
+      "first_turn_floor": 47743
+    },
+    {
+      "ticket": "FP-87",
+      "session": "012fe8f0-de55-467d-bedd-5746510a34e7",
+      "agent": "a502425adddd0aaa4",
+      "exploration_date": "2026-09-16",
+      "explorer_started": "2026-09-16T21:14:14Z",
+      "tree_at_run": "83b4499bc3b6",
+      "reads_total": 18,
+      "reads_ticket_artifacts": 3,
+      "reads_outside_repo": 2,
+      "reads_repo_calls": 13,
+      "reads_repo_files": 13,
+      "reads_already_cited": 8,
+      "reads_new": 5,
+      "read_calls_on_new_files_used_in_plan": 2,
+      "other_calls_total": 23,
+      "other_calls_by_tool": {
+        "Glob": 8,
+        "Grep": 9,
+        "WebFetch": 6
+      },
+      "exploration_cited_files": 17,
+      "exploration_ambiguous_citations": 1,
+      "plan_cited_files": 13,
+      "new_paths_used_in_plan": [
+        "plugins/tidy-loop/checks/CONTRACT.md",
+        "plugins/tidy-loop/skills/tidy-run/references/ledger.md"
+      ],
+      "new_paths_used_in_plan_not_spec_named": [
+        "plugins/tidy-loop/checks/CONTRACT.md",
+        "plugins/tidy-loop/skills/tidy-run/references/ledger.md"
+      ],
+      "spec_named_paths": [
+        {
+          "path": "plugins/tidy-loop/checks/ts-vitest/coverage-hit.mjs",
+          "existed_at_run": false,
+          "cited_in_exploration": false,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/tidy-loop/skills/tidy-setup/SKILL.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/tidy-loop/skills/tidy-setup/references/profile.md",
+          "existed_at_run": true,
+          "cited_in_exploration": true,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        },
+        {
+          "path": "plugins/tidy-loop/skills/tidy-setup/references/queue.md",
+          "existed_at_run": false,
+          "cited_in_exploration": false,
+          "cited_in_instructions": false,
+          "changed_since_exploration": false
+        }
+      ],
+      "skip_test": {
+        "named_paths": 4,
+        "to_create": [
+          "plugins/tidy-loop/checks/ts-vitest/coverage-hit.mjs",
+          "plugins/tidy-loop/skills/tidy-setup/references/queue.md"
+        ],
+        "uncovered_by_exploration": [],
+        "uncovered_by_exploration_or_instructions": [],
+        "stale": [],
+        "outcome_exploration_only": "skip (paths only)",
+        "outcome_with_instruction_files": "skip (paths only)"
+      },
+      "already_cited_files": [
+        "plugins/feature/skills/build/references/worktree.md",
+        "plugins/feature/skills/flow/references/stage-briefs.md",
+        "plugins/tidy-loop/.claude-plugin/plugin.json",
+        "plugins/tidy-loop/.codex-plugin/plugin.json",
+        "plugins/tidy-loop/README.md",
+        "plugins/tidy-loop/skills/tidy-run/SKILL.md",
+        "plugins/tidy-loop/skills/tidy-setup/SKILL.md",
+        "plugins/tidy-loop/skills/tidy-setup/references/profile.md"
+      ],
+      "new_files": [
+        "plugins/feature/skills/flow/references/ticket-resolution-fs.md",
+        "plugins/tidy-loop/checks/CONTRACT.md",
+        "plugins/tidy-loop/skills/tidy-run/references/brief.md",
+        "plugins/tidy-loop/skills/tidy-run/references/gates.md",
+        "plugins/tidy-loop/skills/tidy-run/references/ledger.md"
+      ],
+      "turns": 25,
+      "weighted_units": 502294.7,
+      "first_turn_floor": 47885
+    }
+  ]
+}

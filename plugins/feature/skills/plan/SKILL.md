@@ -59,7 +59,7 @@ Use the canonical logic in [`ticket-resolution-fs.md`](../flow/references/ticket
 ## Required Input
 
 - `01-spec.md` — the ticket specification
-- `exploration.md` — optional, produced by `discover` if the ticket went through it; if present, used as a seed for incremental exploration. **Path depends on ticket shape**: at `<ticket-folder>/exploration.md` for solo tickets, or at `<epic-folder>/exploration.md` (one level above `tasks/<child>/`) for child tickets — see `ticket-resolution-fs.md` / `ticket-resolution-server.md` Step 5.
+- `exploration.md` — optional, produced by `discover` if the ticket went through it; if present, used as a seed: Step 1.2 tests its coverage and freshness and explores only what it leaves open. **Path depends on ticket shape**: at `<ticket-folder>/exploration.md` for solo tickets, or at `<epic-folder>/exploration.md` (one level above `tasks/<child>/`) for child tickets — see `ticket-resolution-fs.md` / `ticket-resolution-server.md` Step 5.
 
 Storage mechanics for both inputs: the Read artifact operation in [`storage-fs.md`](../flow/references/storage-fs.md) / [`storage-server.md`](../flow/references/storage-server.md), and Step 5 of [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) for where `exploration.md` lives, for the mode detected above.
 
@@ -90,25 +90,39 @@ Spawned automatically before plan design. Produces a tight synthesis the user ca
 Read all upfront inputs. Every ticket-store read below goes through the operations in [`storage-fs.md`](../flow/references/storage-fs.md) / [`storage-server.md`](../flow/references/storage-server.md), for the detected storage mode — spec/exploration/blocker artifacts via Read artifact, ticket metadata via Read ticket metadata; `complexity`, `blocked_by`, and `kind` always come from Read ticket metadata, never parsed out of artifact bodies:
 - `<ticket-folder>/01-spec.md` — the spec
 - `exploration.md` — discover-time exploration if present (path resolution per `ticket-resolution-fs.md` / `ticket-resolution-server.md` Step 5)
-- Project `CLAUDE.md` — conventions, lint/test commands, architectural rules (a local repo file, read with `Read` whatever the storage mode)
+- Project instruction files — `CLAUDE.md` and `AGENTS.md`, whichever exist — conventions, lint/test commands, architectural rules; Step 1.2's coverage test reads both (local repo files, read with `Read` whatever the storage mode)
 - **Blocker artifacts** — for each `blocked_by` entry, the blocker's `01-spec.md` and (if present) `02-plan.md` — optional artifacts, so apply the Read artifact operation's presence check first.
 - The cross-ticket lessons log, if the project has one. Consume it per the shared contract in [`lessons-log-fs.md`](../flow/references/lessons-log-fs.md) / [`lessons-log-server.md`](../flow/references/lessons-log-server.md) §8, for the detected storage mode — scoped by subject keywords derived from this ticket, never full-loaded. From the matches, **select at most 5 entries relevant to this ticket** — prefer the most specific. The selected entries — never the whole store — become the lessons block passed to the requirements-analyst subagent in Step 1.3, so prior gotchas (deviating tools, invalidated assumptions, naming gotchas after refactors) inform the open-questions surface at bounded context cost. No store, or no matching entries → omit the lessons block entirely.
 
-### Step 1.2 — Spawn `code-explorer` subagent (incremental)
-
-**If `exploration.md` exists**, prompt the explorer to do incremental work:
-
-> "Prior exploration has already been done for this feature by the discover stage. Here is that exploration: `<content of exploration.md>`. Your job is **incremental** — do NOT re-explore what's already covered. Read the ticket spec and identify what additional codebase context is needed for ticket-scoped implementation: specific files that will be modified, integration points not yet traced, edge cases the existing exploration missed. Focus on existing patterns relevant to the ticket's acceptance criteria, architecture layers the change will cross, and dependencies the change will touch. Project root: `<project-path>`. Return only the additional context beyond what's already in the prior exploration, with concrete `file:line` references."
+### Step 1.2 — Decide and spawn `code-explorer`
 
 **If no `exploration.md`**, prompt the explorer to do a full ticket-scoped sweep:
 
 > "Explore the codebase for project `<project>` to understand the areas relevant to: `<ticket title + description>`. Focus on: existing patterns relevant to the ticket's acceptance criteria, related files, architecture layers, and dependencies. Project root: `<project-path>`. Return concrete `file:line` references."
 
+The decision line for Step 1.4 is `Incremental exploration: none — no exploration.md, full sweep ran.`
+
+**If `exploration.md` exists**, decide in this context, before any spawn, whether the explorer runs and on what. `exploration.md` is a cache, and the explorer is spent only on what the cache does not hold:
+
+1. **Items.** From the spec's Description, Acceptance Criteria, Design Notes and Constraints — never Out of Scope — list every repo path the spec names, and every area it names without a path (a subsystem, a flow, a behaviour). A named path that does not exist in the project tree is a file the ticket creates, not an item.
+2. **Coverage.** A path item is covered when `exploration.md` cites it — in full, or by an unambiguous suffix such as `flow/SKILL.md:180` — or when the project instruction files (`CLAUDE.md` and `AGENTS.md`, whichever exist) name it. An area item is covered only when you can name the `exploration.md` citation that covers it; keep that citation beside the item. A spec that names only areas gets no skip for being thin: every area needs its citation.
+3. **Freshness.** Read the `**Date**:` line of `exploration.md`'s header. From the project root, run one `git log --since="<Date> 00:00" --name-only --format= -- <path> …` over the path items `exploration.md` covers and the file path of every covered area item's citation, each path quoted as its own argument after `--` and never any free text from the spec. Every path item it prints is stale, and so is every area item whose citation path it prints. An area citation whose path does not resolve to a file in the project tree cannot be checked, so its area item counts as uncovered. The `00:00` is load-bearing: given a bare date, git takes the current time of day and drops that day's earlier commits. A path covered only by the instruction files needs no check — those files are read as they stand.
+4. **Fail-safe.** Any of these puts every item in scope, so the explorer runs bounded and is never skipped: the header has no `**Date**:` line, or its value is not a `YYYY-MM-DD` date; `git log` exits non-zero; the project root is not a git work tree; the paths checked span more than one repository.
+5. **Decide.**
+   - Nothing uncovered and nothing stale → **skip** the explorer. The decision line is `Incremental exploration: skipped — fresh (<Date>), <N> spec items covered.`
+   - Otherwise → spawn the explorer on the scoped prompt below, labelled `Scoped exploration <ticket-id>` where the runtime's spawn takes a description. The decision line is `Incremental exploration: scoped to <M> item(s) — <item list>.`
+
+The scoped prompt, with the items listed one per line — an uncovered path, an uncovered area, `re-verify <path> (changed since <Date>)`, or `re-verify <area> (<citation path> changed since <Date>)`:
+
+> "Prior exploration has already been done for this feature by the discover stage. Here is that exploration: `<content of exploration.md>`. Your job is **incremental** and limited to these items, which that exploration does not cover or which changed after it was written: `<items>`. Trace thoroughly within these items only — the files each touches, its integration points, the patterns it should follow. Project root: `<project-path>`. Stop condition: return as soon as every listed item has a `file:line` answer. Do not re-read a file the prior exploration cites except at the lines it cites — unless it belongs to a `re-verify` item: its cited lines may have moved, so locate and read its current implementation wherever it now sits. Do not explore outside the listed items. Budget: about 6 read or search calls per listed item, `<6 × M>` in all — when it runs out, return what you have and name any item left open. Return only the context for the listed items, with concrete `file:line` references."
+
+The budget is a soft cap the explorer approximates, not a hard limit.
+
 ### Step 1.3 — Spawn `requirements-analyst` subagent (focused on open questions)
 
 The analyst's job here is **NOT** to write a long analysis. It's to surface a short, actionable Open Questions list.
 
-> "Review this feature spec against the codebase context to surface every open question whose answer materially shapes the implementation. Spec: `<ticket content>`. Codebase context: `<exploration.md content if present>` + `<incremental explorer output>`. Blocker context (if any): `<blocker spec(s) + plan(s) per Blocker Context format>`. Cross-ticket lessons (only if Step 1.1 selected any): `<the selected entries — at most 5>` — these are project-specific gotchas captured at prior tickets' exit gates; weight them when scanning for open questions, since a recurring constraint that bit a prior ticket is exactly the kind of question worth surfacing here.
+> "Review this feature spec against the codebase context to surface every open question whose answer materially shapes the implementation. Spec: `<ticket content>`. Codebase context: `<exploration.md content if present>` + `<explorer output, when Step 1.2 spawned it>`. Blocker context (if any): `<blocker spec(s) + plan(s) per Blocker Context format>`. Cross-ticket lessons (only if Step 1.1 selected any): `<the selected entries — at most 5>` — these are project-specific gotchas captured at prior tickets' exit gates; weight them when scanning for open questions, since a recurring constraint that bit a prior ticket is exactly the kind of question worth surfacing here.
 >
 > Guidance:
 > - Prefer few sharp questions over many shallow ones, but **never skip a real decision-making question** to hit a tidy count. If there are nine important questions, ask all nine. Quality bar: would skipping this question force the agent to assume something that could break the feature? If yes, ask it.
@@ -131,6 +145,8 @@ Format the output as a tight pre-plan-mode briefing:
 
 ```
 ## Pre-plan synthesis for <ticket-id>
+
+<the Step 1.2 decision line>
 
 **Codebase patterns to use** (top relevant, with file:line):
 - <pattern 1> — `<file:line>`
@@ -196,7 +212,7 @@ No native plan mode: do NOT call `EnterPlanMode`/`ExitPlanMode` (there is no app
 Every plan must contain these sections, in this order.
 
 ### Codebase Context
-Concrete patterns, files, and abstractions the implementation will use. Promoted from Phase 1's pre-plan synthesis. Each entry has a `file:line` reference.
+Concrete patterns, files, and abstractions the implementation will use. Promoted from Phase 1's pre-plan synthesis. Opens with the Step 1.2 decision line, then the entries; each entry has a `file:line` reference.
 
 ### Open Questions Resolved
 The Phase 1 questions list, with the user's answers (or "plan around it" notes) captured inline. This becomes the audit trail for which gaps were addressed and how.

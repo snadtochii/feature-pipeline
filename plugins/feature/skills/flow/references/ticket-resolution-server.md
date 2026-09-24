@@ -62,7 +62,7 @@ This is the centralized epic-handling rule. Stage skills inherit the refusal beh
 
 ## Step 5 — Locate exploration (when the stage needs it)
 
-`plan`'s Phase 1 synthesis reads `exploration.md` as a seed for incremental codebase exploration. Other stages may also reference it. Where it lives depends on the ticket shape:
+`plan`'s Phase 1 synthesis reads `exploration.md` as a seed: it tests the exploration's coverage and freshness and explores only what it leaves open. Other stages may also reference it. Where it lives depends on the ticket shape:
 
 - **Solo ticket**: the ticket's own `exploration.md` artifact.
 - **Child of an epic**: the **epic's** `exploration.md` artifact, shared across siblings — read from the parent epic's handle (resolved from the child row's `parent_id`).
