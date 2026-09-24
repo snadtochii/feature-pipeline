@@ -254,7 +254,8 @@ memory line is written only for a pull request that exists.
    ```
 
    with `<runs>/pack-full.md` in the same `mv` when §4 wrote it. The report's `pr:` line is
-   `pr: <url>`.
+   `pr: <url>` — that line is the delivered mark. The pack's location is not: every failure row
+   below moves it too, so it survives completion either way.
 
 **Draft, always.** Never `gh pr merge`, never auto-merge, never a retry without `--draft`. The
 run opens; a human merges or closes.
@@ -368,7 +369,10 @@ holding `pending`, and returns: the run skill's common abort takes it from there
 ### By hand
 
 A `pr: not opened` line, or a session that died after the push, leaves what a human needs to
-finish: the branch, the pack and the title. Run from `<CLONE>`, with an explicit `--head` —
+finish: the branch, the pack and the title. Until the `opened` line is in `memory.md`, nothing
+filters the candidate, so the next run's discover can pick it again — and after a failed memory
+write, with its pull request already open, deliver a second one. The run never retries on its
+own; finishing these steps is what closes that gap. Run from `<CLONE>`, with an explicit `--head` —
 `<CLONE>` sits on `base`, so `gh` would otherwise take `base` as the head:
 
 ```bash
