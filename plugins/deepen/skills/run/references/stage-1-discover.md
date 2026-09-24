@@ -64,7 +64,10 @@ Read `pin:` from the run state.
   carries the id — over `<state_dir>/reports/`, glob `*/1-discover.md`, with line numbers. The
   match in the lexically greatest `<run-id>` directory
   is the record: its `files`, `structural_key` and the other columns of
-  [candidates.md](candidates.md) §5. No match →
+  [candidates.md](candidates.md) §5. That is the newest date, not the newest run: two runs of
+  one day order by their random suffix. Rows for one id share the hashed `category`, `files` and
+  `structural_key`, so the choice only decides the unhashed columns — `name`, `tier`,
+  `next_change`, `est_diff_lines`, `adr_conflict`. No match →
   `discover: aborted — pin: <id> not found in any stage 1 report — pin by hint`.
 - **Anything else** → a hint, carried to the explorer as quoted data.
 
