@@ -178,7 +178,9 @@ Where the inventory's tier 2 checks call the app below the browser. Each entry h
 - **`coverage`** — optional and informational: the unit runner's own coverage command, recorded
   for the evidence pack. The touched-function measurement and its degradation key on
   `app.coverage_env` alone.
-- **`mutation`** — the mutation runner. `null` → the mutation row applies.
+- **`mutation`** — the mutation runner, invoked with the environment and output contract of the
+  run's verify stage ([stage-5-verify.md](../../run/references/stage-5-verify.md) §4). `null` →
+  the mutation row applies.
 
 ### `paths`
 

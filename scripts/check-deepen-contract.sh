@@ -31,6 +31,10 @@
 #     FENCE_MAP row and lists neither Agent nor Task;
 #   - an agent with no row lists none of Bash, Write, Edit, MultiEdit,
 #     NotebookEdit, Agent, Task;
+#   - plugins/deepen/skills/run/references/stage-5-verify.md carries, between
+#     `<!-- BEGIN confidence-scale -->` and `<!-- END confidence-scale -->`,
+#     exactly line 5 to the end of plugins/feature/skills/review-stage/
+#     references/confidence-scale.md — the reviewer rubric it inlines;
 #   - plugins/deepen/skills/run/scripts/hotspots.sh, candidate-id.sh and
 #     touched-coverage.mjs are executable and their --self-test reproduces the
 #     worked example of their contract (hotspots.md §8, candidates.md §4,
@@ -221,13 +225,35 @@ for path in agents:
     mode, set_name = fence_map[name]
     fenced.append(f"{name}: {mode} {set_name}")
 
+# The reviewer rubric. The verify stage spawns the feature plugin's reviewers
+# across plugins, where ${CLAUDE_PLUGIN_ROOT} resolves to deepen, so it inlines
+# feature's rubric instead of linking it; the copy must not drift from its source.
+verify_md = plugin / "skills/run/references/stage-5-verify.md"
+rubric_md = root / "plugins/feature/skills/review-stage/references/confidence-scale.md"
+rubric_fail = (
+    "stage-5-verify.md confidence-scale block differs from feature's "
+    "confidence-scale.md from line 5 to the end"
+)
+if not verify_md.is_file() or not rubric_md.is_file():
+    errors.append(rubric_fail)
+else:
+    inlined = re.search(
+        r"<!-- BEGIN confidence-scale -->\n(.*?)\n<!-- END confidence-scale -->",
+        verify_md.read_text(encoding="utf-8"),
+        re.S,
+    )
+    source = "\n".join(rubric_md.read_text(encoding="utf-8").split("\n")[4:]).rstrip("\n")
+    if not inlined or inlined.group(1) != source:
+        errors.append(rubric_fail)
+
 if errors:
     print("\n".join(f"FAIL: {error}" for error in errors), file=sys.stderr)
     sys.exit(1)
 print(
     f"OK: {len(agents)} deepen agents — {len(fenced)} fenced ({', '.join(fenced)}), "
     f"{len(read_only)} read-only; {len(table)} sets in fence.md, {len(fence_map)} FENCE_MAP rows; "
-    "hooks.json binds fence.sh on PreToolUse; hook executable"
+    "hooks.json binds fence.sh on PreToolUse; hook executable; "
+    "stage-5-verify.md rubric matches feature's confidence-scale.md"
 )
 PY
 

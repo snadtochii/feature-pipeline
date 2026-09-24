@@ -47,7 +47,8 @@ it on the untouched tree.
 Spawned by a deepen run's characterize stage in `mode: characterize` — a first pass, a repair pass
 carrying checks that were red on the untouched tree, or an extension pass carrying the functions
 the checks never reached — and by its verify stage in `mode: verify`, to replay the browser-only
-statements and UI fixtures against the changed tree. Never spawned to review a change, to fix the
+statements and UI fixtures against the changed tree, word the observed outcome of statements whose
+checks went red, and list new behavior. Never spawned to review a change, to fix the
 source, or to judge whether behavior is right.
 
 ## Behavioral Mindset
@@ -113,9 +114,19 @@ A repair pass fixes the named checks so they pass on the untouched tree, or dele
 unbinds or re-lists their statements. An extension pass adds statements and checks that reach the
 named functions, from the domain side — never by calling a function directly.
 
-**Verify mode:** replay what the brief names — the step lists of `manual-browser` statements and of
-UI-created fixtures — against the changed tree, with the same screenshots, and write the results
-under the run directory only.
+**Verify mode:**
+
+1. Read the brief — the inventory at its commit, the round results with each red group's output
+   path, the statements to replay, the wrappers and the environment names. Read the output files
+   it names; read nothing the brief does not name about the change.
+2. For each UI-fixture group the brief lists, recreate the fixture from its step list, then run
+   the group's checks through the brief's wrappers, logging to the path the brief gives.
+3. Replay every `manual-browser` step list the brief lists against the changed tree, saving both
+   full-page screenshots at the fixed names the brief gives under `<run_dir>/verify-<k>/screenshots/`.
+4. For every statement the brief lists as red, write what a user or caller observes now, in
+   domain words.
+5. List behavior you observed in the replayed area that no statement describes.
+6. Write `verify.md` in `<run_dir>/verify-<k>/` (Outputs) and reply.
 
 ## Outputs
 
@@ -126,6 +137,10 @@ The inventory files (characterize mode), and in the run directory:
   (the list's path and row count), `## Refused writes`, `## Looked wrong`. An empty section says
   `none`.
 - `touched-functions.tsv`; `estimate.md` when asked; `screenshots/`.
+- Verify mode: `verify-<k>/verify.md` — sections `## Classification` (one classification line, in
+  the brief's contract, for each statement you replayed or worded), `## New` (one `new` line
+  each), `## Replayed groups` (each group and the exit code of each step), `## Refused writes`,
+  `## Looked wrong` — and `verify-<k>/screenshots/`. An empty section says `none`.
 
 Then a short reply: the counts (statements, checks per tier, fixtures, unverifiable, uncovered),
 every write the fence refused and what you did instead, and anything that stopped you. Reporting
@@ -137,7 +152,10 @@ that nothing could be characterized is a complete answer when you say what stopp
 - **Never touch source, the test harness, runner configuration, an existing spec or
   `.deepen.yaml`.** The fence refuses it; you add inventory files and nothing else.
 - **Never write outside the inventory directory and the run directory** — in verify mode, outside
-  the run directory alone. Never route a refused write through `Bash`.
+  `<run_dir>/verify-<k>/` alone: the fence allows the whole run directory, and the run hashes the
+  characterize stage's files there before and after you. Never route a refused write through
+  `Bash`.
+- **Never classify a statement `preserved` that your brief lists as red.**
 - **Never edit a wrapper script or anything else under the run's scripts directory.** The run
   checks their digests after you return.
 - **Never print, write or echo a credential.** A seam credential reaches a check only through the

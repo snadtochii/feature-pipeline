@@ -9,9 +9,11 @@ the fixture matrix, the committed layout, and the check round that replays it.
   holds it. No other role can write under `paths.inventory`.
 - **Read by** the characterize stage ([stage-2-characterize.md](stage-2-characterize.md)), which
   replays it (§7) and summarizes it; the decide stage, which reads that summary and never the
-  checks; and the verify stage, which replays it against the changed tree.
-- **Inlined, never linked,** in the QA role's brief: §1–§6 travel verbatim as data, because a
-  spawned role follows no reference.
+  checks; and the verify stage, which replays it against the changed tree and classifies every
+  statement (§8), with a verify-mode QA spawn supplying the observed outcome of red statements and
+  the behavior no statement describes.
+- **Inlined, never linked,** in the QA role's brief: §1–§6 travel verbatim as data in
+  characterize mode, §1 and §8 in verify mode, because a spawned role follows no reference.
 
 `<inventory>` is `paths.inventory` (repo-relative, trailing `/`), `<slug>` the run's slug
 ([candidates.md](candidates.md) §6), `<run_dir>` the fence's `run_dir` ([fence.md](fence.md) §1).
@@ -199,3 +201,46 @@ check wrappers' output, already stripped of every seam credential by the wrapper
   `tier 2 wall time over two minutes — <s>s`, which is a report line, never a failure.
 - **Empty inventory** — zero statements leaves nothing to judge a change against, so the
   characterize stage ends aborted with `inventory: empty — <the QA role's reason>`.
+- **Round names** — the characterize stage names its rounds `m<r>`; the verify stage names its
+  rounds `v<k>`, so its round directories are `round-v<k>/` and never collide with the
+  characterize ones.
+
+---
+
+## §8 Classification
+
+What each statement does on the changed tree, recorded by the verify stage. The stage classifies
+every statement mechanically from its check round (§7) and the bindings (§2); a verify-mode QA
+spawn replays what the round cannot, words the observed outcome of red statements, and lists
+behavior no statement describes. Both write lines of these shapes and nothing else, and the stage
+validates every line against them before it reaches a report.
+
+One line per inventory statement, fields separated by ` | `:
+
+```
+<S-id> | preserved | <evidence>
+<S-id> | changed | before: <then> | after: <observed then>
+<S-id> | unverifiable | <reason>
+```
+
+| Field | Value |
+| --- | --- |
+| `<S-id>` | a statement id of this inventory (§1) |
+| `<evidence>` | the green check ids, joined with `, `; or `qa-session` — a check replayed in the QA spawn's session; or `manual-browser` — a step list replayed live |
+| `before:` | the statement's `<then>`, verbatim |
+| `after:` | what is observed now, in §1's prose rules |
+| `<reason>` | the inventory's own reason (§1); `not replayed — UI fixture`; `seam-auth-failed`; `group not executed`; or a one-line other reason |
+
+Then zero or more lines for behavior observed in the replayed area that no statement describes:
+
+```
+new | <domain term> | <given> | <when> | <then>
+```
+
+- **Prose rules as §1** — domain words, no implementation names, a `|` inside prose written `/`,
+  one line each.
+- **Class rules.** A statement is `preserved` only when every check it binds is green, and
+  `changed` when any is red — a statement bound in two groups, one red and one green, is
+  `changed`. A red statement is never `preserved`, whoever wrote the line.
+- **A `new` line is never committed.** It is recorded in the verify report only; the inventory
+  stays exactly as its commit left it.

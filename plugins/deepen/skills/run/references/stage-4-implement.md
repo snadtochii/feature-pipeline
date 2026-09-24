@@ -20,7 +20,11 @@ Bound by the run skill before this stage starts:
 | `<CLONE>`, `<BASE_SHA>`, `<state_dir>`, the profile as re-read | [preflight.md](preflight.md) §1–§4 |
 | `<run-id>`, `<slug>`, `<plugin-root>` | the run skill ([fence.md](fence.md), header) |
 | the decision record — `<state_dir>/reports/<run-id>/decision-record.md` | the decide stage |
-| `failing_check` — optional: a check command and its output tail | the verify stage's fix round |
+| `failing_check` — optional: a check command and its output tail | the verify stage's send-back |
+| `findings` — optional: the accepted review findings, one `F<k> \| <path>:<line> \| <finding> \| <why accepted>` line each, smallest first, with `attempt_cap` | the verify stage's fix round |
+
+`failing_check` and `findings` are mutually exclusive: one re-entry carries at most one of them.
+A re-entry with neither is never issued.
 
 The record's shape is [decision-record.md](decision-record.md). From it this stage reads the
 sections `Interface shape`, `Predicted changed statements`, `Rename map` (`modules:` /
@@ -90,8 +94,11 @@ only when the file is absent. A resumed run, and a re-entry from the verify stag
 recorded start: the wall clock is shared. `run.max_wall_time` converts to seconds (`m` × 60,
 `h` × 3600).
 
-**Before each implementer spawn**, stop when either bound is spent — attempts made equals
-`run.retries`, or now minus the recorded start is at least `run.max_wall_time` — and go to §6.
+**Budget.** The attempt budget is `run.retries`, except on a `findings` re-entry, whose budget is
+the `attempt_cap` it carries.
+
+**Before each implementer spawn**, stop when either bound is spent — attempts made equals the
+attempt budget, or now minus the recorded start is at least `run.max_wall_time` — and go to §6.
 A running attempt is never killed; the bound is checked between attempts.
 
 **Spawn** one `deepen:implementer`, a fresh instance, in the foreground. Its brief inlines, as
@@ -108,10 +115,16 @@ data, never as a link:
 4. The `implementer` set, exactly as written into the fence file for this spawn
    ([fence.md](fence.md) §3, §5), as never-write.
 5. The exclusion list as never-stage.
-6. The `rename_map:` reply contract, and that an absent block fails the attempt.
-7. `attempt <n> of <run.retries>`.
+6. The `rename_map:` reply contract, and that an absent block fails the attempt. On a `findings`
+   re-entry, also the `findings:` reply contract, and that an absent or malformed block fails the
+   attempt.
+7. `attempt <n> of <budget>`.
 8. On attempt 2 onward, the last 200 lines of the previous attempt's failure; on a re-entry's
-   first attempt, `failing_check`'s command and output tail.
+   first attempt, `failing_check`'s command and output tail. On a `findings` re-entry's first
+   attempt, the findings verbatim, as data, with the statement that they are authorized in
+   addition to the decision record and that nothing else is; on its later attempts, every finding
+   again, each with the outcome the previous reply reported, plus the failure tail — so the brief
+   always carries findings and the `findings:` block always has a line to give for each.
 
 **After it returns:**
 
@@ -122,6 +135,14 @@ data, never as a link:
    `needs-decision: implementer declared <entry>, which the decision record does not`. The
    spec-mover applies only declared entries, so an undeclared rename would leave the specs
    pointing at the old name.
+
+   3a. On a `findings` re-entry, parse the `findings:` block: one
+   `F<k>: applied` or `F<k>: not applied — <reason>` line per finding the brief carried. Each
+   `F<k>` must match `^F[0-9]{1,3}$` and be one of the brief's ids; a line naming any other id is
+   rejected, never trusted. An absent or malformed block, or a brief finding with no line → a
+   failed attempt, re-injected with what was wrong. Record each finding's latest outcome; the
+   reason is cleaned (controls stripped, `|` written `/`, cut at 200 characters) and reaches only
+   the report.
 4. **Spec-mover, once.** After the first implementer commit, when the record's rename map or
    spec delete list is non-empty and `paths.specs` is non-empty: write and self-test the fence for
    the `specs` role (§3), then spawn one `deepen:spec-mover`, fresh, in the foreground. Its brief
@@ -141,8 +162,9 @@ data, never as a link:
 **No runner.** `checks.runner` null → the stage makes exactly one attempt, and the report and the
 evidence pack both carry `stage 4: gate skipped — no runner`.
 
-**Re-entry.** The verify stage's fix round re-enters this section with `failing_check`: a fresh
-`run.retries` budget, the shared clock, the spec-mover not re-run. §1 and §2 run again first.
+**Re-entry.** The verify stage re-enters this section with `failing_check` (a send-back) or with
+`findings` (its fix round): a fresh attempt budget, the shared clock, the spec-mover not re-run.
+§1 and §2 run again first.
 
 ---
 
@@ -157,7 +179,7 @@ through [worktree.md](worktree.md) §7, never retried and never softened into a 
 
 ## §6 Exhaustion
 
-`run.retries` attempts made, or `run.max_wall_time` spent, without a green gate:
+The attempt budget used up, or `run.max_wall_time` spent, without a green gate:
 
 ```
 stage 4: exhausted — <n> attempts, <elapsed> — last failing check: <command>
@@ -166,6 +188,18 @@ stage 4: exhausted — <n> attempts, <elapsed> — last failing check: <command>
 The last output tail goes into `abort.md` as the deciding evidence, and the stage aborts through
 [worktree.md](worktree.md) §7.
 
+**A `findings` re-entry does not abort.** Its exhaustion writes, as the report's first line,
+
+```
+implement: fix round: exhausted — <n> attempts, <elapsed>
+```
+
+and returns to the verify stage without touching the worktree: the verify stage owns the reset
+to its pre-round commit, and a failed fix round costs the findings, never the verified change.
+With the wall time already spent before the first attempt, no attempt is made and every finding
+is recorded `not applied — wall time spent`. Exhaustion stays an abort for a first pass and for
+a `failing_check` re-entry.
+
 ---
 
 ## §7 Report
@@ -173,8 +207,9 @@ The last output tail goes into `abort.md` as the deciding evidence, and the stag
 `<state_dir>/reports/<run-id>/4-implement.md`, standing alone for a reader who did not watch:
 
 1. The first line — `implement: complete`, or `implement: aborted — <the line that aborted>`, or
-   `implement: needs-decision — <the needs-decision line>`.
-2. Attempts used of `run.retries`; elapsed of `run.max_wall_time`.
+   `implement: needs-decision — <the needs-decision line>`, or, after a `findings` re-entry only,
+   `implement: fix round: exhausted — <n> attempts, <elapsed>` (§6).
+2. Attempts used of the attempt budget; elapsed of `run.max_wall_time`.
 3. Every commit — sha, role, paths.
 4. Each implementer rename map, as declared.
 5. The spec-mover outcome — skipped with its reason, applied, or entries it could not apply.
@@ -183,5 +218,6 @@ The last output tail goes into `abort.md` as the deciding evidence, and the stag
 7. Degradations — `gate skipped — no runner`, `spec probes skipped — paths.specs is empty`, a
    skipped install.
 8. Every self-test result, with its probe paths.
-9. On a re-entry, the `failing_check` it started from, under its own heading; the earlier entries
-   are kept.
+9. On a re-entry, the `failing_check` it started from, under its own heading; on a `findings`
+   re-entry, a `## Fix round` heading with the findings it started from and each finding's latest
+   outcome — `applied`, or `not applied — <reason>`. The earlier entries are kept.
