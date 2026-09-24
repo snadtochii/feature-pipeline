@@ -172,11 +172,16 @@ digests before the next QA spawn, §1). No live seam left → tier 2 is skipped 
 Runtime coverage is written only when the server's Node process exits normally: a process that
 dies on a signal it does not handle writes nothing. So the stop asks first, then insists:
 
-1. `kill -INT -- -<pid>` (the whole group); wait up to 30 seconds for `kill -0 <pid>` to fail.
-2. Still alive → `kill -TERM -- -<pid>`; wait up to 10 seconds.
+1. `kill -TERM -- -<pid>` (the whole group); wait up to 30 seconds for `kill -0 <pid>` to fail.
+2. Still alive → `kill -INT -- -<pid>`; wait up to 10 seconds.
 3. Still alive → `kill -KILL -- -<pid>`. In a measurement round, the report line
-   `coverage lost — dev server did not exit on SIGINT/SIGTERM`.
+   `coverage lost — dev server did not exit on SIGTERM/SIGINT`.
 4. Remove `<runs>/dev.pid`.
+
+SIGTERM leads because it is the signal a dev server's own shutdown handler listens for — Vite's
+dev server registers a `SIGTERM` handler that closes the server and exits normally, and no
+`SIGINT` handler of its own. A server that handles only `SIGINT` dies on the `SIGTERM`, writes no
+coverage, and the round takes the estimate path below.
 
 A `dev.pid` whose process is already gone is removed and the stop is done. Every exit path of a
 stage that started a server — complete, needs-decision, abort — runs this first.
