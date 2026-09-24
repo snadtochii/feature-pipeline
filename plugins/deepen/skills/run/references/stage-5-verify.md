@@ -570,8 +570,9 @@ In this stage's own context, before any change, decide each finding:
    `security > correctness > architecture > performance`; the loser is `dismissed` with the
    tiebreak as its reason. A pair the order cannot settle → both `deferred (conflict)`.
 
-Write every finding with its decision into the report's `## Reviewers` section (§9) before §8
-changes anything. → §8.
+Write every finding with its decision into the report's `## Reviewers` section before §8
+changes anything — with `Edit` when the report exists, else held for its first `Write` (§9).
+→ §8.
 
 ---
 
@@ -582,7 +583,8 @@ and §9.
 
 Otherwise:
 
-1. **Before the round**, under `## Fix round`, with `Edit`:
+1. **Before the round**, under `## Fix round` — with `Edit` when the report exists, else held
+   for its first `Write` (§9):
    - `pre-round: <sha>` — `git -C "<WT>" rev-parse HEAD`;
    - `pre-fix: <counts per class> · architect <pass | fail — overridden> (failing: <questions, or
      none>) · mutation <the survivor count, or the §4 line>` — the first pass's results, which the
@@ -638,9 +640,15 @@ and §8 never run again. → §9.
 ## §9 Report and completion
 
 `<report>`, standing alone for a reader who did not watch. Written with `Write` when the stage
-first reaches a status, every heading present, each section not yet reached holding `pending`.
+first reaches a status — a stop, an abort or completion — every heading present, each section
+not yet reached holding `pending`. The grammar has no in-progress status, so until then the
+report does not exist: every line §1–§8 writes into it — §7's decisions and §8 step 1's
+`pre-round:` and `pre-fix:` included — is held in context and goes into that first `Write`.
 Later, `Edit` rewrites the status line, the `resume:` line and `## Options`, and replaces or
-appends each section's body; `## Decisions` is only ever appended to, by the run skill.
+appends each section's body; `## Decisions` is only ever appended to, by the run skill. A report
+that exists while §6–§8 run carries the last stop's `needs-decision` status, answered; it is
+rewritten at the next status. A `revert` answer reads `pre-round:` back only after a stop, and
+that stop's `Write` or `Edit` put the line in the report.
 
 1. The status line ([../SKILL.md](../SKILL.md) §3's grammar), and directly under it, while the
    status is `needs-decision` from §2, §3 or §5, the §0 `resume:` line.
