@@ -130,7 +130,7 @@ this table and the map in lockstep, and requires a row for every deepen agent th
 | --- | --- | --- | --- |
 | `implementer` | `deny-match` | `deepen:implementer` | `<inventory>**`, every `paths.specs` glob, `.deepen.yaml`, every `paths.forbidden` glob, `<run_dir>/**` |
 | `specs` | `allow-only` | `deepen:spec-mover` | every `paths.specs` glob |
-| `qa` | `allow-only` | `deepen:qa-characterizer` (stage 2 characterize, stage 5 verify) | characterize: `<inventory>**` and `<run_dir>/**`; verify: `<run_dir>/**` alone |
+| `qa` | `allow-only` | `deepen:qa-characterizer` (stage 2 characterize, stage 5 verify) | characterize: `<inventory><slug>/**` and `<run_dir>/**`; verify: `<run_dir>/**` alone |
 
 - **`implementer`** — everything the change is judged against, plus the QA directory. The
   implementer changes the source until the checks pass as written; it can never touch the checks.
@@ -153,7 +153,9 @@ Every set is derived from the profile as re-read by [preflight.md](preflight.md)
 copy read before the clone moved.
 
 - `paths.inventory` (`dir/`, trailing slash guaranteed by its class) → the repo-relative glob
-  `dir/**`, written `<inventory>**` in §3.
+  `dir/**`, written `<inventory>**` in §3; with the run's `<slug>`
+  ([candidates.md](candidates.md) §6 — `[a-z0-9-]` characters only, so no glob syntax) the repo-relative
+  glob `dir/<slug>/**`, written `<inventory><slug>/**`.
 - `paths.specs` and `paths.forbidden` globs → copied verbatim. They are already class-checked,
   repo-relative, with no leading `/` and no `..` segment
   ([profile.md](../../setup/references/profile.md) §3).
@@ -172,7 +174,9 @@ skill:
 
 1. Writes the whole file with `Write`: `run_id`, `repo_root`, `run_dir`, and all three sets. The
    `qa` set is written in characterize form only when the next spawn is a characterize-mode QA
-   spawn; every other spawn sees it in verify form — least privilege by default.
+   spawn; every other spawn sees it in verify form — least privilege by default. The characterize
+  form reaches this run's own inventory folder only, so an earlier run's kept net under
+  `<inventory>` stays unwritable.
 2. Refuses to write a set that is empty for the role about to be spawned. An empty set in
    `allow-only` mode denies every write, which is a fence that cannot be worked behind. For
    `specs`, an empty `paths.specs` means the spec-mover is skipped with a report line, not
@@ -206,7 +210,7 @@ run from the outside, so the fence is never assumed live. Before each fenced spa
 | --- | --- | --- |
 | implementer (`deepen:implementer`, `deny-match implementer`) | a real inventory file, and a real spec file | a real tracked source file matching no set |
 | spec-mover (`deepen:spec-mover`, `allow-only specs`) | a real tracked source file, and a real inventory file | a real spec file |
-| QA (`deepen:qa-characterizer`, `allow-only qa`) | a real tracked source file; in verify mode also a real inventory file | `<run_dir>/fence-probe`; in characterize mode also `<inventory>fence-probe` |
+| QA (`deepen:qa-characterizer`, `allow-only qa`) | a real tracked source file; in verify mode also a real inventory file; in characterize mode also a real inventory file outside `<inventory><slug>/`, when one exists | `<run_dir>/fence-probe`; in characterize mode also `<inventory><slug>/fence-probe` |
 
 **Probe paths are real files** from `git -C "<WT>" ls-files -z`, read per §7's path-set rule, never a glob's own text and never a
 path invented to look like one: a probe built from a glob can match it trivially while no real
@@ -281,7 +285,7 @@ inventory commit exists, and leaves its files uncommitted for the stage to commi
   previous bullet sets aside, from being grown by the role.
 
 The stage's own commit is then asserted by the stage itself: it is the first commit after
-`<BASE_SHA>`, every path under `paths.inventory`, the tree clean.
+`<BASE_SHA>`, every path under `<inventory><slug>/`, the tree clean.
 
 Any failure prints one report line,
 

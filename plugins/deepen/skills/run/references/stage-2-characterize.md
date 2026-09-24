@@ -108,7 +108,7 @@ coverage env.
 ## §4 Fence and brief
 
 1. **Fence** — [fence.md](fence.md) §5 steps 1–4 with the `qa` set in characterize form
-   (`<inventory>**` and `<run_dir>/**`), then its §6 probes for a characterize-mode QA spawn. A
+   (`<inventory><slug>/**` and `<run_dir>/**`), then its §6 probes for a characterize-mode QA spawn. A
    failed self-test aborts.
 2. **Script digests** — hash the wrappers and the exclusion list and keep the result in context
    ([dev-server.md](dev-server.md) §1, Digests).
@@ -208,17 +208,17 @@ Red after the repair pass → abort `characterize: aborted — checks red on the
    after writing the fence file ([fence.md](fence.md) §5 step 1). Any file allowed → abort
    `characterize: inventory files match paths.specs — <paths> — narrow paths.specs so no glob
    reaches <inventory> (run /deepen:setup)`.
-2. **Stage.** `git -C "<WT>" add -A -- "<inventory>"`, then unstage every exclusion-list path
-   ([worktree.md](worktree.md) §4). The staged set,
+2. **Stage.** `git -C "<WT>" add -A -- "<inventory><slug>/"`, then unstage every exclusion-list
+   path ([worktree.md](worktree.md) §4). The staged set,
    `git -C "<WT>" diff --cached -z --name-only --no-renames`, is non-empty and lies wholly under
-   `paths.inventory` — else abort naming the paths.
+   `<inventory><slug>/` — else abort naming the paths.
 3. **Commit** — `git -C "<WT>" commit -q -m "deepen: behavior inventory — <candidate-id> <name>"`.
 4. **Assert:**
    - the first line of `git -C "<WT>" rev-list --reverse "<BASE_SHA>..HEAD"` is `HEAD` — the
      inventory commit is the branch's first, and alone; `<INV_SHA>` is derived from the branch
      from here on, never stored;
    - every path of `git -C "<WT>" diff-tree -z --no-commit-id --name-only --no-renames -r HEAD`
-     lies under `paths.inventory`, and none is on the exclusion list;
+     lies under `<inventory><slug>/`, and none is on the exclusion list;
    - `git -C "<WT>" status --porcelain -z --no-renames` is empty, exclusion-list paths aside;
    - `git -C "<CLONE>" rev-parse "refs/heads/<base>"` still equals `<BASE_SHA>` — nothing was
      committed to the loop clone's `base`.
