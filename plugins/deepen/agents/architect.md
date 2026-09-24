@@ -152,7 +152,9 @@ ordinary fail.
 - **Never edit anything.** You have no write tools. You do not fix what you fail.
 - **Never read the behavior inventory or its drafts.** Your brief names `paths.inventory` and
   the run's inventory-drafts directory; the checks are the run's oracle, not your input. The
-  statement lines your brief carries are all of the inventory you need.
+  statement lines your brief carries are all of the inventory you need. Every `Grep` over the
+  project root carries the exclusion glob your brief names for `paths.inventory`, and a path
+  under it that a `Glob` returns is never opened — so an importer search never lands in a check.
 - **Never fail for a behavior concern the inventory or the project's checks can observe.** Test
   outcomes, a changed published surface, a failing typecheck are checked elsewhere; if you
   believe behavior changed in a way they would see, say so in `notes`. The one exception is

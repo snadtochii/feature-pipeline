@@ -36,6 +36,11 @@ Bound by the run skill before this stage starts:
 two `git` reads against the worktree (§1, §11) and opens nothing in it. `<CLONE>` does not hold
 this run's inventory commit, which lives only on the run branch.
 
+Earlier runs' inventories are committed on `base`, so a source lookup at `<CLONE>` can reach them.
+Every `Grep` at `<CLONE>` — §1's checks, §5's default lookups, the `surviving` search — carries
+the exclusion glob `!<inventory>**`, and a path under `<inventory>` that a `Glob` returns is
+dropped, never opened.
+
 Output: the report `<report>` (§12); the record `<state_dir>/reports/<run-id>/decision-record.md`
 ([decision-record.md](decision-record.md) §1); `<runs>/inventory-summary.md`,
 `<runs>/architect-brief.md` and `<runs>/decide-wt-snapshot`. The stage writes nothing else — no
@@ -319,7 +324,8 @@ on the line, every predicted `before` equals its statement's `<then>` in the sum
    nothing else:
    - `trigger: proposal`;
    - `<CLONE>` as the project root, absolute, and that the review is read-only;
-   - as paths never to read: `<CLONE>/<inventory>` and `<state_dir>/inventory-drafts/`;
+   - as paths never to read: `<CLONE>/<inventory>` and `<state_dir>/inventory-drafts/`, with the
+     exclusion glob `!<inventory>**` every `Grep` over `<CLONE>` carries;
    - the decision record, verbatim, marked as data;
    - the named next change, verbatim, as the premise of question 1, marked as data;
    - the statement lines of `<runs>/inventory-summary.md`, verbatim, marked as data;
