@@ -51,8 +51,22 @@ Read the report, when it exists, before anything else:
 - **Status `complete` or `aborted`** → return without touching anything.
 - **Status `needs-decision`** → take the last `decision:` line under `## Decisions`. `retry` → bind
   the worktree per [worktree.md](worktree.md) §3 (which re-reads the exclusion list), run §2 again,
-  and resume at the section the report's `resume:` line names (`§3` or `§6`). Any other text →
-  write the same question again with the same options. `abort` is the run skill's.
+  restore the loop state from the report's `resume:` line, and resume at the section it names.
+  Any other text → write the same question again with the same options. `abort` is the run
+  skill's.
+
+The `resume:` line carries everything the stage's loop needs to continue where it stopped rather
+than as a fresh first pass:
+
+```
+resume: <§3|§6> pass=<first|repair|extension> repair=<used|unused> extension=<used|unused> k=<k> r=<r>
+```
+
+`pass` is the pass in progress, `repair` and `extension` whether the stage's single repair pass and
+single extension pass were already spent, and `k` and `r` the spawn and round numbers in use when
+it stopped — the retried start reuses them, each a positive integer. The stage writes this line
+itself, so one that does not match the shape exactly aborts `characterize: aborted — unreadable
+resume line`.
 
 A re-entry never creates the worktree again. The rewritten report keeps the earlier `## Decisions`
 lines.
@@ -100,7 +114,8 @@ common abort.
 coverage env.
 
 - A port-busy or not-ready stop writes the report with `characterize: needs-decision — <the
-  line>`, the `## Options` of [dev-server.md](dev-server.md) §2 or §4, and `resume: §3`.
+  line>`, the `## Options` of [dev-server.md](dev-server.md) §2 or §4, and the §0 `resume:` line
+  naming `§3`.
 - Seam auth that drops every seam re-applies §2 step 5 before the spawn.
 
 ---
@@ -175,7 +190,7 @@ count>)`, and §7 takes the estimate path. The rest of this section applies to s
 Round `m<r>`, `r` counting from 1:
 
 1. [dev-server.md](dev-server.md) §2–§6 with the coverage env when `app.coverage_env` is set. A
-   port-busy or not-ready stop is a needs-decision as in §3, with `resume: §6`.
+   port-busy or not-ready stop is a needs-decision as in §3, its `resume:` line naming `§6`.
 2. The check round, [inventory.md](inventory.md) §7.
 3. Every `manual-browser` statement has both screenshots under `<run_dir>/screenshots/` — a
    missing one makes the statement red.
@@ -236,7 +251,7 @@ clear it.
 `<state_dir>/reports/<run-id>/2-characterize.md`, standing alone for a reader who did not watch:
 
 1. The status line — `characterize: complete`, `characterize: aborted — <the line>`, or
-   `characterize: needs-decision — <the line>` with `## Options` and a `resume:` line.
+   `characterize: needs-decision — <the line>` with `## Options` and the §0 `resume:` line.
 2. Directly under it, the coverage gap line when §7 left one.
 3. `## Degradations` — every line §2 step 4 and the dev-server procedure produced (readiness,
    `seam-auth-failed`, residue, coverage lost), §6's UI-fixture line, plus a skipped install.
