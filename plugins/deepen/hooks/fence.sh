@@ -43,12 +43,13 @@
 #   Otherwise no output and exit 0. The script never blocks by exit code.
 #
 # WHERE THE FENCE LIVES. `<common-dir>/deepen-fence.json`, beside the run lock in
-# the git common directory of the clone the call touches. The location is derived
-# from the payload — the directory of the target when it exists and sits inside a
-# repository, else the payload's `cwd` — because every worktree of a clone shares
-# one common dir: one file covers a run and its worktrees, and two clones running
-# at once never see each other's. A target in the QA run directory lies outside
-# every repository, so it always resolves through `cwd`, which is the run worktree.
+# the git common directory of the clone the spawn runs in. The location is derived
+# from the payload's `cwd` — the spawn's own clone or run worktree — and only when
+# `cwd` sits in no repository from the directory of the target, because every
+# worktree of a clone shares one common dir: one file covers a run and its
+# worktrees, and two clones running at once never see each other's. `cwd` comes
+# first so a write aimed into another clone is judged by this run's fence, whose
+# roots it lies outside, never by that clone's own fence.
 #
 # FAILS OPEN FOR READS, CLOSED FOR WRITES — for a deepen agent. Once dispatch has
 # matched a `deepen:` agent the call comes from a fenced role, so a write with
@@ -243,20 +244,36 @@ if [ "$bad_binding" -eq 1 ]; then
     no_fence "The write fence mapping for the deepen agent '$agent' is malformed, so its writes are refused."
 fi
 
-# Locate the clone from the call. `--path-format=absolute` is load-bearing: `-C`
-# selects the directory git resolves from, but `--git-common-dir` still prints a
-# path relative to it (plain `.git` for a non-linked checkout).
+# Resolve the path against the payload's cwd. The hook process's own working
+# directory is not a documented guarantee, so $PWD is only the last resort.
+case "$file_path" in
+    /*) abs="$file_path" ;;
+    *)
+        if [ -n "$hook_cwd" ]; then
+            abs="${hook_cwd%/}/$file_path"
+        else
+            abs="$PWD/$file_path"
+        fi
+        ;;
+esac
+
+# Locate the clone from the call: the payload's cwd first, the target's directory
+# only as the fallback (see the header). `--path-format=absolute` is load-bearing:
+# `-C` selects the directory git resolves from, but `--git-common-dir` still
+# prints a path relative to it (plain `.git` for a non-linked checkout).
 common_dir=""
-probe_dir=$(dirname -- "$file_path")
-if [ -d "$probe_dir" ]; then
-    common_dir=$(
-        git -C "$probe_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true
-    )
-fi
-if [ -z "$common_dir" ] && [ -n "$hook_cwd" ] && [ -d "$hook_cwd" ]; then
+if [ -n "$hook_cwd" ] && [ -d "$hook_cwd" ]; then
     common_dir=$(
         git -C "$hook_cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true
     )
+fi
+if [ -z "$common_dir" ]; then
+    probe_dir=$(dirname -- "$abs")
+    if [ -d "$probe_dir" ]; then
+        common_dir=$(
+            git -C "$probe_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true
+        )
+    fi
 fi
 if [ -z "$common_dir" ] || [ ! -d "$common_dir" ]; then
     no_fence "This path is not inside a repository this run fences."
@@ -278,19 +295,6 @@ fi
 if [ "$is_write" -eq 0 ]; then
     exit 0
 fi
-
-# Resolve the path against the payload's cwd. The hook process's own working
-# directory is not a documented guarantee, so $PWD is only the last resort.
-case "$file_path" in
-    /*) abs="$file_path" ;;
-    *)
-        if [ -n "$hook_cwd" ]; then
-            abs="${hook_cwd%/}/$file_path"
-        else
-            abs="$PWD/$file_path"
-        fi
-        ;;
-esac
 
 # Collapse `.` and `..` textually. Without this, `<repo_root>/../elsewhere/x`
 # would read as a path inside the root and be measured against the globs there.

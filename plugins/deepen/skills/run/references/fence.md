@@ -41,7 +41,10 @@ binds `<common-dir>` — the directory the run lock lives in
 ([preflight.md](preflight.md) §2). The fence sits beside the lock so it has the lock's scope:
 every worktree of the clone shares one common dir, so one file covers the clone and every run
 worktree hanging off it, while a run in a different clone cannot see it. The hook derives the
-location from the path it is asked about, never from a fixed path of its own.
+location from the payload's `cwd` — the spawn's own clone or run worktree — and from the target's
+directory only when `cwd` lies in no repository, never from a fixed path of its own. `cwd` comes
+first so a write aimed into another clone is judged by this run's fence, whose roots it lies
+outside, and is refused.
 
 **Shape.**
 
