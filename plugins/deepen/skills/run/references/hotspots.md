@@ -92,8 +92,9 @@ A churned path is measured when, in this order:
 
 A path matched by step 1 is **excluded**; a path dropped by step 2 or 3, or by §2's newline and
 tab rule, is **skipped**. Both counts cover the paths the walk considered before it reached 40
-measured files — a count of what the table left out on its way down, so an empty or thin table
-can never masquerade as a quiet repository.
+measured files, except §2's newline and tab paths: they leave the list before the walk, so every
+distinct one in the window is counted. Either way the counts say what the table left out, so an
+empty or thin table can never masquerade as a quiet repository.
 
 ---
 
