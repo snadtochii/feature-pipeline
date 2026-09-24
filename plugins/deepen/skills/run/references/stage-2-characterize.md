@@ -181,7 +181,8 @@ Round `m<r>`, `r` counting from 1:
    missing one makes the statement red.
 4. Red groups run once more on the same server; a group green on the rerun is recorded as flaky in
    the report.
-5. Stop the server ([dev-server.md](dev-server.md) §7).
+5. Stop the server ([dev-server.md](dev-server.md) §7), then read its residue again
+   ([dev-server.md](dev-server.md) §5).
 
 Still red → one **repair pass**: §3, §4 and §5 with the repair brief, then this section again.
 Red after the repair pass → abort `characterize: aborted — checks red on the untouched tree —

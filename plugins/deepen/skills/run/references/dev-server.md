@@ -137,8 +137,11 @@ run`.
 
 ## §5 Residue
 
-Right after ready, read `git -C "<WT>" status --porcelain -z --no-renames --untracked-files=all`
-NUL-delimited ([fence.md](fence.md) §7), exclusion-list paths aside:
+Right after ready, and again after the stop (§7) of a server no role used — a measurement round's —
+read `git -C "<WT>" status --porcelain -z --no-renames --untracked-files=all` NUL-delimited
+([fence.md](fence.md) §7), exclusion-list paths aside. The second read catches what a server writes
+only on first use — a database created by the first request with its `-wal`/`-shm` files, an
+upload directory, a log — before any clean-tree assertion reads the tree:
 
 - **An untracked path** — a cache, a local database, a log the server writes — joins the exclusion
   list in `<runs>/exclusions` ([worktree.md](worktree.md) §4), with the report line
@@ -149,6 +152,12 @@ NUL-delimited ([fence.md](fence.md) §7), exclusion-list paths aside:
   ```
   dev server rewrote tracked files on the untouched tree — <paths> — commit the regenerated files on <base>
   ```
+
+A path the server first writes while a QA role is using it cannot be told apart from a write the
+role made through a shell, so it is never added to the exclusion list then: the post-return check
+([fence.md](fence.md) §7, characterize clause) reports it as a `fence-violation` and the run aborts.
+The remedy is the same as for residue — add the path to the committed ignore file on `<base>` —
+after which every later run ignores it.
 
 ---
 
