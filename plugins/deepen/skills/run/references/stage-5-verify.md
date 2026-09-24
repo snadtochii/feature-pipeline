@@ -380,15 +380,24 @@ Otherwise, for round `k`:
    `file` and `line` optional:
 
    ```bash
-   jq -r '.survivors[] | [.mutator, .replacement, .function, (.file // ""), (.line // "")] | map(tostring) | @tsv' "<runs>/mutation-<k>.json" \
-     | tr -d '\000-\010\013\014\016-\037' | tr '|' '/' \
+   jq -rn 'input | .survivors | if type == "array" then .[] else error("survivors is not an array") end
+     | [.mutator, .replacement, .function, (.file // ""), (.line // "")] | map(tostring) | @tsv' \
+     "<runs>/mutation-<k>.json" > "<runs>/mutation-<k>.raw.tsv"
+   ```
+
+   and record `jq`'s exit code — `jq` runs alone, because a pipeline's status is its last
+   command's, so a parse error piped onward would read as an empty, green result. Non-zero —
+   stdout empty, not JSON, or without a `survivors` array → the line
+   `mutation: output not keyed — exit <n>`, with the last 40 lines of `mutation-<k>.json` and
+   `mutation-<k>.err` under `## Mutation`, and no survivor count. Zero → clean and key the rows:
+
+   ```bash
+   tr -d '\000-\010\013\014\016-\037' < "<runs>/mutation-<k>.raw.tsv" | tr '|' '/' \
      | LC_ALL=C sort -t "$(printf '\t')" -u -k1,3 > "<runs>/mutation-<k>.tsv"
    ```
 
    One row per key, sorted. Each field is cut to 200 characters when it is written into the
-   report as `<mutator> | <replacement> | <function> | <file>:<line>`. `jq` failing — the output is
-   not that document → the line `mutation: output not keyed — exit <n>`, with the last 40 lines of
-   `mutation-<k>.json` and `mutation-<k>.err` under `## Mutation`.
+   report as `<mutator> | <replacement> | <function> | <file>:<line>`.
 7. **Report-only.** A non-zero exit is the line `mutation: runner exited <n>`, and a call cut off
    by the timeout the line `mutation: runner did not finish within the tool's timeout` — never a
    stop. The section always says that the targets were passed and that the runner owns scoping, so
