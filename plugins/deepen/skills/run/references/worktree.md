@@ -97,6 +97,9 @@ Every path that comes back not ignored:
 
 This is the one check between a copied secrets file and a pushed branch.
 
+The dev server's untracked residue joins the same list, with its own report line
+([dev-server.md](dev-server.md) §5).
+
 ---
 
 ## §5 Install

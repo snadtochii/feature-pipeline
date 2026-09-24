@@ -346,6 +346,7 @@ covers both parts: a seam without a usable auth is left out of `seams`, so the s
 | capability | effect if missing |
 |---|---|
 | `feature` reviewers absent | `reviewer pass skipped — feature plugin reviewer agents not installed` |
+| browser tools absent | `tier 1 unavailable — browser tools not installed` |
 
 ---
 

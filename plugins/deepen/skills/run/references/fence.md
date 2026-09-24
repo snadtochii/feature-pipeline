@@ -22,7 +22,7 @@ and rewrites them, the self-test before every fenced spawn, and what counts as a
   write. The run skill binds `<plugin-root>` once, as the path `${CLAUDE_PLUGIN_ROOT}` resolves
   to — the root `hooks/hooks.json` names. A reference loaded with Read expands no variable, so
   every run-side call uses the bound path, never `${CLAUDE_PLUGIN_ROOT}` or a bare `fence.sh`.
-- **Cited by** the run skill's stage 2 (characterize), stage 4
+- **Cited by** the run skill's stage 2 ([stage-2-characterize.md](stage-2-characterize.md)), stage 4
   ([stage-4-implement.md](stage-4-implement.md)) and stage 5 (verify, and the fix round) bodies,
   and by [worktree.md](worktree.md) for clearing the file. Each cites the section it needs and
   never restates it.
@@ -236,7 +236,8 @@ are mandatory for that reason.
 A **fence violation** is a write that landed outside the role's allowed set.
 
 **Path sets are read NUL-delimited.** Every git command that lists paths for the fence — here, in
-§6, in [stage-4-implement.md](stage-4-implement.md) and in [worktree.md](worktree.md) — runs with
+§6, in [stage-2-characterize.md](stage-2-characterize.md), [stage-4-implement.md](stage-4-implement.md),
+[worktree.md](worktree.md) and [dev-server.md](dev-server.md) — runs with
 `-z`, and its output is read one path at a time with `while IFS= read -r -d '' p; do …; done`.
 Without `-z`, git C-quotes a path holding a non-ASCII or control byte (`core.quotePath`), so
 `inv/é.md` arrives as `"inv/\303\251.md"`; a quoted path matches no glob, and under `deny-match`
@@ -244,7 +245,8 @@ it would be allowed. A `status --porcelain -z` record is `XY <path>`, so its pat
 `--no-renames` keeps each record to one path. Every path reaches a payload as the absolute
 `<WT>/<p>`.
 
-After every agent return — with a commit or without — the run asserts:
+After every agent return — with a commit or without — the run asserts the list below; a
+characterize-mode QA return takes the characterize clause after it instead:
 
 - **Commit paths** — every path in
   `git -C "<WT>" diff -z --name-only --no-renames "<prev>..HEAD"`, piped through
@@ -260,7 +262,26 @@ After every agent return — with a commit or without — the run asserts:
   an earlier commit fails it.
 - **Inventory commit unchanged** — the first commit after `<BASE_SHA>` is still `<INV_SHA>`.
 - **Fence file unchanged** — the digest recorded in §5 step 3.
+- **Wrappers unchanged** — for a QA return, the wrapper scripts and the exclusion list hash as
+  they did right before the spawn ([dev-server.md](dev-server.md) §1, Digests).
 - **No exclusion-list path committed.**
+
+**Characterize clause.** A characterize-mode QA spawn makes no commit by design, runs before any
+inventory commit exists, and leaves its files uncommitted for the stage to commit
+([stage-2-characterize.md](stage-2-characterize.md) §8). After its return the run asserts:
+
+- **No commit** — `git -C "<WT>" rev-parse HEAD` equals `<prev>`.
+- **Every changed path is in the set** — each path of
+  `git -C "<WT>" status --porcelain -z --no-renames --untracked-files=all` (`${p:3}`), the
+  exclusion list aside, piped through `"<plugin-root>/hooks/fence.sh"` as a `Write` payload with
+  `agent_type: "deepen:qa-characterizer"` while the fence file holds the characterize form. Any
+  denial is a violation — a source file edited through a shell shows up here.
+- **Fence file unchanged** — the digest recorded in §5 step 3.
+- **Wrappers unchanged** — as in the list above; this is what keeps the exclusion list, which the
+  previous bullet sets aside, from being grown by the role.
+
+The stage's own commit is then asserted by the stage itself: it is the first commit after
+`<BASE_SHA>`, every path under `paths.inventory`, the tree clean.
 
 Any failure prints one report line,
 
