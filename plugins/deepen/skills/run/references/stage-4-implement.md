@@ -19,12 +19,12 @@ Bound by the run skill before this stage starts:
 | --- | --- |
 | `<CLONE>`, `<BASE_SHA>`, `<state_dir>`, the profile as re-read | [preflight.md](preflight.md) §1–§4 |
 | `<run-id>`, `<slug>`, `<plugin-root>` | the run skill ([fence.md](fence.md), header) |
-| the decision record — `<state_dir>/reports/<run-id>/` | the decide stage |
+| the decision record — `<state_dir>/reports/<run-id>/decision-record.md` | the decide stage |
 | `failing_check` — optional: a check command and its output tail | the verify stage's fix round |
 
-From the decision record this stage reads: the declared interface change, the predicted behavior
-changes, the declared rename map (`modules:` / `symbols:`), the declared spec delete list, and
-the proposed `CONTEXT.md` and ADR diffs.
+The record's shape is [decision-record.md](decision-record.md). From it this stage reads the
+sections `Interface shape`, `Predicted changed statements`, `Rename map` (`modules:` /
+`symbols:`), `Spec delete list`, and `Proposed CONTEXT.md and ADR diffs` (decision-record.md §2).
 
 Output: commits on `<branch>` and the stage report `<state_dir>/reports/<run-id>/4-implement.md`
 (§7).
@@ -60,9 +60,10 @@ that cannot be implemented as approved stops here rather than burning attempts.
 Write the fence file per [fence.md](fence.md) §5 step 1, then probe with the hook: pipe a payload
 in [fence.md](fence.md) §6's shape to `"<plugin-root>/hooks/fence.sh"` for
 
-- each target of the record's `CONTEXT.md` and ADR diffs, with `agent_type: "deepen:implementer"`;
-- each destination of the rename map's spec moves, and each path on the spec delete list, with
-  `agent_type: "deepen:spec-mover"`.
+- each path on the record's `targets:` line — its `CONTEXT.md` and ADR diffs — with
+  `agent_type: "deepen:implementer"`;
+- each destination of the rename map's spec moves, and each path on the spec delete list
+  ([decision-record.md](decision-record.md) §2), with `agent_type: "deepen:spec-mover"`.
 
 Any denial stops the run for a human:
 

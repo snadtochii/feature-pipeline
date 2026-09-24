@@ -266,7 +266,8 @@ clear it.
 4. `## Inventory summary` — what the decide stage reads, and the only part it reads: the statement
    lines verbatim, the fixture matrix with the fixture count and how each was created, the
    coverage line or lines, the uncovered list, the unverifiable list. No check code and no check
-   paths.
+   paths, and plain lines only — no fenced block: the decide stage aborts on one
+   ([stage-3-decide.md](stage-3-decide.md) §2).
 5. `## Checks` — per check id: tier, fixture group, and its result in each round; flaky groups;
    `tier 2 wall time: <s>s`, and the over-two-minutes line when it applies.
 6. `## Coverage` — the method, the numbers, the reason on an estimate, the browser sub-line, the

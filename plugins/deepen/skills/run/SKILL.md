@@ -39,7 +39,8 @@ It composes these contracts and restates none of them:
   [references/candidates.md](references/candidates.md),
   [references/memory.md](references/memory.md),
   [references/inventory.md](references/inventory.md),
-  [references/coverage.md](references/coverage.md).
+  [references/coverage.md](references/coverage.md),
+  [references/decision-record.md](references/decision-record.md).
 - [../setup/references/profile.md](../setup/references/profile.md) — the profile, and the state
   layout (§5) every path below lives in.
 
@@ -149,7 +150,7 @@ state, command scripts, the exclusion list, the stage clock — under `<state_di
 | --- | --- | --- | --- | --- | --- |
 | 1 | discover | [references/stage-1-discover.md](references/stage-1-discover.md) | `1-discover.md` | the repo, `CONTEXT.md`, `docs/adr/`, `memory.md`, the pin | the report; `candidate_id` and `slug` in the run state; `memory.md` reconciliation rewrites |
 | 2 | characterize | [references/stage-2-characterize.md](references/stage-2-characterize.md) | `2-characterize.md` | the pick, the repo, the profile, the running app — never a plan | the run worktree; the inventory and its checks as their own commit on `<BASE_SHA>`; drafts and screenshots |
-| 3 | decide | `references/stage-3-decide.md` | `3-decide.md` | the pick, the inventory summary — never the checks | `decision-record.md`; `CONTEXT.md` and ADR edits proposed in it |
+| 3 | decide | [references/stage-3-decide.md](references/stage-3-decide.md) | `3-decide.md` | the pick, the inventory summary, the source at `<CLONE>` outside `paths.inventory` — never the checks | `decision-record.md`, with the `CONTEXT.md` and ADR edits proposed in it; no working tree |
 | 4 | implement | [references/stage-4-implement.md](references/stage-4-implement.md) | `4-implement.md` | the decision record, the repo | source commits on the run branch |
 | 5 | verify | `references/stage-5-verify.md` | `5-verify.md` | the changed tree, the inventory, the decision record | the verification report |
 | 6 | deliver | `references/stage-6-deliver.md` | `6-deliver.md` | every report | the draft pull request, `memory.md`, worktree teardown |
@@ -167,11 +168,14 @@ Every stage report opens with exactly one status line:
 ```
 <stage>: complete
 <stage>: complete — no candidate
+<stage>: complete — declined
 <stage>: aborted — <the line that aborted it>
 <stage>: needs-decision — <the question>
 ```
 
-`<stage>` is the name in the table. `complete — no candidate` is the discover stage's alone. A
+`<stage>` is the name in the table. `complete — no candidate` is the discover stage's alone;
+`complete — declined` is the decide stage's alone, and the line directly under it is
+`declined: <reason>`. A
 `needs-decision` report whose stop takes an answer carries an `## Options` section — one
 `- <label> — <what choosing it does>` line per answer, at most four, labels a few words each. When
 the options fill four slots, one of them ends the run, and the stage says which. A report with no
@@ -193,6 +197,8 @@ For each stage `n` from the run state's `stage` up to 6:
 4. **Read the report's status line** and act on it:
    - `complete` → set `stage: <n+1>` in the run state and continue.
    - `complete — no candidate` → the run ends clean: §7, with no later stage run.
+   - `complete — declined` → set `stage: 6` in the run state and continue: the deliver stage
+     records the decline and tears the run down without opening a pull request.
    - `needs-decision` → §5.
    - `aborted` → the common abort (§6).
 
@@ -211,7 +217,8 @@ After stage 6 reports `complete` → §7.
    `pause — keep the lock and the evidence; the run stops here` and the `abort` above.
 2. Append `decision: <the answer, verbatim>` under the report's `## Decisions` heading with
    `Edit` — creating the heading at the end of the report when absent. A free-text answer is
-   recorded the same way; the stage decides what it means.
+   recorded the same way; the stage decides what it means. Newlines in an answer are flattened to
+   ` / ` first, so every `decision:` is one line.
 3. `abort` → the common abort (§6), the aborting line `<stage>: aborted by the human at
    needs-decision`. `pause` → the pause below. Any other answer to a report with `## Options` →
    re-enter the same stage from the top of its body; such a body opens with a re-entry check that

@@ -197,7 +197,8 @@ Where the inventory's tier 2 checks call the app below the browser. Each entry h
 
 - **`split_above`** — advisory, never a rejection: when the decide stage's diff estimate exceeds
   it, the run proposes a sequence of independently verifiable pull requests for the human to
-  confirm or override. There are no size caps.
+  confirm or override. There are no size caps. The estimate and this threshold share one unit,
+  defined in [decision-record.md](../../run/references/decision-record.md) §4.
 - **`retries`** — implementer attempts per failing check round.
 - **`max_wall_time`** — wall-time bound on the implementer.
 - **`coverage_threshold`** — the touched-function coverage percentage below which a run extends

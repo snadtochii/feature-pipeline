@@ -41,6 +41,16 @@ Stage 2 (characterize) creates the run worktree at the base commit, has the fenc
 plan, replays every check itself, measures how much of the candidate's functions the checks reach,
 and commits the inventory alone as the run branch's first commit, before any source change.
 
+Stage 3 (decide) asks the human one question at a time — the interface shape, what sits behind the
+seam, which existing tests survive and which are deleted, the rename map, the glossary terms, and
+which inventory statements are expected to change — each with a proposed default. It reads the
+inventory's summary and never its checks, and writes to no working tree: the answers become the
+run's decision record, with `CONTEXT.md` and ADR edits carried in it as proposed diffs
+that the implementer applies in stage 4. The read-only `architect` agent then judges the record
+against the human's named next change; a fail is the human's call to revise, override or decline.
+When the estimated diff exceeds `run.split_above`, the architect proposes a sequence of
+independently verifiable pull requests for the human to confirm or override.
+
 ## Configuration
 
 The profile contract — schema, field semantics, grammar, validation rules and state layout — is

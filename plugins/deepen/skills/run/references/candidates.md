@@ -31,7 +31,7 @@ one `notes:` line.
 | `files` | the repo-relative paths of the cluster, comma-separated, no spaces |
 | `structural_key` | §3 |
 | `next_change` | one line: the named next change this deepening makes cheaper |
-| `est_diff_lines` | an integer: the estimated lines of diff the deepening itself takes |
+| `est_diff_lines` | an integer: the estimated diff lines the deepening itself takes, in the measure [decision-record.md](decision-record.md) §4 defines |
 | `deletion_test` | one line: what deleting the shallow module would do — complexity vanishes, or reappears across N callers |
 | `friction` | one line: the friction met while walking the code that marks this cluster |
 | `adr_conflict` | `<adr path> — <one line on why the friction may warrant reopening it>`, or `none` |
