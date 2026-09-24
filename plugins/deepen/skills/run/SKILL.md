@@ -106,7 +106,10 @@ binding `<CLONE>`, `<state_dir>`, the profile and `<BASE_SHA>`.
   A takeover line, when §2 printed one, is carried into the run state below.
 - **Right after the lock**, create the run's two directories — `mkdir "<state_dir>/reports/<run-id>"`
   and `mkdir "<state_dir>/runs/<run-id>"`, without `-p`. A failure means the run id collided with
-  an earlier run's: abort (§6).
+  an earlier run's, whose directories the common abort would write into and clean — so this stop
+  bypasses §6: `rmdir` the directory the first `mkdir` created when only the second failed,
+  release the lock as §6 step 3, print `run: aborted — run id <run-id> collides with an earlier
+  run's directories`, and stop. Nothing is written into either directory.
 - **§3–§5 stops** after the lock go through the common abort (§6), which releases it.
 
 Then write the **run state**, `<state_dir>/runs/<run-id>/run-state`, with `Write` — one
