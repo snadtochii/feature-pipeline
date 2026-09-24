@@ -45,5 +45,8 @@ jobs:
       - name: Runtime contract
         run: bash scripts/check-runtime-contract.sh
 
+      - name: Deepen contract
+        run: bash scripts/check-deepen-contract.sh
+
       - name: Setup detection fixtures
         run: bash scripts/check-setup-detect.sh
