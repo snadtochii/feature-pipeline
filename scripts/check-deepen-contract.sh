@@ -33,8 +33,8 @@
 #     NotebookEdit, Agent, Task;
 #   - plugins/deepen/skills/run/references/stage-5-verify.md carries, between
 #     `<!-- BEGIN confidence-scale -->` and `<!-- END confidence-scale -->`,
-#     exactly lines 5-15 of plugins/feature/skills/review-stage/references/
-#     confidence-scale.md — the reviewer rubric it inlines;
+#     exactly line 5 to the end of plugins/feature/skills/review-stage/
+#     references/confidence-scale.md — the reviewer rubric it inlines;
 #   - plugins/deepen/skills/run/scripts/hotspots.sh, candidate-id.sh and
 #     touched-coverage.mjs are executable and their --self-test reproduces the
 #     worked example of their contract (hotspots.md §8, candidates.md §4,
@@ -232,7 +232,7 @@ verify_md = plugin / "skills/run/references/stage-5-verify.md"
 rubric_md = root / "plugins/feature/skills/review-stage/references/confidence-scale.md"
 rubric_fail = (
     "stage-5-verify.md confidence-scale block differs from feature's "
-    "confidence-scale.md lines 5-15"
+    "confidence-scale.md from line 5 to the end"
 )
 if not verify_md.is_file() or not rubric_md.is_file():
     errors.append(rubric_fail)
@@ -242,7 +242,7 @@ else:
         verify_md.read_text(encoding="utf-8"),
         re.S,
     )
-    source = "\n".join(rubric_md.read_text(encoding="utf-8").split("\n")[4:15])
+    source = "\n".join(rubric_md.read_text(encoding="utf-8").split("\n")[4:]).rstrip("\n")
     if not inlined or inlined.group(1) != source:
         errors.append(rubric_fail)
 
