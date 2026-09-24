@@ -52,14 +52,24 @@ so the absolute form also makes the lock cover the clone and all its run worktre
   file, and every abort a later stage adds.
 - **Fails, and the lock is younger than 24 hours** → another run is live. Abort, naming the
   lock's recorded run id, and write nothing.
-- **Fails, and the lock is older than 24 hours** → no legitimate run takes a day. Remove it,
-  take over, and **say so loudly**: the takeover is the first line of the stage 1 report and a
-  line in the evidence pack, naming the stale run id and its timestamp. A stale lock means a
-  previous run died, and what it left behind is residue a human should look at.
+- **Fails, and the lock is older than 24 hours** → no legitimate run takes a day. Take it over,
+  and **say so loudly**: the takeover is the first line of the stage 1 report and a line in the
+  evidence pack, naming the stale run id and its timestamp. A stale lock means a previous run
+  died, and what it left behind is residue a human should look at.
 
-A lock whose recorded run id or timestamp is missing or unreadable is treated as **live**, not
-as stale: the timestamp is what ages a lock, and an unreadable one belongs to a run that died
-between `mkdir` and the write, which was moments ago.
+**Age.** A lock's age comes from its recorded timestamp. When the run id or timestamp is missing
+or unreadable — a run that died between `mkdir` and the write — the age comes from the lock
+directory's own modification time instead, so such a lock is live for 24 hours and stale after,
+like any other. An abort on such a lock names no run id; its remedy line is
+`rmdir <common-dir>/deepen.lock` once no run is live.
+
+**Takeover.** Two runs can see the same stale lock. Immediately before removing it, re-read its
+recorded run id and timestamp (with no readable metadata, its modification time); remove it only when they still match what was read as stale, and
+otherwise re-evaluate from the top of this section. After the removal, `mkdir` exactly once: a
+failure means another run took the lock first, so abort as for a live lock. Never remove the lock
+a second time. A remaining window — another run's takeover landing between the re-read and the
+removal — is accepted, because runs are started by hand and a stale lock is already an incident a
+human looks at.
 
 ---
 
