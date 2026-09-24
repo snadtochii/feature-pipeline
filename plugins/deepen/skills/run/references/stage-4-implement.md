@@ -40,10 +40,13 @@ In order; each failure aborts per [worktree.md](worktree.md) §7 with the line s
 3. **The inventory commit precedes the change.** Bind `<INV_SHA>` to the first line of
    `git -C "<WT>" rev-list --reverse "<BASE_SHA>..HEAD"`. None → `stage 4: no inventory commit on
    <branch>`. Every path of
-   `git -C "<WT>" diff-tree --no-commit-id --name-only --no-renames -r "<INV_SHA>"` must lie under
+   `git -C "<WT>" diff-tree -z --no-commit-id --name-only --no-renames -r "<INV_SHA>"` must lie under
    `paths.inventory` — else `stage 4: <INV_SHA> touches paths outside paths.inventory — <paths>`.
    The oracle must exist, alone, before any change is made against it.
-4. The tree is clean — `git -C "<WT>" status --porcelain` empty, exclusion-list paths aside.
+4. The tree is clean — `git -C "<WT>" status --porcelain -z --no-renames` empty, exclusion-list
+   paths aside.
+
+Every path set in this stage is read NUL-delimited, per [fence.md](fence.md) §7.
 
 `<INV_SHA>` is derived from the branch every time, never stored.
 
@@ -119,7 +122,7 @@ data, never as a link:
    inlines `<WT>`, the declared rename map, the declared spec delete list, every `paths.specs`
    glob, the check command and the exclusion list. Then §5's assertions for the `specs` role,
    plus: every path deleted in its commit
-   (`git -C "<WT>" diff --name-only --no-renames --diff-filter=D "<prev>..HEAD"`) is on the
+   (`git -C "<WT>" diff -z --name-only --no-renames --diff-filter=D "<prev>..HEAD"`) is on the
    declared delete list. No commit is a valid outcome. Otherwise the spec-mover is skipped, with
    the reason in the report. It never runs again in this stage, on any attempt or re-entry — its
    input is the decision record, which does not change.

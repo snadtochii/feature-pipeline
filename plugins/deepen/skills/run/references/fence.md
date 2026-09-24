@@ -195,8 +195,8 @@ run from the outside, so the fence is never assumed live. Before each fenced spa
 2. `<plugin-root>/hooks/fence.sh` exists and is executable — the script `hooks/hooks.json`
    names through `${CLAUDE_PLUGIN_ROOT}`.
 3. Build a `PreToolUse` payload with `jq -n` — `agent_type` the spawn's own agent
-   (`deepen:<agent>`, §3), `tool_name: "Write"`, `tool_input.file_path` the probe path, `cwd` =
-   `<WT>` — and pipe it to the script.
+   (`deepen:<agent>`, §3), `tool_name: "Write"`, `tool_input.file_path` the probe path as the
+   absolute `<WT>/<path>`, `cwd` = `<WT>` — and pipe it to the script.
    Two probes per spawn, one in each direction, so a fence that denies everything cannot pass:
    one must print `permissionDecision: "deny"`, the other must print nothing.
 
@@ -206,7 +206,7 @@ run from the outside, so the fence is never assumed live. Before each fenced spa
 | spec-mover (`deepen:spec-mover`, `allow-only specs`) | a real tracked source file | a real spec file |
 | QA (`deepen:qa-characterizer`, `allow-only qa`) | a real tracked source file | `<run_dir>/fence-probe`; in characterize mode also `<inventory>fence-probe` |
 
-**Probe paths are real files** from `git -C "<WT>" ls-files`, never a glob's own text and never a
+**Probe paths are real files** from `git -C "<WT>" ls-files -z`, read per §7's path-set rule, never a glob's own text and never a
 path invented to look like one: a probe built from a glob can match it trivially while no real
 file does. The two `fence-probe` paths are the exception — the inventory may not exist yet, and
 `run_dir` holds no tracked files — and they are only named in a payload; nothing is written.
@@ -228,17 +228,27 @@ are mandatory for that reason.
 
 ## §7 Violations
 
-A **fence violation** is a write that landed outside the role's allowed set. After every agent
-return — with a commit or without — the run asserts:
+A **fence violation** is a write that landed outside the role's allowed set.
+
+**Path sets are read NUL-delimited.** Every git command that lists paths for the fence — here, in
+§6, in [stage-4-implement.md](stage-4-implement.md) and in [worktree.md](worktree.md) — runs with
+`-z`, and its output is read one path at a time with `while IFS= read -r -d '' p; do …; done`.
+Without `-z`, git C-quotes a path holding a non-ASCII or control byte (`core.quotePath`), so
+`inv/é.md` arrives as `"inv/\303\251.md"`; a quoted path matches no glob, and under `deny-match`
+it would be allowed. A `status --porcelain -z` record is `XY <path>`, so its path is `${p:3}`, and
+`--no-renames` keeps each record to one path. Every path reaches a payload as the absolute
+`<WT>/<p>`.
+
+After every agent return — with a commit or without — the run asserts:
 
 - **Commit paths** — every path in
-  `git -C "<WT>" diff --name-only --no-renames "<prev>..HEAD"`, piped through
+  `git -C "<WT>" diff -z --name-only --no-renames "<prev>..HEAD"`, piped through
   `"<plugin-root>/hooks/fence.sh"` as a `Write` payload carrying the role's own `agent_type`
   (§6 shape). Any denial is a violation. Using the
   hook as the matcher keeps one glob implementation: what the fence refuses and what the
   assertion checks can never diverge. `--no-renames` lists a rename's source and destination
   both, so a move out of a fenced path is seen.
-- **Clean tree** — `git -C "<WT>" status --porcelain` is empty, the worktree's exclusion list
+- **Clean tree** — `git -C "<WT>" status --porcelain -z --no-renames` is empty, the worktree's exclusion list
   ([worktree.md](worktree.md) §4) aside. A write routed through a shell and left unstaged is
   caught here.
 - **Ancestry** — `git -C "<WT>" merge-base --is-ancestor "<prev>" HEAD`. An amend or rebase of
