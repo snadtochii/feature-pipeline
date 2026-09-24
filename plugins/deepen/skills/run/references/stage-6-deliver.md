@@ -316,7 +316,8 @@ row; the by-hand steps below finish it.
 — the first on the verify path, the second on the decline path. The id passed §3's class and
 the URL §6 step 3's; the reason is prepared per [memory.md](memory.md) §2. The entry reaches the
 file only as an `Edit`'s `new_string`. The report's `## Memory` records the line written and every
-report line [memory.md](memory.md) §6 printed — the missing file, an `opened` line replaced.
+report line [memory.md](memory.md) §6 printed — the missing file, every line replaced with its
+old status and note.
 
 ---
 

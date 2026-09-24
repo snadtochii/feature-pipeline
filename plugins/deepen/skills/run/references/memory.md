@@ -155,8 +155,12 @@ before a second pull request is opened for it.
    - **No file** → the report line
      `memory: <state_dir>/memory.md missing — run /deepen:setup — not recorded: <entry>`. A run
      never creates the file.
-3. **An `opened` line replaced by a `declined` one** → the report line
-   `memory: <id> opened line replaced — <the old URL>`.
+3. **Every line replaced** — whatever its old status, and whatever replaces it → the report line
+   `memory: <id> <old status> line replaced — <old note>`. A pinned candidate reaches the deliver
+   stage over an `opened` or `declined` line (§5), and the rewrite would otherwise erase an earlier
+   pull request's URL, which §4 then never reconciles, or a human's decline reason. A malformed
+   line is reported with `malformed` as its old status and its whole text as the note, cleaned
+   as §2 cleans one.
 
 The entry reaches the file only as an `Edit`'s `new_string`. Declining a candidate at the
 discover stage's pick — choosing another, or none — writes nothing: not picking a candidate today
