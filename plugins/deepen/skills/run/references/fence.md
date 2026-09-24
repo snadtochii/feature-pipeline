@@ -203,8 +203,8 @@ run from the outside, so the fence is never assumed live. Before each fenced spa
 | Spawn | Must be denied | Must be allowed |
 | --- | --- | --- |
 | implementer (`deepen:implementer`, `deny-match implementer`) | a real inventory file, and a real spec file | a real tracked source file matching no set |
-| spec-mover (`deepen:spec-mover`, `allow-only specs`) | a real tracked source file | a real spec file |
-| QA (`deepen:qa-characterizer`, `allow-only qa`) | a real tracked source file | `<run_dir>/fence-probe`; in characterize mode also `<inventory>fence-probe` |
+| spec-mover (`deepen:spec-mover`, `allow-only specs`) | a real tracked source file, and a real inventory file | a real spec file |
+| QA (`deepen:qa-characterizer`, `allow-only qa`) | a real tracked source file; in verify mode also a real inventory file | `<run_dir>/fence-probe`; in characterize mode also `<inventory>fence-probe` |
 
 **Probe paths are real files** from `git -C "<WT>" ls-files -z`, read per §7's path-set rule, never a glob's own text and never a
 path invented to look like one: a probe built from a glob can match it trivially while no real
@@ -214,8 +214,11 @@ file does. The two `fence-probe` paths are the exception — the inventory may n
 - Non-empty spec globs that select zero tracked files → abort. A glob set that selects no file
   cannot fence anything, and this is where a spelling the matcher cannot handle surfaces.
 - Empty `paths.specs` → the spec probes are skipped, with a report line.
-- No real inventory file yet (the first characterize spawn) → the implementer's inventory probe
-  is not needed; the implementer is never spawned before the inventory commit.
+- The inventory is the oracle every set protects, so each spawn that must not write it probes a
+  real inventory file for its denial. No real inventory file exists yet only before the first
+  characterize spawn, which is the one spawn allowed to write it; the implementer, the spec-mover
+  and a verify-mode QA spawn all run after the inventory commit, so a missing inventory file for
+  one of them aborts.
 - A missing fence file at this point is the run skill's own bug and aborts.
 
 **What it does not prove.** It proves the script is present, runnable, dispatches the spawn's
