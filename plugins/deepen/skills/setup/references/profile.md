@@ -300,7 +300,8 @@ Under `state_dir` the loop owns exactly:
 <state_dir>/reports/<run-id>/              # one run's stage reports
 <state_dir>/inventory-drafts/<run-id>/     # the QA role's drafts and screenshots before commit
 <state_dir>/runs/<run-id>/                 # one run's working files and command scripts,
-                                           # discarded with the run
+                                           # removed when the run completes; kept after
+                                           # an abort or a pause, for inspection
 <state_dir>/tmp/<run-id>-*                 # a run's scratch files, removed before it exits
 ```
 

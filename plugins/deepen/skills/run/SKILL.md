@@ -257,8 +257,10 @@ Worktree teardown is the deliver stage's ([worktree.md](references/worktree.md) 
 ends clean — after stage 6, or at `discover: complete — no candidate` — then:
 
 1. Removes `<state_dir>/tmp/<run-id>-*`.
-2. Releases the lock, last, as §6 step 3.
-3. Prints the report directory and each written report's status line.
+2. Removes `<state_dir>/runs/<run-id>/` — a clean run's working files have no reader left; its
+   reports stay.
+3. Releases the lock, last, as §6 step 3.
+4. Prints the report directory and each written report's status line.
 
 A run that ended with no candidate created no worktree and wrote no fence file, so there is
 nothing else to clear.
