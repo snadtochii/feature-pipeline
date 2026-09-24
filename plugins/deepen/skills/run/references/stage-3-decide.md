@@ -148,8 +148,12 @@ On the fresh pass only:
    spawned helper. The question tree is §5's in either case. The call failing, or the skill not
    installed → `grilling unavailable — inline dialogue used the stage's own question list`.
 2. **Project records.** `Glob` `<CLONE>/CONTEXT.md` and `<CLONE>/docs/adr/*`. Each one absent →
-   its effect line from [profile.md](../../setup/references/profile.md) §6, verbatim — row 11 for
-   the glossary, row 12 for the ADRs.
+   the line naming what it does to this stage — [profile.md](../../setup/references/profile.md)
+   §6 rows 11 and 12 are the earlier stages' effects, not this one's:
+   - `CONTEXT.md absent — terms are proposed for a new file; the human decides whether to create
+     it` (§5, field `create-context`);
+   - `docs/adr/ absent — no recorded decision to supersede; a proposed ADR is numbered 0001` (§5,
+     field `diffs`).
 
 `domain-modeling` is invoked later, at the terms question (§5, field `terms`).
 
