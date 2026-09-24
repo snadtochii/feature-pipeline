@@ -302,7 +302,7 @@ The contract is the tidy loop's mutation gate, adapted: the profile's command ru
 script file with five environment variables as its whole interface, and its survivors are keyed by
 `(mutator, replacement, enclosing function)` — never by a test id, which mutation tools renumber
 between runs, while the enclosing function survives a move between files. Here the pass is
-**report-only**: the human reads the survivors in the evidence pack, and nothing in it stops the
+**report-only**: the human reads the survivors in the evidence pack, and no survivor stops the
 run, because a comparison against the base side would need a base tree with dependencies
 installed, which the run does not guarantee.
 
@@ -338,7 +338,8 @@ Otherwise, for round `k`:
 3. **Rename map.** `Write` section 6 of `<record>`, its `rename_map:` block verbatim, to
    `<runs>/rename-map.txt` — the declared map, which the implement stage already held the
    implementer's reply to.
-4. **Invoke**, with the Bash tool's maximum timeout:
+4. **Invoke** — record `<prev>` = `git -C "<WT>" rev-parse HEAD`, then, with the Bash tool's
+   maximum timeout:
 
    ```bash
    cd "<WT>" && DEEPEN_WT="<WT>" DEEPEN_CLONE="<CLONE>" DEEPEN_BASE_SHA="<BASE_SHA>" \
@@ -359,7 +360,22 @@ Otherwise, for round `k`:
    | `DEEPEN_RENAME_MAP` | the declared `rename_map:` block, so base and changed sides can be keyed together |
    | `DEEPEN_TARGETS` | the changed lines, `<path>:<first>-<last>` ranges joined with `,` |
 
-5. **Output contract.** stdout is one JSON document,
+5. **Residue** — after every call, a non-zero exit and a timeout included, before anything reads
+   the tree again. Read `git -C "<WT>" rev-parse HEAD` and
+   `git --no-optional-locks -C "<WT>" status --porcelain -z --no-renames --untracked-files=all`,
+   NUL-delimited ([fence.md](fence.md) §7), exclusion-list paths aside:
+   - HEAD is not `<prev>` → `verify: aborted — mutation runner moved HEAD — <prev> → <sha>`.
+   - A modified, staged or deleted tracked path — a mutant an in-place runner left behind →
+     `git -C "<WT>" reset -q --hard "<prev>"`, with the line
+     `mutation: runner left tracked changes — <paths> — reset to <prev>`.
+   - An untracked path — a report or cache the runner wrote — joins the exclusion list in
+     `<runs>/exclusions` ([worktree.md](worktree.md) §4), with the line
+     `mutation residue: <path> — not ignored — add it to the committed ignore file`.
+
+   Then the same status read is empty, exclusion-list paths aside — else
+   `verify: aborted — mutation runner residue did not clear — <paths>`. The architect, the
+   reviewers and the fix round's clean-tree check see the committed change, never a mutant.
+6. **Output contract.** stdout is one JSON document,
    `{"survivors": [{"mutator": …, "replacement": …, "function": …, "file": …, "line": …}]}`, with
    `file` and `line` optional:
 
@@ -373,7 +389,7 @@ Otherwise, for round `k`:
    report as `<mutator> | <replacement> | <function> | <file>:<line>`. `jq` failing — the output is
    not that document → the line `mutation: output not keyed — exit <n>`, with the last 40 lines of
    `mutation-<k>.json` and `mutation-<k>.err` under `## Mutation`.
-6. **Report-only.** A non-zero exit is the line `mutation: runner exited <n>`, and a call cut off
+7. **Report-only.** A non-zero exit is the line `mutation: runner exited <n>`, and a call cut off
    by the timeout the line `mutation: runner did not finish within the tool's timeout` — never a
    stop. The section always says that the targets were passed and that the runner owns scoping, so
    a runner that ignores `DEEPEN_TARGETS` is read for what it is.
