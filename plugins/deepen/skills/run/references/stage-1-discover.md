@@ -160,8 +160,12 @@ Zero valid blocks is zero candidates.
 
 1. **Locate the pin**, when there is one:
    - an id pin whose id was minted this run → that candidate;
-   - otherwise the candidate the explorer's `pin:` line names → that candidate, with the line
+   - otherwise the candidate the explorer's `pin:` line names, when it survived §6 → that
+     candidate, with the line
      `pin: <value> not in the ranked list — explored as pinned, picked <id> <name>`;
+   - a `pin:` line naming a block §6 dropped — it failed validation, minted `invalid`, or lost a
+     collision — is read as `pin: none`, with the line `pin: <value> named <name>, which §6
+     dropped`, and the two bullets below apply;
    - an id pin the explorer answered `pin: none` → the recovered record itself, with its earlier
      id and columns, added to the ranked list, and the line `pin: <id> not in the ranked list —
      explored as pinned, picked from its earlier record`;
