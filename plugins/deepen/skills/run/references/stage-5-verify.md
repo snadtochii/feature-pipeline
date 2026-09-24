@@ -456,14 +456,19 @@ Nothing parsed from the runner's output reaches a command line.
   adds `abort`. No reviewer is spent on a diff the human may abort.
 - **`fail`, after the fix round** → a stop, as above, only when a question fails now that did not
   fail in the verdict in effect when §6 ran — the `pre-fix:` line under `## Fix round` (§8).
-  Otherwise the override carries: the line `architect: fail — overridden by the human, carried
-  from the verdict before the fix round` under the round, and §9.
+  While `fixround` is `done`, `## Options` also carries
+  `- revert — undo the fix round and verify again`: a fix round that made the architecture worse
+  is undone without giving up the verified change. Otherwise the override carries: the line
+  `architect: fail — overridden by the human, carried from the verdict before the fix round`
+  under the round, and §9.
 
 **On the answer:**
 
 - **`proceed`** → the line `architect: fail — overridden by the human` under the round, with the
   `decisions` or `intent` reason quoted when `escalate` was `true`. → §6 while `fixround` is
   `none`; §9 otherwise.
+- **`revert`**, when offered → as §3's `revert`: §8's reset to `<pre-round>`,
+  `fixround=reverted`, `k+1`, §2.
 - **Anything else** → the same question again, as a new stop.
 
 ---
@@ -604,19 +609,19 @@ Otherwise:
    - `implement: needs-decision — <line>` → the stage ends
      `verify: needs-decision — implement: <line>`, with no `## Options` and no `resume:` line.
 
-**The reset** — here after an exhausted round, and from §3's `revert`:
+**The reset** — here after an exhausted round, and from a `revert` answer (§3, §5):
 
 ```bash
 git -C "<WT>" diff --no-renames "<pre-round>..HEAD" > "<state_dir>/reports/<run-id>/fix-round.patch"
 git -C "<WT>" reset -q --hard "<pre-round>"
 ```
 
-After an exhausted round, `<pre-round>` is the SHA step 1 recorded, still in context. After §3's
-`revert` — a re-entry from the top — it is the report's `pre-round:` line, matched against
+After an exhausted round, `<pre-round>` is the SHA step 1 recorded, still in context. After a
+`revert` answer — a re-entry from the top — it is the report's `pre-round:` line, matched against
 `^pre-round: [0-9a-f]{40}$`: the run-state digests held that line across every spawn since it
 was written.
 Then `git -C "<WT>" rev-parse HEAD` equals it and the tree is clean, exclusion-list paths aside —
-else `verify: aborted — reset to <pre-round> did not hold`. After §3's `revert`, each `applied`
+else `verify: aborted — reset to <pre-round> did not hold`. After a `revert` answer, each `applied`
 finding becomes `reverted by the human`. A failed round costs its findings, never the verified
 change; `fix-round.patch` keeps what the round made.
 
