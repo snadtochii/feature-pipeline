@@ -406,8 +406,9 @@ On the answer:
 On the answer:
 
 - **`confirm`** narrows this run to slice 1: reopen `interface`, `seam`, `surviving`, `delete`,
-  `rename`, `predicted` and `estimate` (§8's reopen rule), each default derived from slice 1's
-  files and statements; §6 rewrites the record with `- slice: 1 of <N> — <title>` under
+  `rename`, `terms`, `diffs`, `predicted` and `estimate` (§8's reopen rule), each default derived
+  from slice 1's files and statements — the terms and diffs only those slice 1's code carries, so
+  no glossary or ADR text lands ahead of the code it describes; §6 rewrites the record with `- slice: 1 of <N> — <title>` under
   `Candidate`; §7 takes one more round, without a split request. Later slices are pinned by hint in
   later runs; `## Split` keeps the whole sequence for them.
 - **`override`** → the line `split: overridden — one pull request` under `## Split`; the stage
