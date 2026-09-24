@@ -217,9 +217,12 @@ After stage 6 reports `complete` → §7.
 **A `pause` answer, or a question the human cancels or leaves unanswered, is a pause, not an
 abort.** Print the lock
 path, the run state path and the report path, and end the turn **without releasing the lock**.
-An answer in the same conversation continues from step 2. A session that ends there leaves the
-lock to go stale after 24 hours ([preflight.md](references/preflight.md) §2); the run state and
-the report say where the run stood.
+An answer in the same conversation continues from step 2; no argument resumes a paused run from
+another conversation. A session that ends there leaves the lock to go stale after 24 hours
+([preflight.md](references/preflight.md) §2), and until then every new run stops at the lock;
+the run state and the report say where the run stood. So the pause message also prints the
+remedy for giving the run up before then: remove `<common-dir>/deepen.lock/owner`, then `rmdir`
+`<common-dir>/deepen.lock`.
 
 ---
 
