@@ -13,19 +13,20 @@ Three stages turn a plan into shipped code, under `/flow` each from a fresh cont
 ### Claude Code
 
 ```bash
-/plugin marketplace add <github-user>/feature-pipeline   # add the repo as a marketplace (ships four plugins)
+/plugin marketplace add <github-user>/feature-pipeline   # add the repo as a marketplace (ships five plugins)
 /plugin install feature@<github-user>-feature            # install the pipeline plugin
 /plugin install stack-first@<github-user>-feature        # optional: the dependency-guard plugin
 /plugin install tidy-loop@<github-user>-feature          # optional: the structure-only refactoring loops
+/plugin install deepen@<github-user>-feature             # optional: the deep-module refactor loop
 /plugin install server-native@<github-user>-feature      # optional: only for mode: server-native
 /reload-plugins                                          # activate
 ```
 
-The marketplace ships four independent plugins: `feature` (the pipeline), `stack-first` (a stack-agnostic dependency guard), `tidy-loop` (structure-only refactoring in two scheduled loops — a weekly survey proposes candidates into a human-approved queue, a daily run builds one approved line behind behavior-preservation gates and opens a draft pull request), and `server-native` (the MCP connector that turns on server-native ticket storage). Install whichever you need. `tidy-loop` and `server-native` are Claude Code only. `stack-first` and `tidy-loop` have their own READMEs ([stack-first](plugins/stack-first/README.md), [tidy-loop](plugins/tidy-loop/README.md)).
+The marketplace ships five independent plugins: `feature` (the pipeline), `stack-first` (a stack-agnostic dependency guard), `tidy-loop` (structure-only refactoring in two scheduled loops — a weekly survey proposes candidates into a human-approved queue, a daily run builds one approved line behind behavior-preservation gates and opens a draft pull request), `deepen` (a manually triggered, semi-attended loop that takes one deep-module refactor candidate to a draft pull request carrying a behavior-preservation evidence pack), and `server-native` (the MCP connector that turns on server-native ticket storage). Install whichever you need. `tidy-loop`, `deepen` and `server-native` are Claude Code only. `stack-first`, `tidy-loop` and `deepen` have their own READMEs ([stack-first](plugins/stack-first/README.md), [tidy-loop](plugins/tidy-loop/README.md), [deepen](plugins/deepen/README.md)).
 
 ### Codex
 
-Two plugins carry their own Codex manifests (`plugins/feature/.codex-plugin/plugin.json`, `plugins/stack-first/.codex-plugin/plugin.json`); the repo-root marketplace file (`.agents/plugins/marketplace.json`) indexes them with subdirectory-aware sources. `tidy-loop` and `server-native` are Claude-only: `tidy-loop`'s write fences are `PreToolUse` hooks declared in agent frontmatter and its run delegates to Claude subagent types, and `server-native` declares its MCP server through install-time prompts — on Codex you bind the same server through `config.toml` (see the requirements bullet below).
+Two plugins carry their own Codex manifests (`plugins/feature/.codex-plugin/plugin.json`, `plugins/stack-first/.codex-plugin/plugin.json`); the repo-root marketplace file (`.agents/plugins/marketplace.json`) indexes them with subdirectory-aware sources. `tidy-loop`, `deepen` and `server-native` are Claude-only: the write fences of `tidy-loop` and `deepen` are `PreToolUse` hooks declared in agent frontmatter and their runs delegate to Claude subagent types, and `server-native` declares its MCP server through install-time prompts — on Codex you bind the same server through `config.toml` (see the requirements bullet below).
 
 Install the stable plugin from GitHub:
 
