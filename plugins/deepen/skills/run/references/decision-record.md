@@ -97,9 +97,9 @@ class is not written: the section's question is asked again with the reason.
 
 | Value | Class |
 | --- | --- |
-| a spec path (sections 4, 5) | `^[A-Za-z0-9._@+()\[\]/-]+$`; repo-relative; matches a `paths.specs` glob; no leading `/`, no `..` segment |
-| a rename line | `^\S+ -> \S+$`, four-space indented under its subsection; a `modules:` path in the spec-path character class, repo-relative, with no leading `/` and no `..` segment |
-| a `targets:` path | `^([a-z0-9_-][a-z0-9._-]*/)*CONTEXT\.md$` or `^([a-z0-9_-][a-z0-9._-]*/)*docs/adr/[0-9]{4}-[a-z0-9-]+\.md$` — no segment starts with `.`, so no `..` |
+| a spec path (sections 4, 5) | `^[A-Za-z0-9._@+()\[\]/-]+$`; repo-relative; matches a `paths.specs` glob; no leading `/`, no `..` segment, no segment starting with `-` |
+| a rename line | `^\S+ -> \S+$`, four-space indented under its subsection; a `modules:` path in the spec-path character class, repo-relative, with no leading `/`, no `..` segment and no segment starting with `-` |
+| a `targets:` path | `^([a-z0-9_][a-z0-9._-]*/)*CONTEXT\.md$` or `^([a-z0-9_][a-z0-9._-]*/)*docs/adr/[0-9]{4}-[a-z0-9-]+\.md$` — no segment starts with `.` or `-`, so no `..` and no option-shaped path |
 | `<statement-id>` | `^S[0-9]{2,3}$`, present in the inventory summary |
 | `before` | equal to that statement's `<then>`, character for character |
 | the estimate | `^[0-9]+$` |
