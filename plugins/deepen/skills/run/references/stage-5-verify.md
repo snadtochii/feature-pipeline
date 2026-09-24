@@ -166,7 +166,9 @@ On a fresh stage only, the report lines:
      QA spawn (step 6), classified at step 8.
 6. **QA verify spawn** — only when there is a manual-browser statement, a UI-fixture group or a
    `changed` statement; else the report line `qa verify spawn skipped — nothing to replay or
-   word`, and step 7. With the server still running:
+   word`, and step 7. `new` lines come from the QA role alone, so a skipped spawn also writes
+   `new: not looked for — qa verify spawn skipped` where §9 puts the `new` lines: a reader tells
+   `new: none observed` from never looked. With the server still running:
    1. **Fence** — [fence.md](fence.md) §5 steps 1–4 with the `qa` set in verify form
       (`<run_dir>/**` alone), then its §6 probes for a verify-mode QA spawn. A failed self-test
       aborts.
@@ -642,7 +644,9 @@ appends each section's body; `## Decisions` is only ever appended to, by the run
 4. `## Verification` — round `k`; the count per class; the full `changed` list, each with `before`,
    `after` and `matched`, `accepted` or `unpredicted`; the `flaky`, `qa disagreed`,
    `qa line dropped`, `predicted but unchanged` and `predicted statement absent` lines; the `new`
-   lines; `tier 2 wall time: <s>s`; the QA role's `## Looked wrong`.
+   lines, or `new: none observed` after a QA spawn that reported none, or §2 step 6's
+   `new: not looked for — qa verify spawn skipped`; `tier 2 wall time: <s>s`; the QA role's
+   `## Looked wrong`.
 5. `## Unpredicted` while that stop stands, and `## Accepted changes`, or `none`.
 6. `## Mutation` — the survivors, one row per key, the count of targets, and every §4 line.
 7. `## Architect verdict` — the round in effect, with its override line when one was taken.
