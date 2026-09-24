@@ -1,13 +1,16 @@
 # The run worktree
 
 Authoritative text for the worktree a `deepen:run` works in: its names, how stage 2 creates it,
-how stage 4 and every later stage bind or re-attach it, the `.worktreeinclude` copy and its
+how stages 4 and 5 bind or re-attach it, the `.worktreeinclude` copy and its
 exclusion list, the dependency install, the worktree's part of an abort, and teardown.
 
 - **Stage 2 creates it**, before the inventory commit, so the inventory commit lands on the run
   branch directly on top of `<BASE_SHA>`.
-- **Stage 4** ([stage-4-implement.md](stage-4-implement.md)) **and every later stage bind it**
-  per §3, re-attaching it only when it is absent. No stage after 2 ever cuts a fresh one.
+- **Stages 4 and 5** ([stage-4-implement.md](stage-4-implement.md),
+  [stage-5-verify.md](stage-5-verify.md)) **bind it** per §3, re-attaching it only when it is
+  absent. The deliver stage checks it read-only and never re-attaches it
+  ([stage-6-deliver.md](stage-6-deliver.md) §3), then tears it down per §8. No stage after 2 ever
+  cuts a fresh one.
 - **A run never works in the clone root.** The isolation is the point: the clone stays on `base`,
   clean, for the next run's preflight ([preflight.md](preflight.md) §3).
 
@@ -47,7 +50,7 @@ it rather than attaching to work nobody can vouch for.
 
 ---
 
-## §3 Bind or re-attach (stage 4 and every later stage)
+## §3 Bind or re-attach (stages 4 and 5)
 
 1. Run `git -C "<CLONE>" worktree prune`, so a registered worktree whose directory was removed
    by hand no longer counts as present.
@@ -151,7 +154,7 @@ Both evidence files sit inside `reports/<run-id>/`, in the state layout
 
 ---
 
-## §8 Teardown (a delivered run)
+## §8 Teardown (the deliver stage, delivered or declined)
 
 Remove the worktree only when both hold — the status read NUL-delimited per [fence.md](fence.md) §7:
 

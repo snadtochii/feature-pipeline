@@ -81,6 +81,8 @@ shell only after it matched the id class.
 - **Disk, not memory.** Every stage entry re-binds `<run-id>`, `<BASE_SHA>`, `<plugin-root>`,
   `<candidate_id>` and `<slug>` from the run state (§2), never from an earlier message: a long
   run's early messages are the first thing a reader of the conversation loses.
+- **Every spawn is costed.** After each spawn returns, its usage goes on one line of the cost
+  ledger (§2) — evidence for the pack's run cost, never a gate.
 
 ---
 
@@ -130,12 +132,30 @@ takeover: <preflight §2's takeover line, or none>
 tier: <preflight §5's tier line, verbatim>
 candidate_id: none
 slug: none
+started_epoch: <the output of date +%s at this write>
 ```
 
 The discover stage sets `candidate_id` and `slug` once a candidate is picked; this skill advances
 `stage` (§4). Each change is one `Edit` of that line. The run state is the run's identity on disk:
 a stage re-entered after a question re-binds from it, and a dead session leaves it for a human to
-read.
+read. `started_epoch` is written once and never changed; the deliver stage reads the run's wall
+time from it.
+
+**The cost ledger.** Right after the run state, `Write` `<state_dir>/runs/<run-id>/cost.tsv`
+with one header line, `stage | agent | tokens | tool_uses | duration_ms`. After every spawn
+returns — every role of every stage, a failed one included — append one line:
+
+```bash
+printf '%s | %s | %s | %s | %s\n' "<n>" "<agent type>" "<tokens>" "<tool uses>" "<duration ms>" >> "<state_dir>/runs/<run-id>/cost.tsv"
+```
+
+`<n>` is the stage number. The three numbers are the usage the Agent tool's result reports for
+that spawn — its total tokens, tool uses and duration in milliseconds. Each must match
+`^[0-9]+$`, and the agent type `^[a-z0-9-]+:[a-z0-9-]+$`; a value that is absent or out of class
+is written `not reported`, so a spawn that failed before reporting usage still gets its line.
+Only class-checked values reach the command; no agent text does. An append that fails prints
+`cost: ledger append failed — <n> <agent type>` and the run continues: cost is evidence, never a
+gate.
 
 ---
 
@@ -153,9 +173,7 @@ state, command scripts, the exclusion list, the stage clock — under `<state_di
 | 3 | decide | [references/stage-3-decide.md](references/stage-3-decide.md) | `3-decide.md` | the pick, the inventory summary, the source at `<CLONE>` outside `paths.inventory` — never the checks | `decision-record.md`, with the `CONTEXT.md` and ADR edits proposed in it; no working tree |
 | 4 | implement | [references/stage-4-implement.md](references/stage-4-implement.md) | `4-implement.md` | the decision record, the repo | source commits on the run branch |
 | 5 | verify | [references/stage-5-verify.md](references/stage-5-verify.md) | `5-verify.md` | the changed tree, the inventory, the decision record, the inventory summary, the coverage lines of `2-characterize.md`, `4-implement.md` after a re-entry | the verification report; QA drafts and screenshots; through stage 4's re-entry, source commits on the run branch, reset after a failed fix round and kept as `fix-round.patch` |
-| 6 | deliver | `references/stage-6-deliver.md` | `6-deliver.md` | every report | the draft pull request, `memory.md`, worktree teardown |
-
-A body named as a code span is not yet in this plugin; §4 stops the run when dispatch reaches it.
+| 6 | deliver | [references/stage-6-deliver.md](references/stage-6-deliver.md) | `6-deliver.md` | every report, the decision record, the cost ledger | the evidence pack; the pushed run branch and the draft pull request; `memory.md`; worktree teardown |
 
 The order is fixed, but not strictly linear: the verify stage re-enters stage 4 — with a
 `failing_check` on a send-back, with `findings` on its fix round
@@ -243,7 +261,8 @@ remedy for giving the run up before then: remove `<common-dir>/deepen.lock/owner
 
 ## §6 The common abort
 
-Every stop after the lock was taken, whatever its stage, ends here, in this order:
+This is the run's one exit sequence. Every stop after the lock was taken, whatever its stage,
+and every clean end (§7), runs it, in this order:
 
 1. **A live dev server.** When `<state_dir>/runs/<run-id>/dev.pid` exists, stop the server per
    [dev-server.md](references/dev-server.md) §7 before anything else touches the worktree.
@@ -259,25 +278,42 @@ Every stop after the lock was taken, whatever its stage, ends here, in this orde
    evidence that decided it, and the paths of the reports written so far — and remove
    `<common-dir>/deepen-fence.json` if present ([fence.md](references/fence.md) §1).
 3. **Scratch files.** Remove `<state_dir>/tmp/<run-id>-*`.
+
+   3a. **The clone.** Read its position without changing it:
+
+   ```bash
+   git --no-optional-locks -C "<CLONE>" status --porcelain -z --no-renames
+   git -C "<CLONE>" symbolic-ref --short HEAD
+   git -C "<CLONE>" rev-parse HEAD
+   ```
+
+   It must be clean, on `base`, and at `<BASE_SHA>` — the last only when `<BASE_SHA>` is bound,
+   which a stop inside preflight §3 precedes. Anything else → print
+   `clone: <dirty: <paths> | on <ref> | detached | HEAD <sha>> — left as it is; preflight §3 stops the next run until a human settles it`.
+   This step never resets, never checks out, and never stops the sequence: a clone that moved
+   was moved by someone the loop does not overrule ([preflight.md](references/preflight.md) §3).
 4. **The lock, last.** Read `<common-dir>/deepen.lock/owner`. Its `run_id` equals `<run-id>` →
    remove the file, then `rmdir` the lock directory. Any other id → leave the lock and print
    `lock: held by <id> — not released by <run-id>`.
 
-Print the aborting line and the path of `abort.md`. `runs/<run-id>/` stays for inspection; a human
-may delete it once nothing in it is wanted.
+An abort then prints the aborting line, the path of `abort.md`, and the clone line when step 3a
+printed one. `runs/<run-id>/` stays for inspection; a human may delete it once nothing in it is
+wanted.
 
 ---
 
 ## §7 Completion
 
-Worktree teardown is the deliver stage's ([worktree.md](references/worktree.md) §8). A run that
-ends clean — after stage 6, or at `discover: complete — no candidate` — then:
+A run that ends clean — after stage 6, or at `discover: complete — no candidate` — takes §6's
+sequence with two differences:
 
-1. Removes `<state_dir>/tmp/<run-id>-*`.
-2. Removes `<state_dir>/runs/<run-id>/` — a clean run's working files have no reader left; its
-   reports stay.
-3. Releases the lock, last, as §6 step 4.
-4. Prints the report directory and each written report's status line.
+- **Step 2 is the deliver stage's teardown**, already performed in its body
+  ([stage-6-deliver.md](references/stage-6-deliver.md) §9) —
+  [worktree.md](references/worktree.md) §8 and the fence file — so the
+  sequence skips it. A run that ended with no candidate created no worktree and wrote no fence
+  file, so there is nothing to skip.
+- **After step 3**, it removes `<state_dir>/runs/<run-id>/` — a clean run's working files have no
+  reader left; its reports stay, the evidence pack among them.
 
-A run that ended with no candidate created no worktree and wrote no fence file, so there is
-nothing else to clear.
+Then it prints the report directory, each written report's status line, and the clone line when
+step 3a printed one.

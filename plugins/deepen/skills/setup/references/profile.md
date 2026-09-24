@@ -300,7 +300,8 @@ Under `state_dir` the loop owns exactly:
 <state_dir>/memory.md                      # one line per candidate the loop has acted on —
                                            # opened, declined or merged (run/references/
                                            # memory.md); setup creates it with its header
-<state_dir>/reports/<run-id>/              # one run's stage reports
+<state_dir>/reports/<run-id>/              # one run's stage reports and evidence — the
+                                           # decision record, patches, the evidence pack
 <state_dir>/inventory-drafts/<run-id>/     # the QA role's drafts and screenshots before commit
 <state_dir>/runs/<run-id>/                 # one run's working files and command scripts,
                                            # removed when the run completes; kept after
