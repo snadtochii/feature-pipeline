@@ -134,7 +134,9 @@ this table and the map in lockstep, and requires a row for every deepen agent th
 
 - **`implementer`** — everything the change is judged against, plus the QA directory. The
   implementer changes the source until the checks pass as written; it can never touch the checks.
-  `.deepen.yaml` is in the set even when `paths.forbidden` is empty.
+  `.deepen.yaml` is in the set even when `paths.forbidden` is empty. `<run_dir>/**` is in it
+  because `deny-match` allows every path outside the set, and `run_dir` is the second root: without
+  the entry the implementer could write the QA drafts that stage 5 verifies the change against.
 - **`specs`** — the spec-mover writes spec files and nothing else. An empty `paths.specs` leaves
   this set empty, and the spec-mover is then skipped, never spawned (§5).
 - **`qa`** — one binding serves both QA modes; the run writes the mode's contents before each QA
