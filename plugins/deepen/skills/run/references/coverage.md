@@ -100,8 +100,9 @@ touched-function coverage: <percent>% measured (<hit>/<total> server functions)
 ## §3 Estimate path
 
 Taken when `app.coverage_env` is null (capability row 8's line,
-[profile.md](../../setup/references/profile.md) §6), when the script exits non-zero, or when the
-coverage was lost at the stop. Every characterize brief asks the QA role for a seam-call trace, so it is on
+[profile.md](../../setup/references/profile.md) §6), when no measurement round ran because the
+fixtures are UI-created, when the script exits non-zero, or when the coverage was lost at the
+stop. Every characterize brief asks the QA role for a seam-call trace, so it is on
 disk whichever path is taken: per
 server function of §1's list, the check ids whose seam call reaches it and the call chain that
 does, written to `<run_dir>/estimate.md` as `<file>:<line> <name> — <check ids | none> — <chain>`.
@@ -111,7 +112,8 @@ A function with at least one check is counted hit.
 touched-function coverage: <percent>% estimate (weak) — <reason>
 ```
 
-`<reason>` is `no coverage env`, the script's stderr line, or the stop's coverage-lost line.
+`<reason>` is `no coverage env`, `UI fixtures — checks not replayed by the run`, the script's
+stderr line, or the stop's coverage-lost line.
 
 **Always estimates**, on either path:
 

@@ -177,8 +177,10 @@ the wrapper scripts [dev-server.md](dev-server.md) §1 writes. Round `<r>` write
 For each fixture group, in matrix order:
 
 1. `reset.sh`, then `seed.sh "<WT>/<inventory><slug>/fixtures/<file>"` — when the fixtures are
-   seeded (§5). With UI fixtures neither runs: a UI fixture is not replayed here, and its group's
-   checks run on the state the server holds, which a reset would empty.
+   seeded (§5). A UI-fixture group runs only on a server where the QA role has just recreated its
+   fixture from the step list, a spawn the replaying stage owns (§6). A stage that makes no such
+   spawn runs none of the group's steps and records it `not replayed — UI fixture`: a fresh
+   server holds none of that state, and a store that kept it holds every fixture's state at once.
 2. `check.sh <the group's tier-2 files>` — when the group has tier-2 checks, `checks.runner` is set
    and a seam is live.
 3. `e2e.sh <the group's tier-1 spec files>` — when the group has e2e specs.

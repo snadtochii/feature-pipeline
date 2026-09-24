@@ -166,6 +166,12 @@ abort `characterize: aborted — inventory: empty — <the QA role's reason>`.
 
 ## §6 Measurement round
 
+**UI fixtures** — `app.seed` or `app.reset` null ([inventory.md](inventory.md) §5): this stage
+makes no fixture-recreating spawn, so no group can be replayed and no measurement round runs. Every
+check is recorded `qa-session` — green in the QA role's session, where a check it could not make
+green is deleted — with the report line `checks not replayed by the run — UI fixtures (<fixture
+count>)`, and §7 takes the estimate path. The rest of this section applies to seeded fixtures.
+
 Round `m<r>`, `r` counting from 1:
 
 1. [dev-server.md](dev-server.md) §2–§6 with the coverage env when `app.coverage_env` is set. A
@@ -186,9 +192,9 @@ Red after the repair pass → abort `characterize: aborted — checks red on the
 ## §7 Coverage
 
 1. Validate the touched-function list ([coverage.md](coverage.md) §1).
-2. The measured path ([coverage.md](coverage.md) §2) when `app.coverage_env` is set and the last
-   measurement round's coverage directory is non-empty; otherwise, or on a non-zero exit, the estimate path
-   ([coverage.md](coverage.md) §3) from `<run_dir>/estimate.md`.
+2. The measured path ([coverage.md](coverage.md) §2) when `app.coverage_env` is set, a
+   measurement round ran, and its coverage directory is non-empty; otherwise, or on a non-zero
+   exit, the estimate path ([coverage.md](coverage.md) §3) from `<run_dir>/estimate.md`.
 3. The threshold ([coverage.md](coverage.md) §4). Below it, the first time → one **extension
    pass**: §3, §4 and §5 with the extension brief, then §6 and this section again. Below it after
    the extension → the gap line, and the stage continues.
@@ -232,7 +238,7 @@ clear it.
    `characterize: needs-decision — <the line>` with `## Options` and a `resume:` line.
 2. Directly under it, the coverage gap line when §7 left one.
 3. `## Degradations` — every line §2 step 4 and the dev-server procedure produced (readiness,
-   `seam-auth-failed`, residue, coverage lost), plus a skipped install.
+   `seam-auth-failed`, residue, coverage lost), §6's UI-fixture line, plus a skipped install.
 4. `## Inventory summary` — what the decide stage reads, and the only part it reads: the statement
    lines verbatim, the fixture matrix with the fixture count and how each was created, the
    coverage line or lines, the uncovered list, the unverifiable list. No check code and no check
