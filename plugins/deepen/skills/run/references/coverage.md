@@ -156,4 +156,10 @@ stderr line, or the stop's coverage-lost line.
   (a Vite-style SSR module runner) produces scripts with no file and no `source-map-cache` entry;
   they count as `unmapped`, and a candidate served only that way exits 1 and is estimated. Whether
   a given server's modules reach V8 as files with inline maps is confirmed on its first run.
+- **Traffic no check asserts on is counted.** The measurement-round server also answers the
+  readiness polls and the seam-auth commands ([dev-server.md](dev-server.md) §4, §6), `reset.sh` and
+  `seed.sh` when they go through the app, and the reruns of red groups. A candidate function
+  reached only by the ready route or the login seam counts as hit, so the measured number can
+  overstate what the checks reach. Resetting the counters with `v8.takeCoverage()` before the check
+  round would need code preloaded into the project's server, which the run does not inject.
 - **Only V8.** Another coverage format exits 1.
