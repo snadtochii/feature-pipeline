@@ -209,6 +209,12 @@ Where the inventory's tier 2 checks call the app below the browser. Each entry h
   inventory and its checks are committed. Setup proposes `<convention>/behavior/` after probing
   the repo's test-directory convention (`tests/`, `test/`, `e2e/`, `__tests__/`), defaulting to
   `tests/behavior/`. Only the QA role writes here.
+
+  Its tier-2 checks are files `checks.runner` collects while no `paths.specs` glob matches them
+  ([inventory.md](../../run/references/inventory.md) §3); they carry the token `check` where
+  the runner's naming convention puts its test token. A runner whose include list is exactly the
+  spec globs collects none of them, so the project's runner configuration names the inventory's
+  checks too — rule 16 — and the include line to add is part of every failure of that rule.
 - **`forbidden`** — globs a run never changes: migrations, schema declarations, published
   contracts, generated sources. Setup proposes candidates from what it finds and asks; the
   consequences are project knowledge, so it never invents the list silently.
@@ -307,9 +313,18 @@ Nothing runs after a failure, and the run does not edit the profile.
     `profile: app.now — <value> is not a calendar instant — run /deepen:setup`; a set `app.now`
     with a null `app.clock` fails with
     `profile: app.now — set without app.clock, so no server reads it — run /deepen:setup`.
+16. When `seams` is non-empty and `checks.runner` is non-null, the runner collects a check file
+    under `paths.inventory`: its configured include patterns — or its documented default when it
+    configures none — match `<inventory>**/<name>.check.<ext>` (or the runner's own placement of
+    the `check` token, [inventory.md](../../run/references/inventory.md) §3) for the project's
+    source extension, and no `paths.specs` glob matches that path. Otherwise no tier-2 check can
+    run: the stage that writes them aborts before the first commit. Fails with
+    `profile: paths.inventory — checks.runner collects nothing under <inventory> outside paths.specs — add <the include pattern> to <the runner's config file>`,
+    the pattern spelled in the runner's own syntax. The remedy is a repository change; setup and a
+    run report it and never make it.
 
-A failed rule names the field and the remedy. Rules 4–6, 12 and 14 describe the machine and the
-repository rather than the file; setup checks them at write time and a run re-checks them in
+A failed rule names the field and the remedy. Rules 4–6, 12, 14 and 16 describe the machine and
+the repository rather than the file; setup checks them at write time and a run re-checks them in
 preflight ([preflight.md](../../run/references/preflight.md)).
 
 When every rule is evaluated (setup and `--check`), a field that fails rule 3 is never passed to
