@@ -148,18 +148,22 @@ Everything lives under one per-candidate folder, so a kept net never collides wi
 Every path under the folder uses only the characters `[A-Za-z0-9._/-]` and has no `..` segment —
 the run writes these names into shell command lines, and the stage aborts on any other name.
 
-`inventory.md` opens with three header lines:
+`inventory.md` opens with four header lines:
 
 ```
 candidate: <candidate-id> <name>
 now: <ISO-8601 instant, UTC, Z suffix>
+now-source: profile | base-commit
 tier1: e2e | manual-browser
 ```
 
-`now` is the run's one frozen instant — `<BASE_SHA>`'s committer date in UTC
-(`git show -s --format=%cI "<BASE_SHA>"`, normalized to `Z`) — the value `app.clock` is set to for
-every server this inventory runs against, in this run and any later replay. A statement needing a
-second instant is `unverifiable` (`clock`).
+`now` is the run's one frozen instant: the profile's `app.now` converted to UTC with a `Z` suffix
+when it is set (`now-source: profile`), else `<BASE_SHA>`'s committer date in UTC
+(`git show -s --format=%cI "<BASE_SHA>"`, normalized to `Z`; `now-source: base-commit`). It is the
+value `app.clock` is set to for every server this inventory runs against, in this run and any
+later replay. A replay reads `now:` from this header, never from the profile, so an `app.now`
+edited after the inventory is committed does not change what its checks run against. A statement
+needing a second instant is `unverifiable` (`clock`).
 
 Then the sections `## Statements` (§1), `## Fixture matrix` (§5), `## Bindings` (§2),
 `## Unverifiable` (`<statement-id> — <reason>`) and `## Uncovered` (`<domain term> — <case> —

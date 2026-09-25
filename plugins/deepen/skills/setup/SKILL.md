@@ -144,6 +144,22 @@ run; it never installs, builds, tests or serves.
 - **Forbidden-path candidates** — migration directories, schema declarations, published contract
   definitions, generated clients and generated sources.
 - **Domain docs** — `CONTEXT.md` at the root, `docs/adr/`.
+- **Secrets provisioning** (capability row 13) — names only, per §0; every pattern reaches `Glob`
+  or `Grep` as a tool parameter, never as a `Bash` command naming an env file:
+  - `Read` `.worktreeinclude` when present — a pattern list, not an env file — and judge each
+    pattern against the secret-material name rule in
+    [worktree.md](../run/references/worktree.md) §4; `Glob` the env-file names and example forms
+    the same rule defines.
+  - `Grep` the dev start script and the scripts it invokes — or the manifest's inline script
+    value when there is no script file — for keychain and secret-manager CLI names
+    (`security find-generic-password`, `secret-tool`, `op read`, `op run`, `pass show`, `vault`,
+    `aws secretsmanager`, `gcloud secrets`, `doppler`, `infisical`) and for env-file loaders
+    (`--env-file`, `dotenv`, `env-cmd`).
+  - `Grep` the repo docs (`README*`, `CLAUDE.md`, `AGENTS.md`, `docs/`) for a documented start
+    path that needs no secrets file — a test, demo or offline mode on throwaway data.
+
+  Score it per [readiness.md](references/readiness.md) §1's row 13 precedence. The evidence cell
+  names files and patterns, never a value.
 - **An existing `.tidyloop.yaml`** — read-only evidence: its `base`, `forbidden_paths` and
   `commands.test_globs` become the recommended `base`, `paths.forbidden` and `paths.specs`, the
   file named as evidence; its `loop_clone` is recorded for §4's clone question. Never written.
@@ -163,8 +179,8 @@ once `state_dir` is known.
 
 ## §4 Confirm the undecidable
 
-Ask with `AskUserQuestion`, at most four questions per call, so the five questions below take two
-calls. Every question's first option is the recommendation: the existing profile value, else the
+Ask with `AskUserQuestion`, at most four questions per call, so the questions below — five, six
+when `app.clock` is set — take two calls. Every question's first option is the recommendation: the existing profile value, else the
 probed value, else the documented default.
 
 **Every proposed field carries a one-line rationale** — on the recommended option of each
@@ -187,12 +203,19 @@ omitted says what was looked for and not found.
 4. **Inventory directory** — from the test-directory convention in §2.
 5. **Forbidden paths** — multi-select over §2's candidates, plus the option to add more: a change
    here is never merely structural.
+6. **Run instant (`app.now`)** — asked only when `app.clock` is set. Recommendation: the existing
+   `app.now`, else `unset — each run freezes at its base commit's committer date` (documented
+   default, [profile.md](references/profile.md) §2). The override option says why to take it —
+   the project's fixtures are pinned to a date and their loader refuses any other clock — and
+   asks for a mid-day `Z` instant, `<date>T12:00:00Z`, checked against
+   [profile.md](references/profile.md) §3's class and §4 rule 15.
 
 Alongside the questions, show a **review block** (not asked): `app.*` commands, URL and readiness
 probe, `seams` with their auth, `checks.*`, `paths.specs`, `app.install` / `app.prelude`,
 `attendance: semi`, and the `run.*` defaults — each with its rationale. A user correcting a value there is expected; a
 value the user supplies that the probe cannot confirm is scored `unverified`. An unmatched spec
-glob is shown as a blocking finding: §6's validation will reject it.
+glob is shown as a blocking finding: §6's validation will reject it. A correction that newly sets
+`app.clock` brings question 6 with it, asked alone in one follow-up call.
 
 A cancelled or unanswered question writes nothing further; §7 reports what was written so far.
 
@@ -264,7 +287,7 @@ Close with a summary the user can act on without re-reading the transcript:
 
 1. **What was written** — the profile path (or that the diff was declined), `state_dir`,
    `<state_dir>/readiness.md`, the loop clone path, and that nothing was committed.
-2. **Readiness** — the tier line and the count of `missing` rows; the ticket draft is in
+2. **Readiness** — the tier line and the count of `missing` and `warning` rows; the ticket draft is in
    `<state_dir>/readiness.md`.
 3. **Next steps** — commit `.deepen.yaml` on `base` and push it to `origin`, then fast-forward
    the loop clone (`git -C <loop_clone> fetch origin` and
@@ -288,8 +311,12 @@ only write is `<state_dir>/readiness.md`.
      `re-run /deepen:setup`;
    - `-- <field>: <reason>` — a rule that could not be evaluated (no `origin` reachable for rule 4,
      or its field failed its rule 3 class and is never passed to a command).
-4. Refresh the report through [readiness.md](references/readiness.md) §5 and print its diff —
+4. Print the run instant's effective source — `now: profile <value>` when `app.now` is set, else
+   `now: base-commit — app.now is null` ([profile.md](references/profile.md) §2). An `app.now`
+   that failed rule 3 or 15 prints `now: profile — invalid, see its FAIL line`. This line is
+   informational: it is not a check and never counts in step 6's `<n>`.
+5. Refresh the report through [readiness.md](references/readiness.md) §5 and print its diff —
    unless `state_dir` fails its §3 class or rule 6, or does not exist: then print the rendered
    report, write nothing, and name the reason.
-5. Print the summary as the last line: `OK: <n> checks` when no line is a `FAIL`, else
+6. Print the summary as the last line: `OK: <n> checks` when no line is a `FAIL`, else
    `FAIL (<n>): <field>, <field>, …`.
