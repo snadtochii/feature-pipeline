@@ -1,7 +1,7 @@
 {
   "name": "deepen",
   "description": "A manually triggered, semi-attended loop that takes one deep-module refactor candidate to a draft pull request carrying a behavior-preservation evidence pack.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Serhii Nadtochii"
   },

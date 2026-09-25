@@ -21,6 +21,17 @@ Each row gets exactly one status, decided from the static probe and the user's a
   cannot confirm: a command the user typed, an env var name no file mentions, a seam auth the
   user declared `none`.
 - **`missing`** — neither.
+- **`warning`** — static evidence shows a hazard the run guards against. Only row 13 (secrets
+  provisioning) produces it today: `.worktreeinclude` lists secret material per the name rule in
+  [worktree.md](../../run/references/worktree.md) §4, so a run skips that pattern or path and the
+  dev server may lack a file it expects.
+
+**Row 13** is decided by precedence, `warning` > `found` > `unverified`, and is never `missing`:
+`warning` when `.worktreeinclude` lists secret material; else `found` when the probe sees a start
+path that needs no copied secrets file — a repo doc naming one, a keychain or secret-manager call
+in the dev start script or a script it invokes, or no env file, no example env file and no
+env-file loader in the dev command at all; else `unverified`. Its evidence names files and
+patterns only ([../SKILL.md](../SKILL.md) §2).
 
 **Combined rows** (dev command and URL, seam and seam auth, fixture seed and reset) are `found`
 only when both parts are `found`, `missing` when either part is `missing`, and `unverified`
@@ -54,7 +65,7 @@ Static probe: files and git only. No row was exercised at runtime.
 | base branch | found | origin/HEAD → `main` | run cannot start — profile validation fails on base | a default branch on the remote that every change starts from |
 | readiness probe | missing | no route file named like health or ready under <routes dir> | readiness probe absent — the run waited for app.url to answer and took the first answer as ready | a route that answers success once the app can serve requests |
 | ... | | | | |
-| ADR directory | missing | no `docs/adr/` | no ADR filter — candidates are not checked against recorded decisions | a `docs/adr/` directory of recorded architecture decisions |
+| secrets provisioning | unverified | no test-mode start documented; no keychain call in <start script> | secrets provisioning unverified — the dev server may not start in a fresh worktree; the run copies no secrets file | a start path that needs no copied secrets file: a test-mode fallback for throwaway data, or the project's own start script resolving its secrets from the OS keychain |
 
 Tier: browser only
 
@@ -63,8 +74,8 @@ Tier: browser only
 <§4 block>
 ```
 
-- **Rows** — one per row of [profile.md](profile.md) §6, in that table's order, all twelve every
-  time. The run-only rows under §6 are not rendered.
+- **Rows** — one per row of [profile.md](profile.md) §6, in that table's order, all thirteen
+  every time. The run-only rows under §6 are not rendered.
 - **`effect if missing`** and **`what would supply it`** — copied verbatim from
   [profile.md](profile.md) §6, and shown on every row, so a `found` row still says what it
   protects.
@@ -91,8 +102,9 @@ It is the only line in the file that matches `^Tier: `.
   `unverified`.
 - **`browser only`** — otherwise.
 
-`unverified` counts as present for the tier. Rows 3 and 5–12 never change the tier; each adds
-its degradation line to a run instead.
+`unverified` counts as present for the tier. Rows 3 and 5–13 never change the tier; each adds
+its degradation line to a run instead — row 13's only when the run skipped a `.worktreeinclude`
+pattern or path. A `warning` never changes the tier either.
 
 ---
 
@@ -113,17 +125,21 @@ Acceptance criteria:
 - [ ] <one criterion per `missing` row, from its "what would supply it" line, restated with the
       repo's names — for example "a `<package-manager> run <name>` script that loads a fixture
       file into the development database">
+- [ ] <one criterion per `warning` row: "remove `<pattern>` from `.worktreeinclude`", then the
+      row's "what would supply it" line, restated with the repo's names>
 
 To confirm (present, but not verified by a static probe):
 - <the row's "what would supply it" line, restated with the repo's names>: <evidence>
 ```
 
-- One acceptance criterion per `missing` row, in table order. Rows 1 and 2 are criteria like
-  any other when missing.
+- One acceptance criterion per `missing` or `warning` row, in table order. Rows 1 and 2 are
+  criteria like any other when missing. A `warning` row's criterion names every
+  `.worktreeinclude` pattern to remove; `.worktreeinclude` is the repo's own file name, so the
+  vocabulary rule above still holds.
 - `unverified` rows go under **To confirm**, never under acceptance criteria. No `unverified`
   row → the **To confirm** list is omitted.
-- No `missing` row → the section body is the single line `No gaps — nothing to ticket.`, with
-  the **To confirm** list after it when there is one.
+- No `missing` or `warning` row → the section body is the single line
+  `No gaps — nothing to ticket.`, with the **To confirm** list after it when there is one.
 
 ---
 

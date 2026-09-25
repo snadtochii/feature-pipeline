@@ -101,6 +101,15 @@ renders the same rows as its readiness report.
 | 10 | mutation runner | mutation pass skipped — no mutation runner |
 | 11 | `CONTEXT.md` glossary | glossary matrix derived from code and routes — marked derived |
 | 12 | ADR directory | no ADR filter — candidates are not checked against recorded decisions |
+| 13 | secrets provisioning | secrets provisioning unverified — the dev server may not start in a fresh worktree; the run copies no secrets file |
+
+**Secrets.** Project commands read project secrets; the run never copies, sources or reads them.
+A run's worktree gets no env or secrets file: its `.worktreeinclude` copy skips every pattern and
+path that names one, and reports each skip. A project whose dev server needs a secret therefore
+supplies a start path that works without a copied file — a test-mode start that runs on throwaway
+data and needs no secrets at all, or a start script that resolves its secrets from the OS keychain
+at launch (for example, one that reads a token with the platform's keychain CLI and exports it
+into the server's own process only). `/deepen:setup` scores the row from file names alone.
 
 ## Runtime dependencies
 

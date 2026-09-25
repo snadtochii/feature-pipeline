@@ -1,7 +1,7 @@
 # The run worktree
 
 Authoritative text for the worktree a `deepen:run` works in: its names, how stage 2 creates it,
-how stages 4 and 5 bind or re-attach it, the `.worktreeinclude` copy and its
+how stages 4 and 5 bind or re-attach it, the `.worktreeinclude` copy, its secret refusal and its
 exclusion list, the dependency install, the worktree's part of an abort, and teardown.
 
 - **Stage 2 creates it**, before the inventory commit, so the inventory commit lands on the run
@@ -56,7 +56,8 @@ it rather than attaching to work nobody can vouch for.
    by hand no longer counts as present.
 2. **Present** — `git -C "<CLONE>" worktree list --porcelain` lists `<WT>` on
    `refs/heads/<branch>` → bind it. Re-read the exclusion list from
-   `<state_dir>/runs/<run-id>/exclusions` (§4).
+   `<state_dir>/runs/<run-id>/exclusions` and the secret-refusal skips from
+   `<state_dir>/runs/<run-id>/worktreeinclude-skipped` (§4).
 3. **Absent, and the branch exists** — `git -C "<CLONE>" rev-parse --verify "refs/heads/<branch>"`
    resolves → re-attach it:
 
@@ -75,10 +76,42 @@ on.
 
 ---
 
-## §4 Copy and the exclusion list
+## §4 Copy, secret refusal and the exclusion list
 
-Copy every file matching a `.worktreeinclude` pattern from `<CLONE>` into `<WT>`, preserving
-relative paths. No `.worktreeinclude` in the repo → skip the copy, no error.
+**Secret-material name rule.** A path, or a pattern's text, is secret material when, ignoring
+case, either holds:
+
+- its last segment starts with `.env` or ends with `.env` — so `.env`, `.env.local`, `.envrc`,
+  `.env-local` and `prod.env` all are — except the example forms ending `.example` or `.sample`,
+  which stay copyable;
+- it contains `secret` or `credential` anywhere.
+
+A pattern's text is judged literally, its wildcards kept as written: `.env*`, `*.env` and
+`**/.env` are secret material by their text, while `*.json` or `config/*` are not — a secret file
+such a pattern selects is skipped alone at step 4, by its own path. A pattern skipped whole also drops the example
+files it would have selected; list an example file by its own name to copy it. A negated pattern
+(`!<text>`) is judged by the text after the `!`, and never brings back a path this rule skipped.
+The rule reads names only and never opens a file. It is stated here once; setup's secrets probe
+([../../setup/SKILL.md](../../setup/SKILL.md) §2) cites it.
+
+**Copy.** No `.worktreeinclude` in the repo → skip the copy, no error. Otherwise:
+
+1. `Read` `<CLONE>/.worktreeinclude` — a list of patterns, not an env file.
+2. Every pattern whose text is secret material is skipped whole, with the report line
+   `worktreeinclude: skipped <pattern> — secrets are never copied by the run` — capability row 13
+   ([profile.md](../../setup/references/profile.md) §6).
+3. Resolve each remaining pattern to files under `<CLONE>` with `Glob`, the pattern passed as the
+   tool's parameter.
+4. Every resolved file whose repo-relative path is secret material is skipped alone, with
+   `worktreeinclude: skipped <path> (from <pattern>) — secrets are never copied by the run`.
+5. Copy every other resolved file from `<CLONE>` into `<WT>`, preserving relative paths.
+
+Every skip line is written, one per line, to `<state_dir>/runs/<run-id>/worktreeinclude-skipped`
+with `Write` — created empty when nothing is skipped or there is no `.worktreeinclude` — so a
+resumed or later stage re-reads the same skips. A skipped pattern or path never reaches a shell
+command: the skip is decided on `Read` and `Glob` results alone, so the run never names a secrets
+file on a command line. The rest of the copy proceeds; a skip is a report line and row 13's
+degradation, never an error.
 
 **Then verify every copied path is still ignored in the worktree.** The worktree evaluates ignore
 rules against the committed ignore files at `<BASE_SHA>`, while the patterns that selected the
@@ -98,7 +131,9 @@ Every path that comes back not ignored:
 - is named in every agent brief as never-stage;
 - is the **only** exemption from the clean-tree assertion ([fence.md](fence.md) §7).
 
-This is the one check between a copied secrets file and a pushed branch.
+The secret refusal and this check are the two layers between a secrets file and a pushed branch:
+the refusal keeps secret material out of `<WT>` by name, and this check keeps any copied file that
+arrives unignored out of every commit.
 
 The dev server's untracked residue joins the same list, with its own report line
 ([dev-server.md](dev-server.md) §5).

@@ -111,10 +111,15 @@ On every entry, in order; each failure aborts with the line shown.
    paths aside — else `verify: aborted — worktree not clean — <paths>`.
 6. `<record>` and `<runs>/inventory-summary.md` exist — else `verify: aborted — <path> missing`.
 7. **The inventory.** `Read` `<WT>/<inventory><slug>/inventory.md` — the committed file, by steps 4
-   and 5. Bind its `now:` and `tier1:` header lines, its statement ids, its `## Bindings` lines,
-   its `## Unverifiable` lines and its fixture matrix. A statement id outside `^S[0-9]{2,3}$`, a
-   check id outside `^T[12]-[0-9]{2,3}$` or a fixture id outside `^F[0-9]{2,3}$` →
-   `verify: aborted — inventory line out of class — line <n>`. A statement is **manual-browser**
+   and 5. Bind its `now:`, `now-source:` and `tier1:` header lines, its statement ids, its
+   `## Bindings` lines, its `## Unverifiable` lines and its fixture matrix. A statement id outside
+   `^S[0-9]{2,3}$`, a check id outside `^T[12]-[0-9]{2,3}$`, a fixture id outside `^F[0-9]{2,3}$`,
+   a `now:` value outside `^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$`
+   (the QA role wrote it, and it reaches the dev server's launch line as `<app.clock>=<now>`),
+   or a `now-source:` value other than `profile` or `base-commit` →
+   `verify: aborted — inventory line out of class — line <n>`. A missing `now-source:` line is
+   out of class at line 3, where [inventory.md](inventory.md) §6 puts it — there is no default
+   source. A statement is **manual-browser**
    when `tier1:` is `manual-browser` and `<WT>/<inventory><slug>/tier1/manual/<S-id>.steps.md`
    exists.
 
@@ -127,7 +132,8 @@ On a fresh stage only, the report lines:
    nothing again.
 9. **Degradations.** Every line [stage-2-characterize.md](stage-2-characterize.md) §2 step 4
    lists, worked out again from the profile — the verify round replays the same oracle, under the
-   same limits. §4 adds capability row 10's line and §6 the run-only reviewers line, when they
+   same limits. Row 13's line is worked out from the `worktreeinclude-skipped` file step 2 bound
+   ([worktree.md](worktree.md) §3), not from the profile. §4 adds capability row 10's line and §6 the run-only reviewers line, when they
    apply.
 
 ---
@@ -135,10 +141,13 @@ On a fresh stage only, the report lines:
 ## §2 Verify round `k`
 
 1. **Scripts.** Write the wrappers per [dev-server.md](dev-server.md) §1 — rewritten every round,
-   because a file under `<runs>` is one a QA role holding `Bash` could have reached. `<now>` per
-   [stage-2-characterize.md](stage-2-characterize.md) §2 step 1, the instant the inventory's
-   `now:` line records. `<run_dir>/verify-<k>/` must not exist yet — else
-   `verify: aborted — <run_dir>/verify-<k>/ already exists`, since a QA role holding `Bash` can
+   because a file under `<runs>` is one a QA role holding `Bash` could have reached. `<now>` is
+   the header `now:` bound at §1 step 7, and the profile's current `app.now` is never read — a
+   profile edited after the inventory's commit cannot move the replay's instant. When the bound
+   `now-source:` is `base-commit`, also compute the committer date per
+   [stage-2-characterize.md](stage-2-characterize.md) §2 step 1; a different value aborts
+   `verify: aborted — inventory now: disagrees with <BASE_SHA>`. `<run_dir>/verify-<k>/` must not
+   exist yet — else `verify: aborted — <run_dir>/verify-<k>/ already exists`, since a QA role holding `Bash` can
    reach any round's directory; §0's `§2` retry removes it first. Then
    `mkdir -p "<runs>/round-v<k>" "<run_dir>/verify-<k>/screenshots"`.
 2. **Server.** [dev-server.md](dev-server.md) §2–§6 with round `v<k>` and no coverage env. A

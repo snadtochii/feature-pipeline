@@ -42,6 +42,7 @@ app:
   seed: "<command>"                 # required, nullable — loads one fixture file
   reset: "<command>"                # required, nullable — returns the app to its empty state
   clock: "<ENV_NAME>"               # required, nullable — env var the server reads for "now"
+  now: null                         # optional — the run's frozen instant; ISO-8601 with Z or ±hh:mm
   network: "<ENV_NAME>=<value>"     # required, nullable — env that stubs external calls
   coverage_env: "<ENV_NAME>=<dir>"  # required, nullable — env that makes the server write coverage
 
@@ -139,7 +140,27 @@ Either `null` → the fixture row applies (fixtures are created through the UI).
 ### `app.clock`
 
 The **name** of an env var the server reads for the current instant. A run sets it to the
-fixture's ISO-8601 timestamp when it starts `dev`. `null` → the frozen-clock row applies.
+run's frozen instant `now` ([inventory.md](../../run/references/inventory.md) §6) when it
+starts `dev`. `null` → the frozen-clock row applies.
+
+### `app.now`
+
+An ISO-8601 instant with an explicit zone — `Z` or `±hh:mm` — that replaces `<BASE_SHA>`'s
+committer date as the run's one frozen instant. Set it when the project's fixtures are pinned
+to a date and their loader refuses any other clock: the committer date moves with every
+commit, the fixture date does not. Absent or `null` → the committer date stands.
+
+A run converts the value to UTC with a `Z` suffix, the same conversion the committer date
+gets, so an offset near midnight moves the date: `2026-03-01T00:30:00+02:00` becomes
+`2026-02-28T22:30:00Z`. Write a mid-day `Z` value — `<date>T12:00:00Z` — so the date is the
+same in every nearby zone.
+
+The instant is one value for the whole run and for every replay. Stage 2 records it in the
+inventory header as `now:` with `now-source: profile`
+([inventory.md](../../run/references/inventory.md) §6), and a later replay uses that recorded
+value, never the profile's current one — editing `app.now` after an inventory is committed
+cannot change what that inventory's checks run against. Only `app.clock` carries it to the
+server, so a set `app.now` with a null `app.clock` fails §4 rule 15.
 
 ### `app.network`
 
@@ -227,6 +248,7 @@ parameters.
 | `app.ready` (probe form) | `GET /<path> -> <status>`; path `^/[A-Za-z0-9._~/-]*$`; status three digits | the path is appended to `url` |
 | `app.url`, `seams[].base` for `http`/`server-fn` | `^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$` | requested by the run; no query, credentials or fragment |
 | `app.clock` | `^[A-Z_][A-Z0-9_]*$` | an env var name the run assigns |
+| `app.now` | `^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z\|[+-][0-9]{2}:[0-9]{2})$` | an instant the run writes into the inventory header and a server env |
 | `app.network`, `app.coverage_env` | `NAME=value`; `NAME` as `app.clock`; `value` `^[A-Za-z0-9._/:,+@%=-]*$` — no quotes, `$`, backtick, `;`, `&`, `\|`, `<`, `>` or whitespace — except the literal `<dir>` placeholder, allowed in `coverage_env` only | an env assignment the run adds to the dev server's environment |
 | `seams[].kind` | `http`, `server-fn` or `cli` | selects how checks call the seam |
 | `paths.inventory` | repo-relative, trailing `/`, characters `[A-Za-z0-9._/-]`, no `..` segment, no leading `/` | a fence root and a commit path |
@@ -279,6 +301,12 @@ Nothing runs after a failure, and the run does not edit the profile.
 14. `loop_clone` (after `~` expansion) is not the `loop_clone` of another loop's profile at the
     repo root — `.tidyloop.yaml`'s `loop_clone`, `~` expanded the same way, when that file exists. Remedy:
     choose a separate clone path.
+15. `app.now`, when non-null, is a real calendar instant — its date exists, and its time and
+    offset are in range; the zone itself is rule 3's class — and `app.clock` is non-null. An
+    impossible instant fails with
+    `profile: app.now — <value> is not a calendar instant — run /deepen:setup`; a set `app.now`
+    with a null `app.clock` fails with
+    `profile: app.now — set without app.clock, so no server reads it — run /deepen:setup`.
 
 A failed rule names the field and the remedy. Rules 4–6, 12 and 14 describe the machine and the
 repository rather than the file; setup checks them at write time and a run re-checks them in
@@ -340,9 +368,13 @@ ordinary test-mode infrastructure.
 | 10 | mutation runner | `checks.mutation` | `mutation pass skipped — no mutation runner` | a mutation-testing tool configured for the unit test runner |
 | 11 | `CONTEXT.md` glossary | none — `CONTEXT.md` at the repo root | `glossary matrix derived from code and routes — marked derived` | a `CONTEXT.md` glossary naming the domain's terms and the states they can be in |
 | 12 | ADR directory | none — `docs/adr/` | `no ADR filter — candidates are not checked against recorded decisions` | a `docs/adr/` directory of recorded architecture decisions |
+| 13 | secrets provisioning | none — `.worktreeinclude` and the dev start path | `secrets provisioning unverified — the dev server may not start in a fresh worktree; the run copies no secrets file` | a start path that needs no copied secrets file: a test-mode fallback for throwaway data, or the project's own start script resolving its secrets from the OS keychain |
 
 Rows 1 and 2 are required: their absence is a validation failure, not a degradation. Row 4
 covers both parts: a seam without a usable auth is left out of `seams`, so the same line applies.
+Row 13 has no profile field: setup scores it from file names alone
+([readiness.md](readiness.md)), and a run prints its line when
+[worktree.md](../../run/references/worktree.md) §4 skipped a `.worktreeinclude` path.
 
 **Run-only rows.** These describe the run's environment rather than the project, so
 `deepen:setup` does not render them:

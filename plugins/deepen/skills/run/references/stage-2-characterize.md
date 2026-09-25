@@ -87,8 +87,11 @@ common abort.
 
 ## §2 Preparation
 
-1. **`<now>`** — `git -C "<WT>" show -s --format=%cI "<BASE_SHA>"`, converted to UTC with a `Z`
-   suffix ([inventory.md](inventory.md) §6).
+1. **`<now>` and `<now-source>`** ([inventory.md](inventory.md) §6) — the profile's `app.now`,
+   when set, converted to UTC with a `Z` suffix, and `<now-source>` = `profile`; else
+   `git -C "<WT>" show -s --format=%cI "<BASE_SHA>"`, converted the same way, and `<now-source>` =
+   `base-commit`. The profile and `<BASE_SHA>` are fixed within a run, so a §0 retry computes the
+   same pair.
 2. **The pick.** From the `## Pick` block, only `id`, `name`, `files` and `structural_key` travel
    to the QA role. `next_change`, `category`, `est_diff_lines` and `adr_conflict` describe the
    intended change and stay out of every brief. Write `files` one per line to `<runs>/touched-files`.
@@ -97,7 +100,8 @@ common abort.
    the matrix is `derived`.
 4. **Degradations.** For every capability the profile does not supply, its `effect if missing`
    line, verbatim from [profile.md](../../setup/references/profile.md) §6 — rows 3 (on the first
-   ready wait), 4, 5, 6, 7, 8, 9 and 11 — and the run-only `browser tools absent` line when
+   ready wait), 4, 5, 6, 7, 8, 9 and 11, and row 13 when `<runs>/worktreeinclude-skipped`
+   ([worktree.md](worktree.md) §4) is non-empty — and the run-only `browser tools absent` line when
    `checks.e2e` is null and neither the Playwright nor the Chrome DevTools browser tools are
    available in this session. `checks.runner` null with a seam → `tier 2 skipped — checks.runner is
    null`.
@@ -136,7 +140,7 @@ coverage env.
      derived`;
    - the profile's `app`, `seams`, `checks` and `paths` blocks as data, each seam's `auth` replaced
      by `<seam n: credential supplied by check.sh>`;
-   - `now: <now>`;
+   - `now: <now>` and `now-source: <now-source>`, the inventory's header lines as written;
    - each wrapper that exists, as an absolute path, how it is invoked
      (`cd "<WT>" && DEEPEN_CHECK_LOG=<file> bash <wrapper> <files>`), `app.url`, and the
      environment names of [inventory.md](inventory.md) §3;
@@ -172,7 +176,14 @@ After it returns:
    ([profile.md](../../setup/references/profile.md) §3: characters `[A-Za-z0-9._/-]`, no `..`
    segment) — these names are written into the check round's command lines, so a name outside the
    class is `fence-violation: qa-characterizer — inventory file name — <path>`.
-3. Stop the server ([dev-server.md](dev-server.md) §7).
+3. **Inventory header.** `Read` `<WT>/<inventory><slug>/inventory.md` with `limit: 4` — the
+   header lines [inventory.md](inventory.md) §6 fixes, never the whole oracle: its `now:` and
+   `now-source:` lines equal `<now>` and `<now-source>`
+   — else abort `characterize: aborted — inventory header now: <value> disagrees with the run's
+   <now> (<now-source>)`, `<value>` being `missing` when the line or the file is absent. Every
+   later replay takes the run's instant from this header, so a header written wrong would move
+   every one of them.
+4. Stop the server ([dev-server.md](dev-server.md) §7).
 
 Any violation aborts, never retried. Then read `<run_dir>/characterize.md`. Zero statements →
 abort `characterize: aborted — inventory: empty — <the QA role's reason>`.
@@ -244,6 +255,8 @@ Red after the repair pass → abort `characterize: aborted — checks red on the
    - every path of `git -C "<WT>" diff-tree -z --no-commit-id --name-only --no-renames -r HEAD`
      lies under `<inventory><slug>/`, and none is on the exclusion list;
    - `git -C "<WT>" status --porcelain -z --no-renames --untracked-files=all` is empty, exclusion-list paths aside;
+   - the committed inventory header still carries the run's instant — §5 step 3's check again,
+     on the committed file: the measurement round's check code ran in `<WT>` after it;
    - `git -C "<CLONE>" rev-parse "refs/heads/<base>"` still equals `<BASE_SHA>` — nothing was
      committed to the loop clone's `base`.
 
@@ -262,7 +275,8 @@ clear it.
    `characterize: needs-decision — <the line>` with `## Options` and the §0 `resume:` line.
 2. Directly under it, the coverage gap line when §7 left one.
 3. `## Degradations` — every line §2 step 4 and the dev-server procedure produced (readiness,
-   `seam-auth-failed`, residue, coverage lost), §6's UI-fixture line, plus a skipped install.
+   `seam-auth-failed`, residue, coverage lost), §6's UI-fixture line, plus a skipped install and
+   every `worktreeinclude: skipped` line ([worktree.md](worktree.md) §4).
 4. `## Inventory summary` — what the decide stage reads, and the only part it reads: the statement
    lines verbatim, the fixture matrix with the fixture count and how each was created, the
    coverage line or lines, the uncovered list, the unverifiable list. No check code and no check

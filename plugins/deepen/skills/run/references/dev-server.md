@@ -90,7 +90,9 @@ with options `retry — check the port again and start the server` and `abort �
 **Environment**, assembled by the stage for this start only:
 
 - `app.network`, when set, as written.
-- `<app.clock>=<now>`, when `app.clock` is set — `<now>` from [inventory.md](inventory.md) §6.
+- `<app.clock>=<now>`, when `app.clock` is set — `<now>` the run's instant per
+  [inventory.md](inventory.md) §6: the stage's computed value in characterize, the inventory
+  header's `now:` in verify.
 - In a **measurement round** only, `app.coverage_env` with its `<dir>` placeholder replaced by
   `<runs>/coverage/<round>` — created empty first. A server started for anything else carries no
   coverage env, so exploration traffic never enters the measurement.
