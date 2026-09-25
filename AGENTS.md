@@ -28,7 +28,7 @@ Editing a skill or agent while another Claude Code session is open:
 
 ## Repository layout
 
-The repo is a **multi-plugin marketplace**: the two marketplace files stay at the repo root and index the plugins under `plugins/`. `feature` and `stack-first` carry both manifests. Two plugins are Claude-only by design and appear in the Claude marketplace alone: `server-native` exists to declare an MCP server through install-time prompts, which Codex has no equivalent for, so Codex users bind the same server through `config.toml`; `tidy-loop` binds its write fences as `PreToolUse` hooks declared in agent frontmatter and delegates every write to Claude subagent types, neither of which Codex can load from a plugin manifest.
+The repo is a **multi-plugin marketplace**: the two marketplace files stay at the repo root and index the plugins under `plugins/`. `feature` and `stack-first` carry both manifests. Three plugins are Claude-only by design and appear in the Claude marketplace alone: `server-native` exists to declare an MCP server through install-time prompts, which Codex has no equivalent for, so Codex users bind the same server through `config.toml`; `tidy-loop` binds its write fences as `PreToolUse` hooks declared in agent frontmatter, `deepen` binds its fence as a plugin-level `PreToolUse` hook dispatched on the calling subagent's `agent_type`, and both delegate every write to Claude subagent types, none of which Codex can load from a plugin manifest.
 
 Path convention: in prose references throughout this file, an unqualified `skills/`, `agents/`, or `docs/` path names the item inside the `feature` plugin (i.e. `plugins/feature/…`). Operational commands and audit steps use the full repo-root-relative `plugins/feature/…` path so they run as written from the repo root.
 
@@ -232,7 +232,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
 
 Before committing changes to skills or agents, walk [docs/contributing/validation.md](docs/contributing/validation.md); it also holds the add-a-stage and add-an-agent checklists. Always:
 
-- `scripts/check-tool-parity.sh`, `scripts/check-mode-split.sh`, `scripts/check-md-links.sh`, `bash scripts/check-runtime-contract.sh`, and `bash scripts/check-setup-detect.sh` exit 0; `node scripts/check-tidy-checks.mjs` too when the change touches tidy-loop checks.
+- `scripts/check-tool-parity.sh`, `scripts/check-mode-split.sh`, `scripts/check-md-links.sh`, `bash scripts/check-runtime-contract.sh`, `bash scripts/check-setup-detect.sh`, and `bash scripts/check-deepen-contract.sh` exit 0; `node scripts/check-tidy-checks.mjs` too when the change touches tidy-loop checks.
 - Reviewer agents (`code-reviewer`, `security-engineer`, `performance-engineer`, `code-architect`) list no `Bash` or `Edit`; `finalizer` keeps `Bash` — `scripts/check-runtime-contract.sh` asserts both directions.
 - An edit to a shared section of a `-fs`/`-server` pair lands in both files.
 - A new validation script gets a step in `.github/workflows/validation.yml`, or it stays manual-only.
@@ -240,7 +240,7 @@ Before committing changes to skills or agents, walk [docs/contributing/validatio
 The full check command, run from the repo root:
 
 ```bash
-bash scripts/check-tool-parity.sh && bash scripts/check-mode-split.sh && bash scripts/check-md-links.sh && bash scripts/check-runtime-contract.sh && bash scripts/check-setup-detect.sh
+bash scripts/check-tool-parity.sh && bash scripts/check-mode-split.sh && bash scripts/check-md-links.sh && bash scripts/check-runtime-contract.sh && bash scripts/check-setup-detect.sh && bash scripts/check-deepen-contract.sh
 ```
 
 Add `node scripts/check-tidy-checks.mjs` to that chain when the change touches tidy-loop checks. There is no lint, typecheck, format or test command in this repo — it ships markdown, shell and JSON, and these validators are the whole set.
@@ -252,7 +252,7 @@ Add `node scripts/check-tidy-checks.mjs` to that chain when the change touches t
 - No marketing language in commit messages ("magnificent", "blazingly fast", etc.).
 - Reference the issue/feature the commit addresses.
 - Keep commits small — one concern per commit.
-- **Bump the plugin version every PR.** For the `feature` plugin, update `version` in BOTH `plugins/feature/.claude-plugin/plugin.json` and `plugins/feature/.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two `feature` manifests must stay in lockstep. `stack-first` and `tidy-loop` version independently, and their versions are not coupled to each other or to `feature`: a change touching `stack-first` bumps its lockstep pair (`plugins/stack-first/.claude-plugin/plugin.json` + `plugins/stack-first/.codex-plugin/plugin.json`), and a change touching `tidy-loop` bumps `plugins/tidy-loop/.claude-plugin/plugin.json` alone. The pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/implement step.
+- **Bump the plugin version every PR.** For the `feature` plugin, update `version` in BOTH `plugins/feature/.claude-plugin/plugin.json` and `plugins/feature/.codex-plugin/plugin.json` (semver: patch for fixes/refinements, minor for new skills/features) in the same PR as the change — the two `feature` manifests must stay in lockstep. `stack-first`, `tidy-loop` and `deepen` version independently, and their versions are not coupled to one another or to `feature`: a change touching `stack-first` bumps its lockstep pair (`plugins/stack-first/.claude-plugin/plugin.json` + `plugins/stack-first/.codex-plugin/plugin.json`); `tidy-loop` and `deepen` are Claude-only, so a change touching `tidy-loop` bumps `plugins/tidy-loop/.claude-plugin/plugin.json` alone and a change touching `deepen` bumps `plugins/deepen/.claude-plugin/plugin.json` alone. The pipeline does not auto-include this, so when running the pipeline on this repo, add the version bump as an explicit plan/implement step.
 
 ## Editing discipline
 

@@ -1,7 +1,8 @@
 # The repository's validation scripts, on every pull request and on every push
 # to a long-lived branch.
 #
-# These are bash plus python3 or jq and finish in seconds, so they carry no path
+# These are bash plus python3 or jq — and Node for the deepen contract's script
+# self-tests, which the runner image ships — and finish in seconds, so they carry no path
 # filter: a change anywhere can break a frontmatter budget, a mode-split rule,
 # or the runtime contract. Pushes to other branches are checked through their
 # pull request alone, so one commit runs the scripts once.
@@ -44,6 +45,9 @@ jobs:
 
       - name: Runtime contract
         run: bash scripts/check-runtime-contract.sh
+
+      - name: Deepen contract
+        run: bash scripts/check-deepen-contract.sh
 
       - name: Setup detection fixtures
         run: bash scripts/check-setup-detect.sh

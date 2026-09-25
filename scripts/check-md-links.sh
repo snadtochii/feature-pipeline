@@ -34,6 +34,7 @@ repo_root=$(cd "$(dirname "$0")/.." && pwd)
 roots=(
   "plugins/feature/skills"
   "plugins/tidy-loop"
+  "plugins/deepen"
 )
 
 for root in "${roots[@]}"; do
