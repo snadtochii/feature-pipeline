@@ -149,8 +149,14 @@ data, never as a link:
    inlines `<WT>`, the declared rename map, the declared spec delete list, every `paths.specs`
    glob, the check command and the exclusion list. Then §5's assertions for the `specs` role,
    plus: every path deleted in its commit
-   (`git -C "<WT>" diff -z --name-only --no-renames --diff-filter=D "<prev>..HEAD"`) is on the
-   declared delete list. No commit is a valid outcome. Otherwise the spec-mover is skipped, with
+   (`git -C "<WT>" diff -z --name-only --no-renames --diff-filter=D "<prev>..HEAD"`) is either
+   on the declared delete list, or the old path of a declared spec move
+   ([decision-record.md](decision-record.md) §2, Rename map) whose new path is in the same
+   commit's added paths (the same command with `--diff-filter=A`). `--no-renames` reports a
+   move as a deletion of its old path and an addition of its new one, so a pure move — `modules:`
+   entry `tests/old.spec.ts -> tests/new.spec.ts`, an empty delete list — passes on the second
+   clause; a deleted path that is neither listed nor a move source with its destination present
+   fails, and so does a move whose new path the commit did not add. No commit is a valid outcome. Otherwise the spec-mover is skipped, with
    the reason in the report. It never runs again in this stage, on any attempt or re-entry — its
    input is the decision record, which does not change.
 5. **Gate.** Write `checks.runner` (with `app.prelude` when set) verbatim into

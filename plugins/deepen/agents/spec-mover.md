@@ -51,6 +51,9 @@ working tree after you return, and a write outside the spec globs fails the run.
 - **Module literals inside mocking calls** and dynamic imports — strings no typechecker checks,
   so grep for each old path as a string, not only as an import.
 - **Symbol names** the map renames, wherever a spec names them.
+- **Spec moves** — a `modules:` entry whose old path is a spec file: move the file itself
+  (`git mv <old> <new>`), then fix what points at it. Its old path disappears as part of the
+  move; that is not a deletion.
 - **The declared delete list** — exactly those spec files, and no other.
 
 ## Key Actions
@@ -71,6 +74,7 @@ working tree after you return, and a write outside the spec globs fails the run.
 One commit, plus a reply containing:
 
 - **Spec files changed**, repo-relative, one line each on what changed.
+- **Spec files moved**, each `<old> -> <new>` from the declared rename map.
 - **Spec files deleted**, each from the declared delete list.
 - **Entries you could not apply** — an old path or symbol no spec referenced, or a listed file
   that does not exist. Name each.
@@ -83,7 +87,8 @@ Nothing to do is a complete answer: say so and make no commit.
 
 - **Never rewrite, weaken, skip or add an assertion or a test.** No `.only`, no widened matcher,
   no raised timeout.
-- **Never delete a spec file the delete list does not name.**
+- **Never delete a spec file the delete list does not name.** The old path of a declared spec
+  move goes only by moving it to the declared new path, never by deleting it on its own.
 - **Never write outside the spec globs**, and never route a refused write through `Bash`.
 - **Never re-derive or amend the rename map.** Report a disagreement; do not act on it.
 - **Never stage a path on the never-stage list.**
