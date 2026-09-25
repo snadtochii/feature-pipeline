@@ -96,7 +96,7 @@ report keeps every earlier `## Questions`, `## Answers` and `## Decisions` line.
 2. **Snapshot**, when the worktree is present and `<runs>/decide-wt-snapshot` is absent:
 
    ```bash
-   { git -C "<WT>" rev-parse HEAD; git --no-optional-locks -C "<WT>" status --porcelain -z --no-renames; } \
+   { git -C "<WT>" rev-parse HEAD; git --no-optional-locks -C "<WT>" status --porcelain -z --no-renames --untracked-files=all; } \
      > "<runs>/decide-wt-snapshot"
    ```
 
@@ -444,7 +444,7 @@ every `needs-decision` stop — one `Bash` call:
 ```bash
 git --no-optional-locks -C "<CLONE>" status --porcelain -z --no-renames | tr '\0' '\n'
 git -C "<CLONE>" rev-parse HEAD
-{ git -C "<WT>" rev-parse HEAD; git --no-optional-locks -C "<WT>" status --porcelain -z --no-renames; } \
+{ git -C "<WT>" rev-parse HEAD; git --no-optional-locks -C "<WT>" status --porcelain -z --no-renames --untracked-files=all; } \
   | cmp - "<runs>/decide-wt-snapshot" && echo "wt: unchanged"
 ```
 

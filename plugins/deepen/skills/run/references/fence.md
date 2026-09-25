@@ -250,6 +250,13 @@ it would be allowed. A `status --porcelain -z` record is `XY <path>`, so its pat
 `--no-renames` keeps each record to one path. Every path reaches a payload as the absolute
 `<WT>/<p>`.
 
+**Untracked paths are listed file by file.** Every `status` read of `<WT>` runs with
+`--untracked-files=all`. Without it, git folds a directory holding only untracked files into one
+`?? <dir>/` record: that record matches no per-file exclusion-list path, so an excluded copy
+under a new directory reads as a violation, fails the clean-tree assertion and blocks teardown;
+and a file added inside a directory that was already untracked leaves the record unchanged, so a
+before/after snapshot misses the write.
+
 After every agent return — with a commit or without — the run asserts the list below; a
 characterize-mode QA return takes the characterize clause after it instead, and a verify-mode QA
 return takes the list plus the verify clause:
@@ -261,7 +268,7 @@ return takes the list plus the verify clause:
   hook as the matcher keeps one glob implementation: what the fence refuses and what the
   assertion checks can never diverge. `--no-renames` lists a rename's source and destination
   both, so a move out of a fenced path is seen.
-- **Clean tree** — `git -C "<WT>" status --porcelain -z --no-renames` is empty, the worktree's exclusion list
+- **Clean tree** — `git -C "<WT>" status --porcelain -z --no-renames --untracked-files=all` is empty, the worktree's exclusion list
   ([worktree.md](worktree.md) §4) aside. A write routed through a shell and left unstaged is
   caught here.
 - **Ancestry** — `git -C "<WT>" merge-base --is-ancestor "<prev>" HEAD`. An amend or rebase of

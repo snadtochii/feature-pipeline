@@ -107,7 +107,7 @@ On every entry, in order; each failure aborts with the line shown.
    `git -C "<WT>" diff --quiet --no-renames "<INV_SHA>" HEAD -- "<inventory>"` exits 0 — else
    `verify: aborted — inventory changed after <INV_SHA>`. A change made against the oracle, and an
    oracle edited to match the change, are the same failure.
-5. The tree is clean — `git -C "<WT>" status --porcelain -z --no-renames` empty, exclusion-list
+5. The tree is clean — `git -C "<WT>" status --porcelain -z --no-renames --untracked-files=all` empty, exclusion-list
    paths aside — else `verify: aborted — worktree not clean — <paths>`.
 6. `<record>` and `<runs>/inventory-summary.md` exist — else `verify: aborted — <path> missing`.
 7. **The inventory.** `Read` `<WT>/<inventory><slug>/inventory.md` — the committed file, by steps 4
@@ -437,7 +437,7 @@ Nothing parsed from the runner's output reaches a command line.
    line>`. The diff lives in a file the brief only names, so check-id-shaped text inside the change
    never trips it.
 5. **Snapshot**:
-   `{ git -C "<WT>" rev-parse HEAD; git --no-optional-locks -C "<WT>" status --porcelain -z --no-renames; } > "<runs>/verify-wt-snapshot"`.
+   `{ git -C "<WT>" rev-parse HEAD; git --no-optional-locks -C "<WT>" status --porcelain -z --no-renames --untracked-files=all; } > "<runs>/verify-wt-snapshot"`.
 6. **Spawn** one `deepen:architect`, a fresh instance, in the foreground, whose prompt is the brief
    file's content. After it returns, the same command piped to
    `cmp - "<runs>/verify-wt-snapshot"`; any difference → `verify: aborted — architect changed

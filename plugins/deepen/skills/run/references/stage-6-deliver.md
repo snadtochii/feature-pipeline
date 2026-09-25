@@ -101,7 +101,7 @@ cleared — and nothing is pushed.
    `refs/heads/<branch>`. Else `deliver: aborted — worktree absent at deliver`. The stage never
    re-attaches it ([worktree.md](worktree.md) §3): a delivered branch is the one the verify stage
    judged, and a re-attached tree would be one nobody checked.
-4. **Clean.** `git --no-optional-locks -C "<WT>" status --porcelain -z --no-renames` is empty, the
+4. **Clean.** `git --no-optional-locks -C "<WT>" status --porcelain -z --no-renames --untracked-files=all` is empty, the
    paths on `<runs>/exclusions` aside ([worktree.md](worktree.md) §4). Else
    `deliver: aborted — uncommitted changes in <WT>: <paths>`.
 
