@@ -53,78 +53,14 @@ fail() {
     exit 1
 }
 
-# Expand `{a,b}` alternations into one pattern per branch, nesting-aware for
-# `{}` and extglob `()`; an unbalanced brace is kept as written (fence.md §2).
-expand_braces() {
-    local pat="$1"
-    local i ch open close depth bdepth pdepth body prefix suffix seg alt
-    local -a alts
+# The glob grammar is the fence's (fence.md §2), shared through lib/glob.sh so
+# the two never match a glob differently.
+GLOB_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../lib/glob.sh"
+if ! . "$GLOB_LIB" 2>/dev/null || ! declare -F glob_patterns >/dev/null; then
+    fail "could not load the glob matcher $GLOB_LIB"
+fi
 
-    open=-1
-    for (( i=0; i<${#pat}; i++ )); do
-        if [ "${pat:i:1}" = '{' ]; then
-            open=$i
-            break
-        fi
-    done
-    if [ "$open" -lt 0 ]; then
-        printf '%s\n' "$pat"
-        return 0
-    fi
-
-    depth=0
-    close=-1
-    for (( i=open; i<${#pat}; i++ )); do
-        ch="${pat:i:1}"
-        if [ "$ch" = '{' ]; then
-            depth=$(( depth + 1 ))
-        elif [ "$ch" = '}' ]; then
-            depth=$(( depth - 1 ))
-            if [ "$depth" -eq 0 ]; then
-                close=$i
-                break
-            fi
-        fi
-    done
-    if [ "$close" -lt 0 ]; then
-        printf '%s\n' "$pat"
-        return 0
-    fi
-
-    prefix="${pat:0:open}"
-    body="${pat:open+1:close-open-1}"
-    suffix="${pat:close+1}"
-
-    alts=()
-    seg=""
-    bdepth=0
-    pdepth=0
-    for (( i=0; i<${#body}; i++ )); do
-        ch="${body:i:1}"
-        case "$ch" in
-            '{') bdepth=$(( bdepth + 1 )); seg="$seg$ch" ;;
-            '}') bdepth=$(( bdepth - 1 )); seg="$seg$ch" ;;
-            '(') pdepth=$(( pdepth + 1 )); seg="$seg$ch" ;;
-            ')') pdepth=$(( pdepth - 1 )); seg="$seg$ch" ;;
-            ',')
-                if [ "$bdepth" -eq 0 ] && [ "$pdepth" -eq 0 ]; then
-                    alts=( "${alts[@]+"${alts[@]}"}" "$seg" )
-                    seg=""
-                else
-                    seg="$seg$ch"
-                fi
-                ;;
-            *) seg="$seg$ch" ;;
-        esac
-    done
-    alts=( "${alts[@]+"${alts[@]}"}" "$seg" )
-
-    for alt in "${alts[@]+"${alts[@]}"}"; do
-        expand_braces "$prefix$alt$suffix"
-    done
-}
-
-# PATTERNS holds every expanded exclusion pattern, leading `./` stripped.
+# PATTERNS holds every `case` pattern of every exclusion glob (glob_patterns).
 PATTERNS=()
 add_glob() {
     local glob="$1" expanded pattern
@@ -132,34 +68,26 @@ add_glob() {
     if [ -z "$glob" ]; then
         return 0
     fi
-    if ! expanded=$(expand_braces "$glob") || [ -z "$expanded" ]; then
+    if ! expanded=$(glob_patterns "$glob") || [ -z "$expanded" ]; then
         fail "could not expand the exclusion glob '$glob'"
     fi
     while IFS= read -r pattern; do
         if [ -z "$pattern" ]; then
             continue
         fi
-        case "$pattern" in
-            './'*) pattern="${pattern#./}" ;;
-        esac
         PATTERNS=( "${PATTERNS[@]+"${PATTERNS[@]}"}" "$pattern" )
     done <<< "$expanded"
 }
 
-# Exit 0 when the repo-relative path matches an exclusion pattern in any of the
-# three forms of fence.md §2, case-insensitively.
+# Exit 0 when the repo-relative path matches an exclusion pattern,
+# case-insensitively.
 is_excluded() {
-    local rel="$1" pattern collapsed stripped hit=1
+    local rel="$1" pattern hit=1
     shopt -s nocasematch
     for pattern in "${PATTERNS[@]+"${PATTERNS[@]}"}"; do
-        collapsed="${pattern//\/\*\*\//\/}"
-        stripped="$pattern"
-        case "$stripped" in
-            '**/'*) stripped="${stripped#\*\*/}" ;;
-        esac
         # Unquoted on purpose: the glob is the pattern, the path the subject.
         case "$rel" in
-            $pattern|$collapsed|$stripped)
+            $pattern)
                 hit=0
                 break
                 ;;

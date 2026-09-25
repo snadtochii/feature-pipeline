@@ -76,9 +76,9 @@ A churned path is measured when, in this order:
    ```
 
    Globs follow the fence's grammar ([fence.md](fence.md) §2): brace alternation expanded first,
-   bash extglob forms, a leading `./` stripped, each pattern tried as written, with every `/**/`
-   collapsed to `/`, and with a leading `**/` stripped; `*` spans `/`; matching is
-   case-insensitive. Over-exclusion is the harmless direction here — a file dropped from the table
+   bash extglob forms, a leading `./` stripped, each `**` path segment matching zero or more
+   directories independently; `*` spans `/`; matching is case-insensitive. The matcher is the
+   fence's own, sourced from `lib/glob.sh`. Over-exclusion is the harmless direction here — a file dropped from the table
    is still reachable by the explorer's walk, while a lockfile or a minified bundle left in would
    dominate every ranking with an enormous indentation sum. An empty or missing exclude file means
    the generic list alone.

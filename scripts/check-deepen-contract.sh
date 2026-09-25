@@ -37,10 +37,11 @@
 #     references/confidence-scale.md — the reviewer rubric it inlines;
 #   - every `-C "<WT>" status` read in a plugins/deepen .md file carries
 #     --untracked-files=all (fence.md §7), and at least one such read exists;
-#   - plugins/deepen/skills/run/scripts/hotspots.sh, candidate-id.sh and
-#     touched-coverage.mjs are executable and their --self-test reproduces the
-#     worked example of their contract (hotspots.md §8, candidates.md §4,
-#     coverage.md §2); the .mjs script runs under node, whose absence fails.
+#   - plugins/deepen/lib/glob.sh and plugins/deepen/skills/run/scripts/
+#     hotspots.sh, candidate-id.sh and touched-coverage.mjs are executable and
+#     their --self-test reproduces the worked example of their contract
+#     (fence.md §2, hotspots.md §8, candidates.md §4, coverage.md §2); the .mjs
+#     script runs under node, whose absence fails.
 #
 # Usage:  scripts/check-deepen-contract.sh
 # Exit:   0 every assertion holds; 1 on any failure, one FAIL line each.
@@ -278,14 +279,16 @@ print(
 PY
 
 # The run's measured numbers — the hotspot table, the candidate id and the
-# touched-function coverage — are shipped as scripts whose --self-test
-# reproduces the worked example of their contract. Running them here pins the
-# encoding in CI, so a prose edit and the script cannot drift apart unnoticed.
+# touched-function coverage — and the glob matcher the fence and the hotspot
+# exclusions share are shipped as scripts whose --self-test reproduces the
+# worked example of their contract. Running them here pins the encoding in CI,
+# so a prose edit and the script cannot drift apart unnoticed.
 selftest_failed=0
-for script in hotspots.sh candidate-id.sh touched-coverage.mjs; do
-    path="$repo_root/plugins/deepen/skills/run/scripts/$script"
+for script in lib/glob.sh skills/run/scripts/hotspots.sh skills/run/scripts/candidate-id.sh \
+    skills/run/scripts/touched-coverage.mjs; do
+    path="$repo_root/plugins/deepen/$script"
     if [ ! -x "$path" ]; then
-        printf 'FAIL: %s is missing or not executable\n' "plugins/deepen/skills/run/scripts/$script" >&2
+        printf 'FAIL: %s is missing or not executable\n' "plugins/deepen/$script" >&2
         selftest_failed=1
         continue
     fi
@@ -308,4 +311,4 @@ done
 if [ "$selftest_failed" -ne 0 ]; then
     exit 1
 fi
-echo "OK: hotspots.sh, candidate-id.sh and touched-coverage.mjs self-tests reproduce their worked examples"
+echo "OK: glob.sh, hotspots.sh, candidate-id.sh and touched-coverage.mjs self-tests reproduce their worked examples"

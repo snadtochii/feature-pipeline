@@ -68,11 +68,10 @@
 # any other glob is repo-relative and matches only a target under `repo_root`,
 # taken relative to it.
 #
-# GLOBS. bash 3.2 has no globstar, so each pattern is tried as a `case` pattern in
-# three forms — as written, with `/**/` collapsed to `/`, and with a leading `**/`
-# stripped — so `src/**/*.spec.ts` also matches `src/x.spec.ts`. A leading `./` is
-# stripped from a repo-relative pattern. Brace alternations are expanded first and
-# extglob is enabled, since `case` does neither on its own and spec globs are
+# GLOBS. lib/glob.sh turns each glob into `case` patterns: brace alternations
+# expanded, a leading `./` stripped, and every `**` path segment kept or dropped
+# independently, so `**/tests/**/*.ts` also matches `tests/root.ts`. extglob is
+# enabled here, since `case` has no extended forms on its own and spec globs are
 # routinely spelled `**/*.{test,spec}.?(c|m)[jt]s?(x)`. UNDER-matching is the
 # dangerous direction: under deny-match it silently allows a write the set was
 # meant to refuse. `*` spans `/` inside a case pattern, so matching errs toward
@@ -344,80 +343,13 @@ case "$abs" in
         ;;
 esac
 
-# Expand `{a,b}` alternations into one pattern per branch. `case` performs no
-# brace expansion, so an unexpanded `{test,spec}` is matched as those literal
-# characters and the glob matches no file at all. Nesting is tracked for `{}` and
-# for extglob `()` so a comma inside either stays inside its group. Never `eval` —
-# the glob is data from the fence file and is matched, never executed.
-expand_braces() {
-    local pat="$1"
-    local i ch open close depth bdepth pdepth body prefix suffix seg alt
-    local -a alts
-
-    open=-1
-    for (( i=0; i<${#pat}; i++ )); do
-        if [ "${pat:i:1}" = '{' ]; then
-            open=$i
-            break
-        fi
-    done
-    if [ "$open" -lt 0 ]; then
-        printf '%s\n' "$pat"
-        return
-    fi
-
-    depth=0
-    close=-1
-    for (( i=open; i<${#pat}; i++ )); do
-        ch="${pat:i:1}"
-        if [ "$ch" = '{' ]; then
-            depth=$(( depth + 1 ))
-        elif [ "$ch" = '}' ]; then
-            depth=$(( depth - 1 ))
-            if [ "$depth" -eq 0 ]; then
-                close=$i
-                break
-            fi
-        fi
-    done
-    # Unbalanced braces: match the pattern as written rather than guessing.
-    if [ "$close" -lt 0 ]; then
-        printf '%s\n' "$pat"
-        return
-    fi
-
-    prefix="${pat:0:open}"
-    body="${pat:open+1:close-open-1}"
-    suffix="${pat:close+1}"
-
-    alts=()
-    seg=""
-    bdepth=0
-    pdepth=0
-    for (( i=0; i<${#body}; i++ )); do
-        ch="${body:i:1}"
-        case "$ch" in
-            '{') bdepth=$(( bdepth + 1 )); seg="$seg$ch" ;;
-            '}') bdepth=$(( bdepth - 1 )); seg="$seg$ch" ;;
-            '(') pdepth=$(( pdepth + 1 )); seg="$seg$ch" ;;
-            ')') pdepth=$(( pdepth - 1 )); seg="$seg$ch" ;;
-            ',')
-                if [ "$bdepth" -eq 0 ] && [ "$pdepth" -eq 0 ]; then
-                    alts=( "${alts[@]+"${alts[@]}"}" "$seg" )
-                    seg=""
-                else
-                    seg="$seg$ch"
-                fi
-                ;;
-            *) seg="$seg$ch" ;;
-        esac
-    done
-    alts=( "${alts[@]+"${alts[@]}"}" "$seg" )
-
-    for alt in "${alts[@]+"${alts[@]}"}"; do
-        expand_braces "$prefix$alt$suffix"
-    done
-}
+# The glob grammar — brace expansion, extglob, a leading `./`, and a `**` segment
+# spanning zero directories — lives in one file shared with hotspots.sh. A
+# missing or unreadable copy refuses the write rather than matching nothing.
+glob_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/glob.sh"
+if ! . "$glob_lib" 2>/dev/null || ! declare -F glob_patterns >/dev/null; then
+    deny "The write fence could not load its glob matcher ($glob_lib), so this write is refused. Report the refused write; do not route it through a shell command instead."
+fi
 
 # Over-match on case under deny-match only; the root test above stays exact.
 if [ "$mode" = "deny-match" ]; then
@@ -432,39 +364,23 @@ while IFS= read -r glob; do
     # so a failed expansion would hand back a short pattern list and deny-match
     # would allow the write. A non-empty glob always expands to at least one line.
     patterns=""
-    if ! patterns=$(expand_braces "$glob") || [ -z "$patterns" ]; then
+    if ! patterns=$(glob_patterns "$glob") || [ -z "$patterns" ]; then
         deny "The write fence could not expand the glob '$glob' of the '$set_name' set, so this write is refused. Report the refused write; do not route it through a shell command instead."
+    fi
+    # An absolute glob is matched against the normalized absolute target; a
+    # repo-relative one only against a target under repo_root.
+    case "$glob" in
+        /*) subject="$abs" ;;
+        *) subject="$rel" ;;
+    esac
+    if [ -z "$subject" ]; then
+        continue
     fi
     while IFS= read -r pattern; do
         [ -z "$pattern" ] && continue
-        collapsed="${pattern//\/\*\*\//\/}"
-        case "$pattern" in
-            /*)
-                # Absolute: matched against the normalized absolute target.
-                # Unquoted on purpose: the glob is the pattern, the path the subject.
-                case "$abs" in
-                    $pattern) matched=1 ;;
-                    $collapsed) matched=1 ;;
-                esac
-                ;;
-            *)
-                # Repo-relative: only a target under repo_root can match.
-                if [ -n "$rel" ]; then
-                    case "$pattern" in
-                        './'*) pattern="${pattern#./}" ;;
-                    esac
-                    collapsed="${pattern//\/\*\*\//\/}"
-                    stripped="$pattern"
-                    case "$stripped" in
-                        '**/'*) stripped="${stripped#\*\*/}" ;;
-                    esac
-                    case "$rel" in
-                        $pattern) matched=1 ;;
-                        $collapsed) matched=1 ;;
-                        $stripped) matched=1 ;;
-                    esac
-                fi
-                ;;
+        # Unquoted on purpose: the glob is the pattern, the path the subject.
+        case "$subject" in
+            $pattern) matched=1 ;;
         esac
         [ "$matched" -eq 1 ] && break
     done <<FENCE_PATTERNS_END

@@ -95,9 +95,12 @@ every set. Relative targets are resolved against the payload's `cwd` first.
   matched as written.
 - bash extglob forms (`?(…)`, `*(…)`, `+(…)`, `@(…)`, `!(…)`).
 - A leading `./` is stripped from a repo-relative glob.
-- Each expanded pattern is tried in three forms: as written; with every `/**/` collapsed to `/`
-  (so `a/**/b` also matches `a/b`); and with a leading `**/` stripped (so `**/x` also matches a
-  top-level `x`).
+- A `**` path segment matches zero or more directories, each one independently: every such
+  segment is either kept or dropped, so `**/tests/**/*.ts` matches `tests/root.ts`,
+  `a/tests/root.ts` and `tests/unit/root.ts` alike, and `a/**/b/**/c` matches `a/b/c`.
+  [`lib/glob.sh`](../../../lib/glob.sh) is the one implementation — `hooks/fence.sh` and
+  [`hotspots.sh`](../scripts/hotspots.sh) both source it, and its `--self-test` pins these cases
+  under both case settings.
 - `*` spans `/`. Over-matching is the tolerable direction for a fence: a spurious denial is loud,
   a spurious allowance is silent.
 - Under `deny-match` a glob matches case-insensitively, for the same reason; under `allow-only` it
