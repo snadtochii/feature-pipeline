@@ -159,8 +159,8 @@ Both evidence files sit inside `reports/<run-id>/`, in the state layout
 Remove the worktree only when both hold — the status read NUL-delimited per [fence.md](fence.md) §7:
 
 ```bash
-git -C "<WT>" status --porcelain -z --no-renames          # empty, exclusion-list paths aside
-git -C "<CLONE>" rev-parse --verify "refs/heads/<branch>" # resolves
+git -C "<WT>" status --porcelain -z --no-renames --untracked-files=all  # empty, exclusion-list paths aside
+git -C "<CLONE>" rev-parse --verify "refs/heads/<branch>"               # resolves
 ```
 
 The remove takes `--force` exactly when the status listed exclusion-list paths and nothing else:

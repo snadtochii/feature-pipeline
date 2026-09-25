@@ -47,7 +47,7 @@ In order; each failure aborts per [worktree.md](worktree.md) §7 with the line s
    `git -C "<WT>" diff-tree -z --no-commit-id --name-only --no-renames -r "<INV_SHA>"` must lie under
    `paths.inventory` — else `stage 4: <INV_SHA> touches paths outside paths.inventory — <paths>`.
    The oracle must exist, alone, before any change is made against it.
-4. The tree is clean — `git -C "<WT>" status --porcelain -z --no-renames` empty, exclusion-list
+4. The tree is clean — `git -C "<WT>" status --porcelain -z --no-renames --untracked-files=all` empty, exclusion-list
    paths aside.
 
 Every path set in this stage is read NUL-delimited, per [fence.md](fence.md) §7.

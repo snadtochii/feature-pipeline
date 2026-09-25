@@ -35,6 +35,8 @@
 #     `<!-- BEGIN confidence-scale -->` and `<!-- END confidence-scale -->`,
 #     exactly line 5 to the end of plugins/feature/skills/review-stage/
 #     references/confidence-scale.md — the reviewer rubric it inlines;
+#   - every `-C "<WT>" status` read in a plugins/deepen .md file carries
+#     --untracked-files=all (fence.md §7), and at least one such read exists;
 #   - plugins/deepen/skills/run/scripts/hotspots.sh, candidate-id.sh and
 #     touched-coverage.mjs are executable and their --self-test reproduces the
 #     worked example of their contract (hotspots.md §8, candidates.md §4,
@@ -246,6 +248,23 @@ else:
     if not inlined or inlined.group(1) != source:
         errors.append(rubric_fail)
 
+# Worktree status reads. Without --untracked-files=all git folds an untracked
+# directory into one `?? <dir>/` record, which matches no per-file exclusion
+# path and hides a new file written inside it (fence.md §7).
+wt_status = re.compile(r'-C "<WT>" status\b')
+wt_reads = 0
+for md in sorted(plugin.rglob("*.md")):
+    for number, line in enumerate(md.read_text(encoding="utf-8").split("\n"), 1):
+        if wt_status.search(line):
+            wt_reads += 1
+            if "--untracked-files=all" not in line:
+                errors.append(
+                    f"{md.relative_to(root)}:{number}: worktree status read "
+                    "without --untracked-files=all"
+                )
+if wt_reads == 0:
+    errors.append("no `-C \"<WT>\" status` read found under plugins/deepen — the scan matched nothing")
+
 if errors:
     print("\n".join(f"FAIL: {error}" for error in errors), file=sys.stderr)
     sys.exit(1)
@@ -253,7 +272,8 @@ print(
     f"OK: {len(agents)} deepen agents — {len(fenced)} fenced ({', '.join(fenced)}), "
     f"{len(read_only)} read-only; {len(table)} sets in fence.md, {len(fence_map)} FENCE_MAP rows; "
     "hooks.json binds fence.sh on PreToolUse; hook executable; "
-    "stage-5-verify.md rubric matches feature's confidence-scale.md"
+    "stage-5-verify.md rubric matches feature's confidence-scale.md; "
+    f"{wt_reads} worktree status reads list untracked files one by one"
 )
 PY
 

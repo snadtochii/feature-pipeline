@@ -243,7 +243,7 @@ Red after the repair pass → abort `characterize: aborted — checks red on the
      from here on, never stored;
    - every path of `git -C "<WT>" diff-tree -z --no-commit-id --name-only --no-renames -r HEAD`
      lies under `<inventory><slug>/`, and none is on the exclusion list;
-   - `git -C "<WT>" status --porcelain -z --no-renames` is empty, exclusion-list paths aside;
+   - `git -C "<WT>" status --porcelain -z --no-renames --untracked-files=all` is empty, exclusion-list paths aside;
    - `git -C "<CLONE>" rev-parse "refs/heads/<base>"` still equals `<BASE_SHA>` — nothing was
      committed to the loop clone's `base`.
 
