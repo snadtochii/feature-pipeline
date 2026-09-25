@@ -165,6 +165,17 @@ after which every later run ignores it.
 
 ## §6 Seam auth
 
+**Reset first.** `app.reset` set → run it once in this round, before the first seam's command:
+
+```bash
+( cd "<WT>" && bash "<runs>/reset.sh" )
+```
+
+A fresh worktree's data store is empty or absent, and a login command needs the account the
+reset provisions; without this step the first auth of every run fails on a store that no fixture
+has created yet. Non-zero exit → the report line `reset-before-auth-failed: <exit code>`, and the
+seams are still tried. `app.reset` null → nothing runs.
+
 For each seam in order: `auth: none` → live. A command → run it once, output never echoed:
 
 ```bash

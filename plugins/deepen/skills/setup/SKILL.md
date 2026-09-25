@@ -127,6 +127,12 @@ run; it never installs, builds, tests or serves.
   the pinned version. Both are proposed, never run.
 - **Unit runner and spec globs** — the runner's config include patterns, else existing test
   files generalized; verify every glob matches at least one tracked file with `git ls-files`.
+- **Inventory collectability** ([profile.md](references/profile.md) §4 rule 16) — with a seam
+  and a runner, check that the runner's include patterns (its documented default when the config
+  sets none) reach `<inventory>**/<name>.check.<ext>` for the project's source extension, and that
+  no spec glob does. A runner whose include is exactly the spec globs fails here. Compose the
+  remedy now, in the runner's own syntax, naming its config file — for vitest,
+  `'tests/behavior/**/*.check.ts?(x)'` in `test.include` — so §4 shows it and §6 prints it.
 - **E2E runner** — a browser end-to-end runner's config file and its script.
 - **Coverage** — the unit runner's coverage provider (for `checks.coverage`) and, for
   `app.coverage_env`, the server runtime's own coverage env: when the runtime has one, propose it
@@ -214,7 +220,9 @@ Alongside the questions, show a **review block** (not asked): `app.*` commands, 
 probe, `seams` with their auth, `checks.*`, `paths.specs`, `app.install` / `app.prelude`,
 `attendance: semi`, and the `run.*` defaults — each with its rationale. A user correcting a value there is expected; a
 value the user supplies that the probe cannot confirm is scored `unverified`. An unmatched spec
-glob is shown as a blocking finding: §6's validation will reject it. A correction that newly sets
+glob, and a runner include that reaches nothing under the inventory directory (§2's
+collectability probe), are shown as blocking findings with their remedy: §6's validation will
+reject them, and the include line is the project's to add. A correction that newly sets
 `app.clock` brings question 6 with it, asked alone in one follow-up call.
 
 A cancelled or unanswered question writes nothing further; §7 reports what was written so far.

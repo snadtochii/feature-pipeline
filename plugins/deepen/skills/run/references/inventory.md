@@ -70,7 +70,10 @@ response body, status and headers for `http` and `server-fn`, the output and exi
 
 - **Form.** A file in the project's `checks.runner` style, named so the runner collects it and
   **no `paths.specs` glob matches it** — a file a spec glob reaches is writable by the spec-mover,
-  and the characterize stage aborts on it before the commit.
+  and the characterize stage aborts on it before the commit. The name carries the token `check`
+  where the runner's convention puts its test token — `<name>.check.ts` beside `<name>.spec.ts`,
+  `check_<name>.py` beside `test_<name>.py` — the placement the profile's include rule
+  ([profile.md](../../setup/references/profile.md) §4 rule 16) verified the runner collects.
 - **Skip unless served.** Each check skips (the runner's own skip, never a pass-by-assertion) when
   `DEEPEN_APP_URL` is unset, so a runner invoked without a dev server — the implement stage's gate —
   does not fail on it.

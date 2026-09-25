@@ -103,6 +103,13 @@ renders the same rows as its readiness report.
 | 12 | ADR directory | no ADR filter — candidates are not checked against recorded decisions |
 | 13 | secrets provisioning | secrets provisioning unverified — the dev server may not start in a fresh worktree; the run copies no secrets file |
 
+**Tier-2 collectability.** The inventory's tier-2 checks are files under `paths.inventory` that
+`checks.runner` must collect and no `paths.specs` glob may match; they carry the token `check`
+where the runner's convention puts its test token (`<name>.check.ts` beside `<name>.spec.ts`).
+A runner whose include list equals the spec globs collects none of them, so the project adds an
+inventory include — for vitest, `tests/behavior/**/*.check.ts?(x)` in `test.include`.
+`/deepen:setup` fails on the missing include and names the line to add.
+
 **Secrets.** Project commands read project secrets; the run never copies, sources or reads them.
 A run's worktree gets no env or secrets file: its `.worktreeinclude` copy skips every pattern and
 path that names one, and reports each skip. A project whose dev server needs a secret therefore
