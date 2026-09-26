@@ -71,17 +71,16 @@ fenced fix round.
 
 Stage 6 (deliver) re-checks stage 5's gate — an empty verification table or a missing coverage
 line fails the run, pushes nothing, and keeps the branch diff as `abort.patch` — then renders the
-evidence pack and opens it as the body of a draft pull request: under `unattended`, the mode and
-every decision the run took by default, ahead of everything else; the candidate and its named next
-change; the verification table, with every `changed` statement's before and after; touched-function
-coverage, the uncovered functions and the mutation result; the architect's verdict on the diff and
-the reviewers' findings; the decision record; the degradations that applied; and the run's cost.
-It records the candidate in `<state_dir>/memory.md` — `opened` with the pull request's URL, or
-`declined` with the reason — the human's, or, unattended, the architect's `one_line` or the decide
-stage's own bound reason — when
-stage 3 ended declined, plus a suggested ADR when that
-reason states a rule — removes the worktree, and keeps the branch. The pack stays in the run's
-report directory whether or not the pull request opened.
+evidence pack and opens it as the body of a draft pull request: under `unattended`, the mode on
+its first line and every decision the run took by default right after its lead lines; the
+candidate and its named next change; the verification table, with every `changed` statement's
+before and after; touched-function coverage, the uncovered functions and the mutation result; the
+architect's verdict on the diff and the reviewers' findings; the decision record; the degradations
+that applied; and the run's cost. It records the candidate in `<state_dir>/memory.md` — `opened`
+with the pull request's URL, or `declined` with the reason — the human's, or, unattended, the
+architect's `one_line` or the decide stage's own bound reason — when stage 3 ended declined, plus
+a suggested ADR when that reason states a rule — removes the worktree, and keeps the branch. The
+pack stays in the run's report directory whether or not the pull request opened.
 
 ## Configuration
 

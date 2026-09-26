@@ -172,11 +172,17 @@ the run took with no human, in stage order:
    ([stage-3-decide.md](stage-3-decide.md) §0), so each of its lines is
    `stage 3: Q<k> <field>: <the decision: line's text> — <source>`, `<field>` from the
    `Q<k> | <field> |` ledger line, in ledger order — every grilling field answered by default,
-   the architect policy outcome and the split outcome among them. A field reopened by a revise
-   appears once per question that asked it.
+   the architect policy outcome and the split outcome among them. A `decision:` text of `accept`
+   names no value, so that line ends ` · <the ledger line's fourth field>` — its
+   `default: <answer> — <rationale>`, verbatim — and the pack says which default was taken. A
+   field reopened by a revise appears once per question that asked it.
 3. **How the architect rounds ended.** When `3-decide.md` has a `Q<k> | architect |` line:
    `stage 3: architect passed in round <r>`, `<r>` the highest `### Round <r>` — one `Grep` for
    `^### Round ` over `3-decide.md`.
+
+**Order.** Item 1's line first; then item 2's lines report by report, `1-discover.md` to
+`5-verify.md`, each report's in its own line order; item 3's line directly after the last
+`stage 3: Q<k>` line, or after the out-of-step line that stands in for them (below).
 
 Never a guess: a `decision:` line with no `taken:` line directly under it renders its source as
 `source not recorded`, and a `3-decide.md` holding more `decision:` lines than `Q<n>` lines
