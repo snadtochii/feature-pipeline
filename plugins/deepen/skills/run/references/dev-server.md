@@ -29,7 +29,7 @@ Every profile command reaches a shell only through a script file
 | `reset.sh` | `app.reset` set | `app.reset` |
 | `ready.sh` | `app.ready` is the command form | `app.ready` |
 | `auth-<n>.sh` | seam `<n>`'s `auth` is a command | that command |
-| `browser-session.sh` | `app.browser_session` is a command | `umask 077` and `exec >/dev/null 2>&1`, each on its own line, then `app.browser_session` |
+| `browser-session.sh` | `app.browser_session` is a command | `umask 077`, `rm -f -- "$1"` and `exec >/dev/null 2>&1`, each on its own line, then `app.browser_session` |
 | `seam-<n>.base` | every seam | seam `<n>`'s `base`, one line, no prelude — data, never executed |
 | `check.sh` | `checks.runner` set | the environment block below, then the redacting runner line with `checks.runner` |
 | `e2e.sh` | `checks.e2e` set | the environment block below, then the redacting runner line with `checks.e2e` |
@@ -37,7 +37,9 @@ Every profile command reaches a shell only through a script file
 `browser-session.sh` receives the session file's path as `$1`, which the value places itself
 ([profile.md](../../setup/references/profile.md) §2), and discards every line the command prints,
 so a login that prints its cookie never reaches a report or a role. `umask 077` makes the file it
-writes owner-only, on the run's call (§6) and on the QA role's refresh alike.
+writes owner-only, and `rm -f` removes the file an earlier call wrote before the command runs, so
+a failed call never leaves a stale session behind — on the run's call (§6) and on the QA role's
+refresh alike.
 
 `<n>` counts seams from 1 in profile order, the numbering [inventory.md](inventory.md) §3's
 environment contract uses. The environment block, one group per live seam (§6):
@@ -207,11 +209,10 @@ digests before the next QA spawn, §1). No live seam left → tier 2 is skipped 
 reset has already run, so the login finds the account it signs in to:
 
 ```bash
-rm -f "<runs>/browser-session.json"
 ( cd "<WT>" && bash "<runs>/browser-session.sh" "<runs>/browser-session.json" ) && [ -s "<runs>/browser-session.json" ]
 ```
 
-The `rm -f` keeps a file from an earlier round from passing the test. Exit 0 and a non-empty file
+The wrapper's `rm -f` (§1) keeps a file from an earlier round from passing the test. Exit 0 and a non-empty file
 → the session is live for this round, and the stage names its path to the QA role — the path
 only, never its content. Otherwise the file is removed, the report carries
 `browser-session-failed: <exit code>` — `empty` in place of the code when the command exited 0 but

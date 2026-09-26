@@ -155,8 +155,9 @@ browser session when browser session wanted (§2 step 4), and no coverage env. A
        it live this round — load it with the browser storage-state tool by that path and never
        read it otherwise; once after a fixture's reset and seed, before the browser next loads the
        app, refresh it with
-       `cd "<WT>" && bash "<runs>/browser-session.sh" "<runs>/browser-session.json"`, then load it
-       again;
+       `cd "<WT>" && bash "<runs>/browser-session.sh" "<runs>/browser-session.json" && [ -s "<runs>/browser-session.json" ]`,
+       then load it again — a non-zero status means no saved session for that fixture: never load
+       the file, move to the next browser-session option and name the failed refresh in the reply;
      - `browser session: none — <reason>`, the reason one of `not in the profile`,
        `the app needs no sign-in`, `the command failed this round` or
        `the storage-state tool is unavailable`;

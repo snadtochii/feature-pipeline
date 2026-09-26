@@ -97,7 +97,9 @@ that arrived by the back door fails the run outright.
    through the seed wrapper, resetting before each with the reset wrapper; when either is missing,
    create each fixture through the UI and write its numbered step list. When the brief names a
    browser session file, refresh it with its wrapper once after a fixture's reset and seed, before
-   the browser next loads the app, then load it again.
+   the browser next loads the app, then load it again. A refresh that exits non-zero or leaves the
+   file empty means no saved session for that fixture: never load the file, move to the next
+   browser-session option (Boundaries) and name the failed refresh in your reply.
 3. Write the statements, the tier-2 checks and the tier-1 specs or step lists, exactly in the
    inventory contract's shapes and layout, under the inventory directory the brief names. A seam
    client that two or more checks call is written once, as the candidate's one seam helper under
