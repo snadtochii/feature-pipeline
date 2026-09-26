@@ -70,9 +70,10 @@ response body, status and headers for `http` and `server-fn`, the output and exi
 
 - **Form.** A file in the project's `checks.runner` style, named so the runner collects it and
   **no `paths.specs` glob matches it** — a file a spec glob reaches is writable by the spec-mover,
-  and the characterize stage aborts on it before the commit. The name carries the token `check`
-  where the runner's convention puts its test token — `<name>.check.ts` beside `<name>.spec.ts`,
-  `check_<name>.py` beside `test_<name>.py` — the placement the profile's include rule
+  and the characterize stage aborts on it before the commit. The name carries the token `check`,
+  in any letter case, where the runner's convention puts its test token — `<name>.check.ts`
+  beside `<name>.spec.ts`, `check_<name>.py` beside `test_<name>.py`, `<Name>Check.java` beside
+  `<Name>Test.java` — the placement the profile's include rule
   ([profile.md](../../setup/references/profile.md) §4 rule 16) verified the runner collects.
 - **Skip unless served.** Each check skips (the runner's own skip, never a pass-by-assertion) when
   `DEEPEN_APP_URL` is unset, so a runner invoked without a dev server — the implement stage's gate —
@@ -108,8 +109,9 @@ response body, status and headers for `http` and `server-fn`, the output and exi
 - **Never prints a credential** — neither a check nor the helper logs `DEEPEN_SEAM_<n>_AUTH`,
   writes it to a file, or builds an assertion message that would echo it.
 - **Deterministic.** Assertions hold on fixture state, the frozen clock and the stubbed network
-  alone, and the helper reads nothing else; a value that differs between two runs (a generated id,
-  a timestamp with no clock) is asserted by shape, or the statement is `unverifiable`.
+  alone, and the helper reads nothing beyond the environment contract; a value that differs
+  between two runs (a generated id, a timestamp with no clock) is asserted by shape, or the
+  statement is `unverifiable`.
 
 ---
 
@@ -172,11 +174,12 @@ Every path under the folder uses only the characters `[A-Za-z0-9._/-]` and has n
 the run writes these names into shell command lines, and the stage aborts on any other name.
 
 `tier2/` holds fixture folders and `lib/`, and nothing else. Every file under a
-`tier2/<fixture-id>/` is a check whose name carries `check`; `tier2/lib/` holds at most one file,
-the helper, whose name carries no `check` in any letter case. `lib` is never a fixture id (§5), so
-the check round never passes the helper to the runner. A `__pycache__/` directory the interpreter
-writes when it imports a check or the helper is not part of the layout. The characterize stage
-aborts on any other layout.
+`tier2/<fixture-id>/` is a check whose name carries `check` in any letter case; `tier2/lib/` holds
+at most one file, the helper, whose name carries no `check` in any letter case. `lib` is never a
+fixture id (§5), so the check round never passes the helper to the runner. The `.pyc` files the
+interpreter writes into a `__pycache__/` directory when it imports a check or the helper are not
+part of the layout, and the characterize stage removes every `__pycache__/` directory before its
+commit. The characterize stage aborts on any other layout.
 
 `inventory.md` opens with four header lines:
 
@@ -200,8 +203,8 @@ Then the sections `## Statements` (§1), `## Fixture matrix` (§5), `## Bindings
 <reason>`), in this order. An empty section keeps its heading and says `none`.
 
 A fixture group is a fixture id with every check under `tier2/<fixture-id>/` and
-`tier1/<fixture-id>/`; the helper under `tier2/lib/` belongs to no group. A UI-created fixture is recreated from its step list by the QA role in
-whichever stage replays the group.
+`tier1/<fixture-id>/`; the helper under `tier2/lib/` belongs to no group. A UI-created fixture
+is recreated from its step list by the QA role in whichever stage replays the group.
 
 ---
 
