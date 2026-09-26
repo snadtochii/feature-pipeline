@@ -303,9 +303,10 @@ classification of that stop, never by a question:
    `needs-decision — `. Any other label → re-enter the same stage from the top of its body, as
    semi's step 3 does: its re-entry check takes the answer from its own `## Decisions`.
 
-The `unattended:` line and its remedy are text a stage wrote into its report: they are
-class-checked before use and reach only `Edit`, `Write` and the printed aborting line — never a
-shell command.
+The `unattended:` line is text a stage wrote into its report. Its label and source are
+class-checked before use; its remedy has no class — it is data, and may carry a value the stage
+read from disk, such as a pull request URL. All three reach only `Edit`, `Write` and the printed
+aborting line — never a shell command.
 
 ---
 
