@@ -2,8 +2,8 @@
 
 Authoritative procedure for the app a `deepen:run` tests against: the wrapper scripts every
 project command runs through, the port-free check, starting the dev server in the run worktree,
-readiness, the files it leaves behind, seam authentication, and stopping it so runtime coverage is
-written.
+readiness, the files it leaves behind, seam authentication and the browser session, and stopping it
+so runtime coverage is written.
 
 - **Run by the run skill only.** The characterize stage and the verify stage start and stop the
   server; the common abort stops one left running (the run skill's §6). No spawned role starts,
@@ -29,9 +29,17 @@ Every profile command reaches a shell only through a script file
 | `reset.sh` | `app.reset` set | `app.reset` |
 | `ready.sh` | `app.ready` is the command form | `app.ready` |
 | `auth-<n>.sh` | seam `<n>`'s `auth` is a command | that command |
+| `browser-session.sh` | `app.browser_session` is a command | `umask 077`, `rm -f -- "$1"` and `exec >/dev/null 2>&1`, each on its own line, then `app.browser_session` |
 | `seam-<n>.base` | every seam | seam `<n>`'s `base`, one line, no prelude — data, never executed |
 | `check.sh` | `checks.runner` set | the environment block below, then the redacting runner line with `checks.runner` |
 | `e2e.sh` | `checks.e2e` set | the environment block below, then the redacting runner line with `checks.e2e` |
+
+`browser-session.sh` receives the session file's path as `$1`, which the value places itself
+([profile.md](../../setup/references/profile.md) §2), and discards every line the command prints,
+so a login that prints its cookie never reaches a report or a role. `umask 077` makes the file it
+writes owner-only, and `rm -f` removes the file an earlier call wrote before the command runs, so
+a failed call never leaves a stale session behind — on the run's call (§6) and on the QA role's
+refresh alike.
 
 `<n>` counts seams from 1 in profile order, the numbering [inventory.md](inventory.md) §3's
 environment contract uses. The environment block, one group per live seam (§6):
@@ -65,6 +73,16 @@ result in its own context — never in a file under `<runs>/`, which the role co
 with the wrapper. After the spawn returns it runs the same command and compares: a difference is a
 fence violation ([fence.md](fence.md) §7, "Wrappers unchanged"). A file the stage itself rewrites
 between spawns (§6, §5's residue) is simply hashed again before the next spawn.
+
+`<runs>/browser-session.json` (§6) is not content-hashed: the QA role rewrites it through
+`browser-session.sh` after a reset, and that wrapper is in the hashed set. Before and after each QA
+spawn the stage instead checks that the path is absent or a regular file, never a symlink:
+
+```bash
+f="<runs>/browser-session.json"; [ ! -e "$f" ] && [ ! -L "$f" ] || { [ -f "$f" ] && [ ! -L "$f" ]; }
+```
+
+A failure is a fence violation ([fence.md](fence.md) §7, "Wrappers unchanged").
 
 ---
 
@@ -163,7 +181,7 @@ after which every later run ignores it.
 
 ---
 
-## §6 Seam auth
+## §6 Seam auth and browser session
 
 **Reset first.** `app.reset` set → run it once in this round, before the first seam's command:
 
@@ -187,6 +205,21 @@ the subshell. Non-zero exit or empty output → the seam is dropped for this run
 `seam-auth-failed: seam <n> (<kind>)`, and `check.sh` is rewritten without its group (then the
 digests before the next QA spawn, §1). No live seam left → tier 2 is skipped for this run, with capability row 4's line.
 
+**Browser session.** In a round whose caller asks for the browser session, after the seams —
+reset has already run, so the login finds the account it signs in to:
+
+```bash
+( cd "<WT>" && bash "<runs>/browser-session.sh" "<runs>/browser-session.json" ) && [ -s "<runs>/browser-session.json" ]
+```
+
+The wrapper's `rm -f` (§1) keeps a file from an earlier round from passing the test. Exit 0 and a non-empty file
+→ the session is live for this round, and the stage names its path to the QA role — the path
+only, never its content. Otherwise the file is removed, the report carries
+`browser-session-failed: <exit code>` — `empty` in place of the code when the command exited 0 but
+wrote nothing — and capability row 14's line
+([profile.md](../../setup/references/profile.md) §6) for this round; the round continues without
+it. The session is independent of the seams: a round whose seams were all dropped still runs it.
+
 ---
 
 ## §7 Stop and flush
@@ -198,14 +231,16 @@ dies on a signal it does not handle writes nothing. So the stop asks first, then
 2. Still alive → `kill -INT -- -<pid>`; wait up to 10 seconds.
 3. Still alive → `kill -KILL -- -<pid>`. In a measurement round, the report line
    `coverage lost — dev server did not exit on SIGTERM/SIGINT`.
-4. Remove `<runs>/dev.pid`.
+4. Remove `<runs>/browser-session.json` — a live session (§6) never outlives its round, and
+   `<runs>/` is kept after an abort for inspection.
+5. Remove `<runs>/dev.pid`.
 
 SIGTERM leads because it is the signal a dev server's own shutdown handler listens for — Vite's
 dev server registers a `SIGTERM` handler that closes the server and exits normally, and no
 `SIGINT` handler of its own. A server that handles only `SIGINT` dies on the `SIGTERM`, writes no
 coverage, and the round takes the estimate path below.
 
-A `dev.pid` whose process is already gone is removed and the stop is done. Every exit path of a
+A `dev.pid` whose process is already gone → steps 4 and 5 only, and the stop is done. Every exit path of a
 stage that started a server — complete, needs-decision, abort — runs this first.
 
 A measurement round whose coverage directory is empty after the stop measured nothing; the stage

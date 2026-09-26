@@ -104,6 +104,7 @@ renders the same rows as its readiness report.
 | 11 | `CONTEXT.md` glossary | glossary matrix derived from code and routes — marked derived |
 | 12 | ADR directory | no ADR filter — candidates are not checked against recorded decisions |
 | 13 | secrets provisioning | secrets provisioning unverified — the dev server may not start in a fresh worktree; the run copies no secrets file |
+| 14 | browser session | no browser session — manual-browser statements behind a sign-in use a test login the repo documents, else are recorded unverifiable and listed |
 
 **Tier-2 collectability.** The inventory's tier-2 checks are files under `paths.inventory` that
 `checks.runner` must collect and no `paths.specs` glob may match; they carry the token `check`
@@ -155,7 +156,11 @@ is a line in the report — never a silent fallback.
 - **`node`** — runs the touched-coverage script on the measured path. Missing → the script fails
   and coverage takes the estimate path, labelled `estimate (weak)` with the reason.
 - **Browser tools** (Playwright or Chrome DevTools) — tier 1 when the profile has no e2e runner.
-  Missing → `tier 1 unavailable — browser tools not installed`.
+  Missing → `tier 1 unavailable — browser tools not installed`. A profile with
+  `app.browser_session` also needs the Playwright MCP's storage-state tool, enabled with
+  `--caps=storage`, and file access to `<state_dir>`, which sits outside the workspace roots and
+  so takes `--allow-unrestricted-file-access`. Without the tool →
+  `browser session unused — the browser storage-state tool is not available in this session`.
 
 ## First run — what the project must supply
 

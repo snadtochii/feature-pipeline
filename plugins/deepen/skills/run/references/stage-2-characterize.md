@@ -100,11 +100,19 @@ common abort.
    the matrix is `derived`.
 4. **Degradations.** For every capability the profile does not supply, its `effect if missing`
    line, verbatim from [profile.md](../../setup/references/profile.md) §6 — rows 3 (on the first
-   ready wait), 4, 5, 6, 7, 8, 9 and 11, and row 13 when `<runs>/worktreeinclude-skipped`
-   ([worktree.md](worktree.md) §4) is non-empty — and the run-only `browser tools absent` line when
-   `checks.e2e` is null and neither the Playwright nor the Chrome DevTools browser tools are
-   available in this session. `checks.runner` null with a seam → `tier 2 skipped — checks.runner is
-   null`.
+   ready wait), 4, 5, 6, 7, 8, 9 and 11, row 13 when `<runs>/worktreeinclude-skipped`
+   ([worktree.md](worktree.md) §4) is non-empty, and row 14 when `checks.e2e` is null, browser
+   tools are available and `app.browser_session` is null or absent — and the run-only
+   `browser tools absent` line when `checks.e2e` is null and neither the Playwright nor the Chrome
+   DevTools browser tools are available in this session. `checks.runner` null with a seam →
+   `tier 2 skipped — checks.runner is null`. The run-only `browser session tool absent` line when
+   `checks.e2e` is null, `app.browser_session` is a command and
+   `mcp__playwright__browser_set_storage_state` is not available in this session.
+
+   **Browser session wanted** holds when `checks.e2e` is null, `app.browser_session` is a command
+   and `mcp__playwright__browser_set_storage_state` is available — bound once here, and read by §3
+   and §4 step 3. Row 14's line for a round whose command fails is added by
+   [dev-server.md](dev-server.md) §6.
 5. **Something must be checkable.** No seam with a runner, no `checks.e2e`, and no browser tools →
    abort `characterize: aborted — no check can run: no seam, no e2e runner, no browser tools`.
 6. **Scripts.** Write the wrappers and record their digests per [dev-server.md](dev-server.md) §1.
@@ -114,8 +122,9 @@ common abort.
 
 ## §3 Server for the QA role
 
-[dev-server.md](dev-server.md) §2–§6 with round `agent-<k>` (`k` counting spawns from 1) and no
-coverage env.
+[dev-server.md](dev-server.md) §2–§6 with round `agent-<k>` (`k` counting spawns from 1), with the
+browser session when browser session wanted (§2 step 4), and no coverage env. A measurement round
+(§6) never asks for the browser session, so login traffic never enters the measurement.
 
 - A port-busy or not-ready stop writes the report with `characterize: needs-decision — <the
   line>`, the `## Options` of [dev-server.md](dev-server.md) §2 or §4, and the §0 `resume:` line
@@ -129,8 +138,8 @@ coverage env.
 1. **Fence** — [fence.md](fence.md) §5 steps 1–4 with the `qa` set in characterize form
    (`<inventory><slug>/**` and `<run_dir>/**`), then its §6 probes for a characterize-mode QA spawn. A
    failed self-test aborts.
-2. **Script digests** — hash the wrappers and the exclusion list and keep the result in context
-   ([dev-server.md](dev-server.md) §1, Digests).
+2. **Script digests** — hash the wrappers and the exclusion list, check the browser session
+   path's type, and keep the result in context ([dev-server.md](dev-server.md) §1, Digests).
 3. **Brief** — written with `Write` to `<runs>/qa-brief-<k>.md`, assembled from this list and
    nothing else:
    - `mode: characterize` and the pass — `first`, `repair` or `extension`;
@@ -139,7 +148,19 @@ coverage env.
    - the glossary, or `none — derive the terms from route and schema names and mark the matrix
      derived`;
    - the profile's `app`, `seams`, `checks` and `paths` blocks as data, each seam's `auth` replaced
-     by `<seam n: credential supplied by check.sh>`;
+     by `<seam n: credential supplied by check.sh>` and `app.browser_session`, when a command, by
+     `<browser session: written by browser-session.sh>`;
+   - when `checks.e2e` is null, the browser session, in one of two forms:
+     - `browser session: <runs>/browser-session.json` when [dev-server.md](dev-server.md) §6 left
+       it live this round — load it with the browser storage-state tool by that path and never
+       read it otherwise; once after a fixture's reset and seed, before the browser next loads the
+       app, refresh it with
+       `cd "<WT>" && bash "<runs>/browser-session.sh" "<runs>/browser-session.json" && [ -s "<runs>/browser-session.json" ]`,
+       then load it again — a non-zero status means no saved session for that fixture: never load
+       the file, move to the next browser-session option and name the failed refresh in the reply;
+     - `browser session: none — <reason>`, the reason one of `not in the profile`,
+       `the app needs no sign-in`, `the command failed this round` or
+       `the storage-state tool is unavailable`;
    - `now: <now>` and `now-source: <now-source>`, the inventory's header lines as written;
    - each wrapper that exists, as an absolute path, how it is invoked
      (`cd "<WT>" && DEEPEN_CHECK_LOG=<file> bash <wrapper> <files>`), `app.url`, and the

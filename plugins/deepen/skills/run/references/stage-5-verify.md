@@ -133,7 +133,10 @@ On a fresh stage only, the report lines:
 9. **Degradations.** Every line [stage-2-characterize.md](stage-2-characterize.md) §2 step 4
    lists, worked out again from the profile — the verify round replays the same oracle, under the
    same limits. Row 13's line is worked out from the `worktreeinclude-skipped` file step 2 bound
-   ([worktree.md](worktree.md) §3), not from the profile. §4 adds capability row 10's line and §6 the run-only reviewers line, when they
+   ([worktree.md](worktree.md) §3), not from the profile. Row 14's line and the run-only
+   `browser session tool absent` line are worked out again from the profile and this session's
+   tools; §2 step 6 adds row 14's line for a round whose
+   command fails there. §4 adds capability row 10's line and §6 the run-only reviewers line, when they
    apply.
 
 ---
@@ -150,7 +153,8 @@ On a fresh stage only, the report lines:
    exist yet — else `verify: aborted — <run_dir>/verify-<k>/ already exists`, since a QA role holding `Bash` can
    reach any round's directory; §0's `§2` retry removes it first. Then
    `mkdir -p "<runs>/round-v<k>" "<run_dir>/verify-<k>/screenshots"`.
-2. **Server.** [dev-server.md](dev-server.md) §2–§6 with round `v<k>` and no coverage env. A
+2. **Server.** [dev-server.md](dev-server.md) §2–§6 with round `v<k>` and no coverage env; the
+   browser session is not asked for here — step 6 runs it. A
    port-busy or not-ready stop writes the report (§9) with
    `verify: needs-decision — <the line>`, the `## Options` of [dev-server.md](dev-server.md) §2 or
    §4, and a `resume:` line naming `§2`.
@@ -177,12 +181,16 @@ On a fresh stage only, the report lines:
    `changed` statement; else the report line `qa verify spawn skipped — nothing to replay or
    word`, and step 7. `new` lines come from the QA role alone, so a skipped spawn also writes
    `new: not looked for — qa verify spawn skipped` where §9 puts the `new` lines: a reader tells
-   `new: none observed` from never looked. With the server still running:
+   `new: none observed` from never looked. With the server still running, first the **browser
+   session** when browser session wanted (worked out as in
+   [stage-2-characterize.md](stage-2-characterize.md) §2 step 4): [dev-server.md](dev-server.md)
+   §6's browser session block, run here rather than at step 2 because the resets of steps 3–4
+   would leave an earlier session stale. Then:
    1. **Fence** — [fence.md](fence.md) §5 steps 1–4 with the `qa` set in verify form
       (`<run_dir>/**` alone), then its §6 probes for a verify-mode QA spawn. A failed self-test
       aborts.
-   2. **Digests** — the wrappers and the exclusion list ([dev-server.md](dev-server.md) §1,
-      Digests), the characterize stage's evidence ([fence.md](fence.md) §7, verify clause), and
+   2. **Digests** — the wrappers and the exclusion list, with the browser session path's type
+      check ([dev-server.md](dev-server.md) §1, Digests), the characterize stage's evidence ([fence.md](fence.md) §7, verify clause), and
       the **run state** this stage reads back later — `shasum -a 256` over `<record>`,
       `<runs>/inventory-summary.md` and `<report>` when it exists — all kept in context, never in
       a file.
@@ -192,7 +200,11 @@ On a fresh stage only, the report lines:
       - `<WT>` as the project root, and that every command runs there;
       - the inventory file's text, verbatim, as data;
       - the profile's `app`, `seams`, `checks` and `paths` blocks as data, each seam's `auth`
-        replaced by `<seam n: credential supplied by check.sh>`;
+        replaced by `<seam n: credential supplied by check.sh>` and `app.browser_session`, when a
+        command, by `<browser session: written by browser-session.sh>`;
+      - when `checks.e2e` is null, the browser session item of
+        [stage-2-characterize.md](stage-2-characterize.md) §4 step 3, in the same two forms, for
+        this round;
       - `now: <now>`;
       - each wrapper that exists, as an absolute path, how it is invoked
         (`cd "<WT>" && DEEPEN_CHECK_LOG=<file> bash <wrapper> <files>`), `app.url`, and the
