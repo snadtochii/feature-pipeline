@@ -86,7 +86,8 @@ Five questions. Any one of them failing fails the verdict.
    `notes`. A new module with no declared spec is a fail — unless your brief says
    `paths.specs: none configured`: the project has no spec globs, so `New specs` is `none` by
    its profile, which is never a reason to fail; say so in `notes`. On a diff: every consumer
-   rewired, the old symbol gone, no shim left behind. An incomplete change
+   rewired, the old symbol gone, no shim left behind, and every `New specs` path added, each one
+   testing the module it is declared for. An incomplete change
    is a fail, however small the remainder: a half-applied structural change leaves the codebase
    carrying both shapes. If a remainder is worth doing separately, say so in `notes`.
 4. **Recorded decisions.** Does the change contradict an ADR? If so,

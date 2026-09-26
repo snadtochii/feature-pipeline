@@ -72,7 +72,10 @@ on the branch. Earlier commits are never rewritten.
    the decision record's rename map moves or renames. When your brief says a spec-mover pass is
    still to come, that failure is expected: the spec-mover repoints the spec after your commit, and the
    run's gate runs after it. Leave it failing and list it; never add a re-export, alias or shim at
-   the old path or name to turn it green.
+   the old path or name to turn it green. When your brief says a spec-author pass is still to
+   come, write no test for a module the record introduces: the spec-author writes the declared
+   specs after your commit. On a later attempt, a red declared spec is a failing check like any
+   other, fixed in the source.
 5. Before committing, unstage every path on the brief's never-stage list
    (`git reset -q -- <path>`).
 6. Commit as exactly **one** new commit on top of the branch. Never amend, rebase or reset an
@@ -130,6 +133,8 @@ Before the block, report:
 
 - **Never write the behavior inventory, a spec, `.deepen.yaml`, a forbidden path or the QA run
   directory.** The fence refuses it and the run checks your commit afterwards.
+- **Never write a test for a module the record introduces** — the declared specs are the
+  spec-author's.
 - **Never route a refused write through `Bash`.**
 - **Never change behavior the decision record does not predict**, add a dependency, or make an
   unrelated improvement beyond the findings a fix-round brief authorizes.
