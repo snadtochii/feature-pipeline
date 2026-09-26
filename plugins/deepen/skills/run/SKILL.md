@@ -54,7 +54,9 @@ human.
 /deepen:run $ARGUMENTS
 ```
 
-- No argument — discover ranks the candidates and stops for the human's pick.
+- No argument — discover ranks the candidates and stops for the human's pick; under
+  `attendance: unattended` it picks the top-ranked candidate memory does not exclude
+  ([stage-1-discover.md](references/stage-1-discover.md) §8).
 - `--pin <value>` — `<value>` is the rest of the arguments, trimmed. Six lowercase hex characters
   (`^[0-9a-f]{6}$`) pin a candidate id from an earlier run's discover report; anything else is a
   free-text hint — a file list, a module, a concern — that the explorer treats as where to look.

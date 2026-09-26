@@ -183,27 +183,48 @@ Zero valid blocks is zero candidates.
      request <url> — run it again?`, with the one option `run it — open a second pull request for
      this candidate`. The run skill adds `abort`.
 5. **Decision-record conflicts are kept.** A block's `adr_conflict` stays in the table's column
-   and in the pick question's description, so the human decides at the pick. It is never a reason
-   to drop.
+   and in the `## Pick` block. At a human pick it is also in the pick question's description, so
+   the human decides there; an unattended pick (§8) carries it to the decide stage, which names it
+   ([stage-3-decide.md](stage-3-decide.md) §5, `diffs`). It is never a reason to drop.
 
 ---
 
 ## §8 Pick
 
+An unpinned pick depends on `attendance`, read from the profile as re-read
+([profile.md](../../setup/references/profile.md) §2). A hint pin that §7 step 1 turned unpinned
+reaches the unpinned cases below.
+
 - **Pinned** → the located candidate is the pick.
-- **Unpinned, zero ranked candidates** → `discover: complete — no candidate`. The run ends clean.
-- **Unpinned, otherwise** → `discover: needs-decision — pick a candidate`, with one option per
-  ranked candidate from the top, at most three —
+- **Unpinned, `attendance: semi`, zero ranked candidates** → `discover: complete — no candidate`.
+  The run ends clean.
+- **Unpinned, `attendance: semi`, otherwise** → `discover: needs-decision — pick a candidate`,
+  with one option per ranked candidate from the top, at most three —
   `- <id> <name> — <tier>, <category>, ~<est_diff_lines> lines; next: <next_change>` with
   `; conflicts with <adr path>` appended when `adr_conflict` is not `none` — and last
   `- none of these — end the run; nothing is recorded`, the option that ends the run.
+- **Unpinned, `attendance: unattended`** → the rank rule, the stage default profile §2 describes.
+  The first case that holds decides:
+  1. zero ranked candidates and §7 step 3 filtered none → `discover: complete — no candidate`.
+     The run ends clean.
+  2. zero ranked candidates and §7 step 3 filtered at least one →
+     `discover: aborted — no candidate left after memory exclusion — pin a filtered id to run it
+     anyway`.
+  3. §7 step 2 met [memory.md](memory.md) §3's no-file case →
+     `discover: aborted — memory: <state_dir>/memory.md missing — run /deepen:setup`. Without the
+     file nothing excludes an opened or declined candidate, so a scheduled run would pick the same
+     one every time.
+  4. otherwise → the pick is the first row of the ranked list as §7 step 3 left it; `<n>` is that
+     row's `rank`. No `## Options` and no question are written, and nothing is written to memory
+     ([memory.md](memory.md) §6).
 - **An answer** (§0) naming a candidate → the pick; `none of these` →
   `discover: complete — no candidate`. Declining at the pick writes nothing to memory
   ([memory.md](memory.md) §6).
 
 With a pick: write the `## Pick` block ([candidates.md](candidates.md) §5), then set the run
 state's `candidate_id` and `slug` ([candidates.md](candidates.md) §6) with `Edit`, and the status
-line becomes `discover: complete`.
+line becomes `discover: complete`. A pick by the rank rule also writes
+`pick: rank <n> (unattended)` to the report (§9 item 4).
 
 ---
 
@@ -217,7 +238,8 @@ with `Edit` and appends what it adds.
 2. The takeover line from the run state, when it is not `none` — directly under the status line
    ([preflight.md](preflight.md) §2).
 3. The tier line from the run state, verbatim ([preflight.md](preflight.md) §5).
-4. `pin: <value>`, with `→ <id> <name>` once §7 located it, or `pin: none`.
+4. `pin: <value>`, with `→ <id> <name>` once §7 located it, or `pin: none`; directly under it,
+   on a pick by §8's rank rule, `pick: rank <n> (unattended)`.
 5. `## Degradations` — every degradation line of §3–§7, or `none`.
 6. `## Memory` — [memory.md](memory.md)'s report lines and rewrites, or `none`.
 7. `## Hotspots` — the table with every column of [hotspots.md](hotspots.md) §6, and its summary
