@@ -274,7 +274,9 @@ setup carries none. An absent key takes its default.
   (rule 18). Every §5 field states one, so the map is `{}` and setup asks nothing for it.
 - **`architect_fail`** — `revise-once` (default): the first architect fail re-opens the questions
   its failing checks map to, once; a second fail declines the candidate and writes its `declined`
-  memory line. `decline`: the first fail declines.
+  memory line. `decline`: the first fail declines. A fail that sets the architect's `escalate`
+  declines whatever the policy — reopening a recorded decision or removing documented intent is a
+  human's call.
 - **`split`** — answers a split the decide stage proposes past `run.split_above`. `confirm`
   (default): the run builds slice 1 of the proposed split. `override`: the whole record as one
   pull request.

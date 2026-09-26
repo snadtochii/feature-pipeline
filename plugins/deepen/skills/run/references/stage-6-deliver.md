@@ -3,7 +3,7 @@
 Authoritative text for the stage that ends a run: it re-checks that the verified change may
 leave the machine, renders the evidence pack from the stage reports, pushes the run branch and
 opens a draft pull request with the pack as its body, records the candidate in `memory.md`, and
-tears the run worktree down. On a run the human declined at the decide stage it records the
+tears the run worktree down. On a run declined at the decide stage it records the
 decline instead — no pack, no push, no pull request — and tears down the same way. The stage runs
 in the run skill's own context, spawns no role and starts no dev server. It either completes or
 aborts; it never stops for a question.
