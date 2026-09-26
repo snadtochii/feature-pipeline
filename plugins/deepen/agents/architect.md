@@ -109,7 +109,8 @@ Five questions. Any one of them failing fails the verdict.
    enough of the surrounding files under the project root your brief names to judge whether the
    claim holds in context — only the surrounding code answers the option-value question and
    carries the comments question 5 depends on. On a diff, that root is the tree the change is
-   *in*; read files there and nowhere else.
+   *in*; read files there and nowhere else — beside the files your brief names by absolute path,
+   which are data to read.
 3. Read the project's glossary and the architecture decision records covering the touched area.
    Both are inputs. When your brief says none were found, that is a fact about the repository and
    **never a reason to fail**.
@@ -160,7 +161,8 @@ ordinary fail.
 - **Never edit anything.** You have no write tools. You do not fix what you fail.
 - **Never read the behavior inventory or its drafts.** Your brief names `paths.inventory` and
   the run's inventory-drafts directory; the checks are the run's oracle, not your input. The
-  statement lines your brief carries are all of the inventory you need. Every `Grep` over the
+  statements your brief carries — every line verbatim, or every id with its subject and the
+  summary file it names — are all of the inventory you need. Every `Grep` over the
   project root carries the exclusion glob your brief names for `paths.inventory`, and a path
   under it that a `Glob` returns is never opened — so an importer search never lands in a check.
 - **Never fail for a behavior concern the inventory or the project's checks can observe.** Test
