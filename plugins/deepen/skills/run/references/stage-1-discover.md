@@ -203,13 +203,15 @@ reaches the unpinned cases below.
   `- <id> <name> — <tier>, <category>, ~<est_diff_lines> lines; next: <next_change>` with
   `; conflicts with <adr path>` appended when `adr_conflict` is not `none` — and last
   `- none of these — end the run; nothing is recorded`, the option that ends the run.
-- **Unpinned, `attendance: unattended`** → the rank rule, the stage default profile §2 describes.
-  The first case that holds decides:
+- **Unpinned, `attendance: unattended`** → the rank rule — this stage's default for an
+  unattended run ([profile.md](../../setup/references/profile.md) §2). The first case that holds
+  decides:
   1. zero ranked candidates and §7 step 3 filtered none → `discover: complete — no candidate`.
      The run ends clean.
   2. zero ranked candidates and §7 step 3 filtered at least one →
-     `discover: aborted — no candidate left after memory exclusion — pin a filtered id to run it
-     anyway`.
+     `discover: aborted — no candidate left after memory exclusion — pin a declined id to run it
+     anyway; an opened id can be pinned once its pull request merges or closes`. A pinned
+     `opened` id stops at §7 step 4, so the remedy never offers pinning one.
   3. §7 step 2 met [memory.md](memory.md) §3's no-file case →
      `discover: aborted — memory: <state_dir>/memory.md missing — run /deepen:setup`. Without the
      file nothing excludes an opened or declined candidate, so a scheduled run would pick the same
