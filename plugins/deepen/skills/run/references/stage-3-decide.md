@@ -249,8 +249,11 @@ Two bounds keep the answering finite, each counted from the ledger at the point 
 - **A stage default that fails** its field's class, or a §6 cross-section check, gets one
   re-derived attempt — a new question on the same field, the failure in its rationale. A second
   failure declines (§10) with the reason `<field>: default fails <class or check> — <reason>`.
-- **At most two unattended answers per field per architect round**, that retry included; a field
-  that needs a third declines (§10) with the reason `<field>: defaults did not converge`.
+- **At most two unattended answers per field per window**, that retry included; a field that
+  needs a third declines (§10) with the reason `<field>: defaults did not converge`. A window
+  opens at the stage's first question and again at each `architect` or `split` ledger entry — the
+  two stops that reopen fields — so a field's count is its `Q<n> | <field> |` entries after the
+  latest of those.
 
 | Field | Owner | Record section ([decision-record.md](decision-record.md) §2) |
 | --- | --- | --- |
@@ -491,8 +494,10 @@ On the answer:
   absent → `revise`, source `decisions.architect_fail: revise-once`. The reopened fields are
   answered by §4's unattended rule, each default re-derived by §5's own rule with the architect's
   direction as its hint — the reason text after `fail — ` of every failing question, and
-  `notes` — quoted in the rationale, never the previous answer copied. §6 rewrites the record and
-  §7 judges it once more.
+  `notes` — quoted in the rationale, in place of the previous answer the semi reopen defaults to.
+  Where §5 binds a default to the pick, the direction enters it: when `option_value` failed,
+  `next` is restated from the direction rather than the pick's `next_change`; otherwise §5's rule
+  stands. §6 rewrites the record and §7 judges it once more.
 - **The first fail under `decline`, or any later fail** → `decline`, source
   `decisions.architect_fail: <value>`.
 
@@ -542,10 +547,10 @@ unattended rule from slice 1's files and statements.
 
 ## §10 Decline
 
-Stop on the field `decline`: `Q<n> decline: why is this candidate declined?`, with the one option
-`- no reason — decline without one`. A free-text answer is the reason. The ledger default, in both
-modes, is the architect's `one_line` when §8 led here, or §4's reason when an unattended bound
-did.
+Stop on the field `decline`: `Q<n> decline: why is this candidate declined?`. The ledger default,
+in both modes, is the architect's `one_line` when §8 led here, or §4's reason when an unattended
+bound did. The options are `- accept — <the default>` and `- no reason — decline without one`:
+`accept` takes the default as the reason, and any other free-text answer is the reason.
 
 **Unattended**, the answer is that default (§4): `decision: <reason>`, source `architect one_line`
 from §8, or `stage default` from §4. The `one_line` is already cleaned (§7 step 6).
