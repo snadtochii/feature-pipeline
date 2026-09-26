@@ -1,6 +1,6 @@
 # Deepen
 
-A manually triggered, semi-attended loop that takes **one** deep-module refactor candidate to a
+A manually triggered loop, attended or unattended, that takes **one** deep-module refactor candidate to a
 **draft pull request** carrying a behavior-preservation evidence pack. One run, one candidate,
 one draft pull request. It never merges.
 
@@ -30,7 +30,7 @@ In priority order:
 | Skill | When | Shape |
 | --- | --- | --- |
 | `setup` | once per repo, and again after the project adds a capability | interactive — probes the repo read-only, renders a readiness report, provisions the loop clone and state directory, writes `.deepen.yaml` after an approved diff. `--check` re-probes and refreshes the report without asking anything or touching the profile. |
-| `run` | from the loop clone, once per candidate | semi-attended — validates the profile, takes the run lock, then dispatches the stages in order and stops wherever a decision is the human's. `--pin <candidate-id \| hint>` names the candidate, or where to look for one; without it, discover stops for a pick from the top three. |
+| `run` | from the loop clone, once per candidate | attended or unattended, per the profile's `attendance` — validates the profile, takes the run lock, then dispatches the stages in order and asks the human at each decision (`semi`) or takes the stop's default or aborts (`unattended`). `--pin <candidate-id \| hint>` names the candidate, or where to look for one; without it, discover stops for a pick from the top three — unattended, it takes the top-ranked candidate memory does not exclude. |
 
 Stage 1 (discover) ranks candidates with the read-only `explorer` agent, starting from a
 churn × indentation hotspot table and filtering on what the loop already did with each candidate
@@ -41,16 +41,19 @@ Stage 2 (characterize) creates the run worktree at the base commit, has the fenc
 plan, replays every check itself, measures how much of the candidate's functions the checks reach,
 and commits the inventory alone as the run branch's first commit, before any source change.
 
-Stage 3 (decide) asks the human one question at a time — the interface shape, what sits behind the
+Stage 3 (decide) asks one question at a time — the interface shape, what sits behind the
 seam, which existing tests survive and which are deleted, the rename map, which new spec files the
 change adds, the glossary terms, and
-which inventory statements are expected to change — each with a proposed default. It reads the
+which inventory statements are expected to change — each with a proposed default, answered by the
+human (`semi`) or by that default (`unattended`). It reads the
 inventory's summary and never its checks, and writes to no working tree: the answers become the
 run's decision record, with `CONTEXT.md` and ADR edits carried in it as proposed diffs
 that the implementer applies in stage 4. The read-only `architect` agent then judges the record
-against the human's named next change; a fail is the human's call to revise, override or decline.
+against the named next change; a fail is revised, overridden or declined by the human, or, unattended,
+handled by `decisions.architect_fail`.
 When the estimated diff exceeds `run.split_above`, the architect proposes a sequence of
-independently verifiable pull requests for the human to confirm or override.
+independently verifiable pull requests, confirmed or overridden by the human or by
+`decisions.split`.
 
 Stage 4 (implement) has the fenced `implementer` agent make the change the decision record
 describes, in the run worktree, and gates it on the project's check runner; a red gate is another
@@ -60,19 +63,23 @@ new spec files the record declares and nothing else. None of the three can write
 
 Stage 5 (verify) replays the inventory against the changed tree and classifies every statement
 `preserved`, `changed` or `unverifiable`: a `changed` statement the record predicted is intended,
-and one it did not is a regression the human rules on. It runs the mutation pass over the changed
+and one it did not is a regression the human rules on — or, unattended, one accepted under policy
+that heads the evidence pack. It runs the mutation pass over the changed
 lines when the profile names a runner, has the `architect` judge the diff against the named next
 change, and has the `feature` plugin's four reviewers report findings; the accepted ones go to one
 fenced fix round.
 
 Stage 6 (deliver) re-checks stage 5's gate — an empty verification table or a missing coverage
 line fails the run, pushes nothing, and keeps the branch diff as `abort.patch` — then renders the
-evidence pack and opens it as the body of a draft pull request: the candidate and its named next
+evidence pack and opens it as the body of a draft pull request: under `unattended`, the mode and
+every decision the run took by default, ahead of everything else; the candidate and its named next
 change; the verification table, with every `changed` statement's before and after; touched-function
 coverage, the uncovered functions and the mutation result; the architect's verdict on the diff and
 the reviewers' findings; the decision record; the degradations that applied; and the run's cost.
 It records the candidate in `<state_dir>/memory.md` — `opened` with the pull request's URL, or
-`declined` with the human's reason when stage 3 ended declined, plus a suggested ADR when that
+`declined` with the reason — the human's, or, unattended, the architect's `one_line` or the decide
+stage's own bound reason — when
+stage 3 ended declined, plus a suggested ADR when that
 reason states a rule — removes the worktree, and keeps the branch. The pack stays in the run's
 report directory whether or not the pull request opened.
 
@@ -88,6 +95,21 @@ The profile's `attendance` field takes one of two values, switched with `/deepen
   inline; any other decision pauses the run for an inline answer.
 - `attendance: unattended` — no human is in the conversation: the run takes every decision from a
   stage default or the profile's `decisions:` block, and a stop with neither aborts.
+
+The optional `decisions:` block holds the standing answers an unattended run takes in place of a
+human; a semi run ignores it, and an absent key takes its default. `defaults` maps a decide field
+to a one-line answer, permitted only for a field with no stage default — every field has one, so
+the map is `{}`. `architect_fail` is `revise-once` (the default: the first architect fail reopens
+its questions once, a second fail declines) or `decline` (the first fail declines); a fail the
+architect escalates declines whatever the policy. `split` is `confirm` (the default: the run builds
+slice 1 of the proposed split) or `override` (the whole record as one pull request).
+`infra_stop` is `abort`: an infrastructure stop ends the run with its remedy instead of pausing.
+`changed_statements` is `head-pack`: an unpredicted `changed` statement never pauses the run and
+heads the evidence pack instead. The contract is
+[profile.md §2](skills/setup/references/profile.md).
+
+Run `semi` first, and make the first unattended run on a `worth-exploring` candidate pinned with
+`--pin <id>` from an earlier discover report — unpinned, the rank rule takes a `strong` one first.
 
 ## What a project must supply
 

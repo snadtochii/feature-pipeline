@@ -27,7 +27,7 @@ Bound by the run skill before this stage starts:
 | Input | Source |
 | --- | --- |
 | `<CLONE>`, `<BASE_SHA>`, `<state_dir>`, the profile as re-read — `base` among it | [preflight.md](preflight.md) §1–§4 |
-| `<run-id>`, `<slug>`, `candidate_id`, `takeover`, `started_epoch` | the run state, `<state_dir>/runs/<run-id>/run-state` |
+| `<run-id>`, `<slug>`, `candidate_id`, `takeover`, `started_epoch`, `attendance` | the run state, `<state_dir>/runs/<run-id>/run-state` |
 | the stage reports `1-discover.md` … `5-verify.md` | `<state_dir>/reports/<run-id>/`, each read bounded to the section this stage takes from it |
 | the decision record | `<state_dir>/reports/<run-id>/decision-record.md`, read whole ([decision-record.md](decision-record.md) §5) |
 | the classification table in effect | the highest-`k` `<runs>/verify-<k>.tsv` ([stage-5-verify.md](stage-5-verify.md) §2) |
@@ -115,7 +115,8 @@ nothing, so a dirty tree there is §9's predicate to judge, not a reason to stop
 
 `Write` `<runs>/pack.md` — standing alone for a reviewer who did not watch the run. The stage
 writes one paragraph of it itself (section 1); every other line is copied from a report, the
-record or the ledger. Each report gets one `Grep -n` `^## ` — its heading map, reused for every
+record or the ledger — `## Decisions taken`'s lines too, each assembled from report lines it
+pairs and copies. Each report gets one `Grep -n` `^## ` — its heading map, reused for every
 section taken from it — and a section is one bounded `Read` from its heading to the line before
 the next; sections that sit next to each other, as `5-verify.md`'s `## Degradations` through
 `## Fix round` do, are one `Read`. Never a whole report, except the record.
@@ -135,17 +136,55 @@ the next; sections that sit next to each other, as `5-verify.md`'s `## Degradati
   absolute: the body is published on GitHub, where the operator's home-directory layout means
   nothing to a reader and does not belong.
 
+**The mode.** `attendance`, re-bound from the run state (§1), is `semi` or `unattended`. Any
+other value, or no `attendance:` line, is never guessed — `semi` would drop every decision the
+run took on its own from the pack, `unattended` would claim decisions a human made —
+`deliver: aborted — run state attendance: <value> out of class`.
+
 **The lead**, above section 1, one line each:
 
-1. `deepen run <run-id> · candidate <candidate_id> · branch <branch> · base <base>@<the first 12 characters of BASE_SHA>`.
+1. `deepen run <run-id> · candidate <candidate_id> · branch <branch> · base <base>@<the first 12 characters of BASE_SHA>`,
+   followed by ` · attendance: unattended` under `attendance: unattended`; under `semi` the line
+   ends at the base.
 2. The coverage gap line — the second line of `2-characterize.md` when it starts
    `coverage gap: ` ([coverage.md](coverage.md) §4): below-threshold coverage leads the pack
    ([profile.md](../../setup/references/profile.md) §2, `coverage_threshold`).
 3. The run state's `takeover` line when it is not `none` ([preflight.md](preflight.md) §2).
-4. Every override line — `Grep` `overridden by the human` over `3-decide.md` and `5-verify.md`,
-   each match under its report's name.
+4. Every override or policy-accepted line — `Grep`
+   `overridden by the human|accepted under unattended policy` over `3-decide.md` and
+   `5-verify.md`, each match under its report's name: an unpredicted `changed` statement the
+   verify stage accepted under `decisions.changed_statements` heads the pack
+   ([stage-5-verify.md](stage-5-verify.md) §3).
 
-**Seven sections**, in this order:
+**`## Decisions taken`** — under `attendance: unattended` only, directly after the lead and
+before section 1, unnumbered; under `semi` the pack has no such section. One line per decision
+the run took with no human, in stage order:
+
+1. **The pick rule.** From `1-discover.md`'s lines above its first `## ` heading — the heading
+   map bounds them — the `pick: rank <n> (unattended)` line when present, else the `pin:` line,
+   verbatim, prefixed `stage 1: `. A located pin is the operator's choice, not a default, and
+   reads as the pin it is.
+2. **Every recorded decision.** One `Grep -n` `^(Q[0-9]+ \||decision: |taken: )` per report,
+   `1-discover.md` … `5-verify.md`. Each `decision:` line pairs with the `taken:` line directly
+   under it ([../SKILL.md](../SKILL.md) §3) and renders
+   `stage <n>: <the decision: line's text> — <source>`, `<source>` the `taken:` line's text after
+   `(unattended) — `. In `3-decide.md` the `k`-th `decision:` line also answers `Q<k>`
+   ([stage-3-decide.md](stage-3-decide.md) §0), so each of its lines is
+   `stage 3: Q<k> <field>: <the decision: line's text> — <source>`, `<field>` from the
+   `Q<k> | <field> |` ledger line, in ledger order — every grilling field answered by default,
+   the architect policy outcome and the split outcome among them. A field reopened by a revise
+   appears once per question that asked it.
+3. **How the architect rounds ended.** When `3-decide.md` has a `Q<k> | architect |` line:
+   `stage 3: architect passed in round <r>`, `<r>` the highest `### Round <r>` — one `Grep` for
+   `^### Round ` over `3-decide.md`.
+
+Never a guess: a `decision:` line with no `taken:` line directly under it renders its source as
+`source not recorded`, and a `3-decide.md` holding more `decision:` lines than `Q<n>` lines
+renders the one line `not available — 3-decide.md decisions and ledger out of step` in place of
+its stage-3 lines. The copy rules apply. No lines → `none`.
+
+**Seven sections**, in this order — after `## Decisions taken` under `attendance: unattended`,
+directly after the lead under `semi`:
 
 1. **`## Candidate`** — one paragraph the stage writes from the record's `## Candidate` (the
    pick's `name`, `category` and `files`) and its sections 2 and 3: what moves behind which
@@ -194,8 +233,8 @@ the next; sections that sit next to each other, as `5-verify.md`'s `## Degradati
 choose the cuts once, in this order, until the bytes they remove bring the pack under 65000:
 section 5's diff blocks, then the longest remaining lists in sections 2 and 4 — each cut replaced
 by the line `truncated — full text in reports/<run-id>/pack-full.md`. Rewrite `<runs>/pack.md` with one
-`Write` carrying every chosen cut, and measure it once more. The lead and sections 1, 3, 6 and 7
-are never cut. The report's `## Pack` names each cut. Still above 65000 with every cut taken →
+`Write` carrying every chosen cut, and measure it once more. The lead, `## Decisions taken` and
+sections 1, 3, 6 and 7 are never cut. The report's `## Pack` names each cut. Still above 65000 with every cut taken →
 the pack cannot be a pull request body: §6 runs steps 1 and 2, skips the `gh pr create` call, and
 takes its failure row with the reason `pack over the body limit after every cut`.
 
