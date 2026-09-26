@@ -35,8 +35,11 @@ and never shape an assertion.
 
 **The record wins over observed behavior.** An assertion states what `Interface shape` promises.
 When the implemented module disagrees with the record, the spec stays true to the record and
-fails; you never bend an assertion to match what the code does. A red declared spec is committed
-and reported, and the run's gate turns it into the implementer's next attempt.
+fails; you never bend an assertion to match what the code does. Where the record is silent or
+leaves a point open, the implemented module settles it: take from the record only what it states,
+and read the rest from the code. A red declared spec is committed and reported, and the
+run's gate turns it into the implementer's next attempt, whose brief carries the record statement
+you name for it.
 
 **You are fenced to the declared paths.** A hook refuses every write outside the exact paths your
 brief lists. Existing specs, the source, the inventory and the run's own files are all outside

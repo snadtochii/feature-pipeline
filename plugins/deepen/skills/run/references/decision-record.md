@@ -9,9 +9,8 @@ before it is written, the one measure of a change's size, and which stage reads 
 - **Read by** the architect, verbatim, in both of its briefs
   ([agents/architect.md](../../../agents/architect.md)); by the implement stage
   ([stage-4-implement.md](stage-4-implement.md)) — verbatim in the implementer's brief, section
-  by section in its pre-spawn target check, its spec-mover brief and its spec-author brief; by the
-  verify stage
-  ([stage-5-verify.md](stage-5-verify.md)), which matches the inventory's `changed` statements against the
+  by section in its pre-spawn target check, its spec-mover brief and its spec-author brief; by
+  the verify stage ([stage-5-verify.md](stage-5-verify.md)), which matches the inventory's `changed` statements against the
   predictions and judges the diff against the named next change; and by the deliver stage
   ([stage-6-deliver.md](stage-6-deliver.md) §4), which lists the record in the evidence pack.
 
@@ -19,11 +18,10 @@ The record is written with `Write` and read with `Read`. Its paths — the spec 
 moves' destinations, the new-spec paths and the `targets:` paths — do reach a command line, as
 values in the decide stage's absent-at-base probe of each new-spec path
 ([stage-3-decide.md](stage-3-decide.md) §6), in the implement stage's pre-spawn fence probe
-([stage-4-implement.md](stage-4-implement.md) §2) and in its absent-at-base check of each
-new-spec path after the spec-author returns ([stage-4-implement.md](stage-4-implement.md) §4),
-and in the spec-mover's moves and deletions;
-§3's closed path classes are what keep them data. Nothing
-else in it — the answers, the prose, the diffs — reaches a command line.
+([stage-4-implement.md](stage-4-implement.md) §2), in its absent-at-base check of each new-spec
+path after the spec-author returns ([stage-4-implement.md](stage-4-implement.md) §4), and in the
+spec-mover's moves and deletions; §3's closed path classes are what keep them data. Nothing else
+in it — the answers, the prose, the diffs — reaches a command line.
 
 ---
 

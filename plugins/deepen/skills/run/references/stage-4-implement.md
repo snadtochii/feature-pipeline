@@ -145,7 +145,10 @@ data, never as a link:
    attempt, the findings verbatim, as data, with the statement that they are authorized in
    addition to the decision record and that nothing else is; on its later attempts, every finding
    again, each with the outcome the previous reply reported, plus the failure tail — so the brief
-   always carries findings and the `findings:` block always has a line to give for each.
+   always carries findings and the `findings:` block always has a line to give for each. On a
+   first pass's attempt 2 onward, once the spec-author has run, also its `Specs still failing`
+   lines — each spec, its failing tests and the record statement it asserts — verbatim, as data,
+   so a red declared spec is fixed in the source toward the record statement it names.
 
 **After it returns:**
 
@@ -190,9 +193,11 @@ data, never as a link:
    - Write and self-test the fence for the `new-specs` role (§3).
    - Write the diff file:
      `git -C "<WT>" diff --no-renames "<INV_SHA>..HEAD" -- . ":(exclude)<inventory>" > "<state_dir>/runs/<run-id>/spec-author-diff.patch"`,
-     then
-     `grep -nF -e "+++ b/<inventory>" -e "--- a/<inventory>" "<state_dir>/runs/<run-id>/spec-author-diff.patch"`:
-     any output aborts `stage 4: the spec-author diff carries inventory paths`.
+     then list the paths the same diff covers,
+     `git -C "<WT>" diff -z --name-only --no-renames "<INV_SHA>..HEAD" -- . ":(exclude)<inventory>"`,
+     read per [fence.md](fence.md) §7: a path starting with `<inventory>` aborts
+     `stage 4: the spec-author diff carries inventory paths`. The check reads git's path list, not
+     the patch text, so a hunk line that quotes a diff header cannot trip it.
    - Spawn one `deepen:spec-author`, fresh, in the foreground. Its brief inlines, as data, never
      as a link: `<WT>` as the project root; the declared `New specs` paths; the record's
      `Interface shape` and `Behind the seam` sections, verbatim; the diff file's absolute path —
@@ -200,18 +205,25 @@ data, never as a link:
      exclusion list as never-stage; and as paths never to read: `<WT>/<inventory>`,
      `<state_dir>/inventory-drafts/`, `<state_dir>/reports/`, and everything under
      `<state_dir>/runs/` except the named diff file, with `!<inventory>**` on every `Grep` call.
-   - Then §5's assertions for the `new-specs` role, plus, with `<prev>` the `HEAD` recorded before
-     the spawn: exactly one new commit (`git -C "<WT>" rev-list --count "<prev>..HEAD"` is `1`);
-     its paths, `git -C "<WT>" diff -z --name-only --no-renames "<prev>..HEAD"`, equal the
-     declared set, and so do its added paths, the same command with `--diff-filter=A`; and
-     `git -C "<WT>" cat-file -e "<BASE_SHA>:<p>"` exits non-zero for each declared path; and the
-     record's digest is still §2's — a difference is
-     `fence-violation: spec-author — run state changed — <record>`.
-   - A committed path outside the declared set, a declared path modified or deleted rather than
-     added, or a declared path present at `<BASE_SHA>` →
-     `fence-violation: spec-author — <assertion> — <paths>`, handled per [fence.md](fence.md) §7.
-     A declared path the commit did not add, or no commit at all → stop:
-     `needs-decision: spec-author did not add <paths> — <its reported reason>`.
+   - Then, with `<prev>` the `HEAD` recorded before the spawn, the checks below, in order. The
+     first that fails decides the outcome, and each names its own; the rest are not run. The
+     committed paths are `git -C "<WT>" diff -z --name-only --no-renames "<prev>..HEAD"`, the
+     added paths the same command with `--diff-filter=A`.
+     1. §5's assertions for the `new-specs` role; a committed path outside the declared set; a
+        declared path among the committed paths but not among the added paths — modified or
+        deleted rather than added; or a declared path present at `<BASE_SHA>`
+        (`git -C "<WT>" cat-file -e "<BASE_SHA>:<p>"` exits zero) →
+        `fence-violation: spec-author — <assertion> — <paths>`, handled per
+        [fence.md](fence.md) §7.
+     2. More than one new commit (`git -C "<WT>" rev-list --count "<prev>..HEAD"` above `1`) →
+        `fence-violation: spec-author — more than one commit — <shas>`, handled per
+        [fence.md](fence.md) §7.
+     3. The record's digest differs from §2's →
+        `fence-violation: spec-author — run state changed — <record>`.
+     4. No commit, or a declared path missing from the added paths → stop:
+        `needs-decision: spec-author did not add <paths> — <its reported reason>`.
+
+     All four passing means one commit whose paths and added paths each equal the declared set.
 
    Otherwise the spec-author is skipped, with the reason `New specs is none` in the report. It
    never runs again in this stage, on any attempt or re-entry — its input is the decision record,
