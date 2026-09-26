@@ -99,7 +99,8 @@ for the run. The stage stops:
 needs-decision — something already answers on <app.url>
 ```
 
-with options `retry — check the port again and start the server` and `abort — end the run`.
+with the one option `retry — check the port again and start the server`. The run skill adds
+`abort`.
 
 ---
 
@@ -150,8 +151,8 @@ Not ready within 120 seconds → stop per §7, then:
 needs-decision — app not ready after 120s — <the probe>
 ```
 
-with the log tail in the report and options `retry — start the server again` and `abort — end the
-run`.
+with the log tail in the report and the one option `retry — start the server again`. The run skill
+adds `abort`.
 
 ---
 
