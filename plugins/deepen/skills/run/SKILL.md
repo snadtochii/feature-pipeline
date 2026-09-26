@@ -145,7 +145,9 @@ read. `started_epoch` is written once and never changed; the deliver stage reads
 time from it. `attendance` is the profile's `attendance` as preflight left it — the re-read copy's
 when preflight §4 re-read the profile ([preflight.md](references/preflight.md) §4) — and is
 likewise written once and never changed: a run never changes its attendance
-([profile.md](../setup/references/profile.md) §7). §5 reads it at every stop.
+([profile.md](../setup/references/profile.md) §7). §5 reads it at every stop. A role holding
+`Bash` could rewrite the file through a shell, so every fenced spawn is bracketed by its digest
+([fence.md](references/fence.md) §5).
 
 **The cost ledger.** Right after the run state, `Write` `<state_dir>/runs/<run-id>/cost.tsv`
 with one header line, `stage | agent | tokens | tool_uses | duration_ms`. After every spawn
