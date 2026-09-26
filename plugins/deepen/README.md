@@ -42,7 +42,8 @@ plan, replays every check itself, measures how much of the candidate's functions
 and commits the inventory alone as the run branch's first commit, before any source change.
 
 Stage 3 (decide) asks the human one question at a time — the interface shape, what sits behind the
-seam, which existing tests survive and which are deleted, the rename map, the glossary terms, and
+seam, which existing tests survive and which are deleted, the rename map, which new spec files the
+change adds, the glossary terms, and
 which inventory statements are expected to change — each with a proposed default. It reads the
 inventory's summary and never its checks, and writes to no working tree: the answers become the
 run's decision record, with `CONTEXT.md` and ADR edits carried in it as proposed diffs

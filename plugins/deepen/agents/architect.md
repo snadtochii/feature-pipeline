@@ -26,8 +26,8 @@ Spawned at two points of a deepen run, on the same five questions:
 
 1. **On a decision record**, by the decide stage, before anything is built. The record is the
    human's approved answer to the stage's questions: the interface shape, what sits behind the
-   seam, the surviving tests, the spec delete list, the rename map, the terms, the proposed
-   glossary and ADR diffs, the predicted behavior changes, the size estimate and the
+   seam, the surviving tests, the spec delete list, the rename map, the new specs, the terms, the
+   proposed glossary and ADR diffs, the predicted behavior changes, the size estimate and the
    named next change. A fail here is a decision the human takes — revise, override, or decline —
    never a candidate that silently vanishes.
 2. **On a diff**, by the verify stage, against the same decision record, after the inventory has
@@ -78,8 +78,15 @@ Five questions. Any one of them failing fails the verdict.
 3. **Completeness.** Does the change finish the job it declares? On a record: every importer of a
    module the record moves or reshapes is accounted for — repointed by a `Rename map` entry,
    listed under `Surviving tests`, or on the `Spec delete list` — and no shim or compatibility
-   re-export is planned. Read the importers yourself rather than trusting the record's lists. On
-   a diff: every consumer rewired, the old symbol gone, no shim left behind. An incomplete change
+   re-export is planned. Read the importers yourself rather than trusting the record's lists.
+   Every module the record introduces — a source file absent at the project root that `Interface
+   shape` or `Behind the seam` names or implies, not one a `Rename map` entry merely moves — has
+   its spec path under `New specs`; find those modules from those two sections and the code
+   yourself. A module that only declares types or interfaces needs none, and you say so in
+   `notes`. A new module with no declared spec is a fail — unless your brief says
+   `paths.specs: none configured`: the project has no spec globs, so `New specs` is `none` by
+   its profile, which is never a reason to fail; say so in `notes`. On a diff: every consumer
+   rewired, the old symbol gone, no shim left behind. An incomplete change
    is a fail, however small the remainder: a half-applied structural change leaves the codebase
    carrying both shapes. If a remainder is worth doing separately, say so in `notes`.
 4. **Recorded decisions.** Does the change contradict an ADR? If so,

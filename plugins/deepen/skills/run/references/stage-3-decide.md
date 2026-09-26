@@ -217,6 +217,7 @@ answers for the human.
 | `predicted` | §5 | Predicted changed statements |
 | `estimate` | §5 | Estimated diff lines |
 | `next` | §5 | Named next change |
+| `new-specs` | §5 | New specs |
 | `architect` | §8 | — |
 | `split` | §9 | — |
 | `decline` | §10 | — |
@@ -229,11 +230,11 @@ Asked in this order, one per stop. Before each question, read what its default n
 `<CLONE>` and the summary; every default carries a one-line rationale. The fields are coupled: a
 later default derives from earlier answers, and an answer that invalidates a field already
 answered — a rename that moves a spec the surviving-tests answer called unchanged, an interface
-that no longer hides what the seam answer says — asks that field again, depth-first, before the
-tree moves on. Two questions are conditional: `rewrite` is raised by a `surviving` answer and
+that no longer hides what the seam answer says, an interface that introduces a module the
+new-specs answer has no path for — asks that field again, depth-first, before the tree moves on. Two questions are conditional: `rewrite` is raised by a `surviving` answer and
 `create-context` by a `terms` answer, and each is pending while the answer that raised it is newer
 than its own latest answer. On re-entry, a pending conditional question is asked first; otherwise
-the next question is the first of the ten fields below with no current value.
+the next question is the first of the eleven fields below with no current value.
 
 1. **`interface`** — the new interface: what callers call, with what, and what they get back.
    Default: the shape the pick's `files`, `structural_key` and `category` suggest at the seam their
@@ -241,8 +242,8 @@ the next question is the first of the ten fields below with no current value.
 2. **`seam`** — what sits behind the interface: the modules, state and dependencies it hides, and
    for a `remote-owned` or `true-external` category the port and its test adapter
    ([candidates.md](candidates.md) §2).
-3. **`surviving`** — when `paths.specs` is empty, record `none` for this field and `delete`
-   without asking, with the line `spec questions skipped — paths.specs is empty`. Otherwise `Grep`
+3. **`surviving`** — when `paths.specs` is empty, record `none` for this field, `delete` and
+   `new-specs` without asking, with the line `spec questions skipped — paths.specs is empty`. Otherwise `Grep`
    the `paths.specs` globs at `<CLONE>` for specs that import or mock any of the pick's `files`,
    and classify each: `unchanged`, `repointed` (by a rename entry), `delete` (it tests a module the
    change removes and the inventory covers its behavior), or `rewrite` (its assertions need
@@ -260,7 +261,14 @@ the next question is the first of the ten fields below with no current value.
    every exported name that changes, identity entries for symbols that move unrenamed, and each
    `repointed` spec's entry. Spec moves — a `modules:` entry whose old path matches a
    `paths.specs` glob — are named in the question.
-6. **`terms`** — invoke the `Skill` tool with `mattpocock-skills:domain-modeling` once per run, for
+6. **`new-specs`** — the declared spec paths, one per module the change introduces
+   ([decision-record.md](decision-record.md) §2, `New specs`). Default: one spec beside each new
+   module the `interface` and `seam` answers name or imply, placed and suffixed like the existing
+   specs that match `paths.specs` for the pick's files — a sibling `x.test.ts`, or a mirrored
+   `tests/…/x.spec.ts` — and matching a `paths.specs` glob; `none` when the record adds no module.
+   The inferred modules and their paths are drafted under `## Drafts`. When `paths.specs` is
+   empty, `surviving` has already recorded `none` here.
+7. **`terms`** — invoke the `Skill` tool with `mattpocock-skills:domain-modeling` once per run, for
    its glossary rules and formats; the stage overrides its inline updates — `CONTEXT.md` is never
    edited here, every edit becomes a proposed diff (field `diffs`). The call failing, or the skill
    not installed → `domain-modeling unavailable — CONTEXT.md and ADR diffs drafted from the stage's
@@ -271,7 +279,7 @@ the next question is the first of the ten fields below with no current value.
    has terms, ask **`create-context`**: `Q<n> create-context: CONTEXT.md is absent — propose
    creating it with these terms?`, `accept` → the diffs field drafts it as a new file,
    `- no — record the terms without a CONTEXT.md diff` → the terms stay in the record only.
-7. **`diffs`** — one unified diff per target against `<BASE_SHA>`, drafted under `## Drafts`, with
+8. **`diffs`** — one unified diff per target against `<BASE_SHA>`, drafted under `## Drafts`, with
    the `targets:` line ([decision-record.md](decision-record.md) §2). `CONTEXT.md` carries the
    answered terms. An ADR is drafted only when domain-modeling's three-part test holds —
    hard to reverse, surprising without context, the result of a real trade-off — numbered one above
@@ -279,14 +287,14 @@ the next question is the first of the ten fields below with no current value.
    whose `adr_conflict` is not `none` names that decision in the question, and the default says
    whether a new ADR supersedes it. Default `targets: none` when no term and no decision
    changes.
-8. **`predicted`** — the inventory statements the change is expected to alter, each
+9. **`predicted`** — the inventory statements the change is expected to alter, each
    `<statement-id> | before: <then> | after: <expected then>`, from the summary's statement lines.
    Default: the statements whose `<then>` the interface answer changes — for a pure deepening,
    `none`. A statement on the summary's unverifiable list may be predicted with ` (unverifiable)`.
-9. **`estimate`** — one integer in [decision-record.md](decision-record.md) §4's measure. Default:
-   the pick's `est_diff_lines`, adjusted for the spec deletions and the proposed diffs the explorer
-   did not know about, with the adjustment in the rationale.
-10. **`next`** — the named next change the deepening makes cheaper; the architect's premise.
+10. **`estimate`** — one integer in [decision-record.md](decision-record.md) §4's measure.
+    Default: the pick's `est_diff_lines`, adjusted for the spec deletions, the new specs and the
+    proposed diffs the explorer did not know about, with the adjustment in the rationale.
+11. **`next`** — the named next change the deepening makes cheaper; the architect's premise.
     Default: the pick's `next_change`.
 
 Every field answered → §6.
@@ -301,7 +309,13 @@ Assemble `decision-record.md` from the fields' current values, in
 Check every value against [decision-record.md](decision-record.md) §3, and the cross-section rules
 of its §2: every spec move's new path matches a `paths.specs` glob, every `repointed` line names an
 entry in the rename map, every `targets:` path has exactly one diff block and each block's path is
-on the line, every predicted `before` equals its statement's `<then>` in the summary.
+on the line, every predicted `before` equals its statement's `<then>` in the summary, and every
+new-spec path lies outside `<inventory>` (it does not start with it) and — once that and its
+spec-path class hold — is absent at `<BASE_SHA>` (one `Bash` call over every path, one line per
+path,
+`git -C "<CLONE>" cat-file -e "<BASE_SHA>:<path>" 2>/dev/null && echo "present <path>"`; a path
+with no `present` line is absent), matches no `paths.forbidden` glob, is not on the spec delete
+list, is not a spec move's new path, and appears once in the section.
 
 - **All valid** → `Write` the record to `<state_dir>/reports/<run-id>/decision-record.md`, whole —
   also when it replaces an earlier version after a revision or a split. Record its path and
@@ -331,6 +345,7 @@ on the line, every predicted `before` equals its statement's `<then>` in the sum
    - the statement lines of `<runs>/inventory-summary.md`, verbatim, marked as data;
    - the absolute path of `<CLONE>/CONTEXT.md` and of every file under `<CLONE>/docs/adr/`, or
      `none found` for each;
+   - when `paths.specs` is empty: `paths.specs: none configured`;
    - when §7 step 2 requests one: `split_requested: true`, `split_above: <s>`, `estimate: <e>`;
    - the verdict block and, when requested, the `split:` shape, from the architect's Outputs, as
      the reply contract.
@@ -378,8 +393,8 @@ The validated verdict lives in the report, never in the record.
 On the answer:
 
 - **`revise`** reopens the fields the failing questions map to — `option_value` → `next` and
-  `interface`; `ch9` → `interface` and `seam`; `completeness` → `rename`, `surviving` and
-  `delete`; `decisions` and `intent` → `interface` and `seam`. A reopened field has no current
+  `interface`; `ch9` → `interface` and `seam`; `completeness` → `rename`, `surviving`, `delete`
+  and `new-specs`; `decisions` and `intent` → `interface` and `seam`. A reopened field has no current
   value until an answer newer than this one, so §5 asks it again, in its order, with its previous
   answer as the default and the architect's reason in the rationale; then §6 rewrites the record
   and §7 takes the next round.
@@ -398,7 +413,8 @@ On the answer:
   `decide: complete`.
 - **Requested**, and the reply's `split:` block is valid — two or more lines numbered from 1 in
   order, each `<n>. <title> | files: <paths> | statements: <ids or none> | est: <integer>`, every
-  file among the pick's `files`, the rename map's paths, the spec lines and the `targets:` line,
+  file among the pick's `files`, the rename map's paths, the spec lines, the new-spec paths and the
+  `targets:` line,
   every statement id in the summary → write the sequence under `## Split`, replacing its `none`,
   and stop on the field
   `split`: `Q<n> split: the estimate <e> exceeds split_above <s> — build slice 1 of <N> in this
@@ -412,7 +428,7 @@ On the answer:
 On the answer:
 
 - **`confirm`** narrows this run to slice 1: reopen `interface`, `seam`, `surviving`, `delete`,
-  `rename`, `terms`, `diffs`, `predicted` and `estimate` (§8's reopen rule), each default derived
+  `rename`, `new-specs`, `terms`, `diffs`, `predicted` and `estimate` (§8's reopen rule), each default derived
   from slice 1's files and statements — the terms and diffs only those slice 1's code carries, so
   no glossary or ADR text lands ahead of the code it describes; §6 rewrites the record with `- slice: 1 of <N> — <title>` under
   `Candidate`; §7 takes one more round, without a split request. Later slices are pinned by hint in
