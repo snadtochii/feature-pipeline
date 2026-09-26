@@ -345,7 +345,17 @@ delete list, is not a spec move's new path, and appears once in the section.
      exclusion glob `!<inventory>**` every `Grep` over `<CLONE>` carries;
    - the decision record, verbatim, marked as data;
    - the named next change, verbatim, as the premise of question 1, marked as data;
-   - the statement lines of `<runs>/inventory-summary.md`, verbatim, marked as data;
+   - the statements, marked as data, between a line `<!-- BEGIN statements -->` and a line
+     `<!-- END statements -->`, in the form the statement threshold, 25, sets. Count them when
+     the brief is built: `<n>` =
+     `grep -cE '^S[0-9]{2,3}( \| [^|]+){4}$' "<runs>/inventory-summary.md"` — the summary's
+     five-field statement lines, never its `unverifiable` lines.
+     - `<n>` at or below 25 → the **`verbatim`** form: every statement line, verbatim.
+     - `<n>` above 25 → the **`ids+subjects`** form: for every statement, in inventory order, its
+       subject line `<id> | <domain term> | <when>`, each field copied verbatim from the
+       statement line;
+   - in the `ids+subjects` form: the absolute path of `<runs>/inventory-summary.md` — every
+     statement line in full, data to read;
    - the absolute path of `<CLONE>/CONTEXT.md` and of every file under `<CLONE>/docs/adr/`, or
      `none found` for each;
    - when `paths.specs` is empty: `paths.specs: none configured`;
@@ -358,10 +368,17 @@ delete list, is not a spec move's new path, and appears once in the section.
    grep -nE 'T[12]-[0-9]{2,3}' "<runs>/architect-brief.md"
    grep -nF -e "<inventory><slug>/" -e "inventory-drafts/<run-id>" -e "2-characterize.md" \
      "<runs>/architect-brief.md"
+   awk -v k=<k> '/^<!-- BEGIN statements -->$/{f=1;next} /^<!-- END statements -->$/{f=0} f&&/^S[0-9][0-9][0-9]? \| /&&split($0,a," [|] ")==k{c++} END{print c+0}' \
+     "<runs>/architect-brief.md"
    ```
 
-   Any output → `decide: aborted — the architect brief carries <the first matching line>`. The
-   results join `## Isolation`.
+   `<k>` is the field count of the form step 3 took — 5 for `verbatim`, 3 for `ids+subjects` — so
+   a statement line in the other form is not counted. Any output from the two `grep`s →
+   `decide: aborted — the architect brief carries <the first matching line>`. A count from the
+   `awk` other than `<n>` → `decide: aborted — the architect brief carries <c> of <n> statements
+   in the <form> form`. The results, and the line `brief: verbatim` or
+   `brief: ids+subjects, <n> statements` naming the form step 3 took, join `## Isolation`, one
+   set per round.
 5. **Spawn** one `deepen:architect`, a fresh instance, in the foreground, whose prompt is the
    brief file's content.
 6. **Validate** the reply's verdict block, line by line: `verdict` is `pass` or `fail`; `escalate`
@@ -483,7 +500,8 @@ appends to the other sections.
 1. The status line ([../SKILL.md](../SKILL.md) §3's grammar).
 2. `declined: <reason>` directly under it, when the status is `complete — declined`.
 3. `## Degradations` — every line of §1, §3 and §5, or `none`.
-4. `## Isolation` — §2's and §7's assertions and results, and the limit line.
+4. `## Isolation` — §2's and §7's assertions and results, each round's `brief:` line, and the
+   limit line.
 5. `## Questions` — the ledger entries (§4).
 6. `## Answers` — the `A<n>` lines (§0).
 7. `## Drafts` — the `### Q<n>` material, or `none`.
