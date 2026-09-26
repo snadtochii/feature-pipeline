@@ -33,10 +33,12 @@ in the dev start script or a script it invokes, or no env file, no example env f
 env-file loader in the dev command at all; else `unverified`. Its evidence names files and
 patterns only ([../SKILL.md](../SKILL.md) §2).
 
-**Row 14** (browser session) is `found` when a manifest script signs a test user in and writes a
-Playwright storage state; `unverified` for a command the user typed, for `none`, or when the
-probe sees only a Playwright `storageState` setting or a global-setup file; `missing` otherwise.
-Its evidence names the script or file, never a value.
+**Row 14** (browser session) is `found` when there is nothing to supply — `checks.e2e` is set,
+whose specs sign in on their own ([profile.md](profile.md) §6), or `app.browser_session` is
+`none`, the app needing no sign-in — with the evidence naming which; else `found` when a manifest
+script signs a test user in and writes a Playwright storage state; `unverified` for a command the
+user typed, or when the probe sees only a Playwright `storageState` setting or a global-setup
+file; `missing` otherwise. Its evidence names the script, file or field, never a value.
 
 **Combined rows** (dev command and URL, seam and seam auth, fixture seed and reset) are `found`
 only when both parts are `found`, `missing` when either part is `missing`, and `unverified`

@@ -139,9 +139,11 @@ run; it never installs, builds, tests or serves.
   `context.storageState(`) and for a test-login script; `Glob` Playwright config and global-setup
   files. A script that writes a storage state → propose `app.browser_session` as that script
   invoked with the path as `"$1"` ([profile.md](references/profile.md) §2). A `storageState`
-  setting or a global-setup file with no such script → propose `null` and ask for the command in
-  the review block; setup never composes one. Score per [readiness.md](references/readiness.md)
-  §1's row 14.
+  setting or a global-setup file with no such script → the review block shows `null` with a
+  rationale naming that setting or file, and invites a correction to the command; setup never
+  composes one. No evidence at all → `null`, the rationale naming what was looked for and that
+  `none` states the app needs no sign-in, so the user can correct it to `none`. Score per
+  [readiness.md](references/readiness.md) §1's row 14.
 - **Coverage** — the unit runner's coverage provider (for `checks.coverage`) and, for
   `app.coverage_env`, the server runtime's own coverage env: when the runtime has one, propose it
   with a `<dir>` value; a proposed env no file mentions is `unverified`.
