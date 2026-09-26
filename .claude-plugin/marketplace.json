@@ -31,7 +31,7 @@
     },
     {
       "name": "deepen",
-      "description": "A manually triggered, semi-attended loop that takes one deep-module refactor candidate to a draft pull request carrying a behavior-preservation evidence pack.",
+      "description": "A manually triggered loop, attended or unattended, that takes one deep-module refactor candidate to a draft pull request carrying a behavior-preservation evidence pack.",
       "source": "./plugins/deepen",
       "category": "development"
     }
