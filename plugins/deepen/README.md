@@ -55,7 +55,8 @@ independently verifiable pull requests for the human to confirm or override.
 Stage 4 (implement) has the fenced `implementer` agent make the change the decision record
 describes, in the run worktree, and gates it on the project's check runner; a red gate is another
 attempt, bounded by `run.retries` and `run.max_wall_time`. The fenced `spec-mover` agent applies
-the record's spec moves and deletions and nothing else. Neither agent can write the inventory.
+the record's spec moves and deletions and nothing else; the fenced `spec-author` agent writes the
+new spec files the record declares and nothing else. None of the three can write the inventory.
 
 Stage 5 (verify) replays the inventory against the changed tree and classifies every statement
 `preserved`, `changed` or `unverifiable`: a `changed` statement the record predicted is intended,

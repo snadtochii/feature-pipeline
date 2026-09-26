@@ -196,6 +196,10 @@ src/x.ts	./src/**/*.ts	y	y
 inv/a/b.md	inv/**	y	y
 inv.md	inv/**	n	n
 /w/run/verify-1/x.md	/w/run/**	y	y
+app/[id]/x.test.ts	app/[[]id[]]/x.test.ts	y	y
+app/i/x.test.ts	app/[[]id[]]/x.test.ts	n	n
+a/@(x).test.ts	a/[@][(]x[)].test.ts	y	y
+a/x.test.ts	a/[@][(]x[)].test.ts	n	n
 GLOB_SELFTEST_CASES_END
     if [ "$failed" -ne 0 ]; then
         return 1

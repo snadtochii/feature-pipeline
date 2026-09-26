@@ -9,7 +9,8 @@ before it is written, the one measure of a change's size, and which stage reads 
 - **Read by** the architect, verbatim, in both of its briefs
   ([agents/architect.md](../../../agents/architect.md)); by the implement stage
   ([stage-4-implement.md](stage-4-implement.md)) — verbatim in the implementer's brief, section
-  by section in its pre-spawn target check and its spec-mover brief; by the verify stage
+  by section in its pre-spawn target check, its spec-mover brief and its spec-author brief; by the
+  verify stage
   ([stage-5-verify.md](stage-5-verify.md)), which matches the inventory's `changed` statements against the
   predictions and judges the diff against the named next change; and by the deliver stage
   ([stage-6-deliver.md](stage-6-deliver.md) §4), which lists the record in the evidence pack.
@@ -18,7 +19,9 @@ The record is written with `Write` and read with `Read`. Its paths — the spec 
 moves' destinations, the new-spec paths and the `targets:` paths — do reach a command line, as
 values in the decide stage's absent-at-base probe of each new-spec path
 ([stage-3-decide.md](stage-3-decide.md) §6), in the implement stage's pre-spawn fence probe
-([stage-4-implement.md](stage-4-implement.md) §2) and in the spec-mover's moves and deletions;
+([stage-4-implement.md](stage-4-implement.md) §2) and in its absent-at-base check of each
+new-spec path after the spec-author returns ([stage-4-implement.md](stage-4-implement.md) §4),
+and in the spec-mover's moves and deletions;
 §3's closed path classes are what keep them data. Nothing
 else in it — the answers, the prose, the diffs — reaches a command line.
 
@@ -155,8 +158,9 @@ it. A split is proposed when the estimate is strictly greater than `run.split_ab
 | --- | --- | --- |
 | the architect, on a proposal and on a diff | the whole record, verbatim | its verdict; section 11 is the premise of its first question |
 | implement — the implementer's brief | the whole record, verbatim | the change to make |
-| implement — the pre-spawn target check ([stage-4-implement.md](stage-4-implement.md) §2) | the `targets:` line; the spec moves in section 6; section 5 | probing every planned write against the fence |
+| implement — the pre-spawn target check ([stage-4-implement.md](stage-4-implement.md) §2) | the `targets:` line; the spec moves in section 6; section 5; section 12 | probing every planned write against the fence |
 | implement — the rename-map check and the spec-mover | sections 5 and 6 | the declared entries; the paths the spec-mover may delete |
+| implement — the spec-author brief ([stage-4-implement.md](stage-4-implement.md) §4, step 4a) | sections 2, 3 and 12 | the interface its specs assert; the modules they test; the paths it writes |
 | decide, the architect and implement | section 12 | the decide stage's class and cross-section checks; the architect's completeness question; the paths the implement stage's `deepen:spec-author` writes, and its fence set |
 | verify | sections 2, 3, 6, 9 and 11 | the declared rename map, passed to the mutation runner; intended `changed` statements; the architect's diff premise; sections 2, 3, 9 and 11 as the reviewers' declared scope |
 | deliver | the whole record | the evidence pack; section 5's `rewrite` lines listed as deleted for a human to rewrite on the pull request |
