@@ -233,7 +233,10 @@ After stage 6 reports `complete` → §7.
 ([profile.md](../setup/references/profile.md) §2), so the run asks inline:
 
 1. `AskUserQuestion` with the report's question and its `## Options`. When the stage offered
-   fewer than four, add `abort — end the run and keep its evidence` as the last one. A report
+   fewer than four, add `abort — end the run and keep its evidence; final — recover with a new
+   run pinned to <id>` as the last one — `<id>` the id §6's recover line names, or, when that
+   line names the discover report instead, `a candidate id from this run's discover report` in its
+   place. A report
    with no `## Options` — stage 4's stops, and stage 5's relay of one — is asked with exactly two:
    `pause — keep the lock and the evidence; the run stops here` and the `abort` above.
 2. Append `decision: <the answer, verbatim>` under the report's `## Decisions` heading with
@@ -296,9 +299,39 @@ and every clean end (§7), runs it, in this order:
    remove the file, then `rmdir` the lock directory. Any other id → leave the lock and print
    `lock: held by <id> — not released by <run-id>`.
 
-An abort then prints the aborting line, the path of `abort.md`, and the clone line when step 3a
-printed one. `runs/<run-id>/` stays for inspection; a human may delete it once nothing in it is
-wanted.
+An abort then prints the aborting line, the path of `abort.md`, the clone line when step 3a
+printed one, and the recover line, the first of these that applies:
+
+- the run state's `candidate_id` is not `none` → `recover: /deepen:run --pin <candidate_id>`;
+- its `pin:` matches `^[0-9a-f]{6}$` and the aborting line is not the discover stage's
+  `pin: <id> not found` abort ([stage-1-discover.md](references/stage-1-discover.md) §1) →
+  `recover: /deepen:run --pin <that pin>`;
+- `reports/<run-id>/1-discover.md` holds at least one `## Candidates` row →
+  `recover: /deepen:run --pin <a candidate id from reports/<run-id>/1-discover.md>`;
+- no candidate was reached → `recover: /deepen:run --pin <hint>` when the run had a pin,
+  `recover: /deepen:run` when it had none.
+
+A hint's text never reaches the line; `<hint>` stays a placeholder.
+
+**An abort is final.** No path takes the lock again under this run id, re-creates its
+directories, re-attaches its worktree, or re-enters any of its stages — not a stage body, not a
+later answer, not a correction in the chat, not a new invocation. A request to undo the abort is
+answered with the recover line and nothing else. What stays:
+
+- the run branch `deepen/<run-id>-<slug>`, when stage 2 created it — kept for inspection
+  ([worktree.md](references/worktree.md) §7);
+- `reports/<run-id>/`, whole — `abort.md` and every stage report the run wrote, the aborting
+  stage's included, with `decision-record.md`, `abort.patch` and `fix-round.patch` when written;
+- `runs/<run-id>/` — a human may delete it once nothing in it is wanted;
+- `inventory-drafts/<run-id>/`, when a stage wrote into it.
+
+The one recovery is the recover line's command: a new run with its own run id and lock. Pinned
+to a candidate id, its discover finds the candidate's row in the aborted run's `1-discover.md`
+([stage-1-discover.md](references/stage-1-discover.md) §1) and reconciles `memory.md` as every
+run does ([memory.md](references/memory.md) §4); the abort wrote no memory line, so nothing
+filters the candidate. Its characterize cuts a new worktree and branch from its own `<BASE_SHA>`
+([worktree.md](references/worktree.md) §2) and reuses nothing from the aborted run — not its
+branch, its inventory commit, its drafts or its run files.
 
 ---
 

@@ -105,6 +105,7 @@ FENCE_MAP='
 implementer deny-match implementer
 spec-mover allow-only specs
 qa-characterizer allow-only qa
+spec-author allow-only new-specs
 '
 # END FENCE_MAP
 

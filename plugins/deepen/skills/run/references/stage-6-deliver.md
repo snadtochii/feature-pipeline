@@ -162,7 +162,8 @@ the next; sections that sit next to each other, as `5-verify.md`'s `## Degradati
    `5-verify.md`'s `## Mutation`, verbatim — which holds
    `mutation pass skipped — no mutation runner` when the profile has none
    ([profile.md](../../setup/references/profile.md) §6, row 10).
-4. **`## Review of the diff`** — `5-verify.md`'s `## Architect verdict`, question by question;
+4. **`## Review of the diff`** — `5-verify.md`'s `## Architect verdict`, question by question —
+   never its `brief:` line;
    then its `## Reviewers` — every finding with its decision and outcome, a `[security]` one not
    applied counted rather than copied (the copy rules), or
    `reviewer pass skipped — feature plugin reviewer agents not installed`; then its

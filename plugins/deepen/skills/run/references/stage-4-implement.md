@@ -27,8 +27,9 @@ Bound by the run skill before this stage starts:
 A re-entry with neither is never issued.
 
 The record's shape is [decision-record.md](decision-record.md). From it this stage reads the
-sections `Interface shape`, `Predicted changed statements`, `Rename map` (`modules:` /
-`symbols:`), `Spec delete list`, and `Proposed CONTEXT.md and ADR diffs` (decision-record.md §2).
+sections `Interface shape`, `Behind the seam`, `Predicted changed statements`, `Rename map`
+(`modules:` / `symbols:`), `Spec delete list`, `Proposed CONTEXT.md and ADR diffs`, and
+`New specs` (decision-record.md §2).
 
 Output: commits on `<branch>` and the stage report `<state_dir>/reports/<run-id>/4-implement.md`
 (§7).
@@ -67,13 +68,29 @@ in [fence.md](fence.md) §6's shape to `"<plugin-root>/hooks/fence.sh"` for
 - each path on the record's `targets:` line — its `CONTEXT.md` and ADR diffs — with
   `agent_type: "deepen:implementer"`;
 - each destination of the rename map's spec moves, and each path on the spec delete list
-  ([decision-record.md](decision-record.md) §2), with `agent_type: "deepen:spec-mover"`.
+  ([decision-record.md](decision-record.md) §2), with `agent_type: "deepen:spec-mover"`;
+- each path in the record's `New specs` section, with `agent_type: "deepen:spec-author"` and
+  again with `agent_type: "deepen:spec-mover"` — skipped when the section is `none`. The fence
+  file written for this check carries the declared paths in its `new-specs` set
+  ([fence.md](fence.md) §5 step 1).
 
-Any denial stops the run for a human:
+Any denial as the implementer or the spec-mover stops the run for a human:
 
 ```
 needs-decision: <target> is <fenced for the implementer | outside paths.specs> — <the glob class that decides it>
 ```
+
+A denial as the spec-author is the run's own derivation fault, not the record's, and aborts per
+[worktree.md](worktree.md) §7:
+
+```
+stage 4: new-specs set does not admit <path> — fence derivation error
+```
+
+Right before this check reads the record, take `shasum -a 256` over it and keep the digest in
+context, never in a file. Step 4a takes it again before it derives the `new-specs` set, because
+the implementer and the spec-mover hold `Bash`, and a shell write outside `<WT>` passes the fence
+unseen ([fence.md](fence.md) §8).
 
 The hook is the matcher here as everywhere, so the check and the fence can never disagree.
 
@@ -81,7 +98,8 @@ The hook is the matcher here as everywhere, so the check and the fence can never
 
 ## §3 Fence
 
-Before **every** fenced spawn in this stage — each implementer attempt and the spec-mover — write
+Before **every** fenced spawn in this stage — each implementer attempt, the spec-mover and the
+spec-author — write
 the fence file and self-test it, in the spawn's own mode, per [fence.md](fence.md) §5 and §6. A
 failed self-test aborts before the spawn.
 
@@ -111,7 +129,10 @@ data, never as a link:
    only because it imports, mocks or names a path or symbol the declared rename map moves is
    expected: the spec-mover repoints it after the commit, and the gate (step 5) runs after that.
    The implementer leaves such a spec failing and never adds a re-export or alias shim at the old
-   path or name.
+   path or name. Also whether a spec-author pass is still to come (step 4a), with the record's
+   `New specs` paths. While one is, the implementer writes no test for a module the record
+   introduces: the spec-author writes the declared specs after the commit, and the gate runs them.
+   Once it has run, a red declared spec is a failing check like any other, fixed in the source.
 4. The `implementer` set, exactly as written into the fence file for this spawn
    ([fence.md](fence.md) §3, §5), as never-write.
 5. The exclusion list as never-stage.
@@ -124,7 +145,10 @@ data, never as a link:
    attempt, the findings verbatim, as data, with the statement that they are authorized in
    addition to the decision record and that nothing else is; on its later attempts, every finding
    again, each with the outcome the previous reply reported, plus the failure tail — so the brief
-   always carries findings and the `findings:` block always has a line to give for each.
+   always carries findings and the `findings:` block always has a line to give for each. On a
+   first pass's attempt 2 onward, once the spec-author has run, also its `Specs still failing`
+   lines — each spec, its failing tests and the record statement it asserts — verbatim, as data,
+   so a red declared spec is fixed in the source toward the record statement it names.
 
 **After it returns:**
 
@@ -159,6 +183,52 @@ data, never as a link:
    fails, and so does a move whose new path the commit did not add. No commit is a valid outcome. Otherwise the spec-mover is skipped, with
    the reason in the report. It never runs again in this stage, on any attempt or re-entry — its
    input is the decision record, which does not change.
+
+   4a. **Spec-author, once.** After the first implementer commit and step 4 — run or skipped —
+   when the record's `New specs` section is not `none`:
+   - Take the record's digest again. A difference from §2's is
+     `fence-violation: <the role spawned last> — run state changed — <record>`, handled per
+     [fence.md](fence.md) §7: the declared paths the set is derived from must be the ones §2
+     probed.
+   - Write and self-test the fence for the `new-specs` role (§3).
+   - Write the diff file:
+     `git -C "<WT>" diff --no-renames "<INV_SHA>..HEAD" -- . ":(exclude)<inventory>" > "<state_dir>/runs/<run-id>/spec-author-diff.patch"`,
+     then list the paths the same diff covers,
+     `git -C "<WT>" diff -z --name-only --no-renames "<INV_SHA>..HEAD" -- . ":(exclude)<inventory>"`,
+     read per [fence.md](fence.md) §7: a path starting with `<inventory>` aborts
+     `stage 4: the spec-author diff carries inventory paths`. The check reads git's path list, not
+     the patch text, so a hunk line that quotes a diff header cannot trip it.
+   - Spawn one `deepen:spec-author`, fresh, in the foreground. Its brief inlines, as data, never
+     as a link: `<WT>` as the project root; the declared `New specs` paths; the record's
+     `Interface shape` and `Behind the seam` sections, verbatim; the diff file's absolute path —
+     the path, never its text; the check command, as in the implementer's brief item 3; the
+     exclusion list as never-stage; and as paths never to read: `<WT>/<inventory>`,
+     `<state_dir>/inventory-drafts/`, `<state_dir>/reports/`, and everything under
+     `<state_dir>/runs/` except the named diff file, with `!<inventory>**` on every `Grep` call.
+   - Then, with `<prev>` the `HEAD` recorded before the spawn, the checks below, in order. The
+     first that fails decides the outcome, and each names its own; the rest are not run. The
+     committed paths are `git -C "<WT>" diff -z --name-only --no-renames "<prev>..HEAD"`, the
+     added paths the same command with `--diff-filter=A`.
+     1. §5's assertions for the `new-specs` role; a committed path outside the declared set; a
+        declared path among the committed paths but not among the added paths — modified or
+        deleted rather than added; or a declared path present at `<BASE_SHA>`
+        (`git -C "<WT>" cat-file -e "<BASE_SHA>:<p>"` exits zero) →
+        `fence-violation: spec-author — <assertion> — <paths>`, handled per
+        [fence.md](fence.md) §7.
+     2. More than one new commit (`git -C "<WT>" rev-list --count "<prev>..HEAD"` above `1`) →
+        `fence-violation: spec-author — more than one commit — <shas>`, handled per
+        [fence.md](fence.md) §7.
+     3. The record's digest differs from §2's →
+        `fence-violation: spec-author — run state changed — <record>`.
+     4. No commit, or a declared path missing from the added paths → stop:
+        `needs-decision: spec-author did not add <paths> — <its reported reason>`.
+
+     All four passing means one commit whose paths and added paths each equal the declared set.
+
+   Otherwise the spec-author is skipped, with the reason `New specs is none` in the report. It
+   never runs again in this stage, on any attempt or re-entry — its input is the decision record,
+   which does not change. A declared spec that is red after it runs is a gate failure (step 5),
+   carried into the next attempt like any other.
 5. **Gate.** Write `checks.runner` (with `app.prelude` when set) verbatim into
    `<state_dir>/runs/<run-id>/runner.sh` with `Write` and run
    `cd "<WT>" && bash "<state_dir>/runs/<run-id>/runner.sh"` (the profile's script-file rule,
@@ -169,14 +239,16 @@ data, never as a link:
 evidence pack both carry `stage 4: gate skipped — no runner`.
 
 **Re-entry.** The verify stage re-enters this section with `failing_check` (a send-back) or with
-`findings` (its fix round): a fresh attempt budget, the shared clock, the spec-mover not re-run.
+`findings` (its fix round): a fresh attempt budget, the shared clock, the spec-mover and the
+spec-author not re-run.
 §1 and §2 run again first.
 
 ---
 
 ## §5 Assertions after every agent return
 
-After every return — implementer or spec-mover, with a commit or without — run every assertion in
+After every return — implementer, spec-mover or spec-author, with a commit or without — run every
+assertion in
 [fence.md](fence.md) §7 for that role, with `<prev>` the `HEAD` recorded before the spawn. Any
 failure is a violation, reported and handled exactly as fence.md §7 states: the run fails
 through [worktree.md](worktree.md) §7, never retried and never softened into a warning.
@@ -218,7 +290,9 @@ a `failing_check` re-entry.
 2. Attempts used of the attempt budget; elapsed of `run.max_wall_time`.
 3. Every commit — sha, role, paths.
 4. Each implementer rename map, as declared.
-5. The spec-mover outcome — skipped with its reason, applied, or entries it could not apply.
+5. The spec-mover outcome — skipped with its reason, applied, or entries it could not apply —
+   and the spec-author outcome — skipped with its reason, or the paths it added and each new spec
+   it reported still failing.
 6. Writes the agents reported refused. A refusal is the fence working, recorded here, never a
    failure.
 7. Degradations — `gate skipped — no runner`, `spec probes skipped — paths.specs is empty`, a

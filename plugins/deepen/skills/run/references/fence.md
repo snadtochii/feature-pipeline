@@ -57,7 +57,8 @@ outside, and is refused.
   "sets": {
     "implementer": ["…"],
     "specs": ["…"],
-    "qa": ["…"]
+    "qa": ["…"],
+    "new-specs": ["…"]
   }
 }
 ```
@@ -100,7 +101,7 @@ every set. Relative targets are resolved against the payload's `cwd` first.
   `a/tests/root.ts` and `tests/unit/root.ts` alike, and `a/**/b/**/c` matches `a/b/c`.
   [`lib/glob.sh`](../../../lib/glob.sh) is the one implementation — `hooks/fence.sh` and
   [`hotspots.sh`](../scripts/hotspots.sh) both source it, and its `--self-test` pins these cases
-  under both case settings.
+  under both case settings, and the literal-path escape §4 writes for the `new-specs` set.
 - `*` spans `/`. Over-matching is the tolerable direction for a fence: a spurious denial is loud,
   a spurious allowance is silent.
 - Under `deny-match` a glob matches case-insensitively, for the same reason; under `allow-only` it
@@ -135,6 +136,7 @@ this table and the map in lockstep, and requires a row for every deepen agent th
 | `implementer` | `deny-match` | `deepen:implementer` | `<inventory>**`, every `paths.specs` glob, `.deepen.yaml`, every `paths.forbidden` glob, `<run_dir>/**` |
 | `specs` | `allow-only` | `deepen:spec-mover` | every `paths.specs` glob |
 | `qa` | `allow-only` | `deepen:qa-characterizer` (stage 2 characterize, stage 5 verify) | characterize: `<inventory><slug>/**` and `<run_dir>/**`; verify: `<run_dir>/**` alone |
+| `new-specs` | `allow-only` | `deepen:spec-author` | each path the decision record's `New specs` section declares, as a literal glob (§4) |
 
 - **`implementer`** — everything the change is judged against, plus the QA directory. The
   implementer changes the source until the checks pass as written; it can never touch the checks.
@@ -146,6 +148,10 @@ this table and the map in lockstep, and requires a row for every deepen agent th
 - **`qa`** — one binding serves both QA modes; the run writes the mode's contents before each QA
   spawn. In verify mode the set holds `<run_dir>/**` alone, so verification can never touch the
   oracle it verifies.
+- **`new-specs`** — the spec-author writes exactly the new spec files the decision record
+  declares. The set is never all of `paths.specs`, so it cannot reach an existing spec. A
+  `New specs` section of `none` leaves it empty, and the spec-author is then skipped, never
+  spawned (§5).
 
 Set names match `[a-z][a-z0-9-]*`.
 
@@ -153,8 +159,9 @@ Set names match `[a-z][a-z0-9-]*`.
 
 ## §4 Derivation
 
-Every set is derived from the profile as re-read by [preflight.md](preflight.md) §4 — never the
-copy read before the clone moved.
+Every set except `new-specs` is derived from the profile as re-read by
+[preflight.md](preflight.md) §4 — never the copy read before the clone moved. `new-specs` is
+derived from the decision record.
 
 - `paths.inventory` (`dir/`, trailing slash guaranteed by its class) → the repo-relative glob
   `dir/**`, written `<inventory>**` in §3; with the run's `<slug>`
@@ -165,26 +172,43 @@ copy read before the clone moved.
   ([profile.md](../../setup/references/profile.md) §3).
 - `.deepen.yaml` → the literal repo-relative path.
 - `<run_dir>/**` → the absolute glob, `run_dir` expanded as in §1.
+- The decision record's `New specs` section ([decision-record.md](decision-record.md) §2,
+  section 12) → each path as a literal repo-relative glob. Each `[`, `]`, `(`, `)`, `@` and `+`
+  in the path is written as a one-character bracket expression — `[[]`, `[]]`, `[(]`, `[)]`,
+  `[@]`, `[+]` — so the glob matches exactly the declared path and nothing else:
+  `app/[id]/x.test.ts` → `app/[[]id[]]/x.test.ts`. Written verbatim, `[id]` would match `i` or
+  `d` and never itself, and `@(x)` would match `x` — another, possibly existing, spec. The
+  spec-path class the decide stage checks the paths against
+  ([decision-record.md](decision-record.md) §3) admits no `*`, `?`, `{`, `}` or `!`, so no other
+  character needs escaping. The record lives in `<state_dir>/reports/<run-id>/`, outside every
+  fenced role's write set (§1). A shell write outside `<WT>` still passes the fence unseen (§8),
+  so the implement stage digests the record at its pre-spawn target check and checks the digest
+  before it derives this set and after the spec-author returns
+  ([stage-4-implement.md](stage-4-implement.md) §2, §4 step 4a).
 
 Nothing else enters a set: no project fact lives in the plugin, and no set is widened for a
-convenience.
+convenience. The decision record is the one source outside the profile.
 
 ---
 
 ## §5 The per-spawn rewrite rule
 
-Before **every** fenced spawn — implementer, spec-mover or QA, first attempt or retry — the run
-skill:
+Before **every** fenced spawn — implementer, spec-mover, spec-author or QA, first attempt or
+retry — the run skill:
 
-1. Writes the whole file with `Write`: `run_id`, `repo_root`, `run_dir`, and all three sets. The
+1. Writes the whole file with `Write`: `run_id`, `repo_root`, `run_dir`, and all four sets. The
    `qa` set is written in characterize form only when the next spawn is a characterize-mode QA
    spawn; every other spawn sees it in verify form — least privilege by default. The characterize
   form reaches this run's own inventory folder only, so an earlier run's kept net under
-  `<inventory>` stays unwritable.
+  `<inventory>` stays unwritable. The `new-specs` set holds the declared paths (§4) only when the
+  next spawn is the spec-author, or when the write is stage 4's pre-spawn target check
+  ([stage-4-implement.md](stage-4-implement.md) §2); every other write holds it empty, and the
+  stage 2 writes, before any record exists, always do.
 2. Refuses to write a set that is empty for the role about to be spawned. An empty set in
    `allow-only` mode denies every write, which is a fence that cannot be worked behind. For
    `specs`, an empty `paths.specs` means the spec-mover is skipped with a report line, not
-   spawned.
+   spawned. For `new-specs`, a `New specs` section of `none` means the spec-author is skipped
+   with a report line, not spawned.
 3. Records the file's digest: `shasum -a 256 "<common-dir>/deepen-fence.json"`.
 4. Runs the self-test (§6). A failure aborts before the spawn.
 5. After the spawn returns, re-hashes the file. A different digest is a violation (§7) — a role
@@ -215,20 +239,25 @@ run from the outside, so the fence is never assumed live. Before each fenced spa
 | implementer (`deepen:implementer`, `deny-match implementer`) | a real inventory file, and a real spec file | a real tracked source file matching no set |
 | spec-mover (`deepen:spec-mover`, `allow-only specs`) | a real tracked source file, and a real inventory file | a real spec file |
 | QA (`deepen:qa-characterizer`, `allow-only qa`) | a real tracked source file; in verify mode also a real inventory file; in characterize mode also a real inventory file outside `<inventory><slug>/`, when one exists | `<run_dir>/fence-probe`; in characterize mode also `<inventory><slug>/fence-probe` |
+| spec-author (`deepen:spec-author`, `allow-only new-specs`) | a real tracked source file, a real inventory file, and a real spec file | every declared path, as the literal `<WT>/<path>` |
 
 **Probe paths are real files** from `git -C "<WT>" ls-files -z`, read per §7's path-set rule, never a glob's own text and never a
 path invented to look like one: a probe built from a glob can match it trivially while no real
-file does. The two `fence-probe` paths are the exception — the inventory may not exist yet, and
-`run_dir` holds no tracked files — and they are only named in a payload; nothing is written.
+file does. Two kinds of path are the exception, and they are only named in a payload; nothing is
+written to either. The two `fence-probe` paths are one — the inventory may not exist yet, and
+`run_dir` holds no tracked files. The spec-author's declared paths are the other — absent by
+construction, since each was absent at `<BASE_SHA>` ([decision-record.md](decision-record.md)
+§3); the probe is the literal path while the set holds its escaped glob (§4), so the allowed
+probe tests the escaping itself.
 
-- Non-empty spec globs that select zero tracked files → abort. A glob set that selects no file
-  cannot fence anything, and this is where a spelling the matcher cannot handle surfaces.
+- Non-empty `paths.specs` globs that select zero tracked files → abort. A glob set that selects no
+  file cannot fence anything, and this is where a spelling the matcher cannot handle surfaces.
 - Empty `paths.specs` → the spec probes are skipped, with a report line.
 - The inventory is the oracle every set protects, so each spawn that must not write it probes a
   real inventory file for its denial. No real inventory file exists yet only before the first
-  characterize spawn, which is the one spawn allowed to write it; the implementer, the spec-mover
-  and a verify-mode QA spawn all run after the inventory commit, so a missing inventory file for
-  one of them aborts.
+  characterize spawn, which is the one spawn allowed to write it; the implementer, the
+  spec-mover, the spec-author and a verify-mode QA spawn all run after the inventory commit, so a
+  missing inventory file for one of them aborts.
 - A missing fence file at this point is the run skill's own bug and aborts.
 
 **What it does not prove.** It proves the script is present, runnable, dispatches the spawn's
@@ -279,7 +308,9 @@ return takes the list plus the verify clause:
 - **Inventory commit unchanged** — the first commit after `<BASE_SHA>` is still `<INV_SHA>`.
 - **Fence file unchanged** — the digest recorded in §5 step 3.
 - **Wrappers unchanged** — for a QA return, the wrapper scripts and the exclusion list hash as
-  they did right before the spawn ([dev-server.md](dev-server.md) §1, Digests).
+  they did right before the spawn, and `<state_dir>/runs/<run-id>/browser-session.json` is absent or a regular file
+  — its content is the QA role's own refresh, never hashed ([dev-server.md](dev-server.md) §1,
+  Digests).
 - **No exclusion-list path committed.**
 
 **Characterize clause.** A characterize-mode QA spawn makes no commit by design, runs before any

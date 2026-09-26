@@ -42,7 +42,8 @@ plan, replays every check itself, measures how much of the candidate's functions
 and commits the inventory alone as the run branch's first commit, before any source change.
 
 Stage 3 (decide) asks the human one question at a time — the interface shape, what sits behind the
-seam, which existing tests survive and which are deleted, the rename map, the glossary terms, and
+seam, which existing tests survive and which are deleted, the rename map, which new spec files the
+change adds, the glossary terms, and
 which inventory statements are expected to change — each with a proposed default. It reads the
 inventory's summary and never its checks, and writes to no working tree: the answers become the
 run's decision record, with `CONTEXT.md` and ADR edits carried in it as proposed diffs
@@ -54,7 +55,8 @@ independently verifiable pull requests for the human to confirm or override.
 Stage 4 (implement) has the fenced `implementer` agent make the change the decision record
 describes, in the run worktree, and gates it on the project's check runner; a red gate is another
 attempt, bounded by `run.retries` and `run.max_wall_time`. The fenced `spec-mover` agent applies
-the record's spec moves and deletions and nothing else. Neither agent can write the inventory.
+the record's spec moves and deletions and nothing else; the fenced `spec-author` agent writes the
+new spec files the record declares and nothing else. None of the three can write the inventory.
 
 Stage 5 (verify) replays the inventory against the changed tree and classifies every statement
 `preserved`, `changed` or `unverifiable`: a `changed` statement the record predicted is intended,
@@ -102,13 +104,19 @@ renders the same rows as its readiness report.
 | 11 | `CONTEXT.md` glossary | glossary matrix derived from code and routes — marked derived |
 | 12 | ADR directory | no ADR filter — candidates are not checked against recorded decisions |
 | 13 | secrets provisioning | secrets provisioning unverified — the dev server may not start in a fresh worktree; the run copies no secrets file |
+| 14 | browser session | no browser session — manual-browser statements behind a sign-in use a test login the repo documents, else are recorded unverifiable and listed |
 
 **Tier-2 collectability.** The inventory's tier-2 checks are files under `paths.inventory` that
 `checks.runner` must collect and no `paths.specs` glob may match; they carry the token `check`
 where the runner's convention puts its test token (`<name>.check.ts` beside `<name>.spec.ts`).
 A runner whose include list equals the spec globs collects none of them, so the project adds an
 inventory include — for vitest, `tests/behavior/**/*.check.ts?(x)` in `test.include`.
-`/deepen:setup` fails on the missing include and names the line to add.
+`/deepen:setup` fails on the missing include and names the line to add. A candidate's checks share
+one seam helper at `<inventory><slug>/tier2/lib/`, whose name carries no `check` token; an include
+pattern broad enough to collect it (such as `**/*.ts`) makes the runner fail it as a file with no
+tests, which turns the implement stage's gate red, so keep the inventory include on the `check`
+token. Where the include collects every file under the inventory, the checks keep their seam
+client inline instead.
 
 **Secrets.** Project commands read project secrets; the run never copies, sources or reads them.
 A run's worktree gets no env or secrets file: its `.worktreeinclude` copy skips every pattern and
@@ -148,7 +156,11 @@ is a line in the report — never a silent fallback.
 - **`node`** — runs the touched-coverage script on the measured path. Missing → the script fails
   and coverage takes the estimate path, labelled `estimate (weak)` with the reason.
 - **Browser tools** (Playwright or Chrome DevTools) — tier 1 when the profile has no e2e runner.
-  Missing → `tier 1 unavailable — browser tools not installed`.
+  Missing → `tier 1 unavailable — browser tools not installed`. A profile with
+  `app.browser_session` also needs the Playwright MCP's storage-state tool, enabled with
+  `--caps=storage`, and file access to `<state_dir>`, which sits outside the workspace roots and
+  so takes `--allow-unrestricted-file-access`. Without the tool →
+  `browser session unused — the browser storage-state tool is not available in this session`.
 
 ## First run — what the project must supply
 

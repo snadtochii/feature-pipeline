@@ -45,6 +45,7 @@ app:
   now: null                         # optional — the run's frozen instant; ISO-8601 with Z or ±hh:mm
   network: "<ENV_NAME>=<value>"     # required, nullable — env that stubs external calls
   coverage_env: "<ENV_NAME>=<dir>"  # required, nullable — env that makes the server write coverage
+  browser_session: null             # optional — a command, or the literal `none`; writes a browser session to $1
 
 seams:                              # optional — absent and [] both mean "no seam"
   - kind: http                      # required per seam — http | server-fn | cli
@@ -175,6 +176,24 @@ inventory's checks exercised. The value may contain the literal placeholder `<di
 run replaces with a directory under `<state_dir>/runs/<run-id>/`. `null` → coverage is
 estimated by seam-call tracing and labelled as an estimate.
 
+### `app.browser_session`
+
+A one-line command that signs a test user in and writes a Playwright storage-state file — the
+browser's cookies and local storage — to the path a run passes as its first positional
+argument, `$1`. A run writes the value verbatim into its script and appends no arguments to
+it ([dev-server.md](../../run/references/dev-server.md) §1), so the value places `"$1"` wherever
+the project's login needs the path: `pnpm -s test:login "$1"`, or
+`APP_SESSION_FILE="$1" pnpm -s test:login`. The script discards everything the command prints,
+so a login that prints its cookie never reaches a report.
+
+The literal `none` states that the app needs no sign-in. Absent or `null` → the browser session
+row applies.
+
+The file the command writes is a credential: it lives only under `<state_dir>/runs/<run-id>/`,
+never in the repo, and a run names it to the QA role by path only
+([dev-server.md](../../run/references/dev-server.md) §6). A run uses it only when
+`checks.e2e` is null — an e2e runner's specs sign in on their own.
+
 ### `seams`
 
 Where the inventory's tier 2 checks call the app below the browser. Each entry has:
@@ -250,7 +269,7 @@ parameters.
 | `base` | `^[A-Za-z0-9._/-]+$`, no leading `-`, no `..` — checked without a shell; then passes `git check-ref-format --branch` | it becomes a ref argument |
 | `loop_clone`, `state_dir` | absolute or `~/`-prefixed; characters `[A-Za-z0-9._/~-]`; no `..` segment | they become path arguments and `cd` targets |
 | `app.install`, `app.prelude`, `app.dev`, `app.seed`, `app.reset`, `checks.runner`, `checks.e2e`, `checks.coverage`, `checks.mutation` | one line: no newline, carriage return or NUL | each is written verbatim into one script file; `prelude` is prefixed to others |
-| `app.ready` (command form), `seams[].auth` (command form), `seams[].base` for `cli` | same one-line class | same |
+| `app.ready` (command form), `seams[].auth` (command form), `app.browser_session` (command form), `seams[].base` for `cli` | same one-line class | same |
 | `app.ready` (probe form) | `GET /<path> -> <status>`; path `^/[A-Za-z0-9._~/-]*$`; status three digits | the path is appended to `url` |
 | `app.url`, `seams[].base` for `http`/`server-fn` | `^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$` | requested by the run; no query, credentials or fragment |
 | `app.clock` | `^[A-Z_][A-Z0-9_]*$` | an env var name the run assigns |
@@ -322,6 +341,9 @@ Nothing runs after a failure, and the run does not edit the profile.
     `profile: paths.inventory — checks.runner collects nothing under <inventory> outside paths.specs — add <the include pattern> to <the runner's config file>`,
     the pattern spelled in the runner's own syntax. The remedy is a repository change; setup and a
     run report it and never make it.
+17. `app.browser_session`, when non-null, is the literal `none` or a command — never the path of
+    a session file. A value matching `^[A-Za-z0-9._/~-]+\.json$` fails with
+    `profile: app.browser_session — <value> names a session file; the field is the command that writes one — run /deepen:setup`.
 
 A failed rule names the field and the remedy. Rules 4–6, 12, 14 and 16 describe the machine and
 the repository rather than the file; setup checks them at write time and a run re-checks them in
@@ -384,12 +406,16 @@ ordinary test-mode infrastructure.
 | 11 | `CONTEXT.md` glossary | none — `CONTEXT.md` at the repo root | `glossary matrix derived from code and routes — marked derived` | a `CONTEXT.md` glossary naming the domain's terms and the states they can be in |
 | 12 | ADR directory | none — `docs/adr/` | `no ADR filter — candidates are not checked against recorded decisions` | a `docs/adr/` directory of recorded architecture decisions |
 | 13 | secrets provisioning | none — `.worktreeinclude` and the dev start path | `secrets provisioning unverified — the dev server may not start in a fresh worktree; the run copies no secrets file` | a start path that needs no copied secrets file: a test-mode fallback for throwaway data, or the project's own start script resolving its secrets from the OS keychain |
+| 14 | browser session | `app.browser_session` | `no browser session — manual-browser statements behind a sign-in use a test login the repo documents, else are recorded unverifiable and listed` | a script that signs a test user in and saves the browser's cookies and local storage to a file path it is given |
 
 Rows 1 and 2 are required: their absence is a validation failure, not a degradation. Row 4
 covers both parts: a seam without a usable auth is left out of `seams`, so the same line applies.
 Row 13 has no profile field: setup scores it from file names alone
 ([readiness.md](readiness.md)), and a run prints its line when
 [worktree.md](../../run/references/worktree.md) §4 skipped a `.worktreeinclude` path.
+Row 14 applies only when `checks.e2e` is null, since only then does a run hold manual-browser
+statements. `none` prints no line; a command that fails in a round adds row 14's line for that
+round ([dev-server.md](../../run/references/dev-server.md) §6).
 
 **Run-only rows.** These describe the run's environment rather than the project, so
 `deepen:setup` does not render them:
@@ -398,6 +424,7 @@ Row 13 has no profile field: setup scores it from file names alone
 |---|---|
 | `feature` reviewers absent | `reviewer pass skipped — feature plugin reviewer agents not installed` |
 | browser tools absent | `tier 1 unavailable — browser tools not installed` |
+| browser session tool absent | `browser session unused — the browser storage-state tool is not available in this session` |
 
 ---
 
@@ -405,7 +432,8 @@ Row 13 has no profile field: setup scores it from file names alone
 
 - **No secret values.** The file is committed. It names commands, env var names and paths,
   never tokens, passwords or connection strings; `seams[].auth` is a command that obtains a
-  credential, never the credential.
+  credential, never the credential, and `app.browser_session` is a command that writes a
+  browser session, never a session file or its content.
 - **No per-run state.** Candidates, reports, drafts and memory live in `state_dir`. The profile
   is configuration, and a run never writes to it.
 - **No `attendance` change by a run.** Only setup writes the field, on a human's answer.
