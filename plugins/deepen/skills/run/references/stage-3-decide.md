@@ -211,13 +211,13 @@ answers for the human.
 | `rewrite` | §5 | Spec delete list |
 | `delete` | §5 | Spec delete list |
 | `rename` | §5 | Rename map |
+| `new-specs` | §5 | New specs |
 | `terms` | §5 | Terms |
 | `create-context` | §5 | Proposed CONTEXT.md and ADR diffs |
 | `diffs` | §5 | Proposed CONTEXT.md and ADR diffs |
 | `predicted` | §5 | Predicted changed statements |
 | `estimate` | §5 | Estimated diff lines |
 | `next` | §5 | Named next change |
-| `new-specs` | §5 | New specs |
 | `architect` | §8 | — |
 | `split` | §9 | — |
 | `decline` | §10 | — |
@@ -231,7 +231,8 @@ Asked in this order, one per stop. Before each question, read what its default n
 later default derives from earlier answers, and an answer that invalidates a field already
 answered — a rename that moves a spec the surviving-tests answer called unchanged, an interface
 that no longer hides what the seam answer says, an interface that introduces a module the
-new-specs answer has no path for — asks that field again, depth-first, before the tree moves on. Two questions are conditional: `rewrite` is raised by a `surviving` answer and
+new-specs answer has no path for — asks that field again, depth-first, before the tree moves on.
+Two questions are conditional: `rewrite` is raised by a `surviving` answer and
 `create-context` by a `terms` answer, and each is pending while the answer that raised it is newer
 than its own latest answer. On re-entry, a pending conditional question is asked first; otherwise
 the next question is the first of the eleven fields below with no current value.
@@ -243,12 +244,12 @@ the next question is the first of the eleven fields below with no current value.
    for a `remote-owned` or `true-external` category the port and its test adapter
    ([candidates.md](candidates.md) §2).
 3. **`surviving`** — when `paths.specs` is empty, record `none` for this field, `delete` and
-   `new-specs` without asking, with the line `spec questions skipped — paths.specs is empty`. Otherwise `Grep`
-   the `paths.specs` globs at `<CLONE>` for specs that import or mock any of the pick's `files`,
-   and classify each: `unchanged`, `repointed` (by a rename entry), `delete` (it tests a module the
-   change removes and the inventory covers its behavior), or `rewrite` (its assertions need
-   rewriting — neither a rename nor a deletion). The classification is the default, under
-   `## Drafts`. An answer with any `rewrite` asks **`rewrite`** next:
+   `new-specs` without asking, with the line `spec questions skipped — paths.specs is empty`.
+   Otherwise `Grep` the `paths.specs` globs at `<CLONE>` for specs that import or mock any of the
+   pick's `files`, and classify each: `unchanged`, `repointed` (by a rename entry), `delete` (it
+   tests a module the change removes and the inventory covers its behavior), or `rewrite` (its
+   assertions need rewriting — neither a rename nor a deletion). The classification is the
+   default, under `## Drafts`. An answer with any `rewrite` asks **`rewrite`** next:
    `Q<n> rewrite: <k> specs need rewritten assertions — delete them for a human rewrite on the pull
    request, or narrow the candidate?`, options
    `- accept — delete those specs now; the human rewrites them on the pull request` and
@@ -262,12 +263,15 @@ the next question is the first of the eleven fields below with no current value.
    `repointed` spec's entry. Spec moves — a `modules:` entry whose old path matches a
    `paths.specs` glob — are named in the question.
 6. **`new-specs`** — the declared spec paths, one per module the change introduces
-   ([decision-record.md](decision-record.md) §2, `New specs`). Default: one spec beside each new
-   module the `interface` and `seam` answers name or imply, placed and suffixed like the existing
-   specs that match `paths.specs` for the pick's files — a sibling `x.test.ts`, or a mirrored
-   `tests/…/x.spec.ts` — and matching a `paths.specs` glob; `none` when the record adds no module.
-   The inferred modules and their paths are drafted under `## Drafts`. When `paths.specs` is
-   empty, `surviving` has already recorded `none` here.
+   ([decision-record.md](decision-record.md) §2, `New specs`). When `paths.specs` is empty,
+   record `none` without asking — on a re-ask too, whichever answer reopened the field. Default:
+   one spec beside each new module the `interface` and `seam` answers name or imply, placed and
+   suffixed like the existing specs that match `paths.specs` for the pick's files — or, when none
+   of those files has a spec, like the spec matching `paths.specs` nearest to them in the tree
+   (one exists: [profile.md](../../setup/references/profile.md) §4 rule 12) — a sibling
+   `x.test.ts`, or a mirrored `tests/…/x.spec.ts` — and matching a `paths.specs` glob; `none`
+   when the record adds no module. The inferred modules and their paths are drafted under
+   `## Drafts`.
 7. **`terms`** — invoke the `Skill` tool with `mattpocock-skills:domain-modeling` once per run, for
    its glossary rules and formats; the stage overrides its inline updates — `CONTEXT.md` is never
    edited here, every edit becomes a proposed diff (field `diffs`). The call failing, or the skill
@@ -312,10 +316,9 @@ entry in the rename map, every `targets:` path has exactly one diff block and ea
 on the line, every predicted `before` equals its statement's `<then>` in the summary, and every
 new-spec path lies outside `<inventory>` (it does not start with it) and — once that and its
 spec-path class hold — is absent at `<BASE_SHA>` (one `Bash` call over every path, one line per
-path,
-`git -C "<CLONE>" cat-file -e "<BASE_SHA>:<path>" 2>/dev/null && echo "present <path>"`; a path
-with no `present` line is absent), matches no `paths.forbidden` glob, is not on the spec delete
-list, is not a spec move's new path, and appears once in the section.
+path, `git -C "<CLONE>" cat-file -e "<BASE_SHA>:<path>" 2>/dev/null && echo "present <path>"`;
+a path with no `present` line is absent), matches no `paths.forbidden` glob, is not on the spec
+delete list, is not a spec move's new path, and appears once in the section.
 
 - **All valid** → `Write` the record to `<state_dir>/reports/<run-id>/decision-record.md`, whole —
   also when it replaces an earlier version after a revision or a split. Record its path and

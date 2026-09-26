@@ -96,8 +96,9 @@ module is introduced when it is a source file absent at `<BASE_SHA>` that sectio
 implies; a `modules:` destination in the rename map is a move, not an introduction. A module with
 runtime behavior gets one spec; a module that only declares types or interfaces needs none. With
 an empty `paths.specs` the section is `none`: the project has no spec globs, so no module needs a
-declared spec. The section is a heading section of its own, never a line inside the `rename_map:` block, which stays
-the implementer's reply format byte for byte. Across sections, each path:
+declared spec. The section is a heading section of its own, never a line inside the
+`rename_map:` block, which stays the implementer's reply format byte for byte. Across sections,
+each path:
 
 - matches no `paths.forbidden` glob;
 - is not on the spec delete list (section 5);
