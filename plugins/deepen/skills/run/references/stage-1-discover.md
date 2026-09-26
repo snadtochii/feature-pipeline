@@ -20,7 +20,7 @@ Bound by the run skill before this stage starts:
 | Input | Source |
 | --- | --- |
 | `<CLONE>`, `<BASE_SHA>`, `<state_dir>`, the profile as re-read | [preflight.md](preflight.md) §1–§4 |
-| `<run-id>`, `<plugin-root>`, the pin, the takeover and tier lines | the run state, `<state_dir>/runs/<run-id>/run-state` |
+| `<run-id>`, `<plugin-root>`, `attendance`, the pin, the takeover and tier lines | the run state, `<state_dir>/runs/<run-id>/run-state` |
 | `<state_dir>/memory.md` | [memory.md](memory.md) |
 | `CONTEXT.md`, `docs/adr/` at `<CLONE>` | read by the explorer |
 
@@ -181,7 +181,10 @@ Zero valid blocks is zero candidates.
    - `declined` → kept, with the line `pin: <id> is declined in memory — run anyway, as pinned`.
    - `opened` → the stage stops: `discover: needs-decision — <id> already has an open pull
      request <url> — run it again?`, with the one option `run it — open a second pull request for
-     this candidate`. The run skill adds `abort`.
+     this candidate`. The run skill adds `abort`. Under `attendance: unattended` (the run state),
+     `## Options` ends with
+     `unattended: abort — stage default — merge or close <url>, then pin <id> again`: a second
+     pull request is never opened unattended.
 5. **Decision-record conflicts are kept.** A block's `adr_conflict` stays in the table's column
    and in the `## Pick` block. At a human pick it is also in the pick question's description, so
    the human decides there; an unattended pick (§8) carries it to the decide stage, which names it
@@ -191,8 +194,8 @@ Zero valid blocks is zero candidates.
 
 ## §8 Pick
 
-An unpinned pick depends on `attendance`, read from the profile as re-read
-([profile.md](../../setup/references/profile.md) §2). A hint pin that §7 step 1 turned unpinned
+An unpinned pick depends on `attendance`, read from the run state — the profile's
+([profile.md](../../setup/references/profile.md) §2) as preflight left it. A hint pin that §7 step 1 turned unpinned
 reaches the unpinned cases below.
 
 - **Pinned** → the located candidate is the pick.
@@ -250,7 +253,8 @@ with `Edit` and appends what it adds.
 9. `## Filtered` — each filtered candidate's id, name, status and note, or `none`.
 10. `## Explorer notes` — the explorer's `notes:` line and, with a pin, its `pin:` line.
 11. `## Pick` — when a candidate is picked.
-12. `## Options` — when the status is `needs-decision`.
+12. `## Options` — when the status is `needs-decision`, ending with its `unattended:` line under
+    `attendance: unattended`.
 13. `## Decisions` — appended by the run skill.
 
 Every stop in this stage comes before any worktree exists, so the run skill's abort takes its

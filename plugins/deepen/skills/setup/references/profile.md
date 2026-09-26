@@ -281,7 +281,9 @@ setup carries none. An absent key takes its default.
   (default): the run builds slice 1 of the proposed split. `override`: the whole record as one
   pull request.
 - **`infra_stop`** — `abort`, the only value: every infrastructure stop aborts with its stop line
-  and remedy, never pauses.
+  and remedy, never pauses — a dev-server stop after the stage's one `retry`, and every stop that
+  offers only a pause or the abort, such as the implement stage's
+  ([../../run/SKILL.md](../../run/SKILL.md) §5).
 - **`changed_statements`** — `head-pack`, the only value: changed statements found by the verify
   stage never pause the run; they head the evidence pack.
 

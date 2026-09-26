@@ -23,7 +23,7 @@ Bound by the run skill before this stage starts:
 | Input | Source |
 | --- | --- |
 | `<CLONE>`, `<BASE_SHA>`, `<state_dir>`, the profile as re-read | [preflight.md](preflight.md) §1–§4 |
-| `<run-id>`, `<slug>`, `<plugin-root>`, `candidate_id` | the run state, `<state_dir>/runs/<run-id>/run-state` |
+| `<run-id>`, `<slug>`, `<plugin-root>`, `candidate_id`, `attendance` | the run state, `<state_dir>/runs/<run-id>/run-state` |
 | the `## Pick` block | `<state_dir>/reports/<run-id>/1-discover.md` ([candidates.md](candidates.md) §5) |
 | the `## Inventory summary` section, and only it | `<state_dir>/reports/<run-id>/2-characterize.md` |
 | the source, `CONTEXT.md`, `docs/adr/` | `<CLONE>`, on `base` at `<BASE_SHA>` |
@@ -31,9 +31,9 @@ Bound by the run skill before this stage starts:
 `<inventory>` is `paths.inventory`; `<runs>` is `<state_dir>/runs/<run-id>`; `<report>` is
 `<state_dir>/reports/<run-id>/3-decide.md`.
 
-`attendance` is read from the profile as re-read
-([profile.md](../../setup/references/profile.md) §2), and, only when it is `unattended`, the
-profile's `decisions:` block — named here `decisions.<key>`, never bare `decisions`, which is the
+`attendance` is read from the run state — the profile's
+([profile.md](../../setup/references/profile.md) §2) as preflight left it — and, only when it is
+`unattended`, the re-read profile's `decisions:` block — named here `decisions.<key>`, never bare `decisions`, which is the
 architect's verdict question (§7).
 
 **Nothing else is read.** Not the checks, not the inventory file, not the rest of
