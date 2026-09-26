@@ -180,8 +180,9 @@ estimated by seam-call tracing and labelled as an estimate.
 
 A one-line command that signs a test user in and writes a Playwright storage-state file — the
 browser's cookies and local storage — to the path a run passes as its first positional
-argument, `$1`. A run writes the value into a script whose body is the value alone, so the
-value places `"$1"` wherever the project's login needs the path: `pnpm -s test:login "$1"`, or
+argument, `$1`. A run writes the value verbatim into its script and appends no arguments to
+it ([dev-server.md](../../run/references/dev-server.md) §1), so the value places `"$1"` wherever
+the project's login needs the path: `pnpm -s test:login "$1"`, or
 `APP_SESSION_FILE="$1" pnpm -s test:login`. The script discards everything the command prints,
 so a login that prints its cookie never reaches a report.
 
