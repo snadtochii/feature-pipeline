@@ -146,7 +146,7 @@ coverage env.
      environment names of [inventory.md](inventory.md) §3;
    - the inventory directory `<WT>/<inventory><slug>/`, `<run_dir>`, and the `qa` set exactly as
      written into the fence file;
-   - every `paths.specs` glob, as names no check file may match;
+   - every `paths.specs` glob, as names no inventory file — check or helper — may match;
    - the exclusion list, as never-stage;
    - [inventory.md](inventory.md) §1–§6, verbatim;
    - [coverage.md](coverage.md) §1's row format for `<run_dir>/touched-functions.tsv`, and §3's
@@ -171,11 +171,27 @@ the foreground, whose prompt is the brief file's content.
 After it returns:
 
 1. [fence.md](fence.md) §7's characterize clause, with `<prev>` and the digests of §4 step 2.
-2. **Inventory file names.** Every path under `<WT>/<inventory><slug>/`, listed NUL-delimited with
-   `find … -print0`, matches the `paths.inventory` class
+2. **Inventory file names and layout.** Every path under `<WT>/<inventory><slug>/`, listed
+   NUL-delimited with `find … -print0`, matches the `paths.inventory` class
    ([profile.md](../../setup/references/profile.md) §3: characters `[A-Za-z0-9._/-]`, no `..`
    segment) — these names are written into the check round's command lines, so a name outside the
-   class is `fence-violation: qa-characterizer — inventory file name — <path>`.
+   class is `fence-violation: qa-characterizer — inventory file name — <path>`. The seam helper
+   under `tier2/lib/` is one of these paths.
+
+   Over the same listing, every file (`-type f`) under `<WT>/<inventory><slug>/tier2/`, files
+   inside a `__pycache__/` directory aside (the interpreter's bytecode cache, written when a check
+   or the helper is imported), takes one of two shapes, by its path relative to `tier2/`
+   ([inventory.md](inventory.md) §6):
+   - **a check** — its first segment matches `^F[0-9]{2,3}$` and its file name contains `check`;
+   - **the helper** — exactly `lib/<name>`, one segment under `lib/`, a file name containing no
+     `check` in any letter case, and the only file under `tier2/lib/`.
+
+   Any other file — one directly under `tier2/`, a fixture-folder file whose name lacks `check`
+   (a package marker, a hidden file), a helper whose name carries `check`, or every `lib/` file
+   after the first in the listing — is `fence-violation: qa-characterizer — inventory layout —
+   <path>`. The test reads the path set only and never opens a file. A slug folder with no
+   `tier2/` has nothing to test and passes; a path failing both tests reports the file-name line
+   first.
 3. **Inventory header.** `Read` `<WT>/<inventory><slug>/inventory.md` with `limit: 4` — the
    header lines [inventory.md](inventory.md) §6 fixes, never the whole oracle: its `now:` and
    `now-source:` lines equal `<now>` and `<now-source>`
@@ -230,15 +246,15 @@ Red after the repair pass → abort `characterize: aborted — checks red on the
 
 ## §8 Commit
 
-1. **No spec glob reaches the inventory.** Pipe every file under `<WT>/<inventory><slug>/` through
-   `"<plugin-root>/hooks/fence.sh"` as a `Write` payload with `agent_type: "deepen:spec-mover"`,
+1. **No spec glob reaches the inventory.** Pipe every file under `<WT>/<inventory><slug>/`, the
+   seam helper under `tier2/lib/` included, through `"<plugin-root>/hooks/fence.sh"` as a `Write` payload with `agent_type: "deepen:spec-mover"`,
    after writing the fence file ([fence.md](fence.md) §5 step 1). Any file allowed → abort
    `characterize: inventory files match paths.specs — <paths> — narrow paths.specs so no glob
    reaches <inventory> (run /deepen:setup)`.
 2. **Stage.** `git -C "<WT>" add -A -- "<inventory><slug>/"`, then unstage every exclusion-list
    path ([worktree.md](worktree.md) §4). The staged set,
    `git -C "<WT>" diff --cached -z --name-only --no-renames`, is non-empty and lies wholly under
-   `<inventory><slug>/` — else abort naming the paths.
+   `<inventory><slug>/`, the seam helper included — else abort naming the paths.
 3. **Commit**, with no repository hook:
 
    ```bash
@@ -253,7 +269,8 @@ Red after the repair pass → abort `characterize: aborted — checks red on the
      inventory commit is the branch's first, and alone; `<INV_SHA>` is derived from the branch
      from here on, never stored;
    - every path of `git -C "<WT>" diff-tree -z --no-commit-id --name-only --no-renames -r HEAD`
-     lies under `<inventory><slug>/`, and none is on the exclusion list;
+     lies under `<inventory><slug>/` — the seam helper committed there with the checks — and none
+     is on the exclusion list;
    - `git -C "<WT>" status --porcelain -z --no-renames --untracked-files=all` is empty, exclusion-list paths aside;
    - the committed inventory header still carries the run's instant — §5 step 3's check again,
      on the committed file: the measurement round's check code ran in `<WT>` after it;

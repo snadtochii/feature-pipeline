@@ -110,7 +110,12 @@ renders the same rows as its readiness report.
 where the runner's convention puts its test token (`<name>.check.ts` beside `<name>.spec.ts`).
 A runner whose include list equals the spec globs collects none of them, so the project adds an
 inventory include — for vitest, `tests/behavior/**/*.check.ts?(x)` in `test.include`.
-`/deepen:setup` fails on the missing include and names the line to add.
+`/deepen:setup` fails on the missing include and names the line to add. A candidate's checks share
+one seam helper at `<inventory><slug>/tier2/lib/`, whose name carries no `check` token; an include
+pattern broad enough to collect it (such as `**/*.ts`) makes the runner fail it as a file with no
+tests, which turns the implement stage's gate red, so keep the inventory include on the `check`
+token. Where the include collects every file under the inventory, the checks keep their seam
+client inline instead.
 
 **Secrets.** Project commands read project secrets; the run never copies, sources or reads them.
 A run's worktree gets no env or secrets file: its `.worktreeinclude` copy skips every pattern and

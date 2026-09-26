@@ -86,11 +86,30 @@ response body, status and headers for `http` and `server-fn`, the output and exi
   | `DEEPEN_SEAM_<n>_AUTH` | the credential seam `<n>`'s `auth` printed, set only for a live seam whose `auth` is a command |
   | `DEEPEN_CHECK_LOG` | a file path; when set, the check appends its own check id and a newline when it runs |
 
-- **Never prints a credential** — no logging of `DEEPEN_SEAM_<n>_AUTH`, no assertion message that
-  would echo it.
+- **One seam helper per candidate.** A tier-2 check may import the candidate's one helper module,
+  `tier2/lib/<name>` (§6). When two or more checks call the same seam, that seam's client lives in
+  the helper, never inline in each check.
+  - **Seam transport only.** The helper reads the environment contract inside the functions a
+    check calls, builds the auth header, and encodes requests and decodes responses. It never
+    asserts, decides a skip, appends to `DEEPEN_CHECK_LOG`, creates fixture or seed state, or does
+    work when imported — a runner invoked without a server (the implement stage's gate) imports it
+    before any check's skip runs.
+  - **Never collected.** Its name carries no `check` token in any letter case and falls outside
+    the runner's include patterns and every `paths.specs` glob, so the runner never collects it as
+    a suite and the spec-mover never reaches it. When the runner's include collects every file
+    under the candidate folder, so that no helper name falls outside it, the client stays inline
+    in each check.
+  - **Imported by relative path.** A check imports it by a path relative to its own file
+    (`../lib/<name>`), or loads it by file path where the language's import system needs that. No
+    package-marker, runner setup or runner-loaded fixture file (such as `__init__.py` or
+    `conftest.py`) appears anywhere under the candidate folder; when the runner reaches the helper
+    only through one, the client stays inline in each check.
+  - **Tier 2 only.** Tier-1 files never import it.
+- **Never prints a credential** — neither a check nor the helper logs `DEEPEN_SEAM_<n>_AUTH`,
+  writes it to a file, or builds an assertion message that would echo it.
 - **Deterministic.** Assertions hold on fixture state, the frozen clock and the stubbed network
-  alone; a value that differs between two runs (a generated id, a timestamp with no clock) is
-  asserted by shape, or the statement is `unverifiable`.
+  alone, and the helper reads nothing else; a value that differs between two runs (a generated id,
+  a timestamp with no clock) is asserted by shape, or the statement is `unverifiable`.
 
 ---
 
@@ -144,12 +163,20 @@ Everything lives under one per-candidate folder, so a kept net never collides wi
   inventory.md                 # header, statements, matrix, bindings, unverifiable, uncovered
   fixtures/<fixture-id>.*      # seed files, or <fixture-id>.steps.md
   tier2/<fixture-id>/…         # tier-2 check files, grouped by the fixture they need
+  tier2/lib/<name>             # the candidate's one seam helper (§3), imported by its tier-2 checks
   tier1/<fixture-id>/…         # e2e specs, grouped the same way
   tier1/manual/<statement-id>.steps.md    # manual-browser step lists
 ```
 
 Every path under the folder uses only the characters `[A-Za-z0-9._/-]` and has no `..` segment —
 the run writes these names into shell command lines, and the stage aborts on any other name.
+
+`tier2/` holds fixture folders and `lib/`, and nothing else. Every file under a
+`tier2/<fixture-id>/` is a check whose name carries `check`; `tier2/lib/` holds at most one file,
+the helper, whose name carries no `check` in any letter case. `lib` is never a fixture id (§5), so
+the check round never passes the helper to the runner. A `__pycache__/` directory the interpreter
+writes when it imports a check or the helper is not part of the layout. The characterize stage
+aborts on any other layout.
 
 `inventory.md` opens with four header lines:
 
@@ -173,7 +200,7 @@ Then the sections `## Statements` (§1), `## Fixture matrix` (§5), `## Bindings
 <reason>`), in this order. An empty section keeps its heading and says `none`.
 
 A fixture group is a fixture id with every check under `tier2/<fixture-id>/` and
-`tier1/<fixture-id>/`. A UI-created fixture is recreated from its step list by the QA role in
+`tier1/<fixture-id>/`; the helper under `tier2/lib/` belongs to no group. A UI-created fixture is recreated from its step list by the QA role in
 whichever stage replays the group.
 
 ---
