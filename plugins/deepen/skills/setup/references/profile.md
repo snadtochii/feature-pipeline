@@ -27,7 +27,7 @@ omitted means the same as `null`).
 
 ```yaml
 version: 1                          # required, must be 1
-attendance: semi                    # required — only `semi` is accepted
+attendance: semi                    # required — semi | unattended
 
 base: main                          # required — the branch every run forks from
 loop_clone: "~/<path>/<repo>-deepen"    # required — the dedicated checkout the loop owns
@@ -68,6 +68,13 @@ run:
   retries: 3                        # optional, default 3 — implementer attempts per failing round
   max_wall_time: "90m"              # optional, default 90m — implementer wall-time bound
   coverage_threshold: 80            # optional, default 80 — touched-function coverage, percent
+
+decisions:                          # optional — read only when attendance is unattended
+  defaults: {}                      # optional, default {} — <decide field>: <one-line answer>, only for a field stage 3 states no default for
+  architect_fail: revise-once       # optional, default revise-once — revise-once | decline
+  split: confirm                    # optional, default confirm — confirm | override
+  infra_stop: abort                 # optional, default abort — the only value
+  changed_statements: head-pack     # optional, default head-pack — the only value
 ```
 
 ---
@@ -76,11 +83,14 @@ run:
 
 ### `attendance`
 
-How much of a run waits for a human. `semi`: the human pins the candidate and answers the
-decide stage's questions inline; every other stage runs without them, and a `needs-decision`
-line pauses the run for an inline answer. `semi` is the only accepted value. `unattended` is a
-named value that validation rejects with a "not yet supported" line (§4 rule 2), so a profile
-cannot opt into a mode the run does not implement.
+How much of a run waits for a human. Two values:
+
+- **`semi`** — the human pins the candidate and answers the decide stage's questions inline;
+  every other stage runs without them, and a `needs-decision` line pauses the run for an inline
+  answer.
+- **`unattended`** — no human is in the conversation. The run takes every decision from a stage
+  default or from the profile's `decisions:` block, and a stop that has neither aborts with its
+  stop line and remedy instead of pausing.
 
 ### `base`
 
@@ -245,12 +255,33 @@ Where the inventory's tier 2 checks call the app below the browser. Each entry h
 
 - **`split_above`** — advisory, never a rejection: when the decide stage's diff estimate exceeds
   it, the run proposes a sequence of independently verifiable pull requests for the human to
-  confirm or override. There are no size caps. The estimate and this threshold share one unit,
-  defined in [decision-record.md](../../run/references/decision-record.md) §4.
+  confirm or override — or, when `attendance` is `unattended`, for `decisions.split` to answer.
+  There are no size caps. The estimate and this threshold share one unit, defined in
+  [decision-record.md](../../run/references/decision-record.md) §4.
 - **`retries`** — implementer attempts per failing check round.
 - **`max_wall_time`** — wall-time bound on the implementer.
 - **`coverage_threshold`** — the touched-function coverage percentage below which a run extends
   the inventory once, then leads the evidence pack with the gap.
+
+### `decisions`
+
+The standing answers an unattended run takes in place of a human. Optional, and read only when
+`attendance` is `unattended`: a semi run ignores the block entirely, and a semi profile written by
+setup carries none. An absent key takes its default.
+
+- **`defaults`** — a map from a decide field name to a one-line answer, permitted only for a
+  field [stage-3-decide.md](../../run/references/stage-3-decide.md) §5 states no default for
+  (rule 18). Every §5 field states one, so the map is `{}` and setup asks nothing for it.
+- **`architect_fail`** — `revise-once` (default): the first architect fail re-opens the questions
+  its failing checks map to, once; a second fail declines the candidate and writes its `declined`
+  memory line. `decline`: the first fail declines.
+- **`split`** — answers a split the decide stage proposes past `run.split_above`. `confirm`
+  (default): the run builds slice 1 of the proposed split. `override`: the whole record as one
+  pull request.
+- **`infra_stop`** — `abort`, the only value: every infrastructure stop aborts with its stop line
+  and remedy, never pauses.
+- **`changed_statements`** — `head-pack`, the only value: changed statements found by the verify
+  stage never pause the run; they head the evidence pack.
 
 ---
 
@@ -265,7 +296,7 @@ parameters.
 | Field | Class | Why |
 |---|---|---|
 | `version` | the integer `1` | the only schema this contract describes |
-| `attendance` | exactly `semi` | the only implemented mode |
+| `attendance` | `semi` or `unattended` | the two modes a run implements |
 | `base` | `^[A-Za-z0-9._/-]+$`, no leading `-`, no `..` — checked without a shell; then passes `git check-ref-format --branch` | it becomes a ref argument |
 | `loop_clone`, `state_dir` | absolute or `~/`-prefixed; characters `[A-Za-z0-9._/~-]`; no `..` segment | they become path arguments and `cd` targets |
 | `app.install`, `app.prelude`, `app.dev`, `app.seed`, `app.reset`, `checks.runner`, `checks.e2e`, `checks.coverage`, `checks.mutation` | one line: no newline, carriage return or NUL | each is written verbatim into one script file; `prelude` is prefixed to others |
@@ -280,6 +311,14 @@ parameters.
 | `paths.forbidden[]`, `paths.specs[]` | repo-relative gitignore-style globs, characters `[A-Za-z0-9._/*?{},\[\]-]`, no `..` segment, no leading `/` | fence patterns; resolved matches are containment-checked against the repo root |
 | `run.split_above`, `run.retries`, `run.coverage_threshold` | non-negative integers | compared numerically |
 | `run.max_wall_time` | `^[0-9]+[mh]$` | a duration the run converts to seconds |
+| `decisions` | a map whose keys are among `defaults`, `architect_fail`, `split`, `infra_stop` and `changed_statements` | an unknown key — a misspelled policy — would otherwise be ignored and its policy silently take the default |
+| `decisions.defaults` | a map | read as field-to-answer pairs |
+| `decisions.defaults` keys | a decide field name, `^[a-z-]+$` | names the decide field the answer is for |
+| `decisions.defaults` values | one line — no newline, carriage return or NUL — non-empty, no `\|`; the decide stage checks the answer against its value's class in [decision-record.md](../../run/references/decision-record.md) §3 when it takes it, as it checks every answer ([stage-3-decide.md](../../run/references/stage-3-decide.md) §4) | each becomes a `decision:` line and an `A<n> \| <answer>` ledger line, where `\|` separates columns |
+| `decisions.architect_fail` | `revise-once` or `decline` | selects what an architect fail does |
+| `decisions.split` | `confirm` or `override` | selects how a proposed split is answered |
+| `decisions.infra_stop` | exactly `abort` | the only infrastructure-stop policy |
+| `decisions.changed_statements` | exactly `head-pack` | the only changed-statement policy |
 
 **`~` expansion.** `loop_clone` and `state_dir` may start with `~/`. Every consumer expands that
 leading `~/` to the absolute home directory (bound with `home=$(printf '%s' "$HOME")`) **once,
@@ -304,10 +343,10 @@ profile: <field> — <what is wrong> — run /deepen:setup
 Nothing runs after a failure, and the run does not edit the profile.
 
 1. `version` is `1`.
-2. `attendance` is `semi`. The value `unattended` fails with
-   `profile: attendance — unattended is not yet supported — set attendance: semi (run /deepen:setup)`;
-   any other value fails as an unknown mode.
-3. Every present field matches its §3 class.
+2. `attendance` is `semi` or `unattended`. Any other value fails with
+   `profile: attendance — <value> is not a mode (semi | unattended) — run /deepen:setup`.
+3. Every present field matches its §3 class; `decisions` and its fields only when `attendance` is
+   `unattended`.
 4. `base` exists on `origin`.
 5. `loop_clone` resolves (after §3's `~` expansion) to a git checkout whose current branch is `base`
    and whose `origin` URL is the `origin` of the repo holding this profile.
@@ -344,6 +383,16 @@ Nothing runs after a failure, and the run does not edit the profile.
 17. `app.browser_session`, when non-null, is the literal `none` or a command — never the path of
     a session file. A value matching `^[A-Za-z0-9._/~-]+\.json$` fails with
     `profile: app.browser_session — <value> names a session file; the field is the command that writes one — run /deepen:setup`.
+18. When `attendance` is `unattended`, every key of `decisions.defaults` names one of the fields
+    [stage-3-decide.md](../../run/references/stage-3-decide.md) §4's table assigns to §5, and
+    that field's §5 entry states no default; and every §5 field that states no default has an
+    entry. A §5 entry states a default when it has a `Default:` sentence, or — for the conditional
+    `rewrite` and `create-context` questions — when it gives an `accept` option. A key naming no §5 field fails with
+    `profile: decisions.defaults.<key> — not a decide field — run /deepen:setup`; a key naming a
+    field with a stage default fails with
+    `profile: decisions.defaults.<key> — stage 3 answers it with its own default — remove the entry (run /deepen:setup)`;
+    a field with no stage default and no entry fails with
+    `profile: decisions.defaults — <field> has no stage default and no entry — run /deepen:setup`.
 
 A failed rule names the field and the remedy. Rules 4–6, 12, 14 and 16 describe the machine and
 the repository rather than the file; setup checks them at write time and a run re-checks them in
@@ -436,4 +485,6 @@ round ([dev-server.md](../../run/references/dev-server.md) §6).
   browser session, never a session file or its content.
 - **No per-run state.** Candidates, reports, drafts and memory live in `state_dir`. The profile
   is configuration, and a run never writes to it.
-- **No `attendance` change by a run.** Only setup writes the field, on a human's answer.
+- **No `attendance` or `decisions:` change by a run.** Only setup writes them, on a human's
+  answer. The profile's `decisions:` block is configuration a run reads and never writes, and it
+  names no secrets.

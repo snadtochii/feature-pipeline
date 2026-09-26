@@ -229,8 +229,8 @@ After stage 6 reports `complete` → §7.
 
 ## §5 Needs-decision
 
-`attendance: semi` is the only mode the profile allows
-([profile.md](../setup/references/profile.md) §2), so the run asks inline:
+A run asks every `needs-decision` inline, whatever the profile's `attendance`
+([profile.md](../setup/references/profile.md) §2):
 
 1. `AskUserQuestion` with the report's question and its `## Options`. When the stage offered
    fewer than four, add `abort — end the run and keep its evidence; final — recover with a new
