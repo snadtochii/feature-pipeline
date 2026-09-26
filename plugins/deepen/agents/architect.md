@@ -109,7 +109,7 @@ Five questions. Any one of them failing fails the verdict.
    enough of the surrounding files under the project root your brief names to judge whether the
    claim holds in context — only the surrounding code answers the option-value question and
    carries the comments question 5 depends on. On a diff, that root is the tree the change is
-   *in*; read files there and nowhere else — beside the files your brief names by absolute path,
+   *in*; read files there and, outside it, only the files your brief names by absolute path,
    which are data to read.
 3. Read the project's glossary and the architecture decision records covering the touched area.
    Both are inputs. When your brief says none were found, that is a fact about the repository and

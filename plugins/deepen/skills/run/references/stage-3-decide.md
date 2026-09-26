@@ -368,13 +368,15 @@ delete list, is not a spec move's new path, and appears once in the section.
    grep -nE 'T[12]-[0-9]{2,3}' "<runs>/architect-brief.md"
    grep -nF -e "<inventory><slug>/" -e "inventory-drafts/<run-id>" -e "2-characterize.md" \
      "<runs>/architect-brief.md"
-   awk '/^<!-- BEGIN statements -->$/{f=1;next} /^<!-- END statements -->$/{f=0} f&&/^S[0-9][0-9][0-9]? \| /{c++} END{print c+0}' \
+   awk -v k=<k> '/^<!-- BEGIN statements -->$/{f=1;next} /^<!-- END statements -->$/{f=0} f&&/^S[0-9][0-9][0-9]? \| /&&split($0,a," [|] ")==k{c++} END{print c+0}' \
      "<runs>/architect-brief.md"
    ```
 
-   Any output from the two `grep`s → `decide: aborted — the architect brief carries <the first
-   matching line>`. A count from the `awk` other than `<n>` → `decide: aborted — the architect
-   brief carries <c> of <n> statements`. The results, and the line `brief: verbatim` or
+   `<k>` is the field count of the form step 3 took — 5 for `verbatim`, 3 for `ids+subjects` — so
+   a statement line in the other form is not counted. Any output from the two `grep`s →
+   `decide: aborted — the architect brief carries <the first matching line>`. A count from the
+   `awk` other than `<n>` → `decide: aborted — the architect brief carries <c> of <n> statements
+   in the <form> form`. The results, and the line `brief: verbatim` or
    `brief: ids+subjects, <n> statements` naming the form step 3 took, join `## Isolation`, one
    set per round.
 5. **Spawn** one `deepen:architect`, a fresh instance, in the foreground, whose prompt is the
