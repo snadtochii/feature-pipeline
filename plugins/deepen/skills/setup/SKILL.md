@@ -134,6 +134,14 @@ run; it never installs, builds, tests or serves.
   remedy now, in the runner's own syntax, naming its config file — for vitest,
   `'tests/behavior/**/*.check.ts?(x)'` in `test.include` — so §4 shows it and §6 prints it.
 - **E2E runner** — a browser end-to-end runner's config file and its script.
+- **Browser session** (capability row 14) — names only, per §0. `Grep` the manifest scripts and
+  the scripts they invoke for Playwright storage-state writes (`storageState`, `storage_state`,
+  `context.storageState(`) and for a test-login script; `Glob` Playwright config and global-setup
+  files. A script that writes a storage state → propose `app.browser_session` as that script
+  invoked with the path as `"$1"` ([profile.md](references/profile.md) §2). A `storageState`
+  setting or a global-setup file with no such script → propose `null` and ask for the command in
+  the review block; setup never composes one. Score per [readiness.md](references/readiness.md)
+  §1's row 14.
 - **Coverage** — the unit runner's coverage provider (for `checks.coverage`) and, for
   `app.coverage_env`, the server runtime's own coverage env: when the runtime has one, propose it
   with a `<dir>` value; a proposed env no file mentions is `unverified`.
@@ -217,7 +225,7 @@ omitted says what was looked for and not found.
    [profile.md](references/profile.md) §3's class and §4 rule 15.
 
 Alongside the questions, show a **review block** (not asked): `app.*` commands, URL and readiness
-probe, `seams` with their auth, `checks.*`, `paths.specs`, `app.install` / `app.prelude`,
+probe, `seams` with their auth, `app.browser_session`, `checks.*`, `paths.specs`, `app.install` / `app.prelude`,
 `attendance: semi`, and the `run.*` defaults — each with its rationale. A user correcting a value there is expected; a
 value the user supplies that the probe cannot confirm is scored `unverified`. An unmatched spec
 glob, and a runner include that reaches nothing under the inventory directory (§2's

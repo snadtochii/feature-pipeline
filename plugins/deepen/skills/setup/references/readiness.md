@@ -33,6 +33,11 @@ in the dev start script or a script it invokes, or no env file, no example env f
 env-file loader in the dev command at all; else `unverified`. Its evidence names files and
 patterns only ([../SKILL.md](../SKILL.md) §2).
 
+**Row 14** (browser session) is `found` when a manifest script signs a test user in and writes a
+Playwright storage state; `unverified` for a command the user typed, for `none`, or when the
+probe sees only a Playwright `storageState` setting or a global-setup file; `missing` otherwise.
+Its evidence names the script or file, never a value.
+
 **Combined rows** (dev command and URL, seam and seam auth, fixture seed and reset) are `found`
 only when both parts are `found`, `missing` when either part is `missing`, and `unverified`
 otherwise. The evidence cell names the part that fell short.
@@ -74,7 +79,7 @@ Tier: browser only
 <§4 block>
 ```
 
-- **Rows** — one per row of [profile.md](profile.md) §6, in that table's order, all thirteen
+- **Rows** — one per row of [profile.md](profile.md) §6, in that table's order, all fourteen
   every time. The run-only rows under §6 are not rendered.
 - **`effect if missing`** and **`what would supply it`** — copied verbatim from
   [profile.md](profile.md) §6, and shown on every row, so a `found` row still says what it
@@ -102,7 +107,7 @@ It is the only line in the file that matches `^Tier: `.
   `unverified`.
 - **`browser only`** — otherwise.
 
-`unverified` counts as present for the tier. Rows 3 and 5–13 never change the tier; each adds
+`unverified` counts as present for the tier. Rows 3 and 5–14 never change the tier; each adds
 its degradation line to a run instead — row 13's only when the run skipped a `.worktreeinclude`
 pattern or path. A `warning` never changes the tier either.
 

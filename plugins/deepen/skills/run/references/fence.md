@@ -308,7 +308,9 @@ return takes the list plus the verify clause:
 - **Inventory commit unchanged** — the first commit after `<BASE_SHA>` is still `<INV_SHA>`.
 - **Fence file unchanged** — the digest recorded in §5 step 3.
 - **Wrappers unchanged** — for a QA return, the wrapper scripts and the exclusion list hash as
-  they did right before the spawn ([dev-server.md](dev-server.md) §1, Digests).
+  they did right before the spawn, and `<state_dir>/runs/<run-id>/browser-session.json` is absent or a regular file
+  — its content is the QA role's own refresh, never hashed ([dev-server.md](dev-server.md) §1,
+  Digests).
 - **No exclusion-list path committed.**
 
 **Characterize clause.** A characterize-mode QA spawn makes no commit by design, runs before any
