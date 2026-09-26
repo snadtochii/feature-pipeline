@@ -82,6 +82,13 @@ The profile contract — schema, field semantics, grammar, validation rules and 
 [skills/setup/references/profile.md](skills/setup/references/profile.md). `/deepen:setup` is its
 only writer; a run validates it and stops on the first failure, and never repairs it.
 
+The profile's `attendance` field takes one of two values, switched with `/deepen:setup`:
+
+- `attendance: semi` — the human pins the candidate and answers the decide stage's questions
+  inline; any other decision pauses the run for an inline answer.
+- `attendance: unattended` — no human is in the conversation: the run takes every decision from a
+  stage default or the profile's `decisions:` block, and a stop with neither aborts.
+
 ## What a project must supply
 
 Each row is a capability the loop uses when the project provides it. The effect is what a run

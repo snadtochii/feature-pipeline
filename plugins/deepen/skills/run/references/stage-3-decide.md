@@ -242,7 +242,9 @@ the next question is the first of the eleven fields below with no current value.
    callers already cross. Alternatives: a narrower or a wider interface when the callers split.
 2. **`seam`** — what sits behind the interface: the modules, state and dependencies it hides, and
    for a `remote-owned` or `true-external` category the port and its test adapter
-   ([candidates.md](candidates.md) §2).
+   ([candidates.md](candidates.md) §2). Default: the modules, state and dependencies the pick's
+   `files` hold behind the `interface` answer, with the port and test adapter the category calls
+   for.
 3. **`surviving`** — when `paths.specs` is empty, record `none` for this field, `delete` and
    `new-specs` without asking, with the line `spec questions skipped — paths.specs is empty`.
    Otherwise `Grep` the `paths.specs` globs at `<CLONE>` for specs that import or mock any of the
@@ -261,7 +263,9 @@ the next question is the first of the eleven fields below with no current value.
 5. **`rename`** — the `rename_map:` block: `modules:` for every file that moves, `symbols:` for
    every exported name that changes, identity entries for symbols that move unrenamed, and each
    `repointed` spec's entry. Spec moves — a `modules:` entry whose old path matches a
-   `paths.specs` glob — are named in the question.
+   `paths.specs` glob — are named in the question. Default: the moves and renames the `interface`
+   and `seam` answers imply, with identity entries for symbols that move unrenamed — an empty
+   `rename_map:` when nothing moves.
 6. **`new-specs`** — the declared spec paths, one per module the change introduces
    ([decision-record.md](decision-record.md) §2, `New specs`). When `paths.specs` is empty,
    record `none` without asking — on a re-ask too, whichever answer reopened the field. Default:
