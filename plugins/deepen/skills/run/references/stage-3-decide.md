@@ -3,9 +3,10 @@
 Authoritative text for the stage that turns the picked candidate and the inventory summary into an
 approved decision record: it asks the human one question at a time about the change, drafts the
 glossary and ADR edits as proposed diffs, writes the record, and has the read-only
-architect judge it — proposing a sequence of pull requests when the change is large. The stage
-writes to no working tree and never reads the checks; it either completes, completes declined,
-stops for a human decision, or aborts.
+architect judge it — proposing a sequence of pull requests when the change is large. With
+`attendance: unattended` the stage answers each question itself from a default (§4) and never
+stops for a human. The stage writes to no working tree and never reads the checks; it either
+completes, completes declined, stops for a human decision, or aborts.
 
 It composes these references and restates none of them:
 [decision-record.md](decision-record.md) owns the record's sections, line formats, value classes
@@ -30,6 +31,11 @@ Bound by the run skill before this stage starts:
 `<inventory>` is `paths.inventory`; `<runs>` is `<state_dir>/runs/<run-id>`; `<report>` is
 `<state_dir>/reports/<run-id>/3-decide.md`.
 
+`attendance` is read from the profile as re-read
+([profile.md](../../setup/references/profile.md) §2), and, only when it is `unattended`, the
+profile's `decisions:` block — named here `decisions.<key>`, never bare `decisions`, which is the
+architect's verdict question (§7).
+
 **Nothing else is read.** Not the checks, not the inventory file, not the rest of
 `2-characterize.md`, not `<state_dir>/inventory-drafts/`, not anything under `<inventory>` at
 `<CLONE>` — earlier runs' merged inventories included — and no file under `<WT>`: the stage runs
@@ -48,7 +54,8 @@ source, no spec, no `CONTEXT.md`, no ADR in the repository. §11 asserts it.
 
 Every stop in this stage is one line: an abort (`decide: aborted — <the line>`) goes through the run
 skill's common abort, which removes the worktree stage 2 created; a question
-(`decide: needs-decision — Q<n> <field>: <question>`) goes through the run skill's §5.
+(`decide: needs-decision — Q<n> <field>: <question>`) goes through the run skill's §5. Unattended,
+a question never leaves the stage: §4 answers it in place.
 
 ---
 
@@ -71,7 +78,8 @@ check.
   next question only after the previous one's answer — so the `k`-th `decision:` line under
   `## Decisions` answers `Q<k>`. Count them as `<d>`:
   - `<d>` is `<n> - 1` — `Q<n>` is unanswered, a pause recovered by hand → ask `Q<n>` again: the
-    same status line and `## Options`, and return.
+    same status line and `## Options`, and return. Unattended, `Q<n>` is answered in place by
+    §4's rule instead of returned.
   - `<d>` is `<n>` → the last `decision:` line is `Q<n>`'s answer. Append `A<n> | <the answer>`
     under `## Answers` with `Edit`, unless an `A<n>` line is already there, and continue at the
     section that owns the field (§4's field table) — §1's re-entry reads run first; §2 and §3 do
@@ -150,13 +158,16 @@ On the fresh pass only:
    question, look facts up rather than ask them — and overrides two things: the cadence is one
    question per stop, depth-first on coupled fields (§4, §5), never a round of several; and facts
    are looked up by the stage itself with `Read`, `Grep` and `Glob` at `<CLONE>`, never by a
-   spawned helper. The question tree is §5's in either case. The call failing, or the skill not
-   installed → `grilling unavailable — inline dialogue used the stage's own question list`.
+   spawned helper. The question tree is §5's in either case. Unattended, it overrides a third:
+   no question reaches anyone, and the recommended answer is the one taken (§4). The call
+   failing, or the skill not installed → `grilling unavailable — inline dialogue used the stage's
+   own question list`.
 2. **Project records.** `Glob` `<CLONE>/CONTEXT.md` and `<CLONE>/docs/adr/*`. Each one absent →
    the line naming what it does to this stage — [profile.md](../../setup/references/profile.md)
    §6 rows 11 and 12 are the earlier stages' effects, not this one's:
    - `CONTEXT.md absent — terms are proposed for a new file; the human decides whether to create
-     it` (§5, field `create-context`);
+     it` (§5, field `create-context`) — unattended, `CONTEXT.md absent — terms are proposed for a
+     new file; create-context takes accept (unattended)`;
    - `docs/adr/ absent — no recorded decision to supersede; a proposed ADR is numbered 0001` (§5,
      field `diffs`).
 
@@ -200,8 +211,46 @@ the default unchanged and the reason appended to the question. The field's curre
 latest valid answer — unless a `revise` (§8) or `confirm` (§9) answer newer than it reopened the
 field, which then has no current value until it is answered again.
 
-**No defaults are applied silently.** Every field is asked; a profile or an earlier run never
-answers for the human.
+**Mode.** With `attendance: semi`, every field is asked; a profile or an earlier run never
+answers for the human. With `attendance: unattended`, no question reaches anyone: the stage
+answers each one itself by the rule below, and never returns `needs-decision` to the run skill.
+
+**Unattended answering.** Each question is still written exactly as for a stop — the ledger
+entry, the status line and `## Options` — except that §11 does not run, since the stage does not
+exit. The stage then answers it in place:
+
+1. Under `## Decisions` — the heading created at the end of the report when absent —
+   `decision: <answer>`: `accept` for a stage default, the `decisions.defaults` value verbatim, or
+   for a policy stop what its section (§8–§10) names — an option's exact label, or the decline
+   reason; and directly under it
+   `taken: default (unattended) — <source>`. One `decision:` line per question, so §0's pairing by
+   count holds; a `taken:` line matches none of §0's patterns.
+2. `A<n> | <the answer>` under `## Answers`, as §0 writes it.
+3. Continue at the section that owns the field (the table below).
+
+The answer and its `<source>`:
+
+- **A stage default** — §5's `Default:` sentence, or the `accept` option of the conditional
+  `rewrite` and `create-context` questions → `accept`, source `stage default`.
+- **A `decisions.defaults` entry**, for a field with no stage default → the value, checked against
+  its field's class ([decision-record.md](decision-record.md) §3) before any use, source
+  `decisions.defaults.<field>`. A value that fails →
+  `decide: aborted — decisions.defaults.<field> fails its class — <reason> (run /deepen:setup)`.
+- **Neither** →
+  `decide: aborted — no default for <field> — set decisions.defaults.<field> (run /deepen:setup)`.
+- **A policy stop** — `architect` (§8), `split` (§9), `decline` (§10) — takes the answer and the
+  source its section names. `proceed` is never taken.
+
+Every reopen — a `revise` (§8) or a `confirm` (§9) — is answered the same way, automatically:
+each reopened field is asked and answered again, its default re-derived by §5's own rule.
+
+Two bounds keep the answering finite, each counted from the ledger at the point of use:
+
+- **A stage default that fails** its field's class, or a §6 cross-section check, gets one
+  re-derived attempt — a new question on the same field, the failure in its rationale. A second
+  failure declines (§10) with the reason `<field>: default fails <class or check> — <reason>`.
+- **At most two unattended answers per field per architect round**, that retry included; a field
+  that needs a third declines (§10) with the reason `<field>: defaults did not converge`.
 
 | Field | Owner | Record section ([decision-record.md](decision-record.md) §2) |
 | --- | --- | --- |
@@ -250,8 +299,8 @@ the next question is the first of the eleven fields below with no current value.
    Otherwise `Grep` the `paths.specs` globs at `<CLONE>` for specs that import or mock any of the
    pick's `files`, and classify each: `unchanged`, `repointed` (by a rename entry), `delete` (it
    tests a module the change removes and the inventory covers its behavior), or `rewrite` (its
-   assertions need rewriting — neither a rename nor a deletion). The classification is the
-   default, under `## Drafts`. An answer with any `rewrite` asks **`rewrite`** next:
+   assertions need rewriting — neither a rename nor a deletion). Default: the classification,
+   drafted under `## Drafts`. An answer with any `rewrite` asks **`rewrite`** next:
    `Q<n> rewrite: <k> specs need rewritten assertions — delete them for a human rewrite on the pull
    request, or narrow the candidate?`, options
    `- accept — delete those specs now; the human rewrites them on the pull request` and
@@ -293,7 +342,8 @@ the next question is the first of the eleven fields below with no current value.
    hard to reverse, surprising without context, the result of a real trade-off — numbered one above
    the highest `<CLONE>/docs/adr/[0-9][0-9][0-9][0-9]-*.md`, or `0001` when there is none. A pick
    whose `adr_conflict` is not `none` names that decision in the question, and the default says
-   whether a new ADR supersedes it. Default: the drafted diffs and their `targets:` line —
+   whether a new ADR supersedes it — unattended, it drafts no ADR that supersedes or reopens any
+   decision under `<CLONE>/docs/adr/`, and its rationale names each conflict. Default: the drafted diffs and their `targets:` line —
    `targets: none` when no term and no decision changes.
 9. **`predicted`** — the inventory statements the change is expected to alter, each
    `<statement-id> | before: <then> | after: <expected then>`, from the summary's statement lines.
@@ -412,7 +462,10 @@ The validated verdict lives in the report, never in the record.
   - `- proceed — override the verdict; recorded in the report`
   - `- decline — end the run and record the candidate as declined`
 
-  When `## Architect verdict` already holds three rounds, `revise` is not offered.
+  When `## Architect verdict` already holds three rounds, `revise` is not offered. The ledger
+  default, with `attendance: semi`, is `revise` while it is offered — the default policy — and
+  `decline` once the round cap has withdrawn it; with `attendance: unattended`, it is the answer
+  the Unattended rule below takes, its source in the rationale.
 
 On the answer:
 
@@ -428,6 +481,23 @@ On the answer:
 - **Free text** → read as `revise`, the text carried to the reopened questions as a hint — while
   `revise` was offered. After three rounds it was not, so free text asks the same question again
   with `proceed` and `decline` only.
+
+**Unattended**, the answer is the policy's (§4), decided by the count of `fail` verdicts under
+`## Architect verdict`, this one included:
+
+- **`escalate: true`** → `decline`, source `escalate`, whatever `decisions.architect_fail` says —
+  reopening a recorded decision or removing documented intent is a human's call.
+- **The first fail**, with `decisions.architect_fail` `revise-once` — also when the key is
+  absent → `revise`, source `decisions.architect_fail: revise-once`. The reopened fields are
+  answered by §4's unattended rule, each default re-derived by §5's own rule with the architect's
+  direction as its hint — the reason text after `fail — ` of every failing question, and
+  `notes` — quoted in the rationale, never the previous answer copied. §6 rewrites the record and
+  §7 judges it once more.
+- **The first fail under `decline`, or any later fail** → `decline`, source
+  `decisions.architect_fail: <value>`.
+
+`proceed` is never taken. The extra round after a confirmed split (§9) counts the same way — its
+fail is the first when no earlier round failed — so an unattended stage runs at most three rounds.
 
 ---
 
@@ -445,6 +515,9 @@ On the answer:
   run?`, with the options
   - `- confirm — this run builds slice 1: <title>`
   - `- override — build the whole record as one pull request`
+
+  The ledger default, with `attendance: semi`, is `confirm`; with `attendance: unattended`, it is
+  the answer the Unattended rule below takes.
 - **Requested, and the block is absent, malformed or `split: none — <why>`** → `## Split`'s `none` is
   replaced by `split: architect proposed no valid sequence — the record stays whole`, with the architect's
   reason when it gave one, and the stage completes as above. A split never rejects a candidate.
@@ -461,16 +534,30 @@ On the answer:
   completes as above.
 - **Free text** → the same question again with the same options.
 
+**Unattended**, the answer is `decisions.split` — `confirm` when the key is absent — with source
+`decisions.split: <value>` (§4). A `confirm` reopens the ten fields above, each answered by §4's
+unattended rule from slice 1's files and statements.
+
 ---
 
 ## §10 Decline
 
 Stop on the field `decline`: `Q<n> decline: why is this candidate declined?`, with the one option
-`- no reason — decline without one`. A free-text answer is the reason.
+`- no reason — decline without one`. A free-text answer is the reason. The ledger default, in both
+modes, is the architect's `one_line` when §8 led here, or §4's reason when an unattended bound
+did.
+
+**Unattended**, the answer is that default (§4): `decision: <reason>`, source `architect one_line`
+from §8, or `stage default` from §4. The `one_line` is already cleaned (§7 step 6).
 
 On the answer, flatten the reason to one line with `|` written `/` — `no reason` when that option
 was taken — and complete declined: §11, then the status line `decide: complete — declined` with
-`declined: <reason>` directly under it. The record stays as last written. The run skill routes a
+`declined: <reason>` directly under it. An unattended decline adds one line directly under that:
+`decline: architect fail round <r> (unattended policy)` — `(escalate)` in place of
+`(unattended policy)` when `escalate` decided it — where `<r>` is the round whose verdict caused
+it, or `decline: <field> (unattended policy)` when a §4 bound did. The status line stays exactly
+`decide: complete — declined`, so the run skill and the deliver stage route it as any decline.
+The record stays as last written. The run skill routes a
 declined run to the deliver stage, which records the decline in `memory.md`
 ([memory.md](memory.md) §6) and opens no pull request.
 
@@ -502,7 +589,8 @@ first reaches a status; later a re-entry rewrites the status line and `## Option
 appends to the other sections.
 
 1. The status line ([../SKILL.md](../SKILL.md) §3's grammar).
-2. `declined: <reason>` directly under it, when the status is `complete — declined`.
+2. `declined: <reason>` directly under it, when the status is `complete — declined`; on an
+   unattended decline, the `decline:` line (§10) directly under that.
 3. `## Degradations` — every line of §1, §3 and §5, or `none`.
 4. `## Isolation` — §2's and §7's assertions and results, each round's `brief:` line, and the
    limit line.
@@ -514,4 +602,5 @@ appends to the other sections.
    the `none` as "no split proposed yet").
 10. `## Record` — the absolute path of `decision-record.md` and its estimate, once written.
 11. `## Options` — when the status is `needs-decision`.
-12. `## Decisions` — appended by the run skill.
+12. `## Decisions` — appended by the run skill; under `attendance: unattended`, by this stage
+    (§4), each `decision:` line followed by its `taken:` line.

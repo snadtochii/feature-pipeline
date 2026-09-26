@@ -204,8 +204,9 @@ stage's fix round, read only by the verify stage, never dispatched on (§4). A
 the options fill four slots, one of them ends the run, and the stage says which. A report with no
 `## Options` is a stop the stage cannot resume from an answer; §5 offers only a pause or the
 abort. A `## Decisions` section holds the
-`decision: <answer>` lines this skill appends (§5). A stage body defines everything else in its
-report.
+`decision: <answer>` lines this skill appends (§5), or, under `attendance: unattended`, the lines
+the decide stage appends itself ([stage-3-decide.md](references/stage-3-decide.md) §4). A stage
+body defines everything else in its report.
 
 ---
 
