@@ -1,6 +1,6 @@
 ---
 name: run
-description: "Run one deepen loop in the loop clone: pick or accept a deep-module refactor candidate, drive it through the six stages, and stop wherever a decision is the human's. Reads the repo's committed .deepen.yaml; never merges."
+description: "Run one deepen loop in the loop clone: pick or accept a deep-module refactor candidate, drive it through the six stages, and stop wherever a decision is the human's, or, unattended, take the stop's documented default or abort. Reads the repo's committed .deepen.yaml; never merges."
 disable-model-invocation: true
 allowed-tools:
   - Read
@@ -22,8 +22,8 @@ argument-hint: "[--pin <candidate-id | hint>]"
 One run takes one deepening candidate from discovery to a draft pull request, through six stages
 in a fixed order. This skill owns the run itself — its identity, preflight, the order of the
 stages, the report grammar every stage writes, the stop a stage takes when a decision is the
-human's, the common abort, and completion. Each stage's body is a reference this skill loads at
-its turn; the body owns what the stage does.
+human's and that stop's unattended branch, the common abort, and completion. Each stage's body is
+a reference this skill loads at its turn; the body owns what the stage does.
 
 It composes these contracts and restates none of them:
 
@@ -81,8 +81,8 @@ shell only after it matched the id class.
 - **Every degradation is a report line**, never a silent fallback.
 - **The run never repairs the profile and never merges.**
 - **Disk, not memory.** Every stage entry re-binds `<run-id>`, `<BASE_SHA>`, `<plugin-root>`,
-  `<candidate_id>` and `<slug>` from the run state (§2), never from an earlier message: a long
-  run's early messages are the first thing a reader of the conversation loses.
+  `<candidate_id>`, `<slug>` and `attendance` from the run state (§2), never from an earlier
+  message: a long run's early messages are the first thing a reader of the conversation loses.
 - **Every spawn is costed.** After each spawn returns, its usage goes on one line of the cost
   ledger (§2) — evidence for the pack's run cost, never a gate.
 
@@ -135,13 +135,17 @@ tier: <preflight §5's tier line, verbatim>
 candidate_id: none
 slug: none
 started_epoch: <the output of date +%s at this write>
+attendance: <semi | unattended>
 ```
 
 The discover stage sets `candidate_id` and `slug` once a candidate is picked; this skill advances
 `stage` (§4). Each change is one `Edit` of that line. The run state is the run's identity on disk:
 a stage re-entered after a question re-binds from it, and a dead session leaves it for a human to
 read. `started_epoch` is written once and never changed; the deliver stage reads the run's wall
-time from it.
+time from it. `attendance` is the profile's `attendance` as preflight left it — the re-read copy's
+when preflight §4 re-read the profile ([preflight.md](references/preflight.md) §4) — and is
+likewise written once and never changed: a run never changes its attendance
+([profile.md](../setup/references/profile.md) §7). §5 reads it at every stop.
 
 **The cost ledger.** Right after the run state, `Write` `<state_dir>/runs/<run-id>/cost.tsv`
 with one header line, `stage | agent | tokens | tool_uses | duration_ms`. After every spawn
@@ -201,12 +205,16 @@ Every stage report opens with exactly one status line:
 stage's fix round, read only by the verify stage, never dispatched on (§4). A
 `needs-decision` report whose stop takes an answer carries an `## Options` section — one
 `- <label> — <what choosing it does>` line per answer, at most four, labels a few words each. When
-the options fill four slots, one of them ends the run, and the stage says which. A report with no
-`## Options` is a stop the stage cannot resume from an answer; §5 offers only a pause or the
-abort. A `## Decisions` section holds the
-`decision: <answer>` lines this skill appends (§5), or, under `attendance: unattended`, the lines
-the decide stage appends itself ([stage-3-decide.md](references/stage-3-decide.md) §4). A stage
-body defines everything else in its report.
+the options fill four slots, one of them ends the run, and the stage says which. Under
+`attendance: unattended`, `## Options` ends with exactly one
+`unattended: <label> — <source>[ — <remedy>]` line: the branch the stage's body classifies for
+that stop, which §5 takes in place of an answer. A report with no `## Options` is a stop the stage
+cannot resume from an answer; §5 offers only a pause or the abort, and takes the abort
+unattended. A `## Decisions` section holds the `decision: <answer>` lines this skill appends
+(§5), and, under `attendance: unattended`, the lines the decide stage appends itself
+([stage-3-decide.md](references/stage-3-decide.md) §4); under `attendance: unattended`, every
+`decision:` line is followed directly by its `taken:` line. A stage body defines everything else
+in its report.
 
 ---
 
@@ -232,8 +240,13 @@ After stage 6 reports `complete` → §7.
 
 ## §5 Needs-decision
 
-A run asks every `needs-decision` inline, whatever the profile's `attendance`
-([profile.md](../setup/references/profile.md) §2):
+Read `attendance:` from the run state (§2) — the profile's `attendance`
+([profile.md](../setup/references/profile.md) §2). `semi` → the steps below, asked inline.
+`unattended` → the unattended branch at the end of this section: the run never calls
+`AskUserQuestion` and never pauses. Any other value, or no `attendance:` line, is never guessed —
+`semi` would pause a run no one watches, `unattended` would abort one a human is answering — so
+the run takes the common abort (§6) with the aborting line
+`run: aborted — run state attendance: <value> out of class`.
 
 1. `AskUserQuestion` with the report's question and its `## Options`. When the stage offered
    fewer than four, add `abort — end the run and keep its evidence; final — recover with a new
@@ -253,8 +266,8 @@ A run asks every `needs-decision` inline, whatever the profile's `attendance`
    reads its own report and its `## Decisions`, so the answer is taken from disk. A report with no
    `## Options` is never re-entered: a free-text answer to it is read as `pause`.
 
-**A `pause` answer, or a question the human cancels or leaves unanswered, is a pause, not an
-abort.** Print the lock
+**Under `semi`, a `pause` answer, or a question the human cancels or leaves unanswered, is a
+pause, not an abort.** Print the lock
 path, the run state path and the report path, and end the turn **without releasing the lock**.
 An answer in the same conversation continues from step 2; no argument resumes a paused run from
 another conversation. A session that ends there leaves the lock to go stale after 24 hours
@@ -262,6 +275,35 @@ another conversation. A session that ends there leaves the lock to go stale afte
 the run state and the report say where the run stood. So the pause message also prints the
 remedy for giving the run up before then: remove `<common-dir>/deepen.lock/owner`, then `rmdir`
 `<common-dir>/deepen.lock`.
+
+**Unattended.** A `needs-decision` under `attendance: unattended` is answered by the stage's own
+classification of that stop, never by a question:
+
+1. **Classify.** A report with no `## Options` — stage 4's stops, and stage 5's relay of one —
+   offers only a pause or the abort, and a pause would hold the lock for a human who is not
+   there: its branch is `abort`, source `decisions.infra_stop`. A report with `## Options` names
+   its branch in the `unattended:` line that ends the section (§3); `Grep` `^unattended: ` over
+   the report. Exactly one such line, whose label is one of the report's option labels — the text
+   of a `- <label> — …` line before its first ` — ` — or `abort`, whose source is
+   `stage default`, `decisions.infra_stop` or `decisions.changed_statements`, and whose remedy,
+   when present, is the rest of that one line → that branch. Anything else — no such line, two,
+   or a label or source outside those sets → `abort`, source `no unattended branch`.
+2. **Record, before acting.** Append under the report's `## Decisions` heading with `Edit` —
+   creating the heading at the end of the report when absent — `decision: <label>`, the exact
+   label with nothing appended, and directly under it
+   `taken: <default | abort> (unattended) — <source>`: `abort` when the label is `abort`,
+   `default` for any other. The decide stage writes its own `taken:` lines in the same shape
+   ([stage-3-decide.md](references/stage-3-decide.md) §4), so one pattern,
+   `^taken: (default|abort) \(unattended\) — `, reads every branch a run took.
+3. **Act.** `abort` → the common abort (§6), the aborting line
+   `<stage>: aborted at needs-decision (unattended) — <the question>`, with ` — <remedy>` appended
+   when the `unattended:` line named one; `<the question>` is the report's status line after
+   `needs-decision — `. Any other label → re-enter the same stage from the top of its body, as
+   semi's step 3 does: its re-entry check takes the answer from its own `## Decisions`.
+
+The `unattended:` line and its remedy are text a stage wrote into its report: they are
+class-checked before use and reach only `Edit`, `Write` and the printed aborting line — never a
+shell command.
 
 ---
 

@@ -1,8 +1,8 @@
 # Stage 4 — implement
 
 Authoritative text for the stage that implements the approved decision record in the run
-worktree, under the write fence, bounded by `run.retries` and `run.max_wall_time`. The stage runs
-unattended: it either completes, stops for a human decision before any spawn, or aborts with
+worktree, under the write fence, bounded by `run.retries` and `run.max_wall_time`. The stage asks
+nothing while it works: it either completes, stops for a human decision before any spawn, or aborts with
 evidence. Any write that lands outside a role's allowed set fails the run and is never retried.
 
 It composes two references and restates neither: [fence.md](fence.md) owns the fence file, the
@@ -93,6 +93,13 @@ the implementer and the spec-mover hold `Bash`, and a shell write outside `<WT>`
 unseen ([fence.md](fence.md) §8).
 
 The hook is the matcher here as everywhere, so the check and the fence can never disagree.
+
+**Unattended.** Every stop of this stage — the denial above, §4 step 3's undeclared rename and
+§4 step 4a's check 4, the missing specs — writes no `## Options`, so the run skill offers only a
+pause or the abort, and under `attendance: unattended` it takes the abort
+([../SKILL.md](../SKILL.md) §5). Exhaustion (§6) already aborts on a first pass and on a
+`failing_check` re-entry; a `findings` re-entry's exhaustion returns to the verify stage and is
+not a stop.
 
 ---
 

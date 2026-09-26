@@ -28,7 +28,7 @@ Bound by the run skill before this stage starts:
 | Input | Source |
 | --- | --- |
 | `<CLONE>`, `<BASE_SHA>`, `<state_dir>`, the profile as re-read | [preflight.md](preflight.md) §1–§4 |
-| `<run-id>`, `<slug>`, `<plugin-root>`, `candidate_id` | the run state, `<state_dir>/runs/<run-id>/run-state` |
+| `<run-id>`, `<slug>`, `<plugin-root>`, `candidate_id`, `attendance` | the run state, `<state_dir>/runs/<run-id>/run-state` |
 | the decision record | `<state_dir>/reports/<run-id>/decision-record.md` — sections 2, 3, 6, 9 and 11 for this stage, the whole of it for the architect |
 | the statement lines | `<runs>/inventory-summary.md`, written by the decide stage |
 | the coverage lines | `<state_dir>/reports/<run-id>/2-characterize.md`, a bounded read (§1 step 8) |
@@ -157,7 +157,11 @@ On a fresh stage only, the report lines:
    browser session is not asked for here — step 6 runs it. A
    port-busy or not-ready stop writes the report (§9) with
    `verify: needs-decision — <the line>`, the `## Options` of [dev-server.md](dev-server.md) §2 or
-   §4, and a `resume:` line naming `§2`.
+   §4, and a `resume:` line naming `§2`. Under `attendance: unattended` (the run state, read here
+   at the stop), `## Options` ends with the characterize stage's branch
+   ([stage-2-characterize.md](stage-2-characterize.md) §3): `unattended: retry — stage default`
+   while no `decision: retry` line is under the report's `## Decisions`, else
+   `unattended: abort — decisions.infra_stop — <remedy>`, with that section's remedies.
 3. **Check round.** [inventory.md](inventory.md) §7 over every fixture group, as round `v<k>`
    under `<runs>/round-v<k>/`. UI-fixture groups are recorded `not replayed — UI fixture` there;
    step 6 replays them.
@@ -269,17 +273,20 @@ round directory, table or QA directory is reused.
 Read section 9 of `<record>` — `Grep -n` `^## ` over it, then one bounded `Read` of that section.
 Each line is `<S-id> | before: <then> | after: <expected then>`, optionally ending
 ` (unverifiable)`, or the single line `none`. Read `## Accepted changes` from the report, when
-present, the same bounded way: the statements a human already accepted in this stage.
+present, the same bounded way: the statements already accepted in this stage, by the human or
+under unattended policy.
 
 - A `changed` statement that is predicted → **matched**, recorded with the predicted `after` and
   the observed `after` side by side.
-- A `changed` statement a human accepted in an earlier round → **accepted**.
+- A `changed` statement accepted in an earlier round → **accepted**.
 - A predicted statement that stayed `preserved` → the report line
   `predicted but unchanged: <S-id>`; never a stop.
 - A predicted ` (unverifiable)` statement that is `unverifiable` → `unverifiable (predicted)`.
 - A predicted statement id absent from the inventory → the report line
   `predicted statement absent from the inventory: <S-id>`.
-- Every other `changed` statement is **unpredicted** — a regression until a human says otherwise.
+- Every other `changed` statement is **unpredicted** — a regression until a human says otherwise,
+  or, under `attendance: unattended`, until the profile's `decisions.changed_statements` policy
+  accepts it (below).
 
 No unpredicted statement → §4.
 
@@ -294,12 +301,17 @@ and `after` under `## Unpredicted`, a `resume:` line naming `§3`, and `## Optio
   `- revert — undo the fix round and verify again`;
 - after a revert (`fixround` is `reverted`): `- accept — record these as intended changes`.
 
-The run skill adds `abort`.
+The run skill adds `abort`. Under `attendance: unattended` (the run state), whatever `fixround`
+and `sendback` hold, `## Options` ends with `unattended: accept — decisions.changed_statements`:
+an unpredicted statement never pauses the run, and `send back` and `revert` are never taken.
 
 **On the answer:**
 
 - **`accept`** → each statement joins `## Accepted changes` as
-  `<S-id> | before: <then> | after: <observed then> | accepted by the human`. → §4.
+  `<S-id> | before: <then> | after: <observed then> | accepted by the human`, or, when the run
+  state's `attendance` is `unattended`,
+  `<S-id> | before: <then> | after: <observed then> | accepted under unattended policy` — a policy
+  decision never carries the human's wording. → §4.
 - **`send back`**, when offered → `sendback=used`. `Write` the failing check to
   `<runs>/failing-check-<k>.txt`: per unpredicted statement bound to a red tier-2 or e2e check,
   its group's wrapper command line and the text of that group's `.out` files; per other
@@ -313,7 +325,8 @@ The run skill adds `abort`.
     stage touches nothing more.
   - `implement: needs-decision — <line>` → the stage ends
     `verify: needs-decision — implement: <line>`, with no `## Options` and no `resume:` line: the
-    run skill offers only a pause or the abort, and never re-enters this stop.
+    run skill offers only a pause or the abort, and never re-enters this stop; under
+    `attendance: unattended` it takes the abort ([../SKILL.md](../SKILL.md) §5).
 - **`revert`**, when offered → §8's reset to `<pre-round>`, `fixround=reverted`, `k+1`, §2.
 - **Anything else** → the same question again, as a new stop.
 
@@ -483,14 +496,19 @@ Nothing parsed from the runner's output reaches a command line.
   `verify: needs-decision — the architect failed the diff — <one_line>`, the failing questions and
   `escalate` under `## Drafts`, a `resume:` line naming `§5`, and `## Options`
   `- proceed — override the verdict; recorded in the report and the evidence pack`. The run skill
-  adds `abort`. No reviewer is spent on a diff the human may abort.
+  adds `abort`. No reviewer is spent on a diff the human may abort. Under
+  `attendance: unattended` (the run state), `## Options` ends with
+  `unattended: abort — stage default — the failing questions are under ## Drafts in 5-verify.md`:
+  an architect fail is never overridden unattended, so `proceed` is never taken.
 - **`fail`, after the fix round** → a stop, as above, only when a question fails now that did not
   fail in the verdict in effect when §6 ran — the `pre-fix:` line under `## Fix round` (§8).
   While `fixround` is `done`, `## Options` also carries
   `- revert — undo the fix round and verify again`: a fix round that made the architecture worse
   is undone without giving up the verified change. Otherwise the override carries: the line
   `architect: fail — overridden by the human, carried from the verdict before the fix round`
-  under the round, and §9.
+  under the round, and §9. Under `attendance: unattended` the stop ends its `## Options` with the
+  same `unattended:` line, and neither `proceed` nor `revert` is taken; the override never carries
+  there, since a first-pass fail already aborted the run.
 
 **On the answer:**
 
@@ -621,6 +639,9 @@ Write every finding with its decision into the report's `## Reviewers` section b
 changes anything — with `Edit` when the report exists, else held for its first `Write` (§9).
 → §8.
 
+A finding is never a stop, so `attendance` changes nothing here or in §8: each finding is
+accepted, dismissed or deferred by the rules above in either attendance.
+
 ---
 
 ## §8 Fix round
@@ -656,7 +677,8 @@ Otherwise:
    - `implement: aborted — <line>` → the stage ends `verify: aborted — implement: <line>`; the
      implement stage already wrote `abort.md` and removed the worktree.
    - `implement: needs-decision — <line>` → the stage ends
-     `verify: needs-decision — implement: <line>`, with no `## Options` and no `resume:` line.
+     `verify: needs-decision — implement: <line>`, with no `## Options` and no `resume:` line —
+     a relay the run skill aborts under `attendance: unattended` ([../SKILL.md](../SKILL.md) §5).
 
 **The reset** — here after an exhausted round, and from a `revert` answer (§3, §5):
 
@@ -707,7 +729,8 @@ that stop's `Write` or `Edit` put the line in the report.
    lines, or `new: none observed` after a QA spawn that reported none, or §2 step 6's
    `new: not looked for — qa verify spawn skipped`; `tier 2 wall time: <s>s`; the QA role's
    `## Looked wrong`.
-5. `## Unpredicted` while that stop stands, and `## Accepted changes`, or `none`.
+5. `## Unpredicted` while that stop stands, and `## Accepted changes` — each line ending
+   `accepted by the human` or `accepted under unattended policy` (§3) — or `none`.
 6. `## Mutation` — the survivors, one row per key, the count of targets, and every §4 line.
 7. `## Architect verdict` — the round in effect, with its `brief:` line and its override line when
    one was taken.
@@ -721,7 +744,8 @@ that stop's `Write` or `Edit` put the line in the report.
 12. `## Refused writes` — as the QA role and the implementer reported them; a refusal is the fence
     working.
 13. `## Drafts` — the failing architect questions and `escalate`, when §5 stopped; else `none`.
-14. `## Options` — while the status is `needs-decision` with a stop this stage resumes.
+14. `## Options` — while the status is `needs-decision` with a stop this stage resumes, ending
+    with its `unattended:` line under `attendance: unattended`.
 15. `## Decisions` — the run skill's.
 
 **Completion.** After §9 is reached through §5, §6 or §8:
