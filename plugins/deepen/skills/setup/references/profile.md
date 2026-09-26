@@ -311,8 +311,10 @@ parameters.
 | `paths.forbidden[]`, `paths.specs[]` | repo-relative gitignore-style globs, characters `[A-Za-z0-9._/*?{},\[\]-]`, no `..` segment, no leading `/` | fence patterns; resolved matches are containment-checked against the repo root |
 | `run.split_above`, `run.retries`, `run.coverage_threshold` | non-negative integers | compared numerically |
 | `run.max_wall_time` | `^[0-9]+[mh]$` | a duration the run converts to seconds |
+| `decisions` | a map whose keys are among `defaults`, `architect_fail`, `split`, `infra_stop` and `changed_statements` | an unknown key — a misspelled policy — would otherwise be ignored and its policy silently take the default |
+| `decisions.defaults` | a map | read as field-to-answer pairs |
 | `decisions.defaults` keys | a decide field name, `^[a-z-]+$` | names the decide field the answer is for |
-| `decisions.defaults` values | one line — no newline, carriage return or NUL — non-empty, no `\|`, and the named field's class in [decision-record.md](../../run/references/decision-record.md) §3 | each becomes a `decision:` line and an `A<n> \| <answer>` ledger line, where `\|` separates columns |
+| `decisions.defaults` values | one line — no newline, carriage return or NUL — non-empty, no `\|`; the decide stage checks the answer against its value's class in [decision-record.md](../../run/references/decision-record.md) §3 when it takes it, as it checks every answer ([stage-3-decide.md](../../run/references/stage-3-decide.md) §4) | each becomes a `decision:` line and an `A<n> \| <answer>` ledger line, where `\|` separates columns |
 | `decisions.architect_fail` | `revise-once` or `decline` | selects what an architect fail does |
 | `decisions.split` | `confirm` or `override` | selects how a proposed split is answered |
 | `decisions.infra_stop` | exactly `abort` | the only infrastructure-stop policy |
@@ -343,7 +345,7 @@ Nothing runs after a failure, and the run does not edit the profile.
 1. `version` is `1`.
 2. `attendance` is `semi` or `unattended`. Any other value fails with
    `profile: attendance — <value> is not a mode (semi | unattended) — run /deepen:setup`.
-3. Every present field matches its §3 class; the `decisions.*` fields only when `attendance` is
+3. Every present field matches its §3 class; `decisions` and its fields only when `attendance` is
    `unattended`.
 4. `base` exists on `origin`.
 5. `loop_clone` resolves (after §3's `~` expansion) to a git checkout whose current branch is `base`
@@ -384,7 +386,8 @@ Nothing runs after a failure, and the run does not edit the profile.
 18. When `attendance` is `unattended`, every key of `decisions.defaults` names one of the fields
     [stage-3-decide.md](../../run/references/stage-3-decide.md) §4's table assigns to §5, and
     that field's §5 entry states no default; and every §5 field that states no default has an
-    entry. A key naming no §5 field fails with
+    entry. A §5 entry states a default when it has a `Default:` sentence, or — for the conditional
+    `rewrite` and `create-context` questions — when it gives an `accept` option. A key naming no §5 field fails with
     `profile: decisions.defaults.<key> — not a decide field — run /deepen:setup`; a key naming a
     field with a stage default fails with
     `profile: decisions.defaults.<key> — stage 3 answers it with its own default — remove the entry (run /deepen:setup)`;

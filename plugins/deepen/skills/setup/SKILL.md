@@ -350,7 +350,7 @@ only write is `<state_dir>/readiness.md`.
    - `-- <field>: <reason>` — a rule that could not be evaluated (no `origin` reachable for rule 4,
      or its field failed its rule 3 class and is never passed to a command).
 
-   When `attendance` is `semi`, rule 18 and the `decisions.*` part of rule 3 print
+   When `attendance` is `semi`, rule 18 and the `decisions` part of rule 3 print
    `-- decisions: attendance is semi — the block is not read`.
 4. Print the run instant's effective source — `now: profile <value>` when `app.now` is set, else
    `now: base-commit — app.now is null` ([profile.md](references/profile.md) §2). An `app.now`
@@ -358,7 +358,8 @@ only write is `<state_dir>/readiness.md`.
    attendance line — `attendance: semi`, or
    `attendance: unattended — architect_fail <v>, split <v>, infra_stop abort, changed_statements head-pack, defaults <n>`
    with the effective values, defaults applied for absent keys; a `decisions:` block that failed
-   rule 3 or 18 prints `attendance: unattended — decisions invalid, see its FAIL line`. Both lines
+   rule 3 or 18 prints `attendance: unattended — decisions invalid, see its FAIL line`, and an
+   `attendance` that failed rule 2 prints `attendance: invalid, see its FAIL line`. Both lines
    are informational: neither is a check, and neither counts in step 6's `<n>`.
 5. Refresh the report through [readiness.md](references/readiness.md) §5 and print its diff —
    unless `state_dir` fails its §3 class or rule 6, or does not exist: then print the rendered

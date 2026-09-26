@@ -293,8 +293,8 @@ the next question is the first of the eleven fields below with no current value.
    hard to reverse, surprising without context, the result of a real trade-off — numbered one above
    the highest `<CLONE>/docs/adr/[0-9][0-9][0-9][0-9]-*.md`, or `0001` when there is none. A pick
    whose `adr_conflict` is not `none` names that decision in the question, and the default says
-   whether a new ADR supersedes it. Default `targets: none` when no term and no decision
-   changes.
+   whether a new ADR supersedes it. Default: the drafted diffs and their `targets:` line —
+   `targets: none` when no term and no decision changes.
 9. **`predicted`** — the inventory statements the change is expected to alter, each
    `<statement-id> | before: <then> | after: <expected then>`, from the summary's statement lines.
    Default: the statements whose `<then>` the interface answer changes — for a pure deepening,
