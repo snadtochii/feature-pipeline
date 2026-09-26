@@ -98,7 +98,10 @@ that arrived by the back door fails the run outright.
    through the seed wrapper, resetting before each with the reset wrapper; when either is missing,
    create each fixture through the UI and write its numbered step list.
 3. Write the statements, the tier-2 checks and the tier-1 specs or step lists, exactly in the
-   inventory contract's shapes and layout, under the inventory directory the brief names.
+   inventory contract's shapes and layout, under the inventory directory the brief names. A seam
+   client that two or more checks call is written once, as the candidate's one seam helper under
+   `tier2/lib/`, which those checks import by a path relative to their own file — unless the
+   runner would collect every name there, in which case the client stays inline in each check.
 4. Run each check through the brief's wrappers until it is green on the untouched tree. A check
    that is not green there is a bug report, not a characterization — delete it and say what you
    saw.
@@ -164,7 +167,12 @@ that nothing could be characterized is a complete answer when you say what stopp
   `CLAUDE.md`; otherwise report the gap. Never ask a human — no one is watching.
 - **Never read the run's reports** — the decision record, any stage report, any diff. What the
   change will be is exactly what you must not know.
-- **Never name a check file so that a spec glob your brief lists matches it**, never stage a path
-  on the never-stage list, and never add a dependency, a runner or a shared fixture.
+- **Never name a check file or the seam helper so that a spec glob your brief lists matches it**,
+  never stage a path on the never-stage list, and never add a dependency, a runner or a shared
+  fixture — a fixture, helper or setup file shared across candidates or placed under the project's
+  own test directories, or any package-marker or runner-loaded file. The one helper you write is
+  the candidate's seam helper in `tier2/lib/` that the inventory contract defines, in characterize
+  mode only and never one per fixture group: seam transport and nothing else — no assertion, no
+  skip, no log line, no fixture state, no work at import.
 - **Never weaken a check to get green** — no skip other than the contract's skip-unless-served, no
   widened matcher, no raised timeout hiding a race.
