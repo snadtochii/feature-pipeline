@@ -92,7 +92,8 @@ context, never in a file. Step 4a takes it again before it derives the `new-spec
 the implementer and the spec-mover hold `Bash`, and a shell write outside `<WT>` passes the fence
 unseen ([fence.md](fence.md) §8).
 
-The hook is the matcher here as everywhere, so the check and the fence can never disagree.
+The hook is the matcher here as for every write check, so the check and the fence can never
+disagree.
 
 **Unattended.** Every stop of this stage — the denial above, §4 step 3's undeclared rename and
 §4 step 4a's check 4, the missing specs — writes no `## Options`, so the run skill offers only a
@@ -147,7 +148,8 @@ data, never as a link:
    re-entry, also the `findings:` reply contract, and that an absent or malformed block fails the
    attempt.
 7. `attempt <n> of <budget>`.
-8. On attempt 2 onward, the last 200 lines of the previous attempt's failure; on a re-entry's
+8. On attempt 2 onward, the last 200 lines of the previous attempt's failure — the second run's
+   when the gate re-ran (step 5a); on a re-entry's
    first attempt, `failing_check`'s command and output tail. On a `findings` re-entry's first
    attempt, the findings verbatim, as data, with the statement that they are authorized in
    addition to the decision record and that nothing else is; on its later attempts, every finding
@@ -238,9 +240,51 @@ data, never as a link:
    carried into the next attempt like any other.
 5. **Gate.** Write `checks.runner` (with `app.prelude` when set) verbatim into
    `<state_dir>/runs/<run-id>/runner.sh` with `Write` and run
-   `cd "<WT>" && bash "<state_dir>/runs/<run-id>/runner.sh"` (the profile's script-file rule,
-   [profile.md](../../setup/references/profile.md) §3). Green → the stage is complete. Red → the
-   next attempt, carrying the output tail.
+   `cd "<WT>" && bash "<state_dir>/runs/<run-id>/runner.sh" > "<state_dir>/runs/<run-id>/gate-output.txt" 2>&1`
+   (the profile's script-file rule, [profile.md](../../setup/references/profile.md) §3). Its exit
+   status decides. Green → the stage is complete. Red → the output tail is the last 200 lines of
+   `gate-output.txt`, and step 5a decides whether the red run is the failed attempt.
+
+   5a. **Re-run, at most once.** A red gate whose failing specs all lie outside the run's changes
+   runs once more before the attempt counts, so a timing flake in a spec no commit touched spends
+   no attempt, while a regression in such a spec — one that imports a changed module — stays red
+   and fails the attempt. In order:
+   1. **Failing set.** From the tail, skip every line carrying a whitespace-separated pass-marker
+      token (`✓`, `✔`, `√`, `PASS`, `PASSED`). Split each remaining line on whitespace and
+      normalize each token: strip ANSI escape sequences and C0 controls; strip surrounding `(`,
+      `)`, `"`, `'` and `` ` ``, and a trailing `,`; cut at the first `:`; strip a leading `<WT>/`
+      or `./`. Keep a token that
+      - matches the spec-path character class of [decision-record.md](decision-record.md) §3,
+        with its rules — no leading `/`, no `..` segment, no segment starting with `-`;
+      - matches a `paths.specs` glob under [fence.md](fence.md) §2's grammar, decided textually,
+        or equals a path of the record's `New specs` section; and
+      - exists — a `Read` of `<WT>/<token>` with `limit: 1` succeeds.
+
+      Deduplicate, keeping tail order. Glob membership is never a `Glob` call per spec glob: the
+      tool truncates a large result set, which would drop real failing files. Nor is it a probe of
+      the fence hook: this is not a write check, the textual decision keeps every token out of a
+      shell command, and a mismatch only spends or skips one gate run — only a green run of the
+      full runner completes the stage.
+   2. **Touched set.** `git -C "<WT>" diff -z --name-only --no-renames "<BASE_SHA>..HEAD"`, read
+      per [fence.md](fence.md) §7 — every path any commit of the run touched, both sides of a
+      move. A path outside the spec-path character class is dropped: no kept token can equal it.
+      The command exiting non-zero leaves the touched set unknown, and the red gate is the failed
+      attempt.
+   3. **Decide.** The failing set empty, or any of its paths in the touched set → the red gate is
+      the failed attempt, carrying its tail. Otherwise hold the first run's first failing line —
+      the first tail line carrying a failing-set path — then run the gate once more, the same
+      `runner.sh` with the same redirect. Green → the stage is complete. Red → the failed attempt,
+      carrying the second run's tail. Either way the re-run is one line of the report (§7
+      item 10).
+
+   The re-run is never an attempt. It spends only wall time on the shared clock, and the bound
+   check before the next spawn is unchanged: the re-run is made even when the first run spent
+   `run.max_wall_time`, since the bound is checked between attempts. It is never a stop and adds
+   no `needs-decision`, attended or unattended, and the same rule holds on a first pass and on
+   both re-entries. Failing-set tokens and touched paths are class-checked before any use and
+   reach only the `Read` existence check, the string comparison and the report line — never a
+   shell command, a `Grep` or a `Glob` pattern; the `git diff` call takes no output-derived
+   argument.
 
 **No runner.** `checks.runner` null → the stage makes exactly one attempt, and the report and the
 evidence pack both carry `stage 4: gate skipped — no runner`.
@@ -308,3 +352,11 @@ a `failing_check` re-entry.
 9. On a re-entry, the `failing_check` it started from, under its own heading; on a `findings`
    re-entry, a `## Fix round` heading with the findings it started from and each finding's latest
    outcome — `applied`, or `not applied — <reason>`. The earlier entries are kept.
+10. Every gate re-run (§4 step 5a), one line each under a `## Gate re-run` heading, present only
+    when a re-run happened; the earlier entries are kept —
+    `<first pass | failing_check re-entry | fix round> attempt <n>: re-run <green | red> — failing files <paths> untouched by <range>; first run: <line>`.
+    `<paths>` are the first 5 failing-set paths in tail order, `, `-joined, then ` and <k> more`
+    when there are more; `<range>` is `<first 12 of BASE_SHA>..<first 12 of HEAD>`, the commits
+    the touched set was read from; `<line>` is the first run's held failing line, cleaned
+    (controls and ANSI escape sequences stripped, `|` written `/`, cut at 200 characters). The
+    paths are class-checked and need no cleaning.
