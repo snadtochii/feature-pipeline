@@ -258,8 +258,14 @@ On both paths. `Read` `<runs>/cost.tsv`; no ledger → the one line `run cost: l
 - **Wall time** — `$(( $(date +%s) - <started_epoch> ))` seconds, rendered `<h>h <m>m`;
   `wall time: not measured` when `started_epoch` failed its class (§1).
 - **Retries** — from `4-implement.md`: one `Grep` for `attempt` over it, and the lines stating the
-  attempts used of the budget and the elapsed wall time, and every `## Gate re-run` line, verbatim
-  — the first pass's and every re-entry's. No report → `implement: not reached`.
+  attempts used of the budget and the elapsed wall time, verbatim — the first pass's and every
+  re-entry's. Then its `## Gate re-run` section, when the heading map (§4) has one: one bounded
+  `Read` of it, and each line there matching
+  `^(first pass|failing_check re-entry|fix round) attempt [0-9]+: re-run (green|red) — failing files .+ untouched by [0-9a-f]{12}\.\.[0-9a-f]{12}; first run: `,
+  cleaned again on copy (controls stripped, every `<WT>/` removed, `|` written `/`). A gate
+  re-run line is taken only from that section, never from the `attempt` `Grep`: a `failing_check`
+  tail or an agent's reported text elsewhere in the report can read the same. No report →
+  `implement: not reached`.
 
 The same lines go into the pack's section 7 and the report's `## Run cost`.
 
