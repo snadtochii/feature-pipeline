@@ -253,18 +253,19 @@ data, never as a link:
       token (`✓`, `✔`, `√`, `PASS`, `PASSED`). Split each remaining line on whitespace and
       normalize each token: strip ANSI escape sequences and C0 controls; strip surrounding `(`,
       `)`, `"`, `'` and `` ` ``, and a trailing `,`; cut at the first `:`; strip a leading `<WT>/`
-      or `./`. Keep a token that
+      or `./`. Deduplicate the normalized tokens, keeping tail order — a runner tail repeats a
+      failing spec's path in every stack frame and summary line, so the tests below run once per
+      distinct token. Keep a token that
       - matches the spec-path character class of [decision-record.md](decision-record.md) §3,
         with its rules — no leading `/`, no `..` segment, no segment starting with `-`;
       - matches a `paths.specs` glob under [fence.md](fence.md) §2's grammar, decided textually,
         or equals a path of the record's `New specs` section; and
       - exists — a `Read` of `<WT>/<token>` with `limit: 1` succeeds.
 
-      Deduplicate, keeping tail order. Glob membership is never a `Glob` call per spec glob: the
-      tool truncates a large result set, which would drop real failing files. Nor is it a probe of
-      the fence hook: this is not a write check, the textual decision keeps every token out of a
-      shell command, and a mismatch only spends or skips one gate run — only a green run of the
-      full runner completes the stage.
+      Glob membership is never a `Glob` call per spec glob: the tool truncates a large result
+      set, which would drop real failing files. Nor is it a probe of the fence hook: this is not a
+      write check, the textual decision keeps every token out of a shell command, and a mismatch
+      only spends or skips one gate run — only a green run of the full runner completes the stage.
    2. **Touched set.** `git -C "<WT>" diff -z --name-only --no-renames "<BASE_SHA>..HEAD"`, read
       per [fence.md](fence.md) §7 — every path any commit of the run touched, both sides of a
       move. A path outside the spec-path character class is dropped: no kept token can equal it.
