@@ -93,8 +93,8 @@ common abort.
    `base-commit`. The profile and `<BASE_SHA>` are fixed within a run, so a §0 retry computes the
    same pair.
 2. **The pick.** From the `## Pick` block, only `id`, `name`, `files` and `structural_key` travel
-   to the QA role. `next_change`, `category`, `est_diff_lines` and `adr_conflict` describe the
-   intended change and stay out of every brief. Write `files` one per line to `<runs>/touched-files`.
+   to the QA role. `next_change`, `next_sites`, `category`, `est_diff_lines` and `adr_conflict`
+   describe the intended change and stay out of every brief. Write `files` one per line to `<runs>/touched-files`.
    A file absent at `<BASE_SHA>` is a report line; its functions cannot be listed.
 3. **Glossary.** `<WT>/CONTEXT.md` when present, verbatim. Absent → capability row 11's line and
    the matrix is `derived`.

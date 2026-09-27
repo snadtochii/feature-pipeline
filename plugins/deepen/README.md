@@ -48,7 +48,10 @@ which inventory statements are expected to change — each with a proposed defau
 human (`semi`) or by that default (`unattended`). It reads the
 inventory's summary and never its checks, and writes to no working tree: the answers become the
 run's decision record, with `CONTEXT.md` and ADR edits carried in it as proposed diffs
-that the implementer applies in stage 4. The read-only `architect` agent then judges the record
+that the implementer applies in stage 4. The named next change carries the edit sites it cites,
+and before any architect round every site must exist at the base commit and be named in the
+record's seam or excluded with a reason — a premise that fails is asked again, never judged.
+The read-only `architect` agent then judges the record
 against the named next change; a fail is revised, overridden or declined by the human, or, unattended,
 handled by `decisions.architect_fail`.
 When the estimated diff exceeds `run.split_above`, the architect proposes a sequence of
@@ -76,8 +79,8 @@ Stage 6 (deliver) re-checks stage 5's gate — an empty verification table or a 
 line fails the run, pushes nothing, and keeps the branch diff as `abort.patch` — then renders the
 evidence pack and opens it as the body of a draft pull request: under `unattended`, the mode on
 its first line and every decision the run took by default right after its lead lines; the
-candidate and its named next change; the verification table, with every `changed` statement's
-before and after; touched-function coverage, the uncovered functions and the mutation result; the
+candidate, its named next change and the edit sites it cites; the verification table, with every
+`changed` statement's before and after; touched-function coverage, the uncovered functions and the mutation result; the
 architect's verdict on the diff and the reviewers' findings; the decision record; the degradations
 that applied; and the run's cost. It records the candidate in `<state_dir>/memory.md` — `opened`
 with the pull request's URL, or `declined` with the reason — the human's, or, unattended, the

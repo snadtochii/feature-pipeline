@@ -19,9 +19,10 @@ shipped as a script, [`../scripts/candidate-id.sh`](../scripts/candidate-id.sh),
 ## §1 The explorer's return shape
 
 Each candidate is a block of `<field>: <value>` lines, one field per line, in this order, blocks
-separated by one blank line. `name:` opens a block. After the last block, when the brief carried
-a pin, one `pin:` line — the `name` of the block that answers it, or `none — <why>` — and then
-one `notes:` line.
+separated by one blank line. `next_sites` is the one field that repeats: one `next_sites:` line
+per site, consecutive, directly after `next_change`. `name:` opens a block. After the last block,
+when the brief carried a pin, one `pin:` line — the `name` of the block that answers it, or
+`none — <why>` — and then one `notes:` line.
 
 | Field | Value |
 | --- | --- |
@@ -31,6 +32,7 @@ one `notes:` line.
 | `files` | the repo-relative paths of the cluster, comma-separated, no spaces |
 | `structural_key` | §3 |
 | `next_change` | one line: the named next change this deepening makes cheaper |
+| `next_sites` | one line per site: `<repo-relative path>:<line> — <what the named next change edits there today>` — where that change's edit would land in the code as it stands; at least two, every path among the block's `files` |
 | `est_diff_lines` | an integer: the estimated diff lines the deepening itself takes, in the measure [decision-record.md](decision-record.md) §4 defines |
 | `deletion_test` | one line: what deleting the shallow module would do — complexity vanishes, or reappears across N callers |
 | `friction` | one line: the friction met while walking the code that marks this cluster |
@@ -41,7 +43,10 @@ one `notes:` line.
 - The explorer returns **no `id`**. Ids are minted by the discover stage (§4), never by a model.
 - A block missing a field, with a field out of its class (§7), or with a `category` outside §2 is
   dropped by the discover stage with a report line naming the block's `name` and the field — never
-  repaired, never guessed.
+  repaired, never guessed. `next_sites` is the exception: a block whose only failing field is
+  `next_sites` — absent, out of class, or fewer than two sites — is minted and then filtered by the
+  discover stage ([stage-1-discover.md](stage-1-discover.md) §6), listed under the report's
+  `## Filtered` with the reason `next_sites: <what failed>`.
 
 ---
 
@@ -144,10 +149,10 @@ rank, tier, id, in this order ([stage-1-discover.md](stage-1-discover.md) §1) �
 | `memory` | the candidate's [memory.md](memory.md) status, or `—` |
 
 A `|` in a free-text cell (`name`, `next_change`, `adr_conflict`) is written as `/`, so every row
-has exactly the table's columns.
+has exactly the table's columns. `next_sites` is not a column: the `## Pick` block carries it.
 
 The picked candidate is written again as the report's `## Pick` block, one `- <field>: <value>`
-line per field, in this order — the block the later stages read:
+line per field, in this order — the block the later stages read, ten lines after its heading:
 
 ```
 ## Pick
@@ -158,14 +163,19 @@ line per field, in this order — the block the later stages read:
 - files: <files>
 - structural_key: <structural_key>
 - next_change: <next_change>
+- next_sites: <site> | <site> | ...
 - est_diff_lines: <est_diff_lines>
 - adr_conflict: <adr_conflict>
 ```
 
+`next_sites` keeps to one line like every other field: it joins the candidate's sites, each
+verbatim, with ` | `. §7 bars `|` from a site, so a reader splits the line on ` | ` back into
+the sites unambiguously.
+
 The block is the same whoever picked the candidate: the human at the pick question, or an
 unattended run's rank rule ([stage-1-discover.md](stage-1-discover.md) §8), which takes the ranked
 list's first row. That rule's `pick: rank <n> (unattended)` marker is a report line of its own,
-never a tenth line in the block.
+never an eleventh line in the block.
 
 ---
 
@@ -180,7 +190,8 @@ its id otherwise. It is recorded in the run state beside the candidate id.
 ## §7 Value classes
 
 Checked by the discover stage on every returned block before the record reaches the records file
-or the report. A value outside its class drops the candidate (§1).
+or the report — `next_sites` on each minted candidate, before the report is written. A value
+outside its class drops the candidate (§1); a `next_sites` failure filters it instead.
 
 | Field | Class |
 | --- | --- |
@@ -191,6 +202,7 @@ or the report. A value outside its class drops the candidate (§1).
 | `structural_key` | comma-separated elements; none empty or containing a tab, a newline or a `\|` |
 | `est_diff_lines` | `^[0-9]+$` |
 | `next_change`, `deletion_test`, `friction`, `adr_conflict` | one line, non-empty |
+| `next_sites` | each site `^\S+:[0-9]+ — .+$`: its path in the spec-path character class of [decision-record.md](decision-record.md) §3, repo-relative, no leading `/`, no `..` segment, no segment starting with `-`, and one of the block's `files`; its line a single number, never a range; its description one line with no `\|`. At least two sites. The `## Pick` line is split on ` \| ` (§5) before each site is checked |
 
 The records file is written with `Write`, never assembled on a command line, and the script
 reads it as data.

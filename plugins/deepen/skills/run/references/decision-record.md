@@ -15,9 +15,10 @@ before it is written, the one measure of a change's size, and which stage reads 
   ([stage-6-deliver.md](stage-6-deliver.md) §4), which lists the record in the evidence pack.
 
 The record is written with `Write` and read with `Read`. Its paths — the spec paths, the spec
-moves' destinations, the new-spec paths and the `targets:` paths — do reach a command line, as
-values in the decide stage's absent-at-base probe of each new-spec path
-([stage-3-decide.md](stage-3-decide.md) §6), in the implement stage's pre-spawn fence probe
+moves' destinations, the new-spec paths, section 11's site paths and the `targets:` paths — do
+reach a command line, as values in the decide stage's absent-at-base probe of each new-spec path
+and its present-at-base probe of each site path ([stage-3-decide.md](stage-3-decide.md) §6), in
+the implement stage's pre-spawn fence probe
 ([stage-4-implement.md](stage-4-implement.md) §2), in its absent-at-base check of each new-spec
 path after the spec-author returns ([stage-4-implement.md](stage-4-implement.md) §4), and in the
 spec-mover's moves and deletions; §3's closed path classes are what keep them data. Nothing else
@@ -54,7 +55,7 @@ section with no entries holds the literal line `none`.
 | 8 | `## Proposed CONTEXT.md and ADR diffs` | a `targets: <path>, <path>` line, then one fenced `diff` block per target; or `targets: none` and no block |
 | 9 | `## Predicted changed statements` | one line per inventory statement the change is expected to alter, below; or `none` |
 | 10 | `## Estimated diff lines` | one integer, in §4's measure |
-| 11 | `## Named next change` | one line: the change this deepening makes cheaper — the architect's premise |
+| 11 | `## Named next change` | the change line — one line: the change this deepening makes cheaper, the architect's premise; then one `sites: <path>:<line> — <what the change edits there today>` line per site, at least two; then one `excluded: <path>:<line> — <reason>` line per site the seam leaves outside it, or none |
 | 12 | `## New specs` | one repo-relative path per line — the unit spec the change adds for a module it introduces, below; or `none` |
 
 **Rename map.** The block is the implementer's reply format
@@ -124,7 +125,9 @@ class is not written: the section's question is asked again with the reason.
 | `<statement-id>` | `^S[0-9]{2,3}$`, present in the inventory summary |
 | `before` | equal to that statement's `<then>`, character for character |
 | the estimate | `^[0-9]+$` |
-| a reason, `after`, a term's definition, the named next change | one line, non-empty, `\|` written `/` |
+| a reason, `after`, a term's definition, section 11's change line | one line, non-empty, `\|` written `/` |
+| a `sites:` line (section 11) | `^sites: \S+:[0-9]+ — .+$`; its path in the spec-path character class, repo-relative, no leading `/`, no `..` segment, no segment starting with `-`; present at `<BASE_SHA>` — `git -C "<CLONE>" cat-file -e "<BASE_SHA>:<path>"` exits zero, run only on a path that has passed the class; its line a single number; its description one line, non-empty, `\|` written `/`; each `<path>:<line>` once in the section; at least two in the section |
+| an `excluded:` line (section 11) | `^excluded: \S+:[0-9]+ — .+$`; its `<path>:<line>` equal to a `sites:` line's in the section, once; its reason one line, non-empty, `\|` written `/` |
 | a `- slice:` line | `<k>` and `<N>` integers with `1 ≤ k ≤ N`, `N ≥ 2`; title one line |
 
 Prose sections (2, 3) are non-empty and are not `none`. A carriage return in any answer is
@@ -154,7 +157,8 @@ it. A split is proposed when the estimate is strictly greater than `run.split_ab
 
 | Reader | Reads | For |
 | --- | --- | --- |
-| the architect, on a proposal and on a diff | the whole record, verbatim | its verdict; section 11 is the premise of its first question |
+| the architect, on a proposal and on a diff | the whole record, verbatim | its verdict; section 11 — the change line with its `sites:` and `excluded:` lines — is the premise of its first question on both triggers |
+| decide — the site check ([stage-3-decide.md](stage-3-decide.md) §6) | sections 2, 3 and 11 | every site present at `<BASE_SHA>`, and named in section 2 or 3 or carried on an `excluded:` line |
 | implement — the implementer's brief | the whole record, verbatim | the change to make |
 | implement — the pre-spawn target check ([stage-4-implement.md](stage-4-implement.md) §2) | the `targets:` line; the spec moves in section 6; section 5; section 12 | probing every planned write against the fence |
 | implement — the rename-map check and the spec-mover | sections 5 and 6 | the declared entries; the paths the spec-mover may delete |

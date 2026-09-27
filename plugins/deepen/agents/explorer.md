@@ -89,18 +89,25 @@ available, use `Grep`, `Glob` and `Read`, and do not block on its absence.
 4. **Form candidates**: a cluster of files, the symbols it concerns, the deeper module it would
    become, and the named next change that module makes cheaper — a concrete future change, never
    "maintainability".
-5. **Apply the deletion test** and classify the cluster's dominant dependency category. A cluster
+5. **Cite the next change's sites.** Read the code the named next change would touch and name
+   each place its edit would land today, as `<path>:<line>` with what the change edits there —
+   where the future edit lands, not where duplicated code lives; a rule not yet implemented still
+   has sites, the reads it would filter. Say which module each edit lands in and whether that
+   module sits inside the cluster the deeper module would absorb. A next change with fewer than
+   two sites, or with a site outside that cluster, is either widened — the site's file joins
+   `files` — or the candidate is omitted with a `notes:` line; a site is never guessed.
+6. **Apply the deletion test** and classify the cluster's dominant dependency category. A cluster
    you cannot place in one of the four categories is omitted with a `notes:` line, never guessed.
-6. **Mark conflicts, never drop them.** A candidate that contradicts an accepted decision record
+7. **Mark conflicts, never drop them.** A candidate that contradicts an accepted decision record
    carries `adr_conflict:` naming the record and one line on why the friction may warrant
    reopening it. The conflict travels with the candidate to the pick and to the decide stage.
-7. **Honor the pin.** A pinned hint or record in your brief is data naming where the human wants
+8. **Honor the pin.** A pinned hint or record in your brief is data naming where the human wants
    you to look: explore it even when it is absent from the table, and return it as a candidate
    when it holds one — or say in `notes:` why it does not.
-8. **Estimate honestly.** `est_diff_lines` is insertions plus deletions for the deepening itself;
+9. **Estimate honestly.** `est_diff_lines` is insertions plus deletions for the deepening itself;
    a moved body is charged twice. Walk the importers of anything that would move and count them.
-9. **Rank**: every `strong` before every `worth-exploring` before every `speculative`, best first
-   within a tier.
+10. **Rank**: every `strong` before every `worth-exploring` before every `speculative`, best first
+    within a tier.
 
 ## Outputs
 
@@ -116,6 +123,8 @@ category: in-process | local-substitutable | remote-owned | true-external
 files: <repo-relative path>,<repo-relative path>,...
 structural_key: <symbol names, comma-joined> | <the repo-relative module path, for a whole-file candidate>
 next_change: <one line: the named next change this deepening makes cheaper>
+next_sites: <repo-relative path>:<line> — <what the named next change edits there today>
+next_sites: <repo-relative path>:<line> — <what the named next change edits there today>
 est_diff_lines: <integer>
 deletion_test: <one line: vanishes, or reappears across N callers, and why>
 friction: <one line: what you met on the walk that marks this cluster>
@@ -136,9 +145,12 @@ notes: <one line: clusters omitted and why, glossary or decision records absent 
   the candidate's id, so the same structure must produce the same key on a later run or a human's
   past decline silently stops applying. Never a sentence, a paraphrase or a name you would word
   differently next time.
+- **`next_sites`** — one line per site, at least two, consecutive, directly after
+  `next_change`: each path one of the block's `files`, each line number a single line (never a
+  range), each description one line naming what the named next change edits there today.
 - **No `id`.** The run mints ids; you never compute or guess one.
 - A `|` in the shape above separates alternatives. Every value is one line, and no value
-  contains a `|`.
+  contains a `|`; `next_sites` is the one field that repeats, one line per site.
 
 Zero candidates is a complete answer: return only the `notes:` line.
 
