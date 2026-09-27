@@ -195,7 +195,7 @@ once `state_dir` is known.
 
 ## §4 Confirm the undecidable
 
-Ask with `AskUserQuestion`, at most four questions per call, so the questions below — five, six
+Ask with `AskUserQuestion`, at most four questions per call, so the questions below — six, seven
 when `app.clock` is set — take two calls. Every question's first option is the recommendation: the existing profile value, else the
 probed value, else the documented default.
 
@@ -225,10 +225,26 @@ omitted says what was looked for and not found.
    the project's fixtures are pinned to a date and their loader refuses any other clock — and
    asks for a mid-day `Z` instant, `<date>T12:00:00Z`, checked against
    [profile.md](references/profile.md) §3's class and §4 rule 15.
+7. **Attendance** — recommendation: the existing `attendance`, else `semi` (documented default,
+   [profile.md](references/profile.md) §2). Options `semi` and `unattended`, each with its
+   one-line §2 meaning. An `unattended` answer brings the decisions questions in one follow-up
+   call, each with its rationale — the existing profile value, else the documented default with
+   its §2 meaning:
+   - `decisions.architect_fail` — the existing value, else `revise-once`; the alternative is
+     `decline`.
+   - `decisions.split` — the existing value, else `confirm`; the alternative is `override`.
+   - one question per field [profile.md](references/profile.md) §4 rule 18 permits in
+     `decisions.defaults` — none while every stage-3 §5 field states a default.
+
+   More than four decisions questions take further calls.
 
 Alongside the questions, show a **review block** (not asked): `app.*` commands, URL and readiness
 probe, `seams` with their auth, `app.browser_session`, `checks.*`, `paths.specs`, `app.install` / `app.prelude`,
-`attendance: semi`, and the `run.*` defaults — each with its rationale. A user correcting a value there is expected; a
+and the `run.*` defaults — each with its rationale. When question 7's answer is `unattended`,
+the review block is shown again alongside the decisions follow-up call, now with the profile's
+`decisions:` block: `architect_fail` and `split` as that call recommends them,
+`infra_stop: abort` and `changed_statements: head-pack` with the rationale `the only value`, and
+`defaults` (`{}` while stage 3 states every default). A user correcting a value there is expected; a
 value the user supplies that the probe cannot confirm is scored `unverified`. An unmatched spec
 glob, and a runner include that reaches nothing under the inventory directory (§2's
 collectability probe), are shown as blocking findings with their remedy: §6's validation will
@@ -280,7 +296,10 @@ In order:
 ## §6 Write the profile
 
 1. Compose `.deepen.yaml` per [profile.md](references/profile.md) §1 from the probe, the §4
-   answers and the review-block corrections. Always written: `version: 1`, `attendance: semi`.
+   answers and the review-block corrections. Always written: `version: 1` and question 7's
+   `attendance`. The profile's `decisions:` block is written only when `attendance` is
+   `unattended`, with all five keys (`defaults: {}` when empty); a semi profile carries none, so
+   switching to semi removes it and step 3's diff shows the removal.
 2. Evaluate **every** rule in [profile.md](references/profile.md) §4 against the composed file
    and list every failure, each with its field and remedy. Any failure → stop without writing;
    §7 reports the failures.
@@ -290,7 +309,8 @@ In order:
    remove the scratch directory. Declined → remove the scratch directory and write nothing.
 
 **Headless.** When no user can answer, run §1–§3, print the §4 questions with their recommended
-answers, the composed profile and its diff, and **write nothing** — no state directory, no report,
+answers — question 7 included, and the decisions questions when the existing profile is
+`unattended` — the composed profile and its diff, and **write nothing** — no state directory, no report,
 no clone, no profile. Validation failures are listed but do not stop the printed proposal and
 diff: rules 5 and 6 fail whenever nothing has been provisioned. An answer is never assumed from
 silence.
@@ -329,10 +349,18 @@ only write is `<state_dir>/readiness.md`.
      `re-run /deepen:setup`;
    - `-- <field>: <reason>` — a rule that could not be evaluated (no `origin` reachable for rule 4,
      or its field failed its rule 3 class and is never passed to a command).
+
+   When `attendance` is `semi`, rule 18 and the `decisions` part of rule 3 print
+   `-- decisions: attendance is semi — the block is not read`.
 4. Print the run instant's effective source — `now: profile <value>` when `app.now` is set, else
    `now: base-commit — app.now is null` ([profile.md](references/profile.md) §2). An `app.now`
-   that failed rule 3 or 15 prints `now: profile — invalid, see its FAIL line`. This line is
-   informational: it is not a check and never counts in step 6's `<n>`.
+   that failed rule 3 or 15 prints `now: profile — invalid, see its FAIL line`. Then print the
+   attendance line — `attendance: semi`, or
+   `attendance: unattended — architect_fail <v>, split <v>, infra_stop abort, changed_statements head-pack, defaults <n>`
+   with the effective values, defaults applied for absent keys; a `decisions:` block that failed
+   rule 3 or 18 prints `attendance: unattended — decisions invalid, see its FAIL line`, and an
+   `attendance` that failed rule 2 prints `attendance: invalid, see its FAIL line`. Both lines
+   are informational: neither is a check, and neither counts in step 6's `<n>`.
 5. Refresh the report through [readiness.md](references/readiness.md) §5 and print its diff —
    unless `state_dir` fails its §3 class or rule 6, or does not exist: then print the rendered
    report, write nothing, and name the reason.

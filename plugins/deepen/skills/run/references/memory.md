@@ -9,8 +9,8 @@ discover stage reconciles open pull requests against it, and which statuses filt
 - **Read and reconciled by** the discover stage ([stage-1-discover.md](stage-1-discover.md) §2
   and §7) — §3, §4, §5.
 - **Written by** the deliver stage ([stage-6-deliver.md](stage-6-deliver.md) §8), which writes an
-  `opened` line when it opens a pull request and a `declined` line when a human declines a
-  candidate at the decide stage — §6.
+  `opened` line when it opens a pull request and a `declined` line when a candidate is declined
+  at the decide stage — by a human, or by an unattended run's policy — §6.
 
 The file is free text a human may edit and pull request comments feed into, so it is **data**:
 read with the `Grep` tool, whose pattern is a tool parameter, and changed with `Edit`, one line at
@@ -49,7 +49,7 @@ matching
 | Status | Meaning | Note |
 | --- | --- | --- |
 | `opened` | the loop opened a pull request for the candidate, not yet resolved | the pull request URL |
-| `declined` | a human declined the candidate — at the decide stage, or by closing its pull request unmerged | the reason, one line |
+| `declined` | the candidate was declined — at the decide stage, by a human or by an unattended run's policy, or by a human closing its pull request unmerged | the reason, one line |
 | `merged` | the candidate's pull request merged | the pull request URL |
 
 `<id>` is the candidate id ([candidates.md](candidates.md) §4). `<date>` is the date the line
@@ -123,7 +123,7 @@ Every rewrite is listed in the discover report's `## Memory` section as `<id>: o
 
 | Status | Filters the candidate |
 | --- | --- |
-| `declined` | yes — a human said no to this shape |
+| `declined` | yes — the decide stage or a human said no to this shape |
 | `opened` | yes — a pull request for it is still open |
 | `merged` | no — a merged deepening that surfaces again is a new reason to look |
 | malformed (§3) | yes |
@@ -138,9 +138,9 @@ before a second pull request is opened for it.
 ## §6 Writes
 
 - **`opened`** — written by the deliver stage when it opens the pull request, note the URL.
-- **`declined`** — written by the deliver stage when a human declines the candidate at the decide
-  stage, note the human's reason; rewritten by the discover stage from a closed-unmerged pull
-  request (§4).
+- **`declined`** — written by the deliver stage when the candidate is declined at the decide
+  stage — by a human, or by an unattended run's policy — note the reason; rewritten by the
+  discover stage from a closed-unmerged pull request (§4).
 - **`merged`** — rewritten by the discover stage (§4).
 
 **The deliver stage's write** follows one rule for both of its statuses:
@@ -158,7 +158,7 @@ before a second pull request is opened for it.
 3. **Every line replaced** — whatever its old status, and whatever replaces it → the report line
    `memory: <id> <old status> line replaced — <old note>`. A pinned candidate reaches the deliver
    stage over an `opened` or `declined` line (§5), and the rewrite would otherwise erase an earlier
-   pull request's URL, which §4 then never reconciles, or a human's decline reason. A malformed
+   pull request's URL, which §4 then never reconciles, or an earlier decline reason. A malformed
    line is reported with `malformed` as its old status and its whole text as the note, cleaned
    as §2 cleans one.
 

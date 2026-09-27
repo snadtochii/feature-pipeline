@@ -116,7 +116,8 @@ Compare those three against the values bound in §1. **If any differs, release t
 original `<CLONE>`, stop, and report which key changed from what to what.** Do not re-run
 preflight against the new values in the same run; the next run starts clean from them.
 
-Every other setting rebinds from the re-read copy.
+Every other setting rebinds from the re-read copy — `attendance` among them, which the run skill
+records in the run state after this step ([../SKILL.md](../SKILL.md) §2).
 
 ---
 

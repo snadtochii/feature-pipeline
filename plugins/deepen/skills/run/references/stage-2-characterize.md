@@ -4,8 +4,8 @@ Authoritative text for the stage that turns the picked candidate into the run's 
 the run worktree at `<BASE_SHA>`, starts the app on the untouched tree, has the fenced QA role
 write the behavior inventory without ever seeing a plan, replays every check itself, measures how
 much of the candidate's code the checks reach, and commits the inventory alone as the run branch's
-first commit. The stage either completes, stops for a human decision before a server starts, or
-aborts with evidence. A write outside the QA role's set fails the run and is never retried.
+first commit. The stage either completes, stops for a human decision before a server starts —
+unattended, retries once and then aborts (§3) — or aborts with evidence. A write outside the QA role's set fails the run and is never retried.
 
 It composes these references and restates none of them: [worktree.md](worktree.md) owns creating
 and binding the worktree, the exclusion list, the install and the abort;
@@ -25,7 +25,7 @@ Bound by the run skill before this stage starts:
 | Input | Source |
 | --- | --- |
 | `<CLONE>`, `<BASE_SHA>`, `<state_dir>`, the profile as re-read | [preflight.md](preflight.md) §1–§4 |
-| `<run-id>`, `<slug>`, `<plugin-root>`, `candidate_id` | the run state, `<state_dir>/runs/<run-id>/run-state` |
+| `<run-id>`, `<slug>`, `<plugin-root>`, `candidate_id`, `attendance` | the run state, `<state_dir>/runs/<run-id>/run-state` |
 | the `## Pick` block | `<state_dir>/reports/<run-id>/1-discover.md` ([candidates.md](candidates.md) §5) |
 | `CONTEXT.md` | `<WT>` at `<BASE_SHA>` |
 
@@ -129,7 +129,16 @@ browser session when browser session wanted (§2 step 4), and no coverage env. A
 - A port-busy or not-ready stop writes the report with `characterize: needs-decision — <the
   line>`, the `## Options` of [dev-server.md](dev-server.md) §2 or §4, and the §0 `resume:` line
   naming `§3`.
-- Seam auth that drops every seam re-applies §2 step 5 before the spawn.
+- Under `attendance: unattended` (the run state), that stop's `## Options` ends with its branch
+  ([../SKILL.md](../SKILL.md) §5): no `decision: retry` line yet under the report's
+  `## Decisions` → `unattended: retry — stage default`; one or more →
+  `unattended: abort — decisions.infra_stop — <remedy>`, the remedy
+  `stop what answers on <app.url>` for the port-busy stop and
+  `the server log tail is in this report` for the not-ready one. One retry per report, whichever
+  server stop spent it; §0 keeps the earlier `## Decisions` lines, so the count is on disk.
+- Seam auth that drops every seam re-applies §2 step 5 before the spawn. That abort, like a red
+  install ([worktree.md](worktree.md) §5), is not a stop: both abort in either attendance, so an
+  unattended run takes them exactly as a semi run does.
 
 ---
 
@@ -316,7 +325,8 @@ clear it.
 `<state_dir>/reports/<run-id>/2-characterize.md`, standing alone for a reader who did not watch:
 
 1. The status line — `characterize: complete`, `characterize: aborted — <the line>`, or
-   `characterize: needs-decision — <the line>` with `## Options` and the §0 `resume:` line.
+   `characterize: needs-decision — <the line>` with `## Options` — ending, under
+   `attendance: unattended`, with its `unattended:` line (§3) — and the §0 `resume:` line.
 2. Directly under it, the coverage gap line when §7 left one.
 3. `## Degradations` — every line §2 step 4 and the dev-server procedure produced (readiness,
    `seam-auth-failed`, residue, coverage lost), §6's UI-fixture line, plus a skipped install and

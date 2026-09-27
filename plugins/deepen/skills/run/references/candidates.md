@@ -162,6 +162,11 @@ line per field, in this order — the block the later stages read:
 - adr_conflict: <adr_conflict>
 ```
 
+The block is the same whoever picked the candidate: the human at the pick question, or an
+unattended run's rank rule ([stage-1-discover.md](stage-1-discover.md) §8), which takes the ranked
+list's first row. That rule's `pick: rank <n> (unattended)` marker is a report line of its own,
+never a tenth line in the block.
+
 ---
 
 ## §6 Slug

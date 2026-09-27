@@ -209,10 +209,12 @@ retry — the run skill:
    `specs`, an empty `paths.specs` means the spec-mover is skipped with a report line, not
    spawned. For `new-specs`, a `New specs` section of `none` means the spec-author is skipped
    with a report line, not spawned.
-3. Records the file's digest: `shasum -a 256 "<common-dir>/deepen-fence.json"`.
+3. Records the file's digest, `shasum -a 256 "<common-dir>/deepen-fence.json"`, and the run
+   state's, `shasum -a 256 "<state_dir>/runs/<run-id>/run-state"`, both kept in context.
 4. Runs the self-test (§6). A failure aborts before the spawn.
-5. After the spawn returns, re-hashes the file. A different digest is a violation (§7) — a role
-   rewrote the fence through a shell.
+5. After the spawn returns, re-hashes both. A different digest is a violation (§7) — a role
+   rewrote, through a shell, the fence or the run state every stage entry and every
+   `needs-decision` re-binds from ([../SKILL.md](../SKILL.md) §2), `attendance` among it.
 
 The file is cleared on every abort and at teardown ([worktree.md](worktree.md) §7 and §8). A fence
 file in a clone whose lock is free is residue.
@@ -306,7 +308,8 @@ return takes the list plus the verify clause:
 - **Ancestry** — `git -C "<WT>" merge-base --is-ancestor "<prev>" HEAD`. An amend or rebase of
   an earlier commit fails it.
 - **Inventory commit unchanged** — the first commit after `<BASE_SHA>` is still `<INV_SHA>`.
-- **Fence file unchanged** — the digest recorded in §5 step 3.
+- **Fence file unchanged** — the fence-file digest recorded in §5 step 3.
+- **Run state unchanged** — the run-state digest recorded in §5 step 3.
 - **Wrappers unchanged** — for a QA return, the wrapper scripts and the exclusion list hash as
   they did right before the spawn, and `<state_dir>/runs/<run-id>/browser-session.json` is absent or a regular file
   — its content is the QA role's own refresh, never hashed ([dev-server.md](dev-server.md) §1,
@@ -323,7 +326,8 @@ inventory commit exists, and leaves its files uncommitted for the stage to commi
   exclusion list aside, piped through `"<plugin-root>/hooks/fence.sh"` as a `Write` payload with
   `agent_type: "deepen:qa-characterizer"` while the fence file holds the characterize form. Any
   denial is a violation — a source file edited through a shell shows up here.
-- **Fence file unchanged** — the digest recorded in §5 step 3.
+- **Fence file unchanged** — the fence-file digest recorded in §5 step 3.
+- **Run state unchanged** — the run-state digest recorded in §5 step 3.
 - **Wrappers unchanged** — as in the list above; this is what keeps the exclusion list, which the
   previous bullet sets aside, from being grown by the role.
 
@@ -364,7 +368,8 @@ writes in its reply, and the stage records them in its report.
   makes the change. Rules about what a role may see stay in its brief.
 - **Shell writes are not intercepted.** `Bash` redirects, `sed -i` and heredocs pass no
   `PreToolUse` write hook. §7 catches such a write only where git or the digest shows it: a
-  changed tracked or untracked-unignored path in `<WT>`, or a rewritten fence file. A shell
+  changed tracked or untracked-unignored path in `<WT>`, a rewritten fence file, or a rewritten
+  run state. A shell
   write that git does not report — an ignored path, an exclusion-list path, a file hidden by
   index flags or git config, or a path outside `<WT>` — passes §7 unseen.
 - **Containment is textual.** Paths are normalized by collapsing `.` and `..` segments, never by
