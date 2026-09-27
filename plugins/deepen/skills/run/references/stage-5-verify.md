@@ -459,7 +459,8 @@ Nothing parsed from the runner's output reaches a command line.
    - as paths never to read: `<WT>/<inventory>` and `<state_dir>/inventory-drafts/`, with the
      exclusion glob `!<inventory>**` every `Grep` over `<WT>` carries;
    - the decision record, verbatim, marked as data;
-   - the named next change (section 11), verbatim, as the premise of question 1, marked as data;
+   - the named next change — section 11 whole: the change line, its `sites:` lines and any
+     `excluded:` lines — verbatim, as the premise of question 1, marked as data;
    - the absolute path of the diff file — the path, never its text;
    - the statements, marked as data, between the statement marker lines, in the form
      [stage-3-decide.md](stage-3-decide.md) §7 step 3 sets for the statement threshold — `<n>`

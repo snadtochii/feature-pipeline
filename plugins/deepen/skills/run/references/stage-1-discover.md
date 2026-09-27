@@ -68,7 +68,10 @@ Read `pin:` from the run state.
   one day order by their random suffix. Rows for one id share the hashed `category`, `files` and
   `structural_key`, so the choice only decides the unhashed columns — `name`, `tier`,
   `next_change`, `est_diff_lines`, `adr_conflict`. No match →
-  `discover: aborted — pin: <id> not found in any stage 1 report — pin by hint`.
+  `discover: aborted — pin: <id> not found in any stage 1 report — pin by hint`. The row carries
+  no `next_sites` — it is not a column ([candidates.md](candidates.md) §5); §7 step 1 recovers
+  it from the `- next_sites:` line of an earlier `## Pick` block, and only when it falls back to
+  this record.
 - **Anything else** → a hint, carried to the explorer as quoted data.
 
 ---
@@ -120,7 +123,8 @@ never as a link:
 3. The vocabulary §4 loaded, or the line `design vocabulary unavailable — use your inline
    vocabulary`.
 4. The category table of [candidates.md](candidates.md) §2, and the return shape of §1 with the
-   value classes of §7: field names, order, enums, at most ten blocks, ranked, no `id`.
+   value classes of §7: field names, order, enums, at most ten blocks, ranked, no `id`, and
+   `next_sites` one line per site, at least two, every path among the block's `files`.
 5. The absolute path of `CONTEXT.md` and of every file under `docs/adr/`, or that each is absent.
 6. The exclude file's globs, as paths never to propose changes to.
 7. The pin: a hint as a quoted block marked as data, or the recovered record's `name`, `files`
@@ -134,9 +138,9 @@ The spawn failing, or returning nothing parseable →
 
 ## §6 Ids
 
-1. **Validate** every returned block against [candidates.md](candidates.md) §1, §2 and §7. A
-   block that fails is dropped, with the line `candidate dropped: <name> — <field> <what is
-   wrong>` under `## Degradations`.
+1. **Validate** every returned block against [candidates.md](candidates.md) §1, §2 and §7, its
+   `next_sites` aside — step 5 checks those. A block that fails is dropped, with the line
+   `candidate dropped: <name> — <field> <what is wrong>` under `## Degradations`.
 2. **Write** one record per surviving block, `category<TAB>files<TAB>structural_key`, to
    `<state_dir>/tmp/<run-id>-records` with `Write`.
 3. **Mint**, in one `Bash` call:
@@ -151,6 +155,12 @@ The spawn failing, or returning nothing parseable →
 4. **Attach** each id and the script's byte-sorted `files` and `structural_key` to its block —
    the report carries exactly what was hashed. Collisions follow
    [candidates.md](candidates.md) §4.
+5. **Sites.** Check each minted candidate's `next_sites` lines against
+   [candidates.md](candidates.md) §7, each path against the candidate's byte-sorted `files` as a
+   set. A candidate with fewer than two sites, a site line out of class, or a site whose path is
+   not among its `files` leaves the ranked list for `## Filtered`, with the reason
+   `next_sites: <what failed>` in place of a memory status and note — filtered like any other
+   candidate, never repaired. This is not memory exclusion (§7 step 3).
 
 Zero valid blocks is zero candidates.
 
@@ -159,16 +169,23 @@ Zero valid blocks is zero candidates.
 ## §7 Filter and mark
 
 1. **Locate the pin**, when there is one:
-   - an id pin whose id was minted this run → that candidate;
+   - an id pin whose id was minted this run and not filtered by §6 step 5 → that candidate;
    - otherwise the candidate the explorer's `pin:` line names, when it survived §6 → that
      candidate, with the line
      `pin: <value> not in the ranked list — explored as pinned, picked <id> <name>`;
-   - a `pin:` line naming a block §6 dropped — it failed validation, minted `invalid`, or lost a
-     collision — is read as `pin: none`, with the line `pin: <value> named <name>, which §6
-     dropped`, and the two bullets below apply;
+   - a `pin:` line naming a block §6 dropped — it failed validation, minted `invalid`, lost a
+     collision, or was filtered on its sites — is read as `pin: none`, with the line
+     `pin: <value> named <name>, which §6 dropped`, and the two bullets below apply; so is an id
+     pin whose id was minted this run and filtered on its sites;
    - an id pin the explorer answered `pin: none` → the recovered record itself, with its earlier
      id and columns, added to the ranked list, and the line `pin: <id> not in the ranked list —
-     explored as pinned, picked from its earlier record`;
+     explored as pinned, picked from its earlier record`. Its sites come from an earlier pick:
+     one `Grep` for `^- id: <id>$` — a `## Pick` block's first line, the report's only `- id:`
+     line — over `<state_dir>/reports/`, glob `*/1-discover.md`, with line numbers; then a
+     bounded `Read` of the ten lines from the match in the lexically greatest `<run-id>`
+     directory. Its `- next_sites:` line, split on ` | `, must hold under
+     [candidates.md](candidates.md) §7 against the record's `files`. No match, or no valid line →
+     `discover: aborted — pin: <id> has no recorded next_sites — pin by hint`;
    - a hint the explorer answered `pin: none` → the line `pin: <hint> held no candidate — <the
      explorer's reason>`, and the stage continues as unpinned.
 
@@ -210,7 +227,8 @@ reaches the unpinned cases below.
   unattended run ([profile.md](../../setup/references/profile.md) §2). The first case that holds
   decides:
   1. zero ranked candidates and §7 step 3 filtered none → `discover: complete — no candidate`.
-     The run ends clean.
+     The run ends clean. §6 step 5's site filtering is not memory exclusion, so it never
+     makes case 2 hold.
   2. zero ranked candidates and §7 step 3 filtered at least one →
      `discover: aborted — no candidate left after memory exclusion — pin a declined id to run it
      anyway; an opened id can be pinned once its pull request merges or closes`. A pinned
@@ -226,7 +244,8 @@ reaches the unpinned cases below.
   `discover: complete — no candidate`. Declining at the pick writes nothing to memory
   ([memory.md](memory.md) §6).
 
-With a pick: write the `## Pick` block ([candidates.md](candidates.md) §5), then set the run
+With a pick: write the `## Pick` block ([candidates.md](candidates.md) §5) — its `next_sites`
+line carries the pick's sites verbatim, joined with ` | ` — then set the run
 state's `candidate_id` and `slug` ([candidates.md](candidates.md) §6) with `Edit`, and the status
 line becomes `discover: complete`. A pick by the rank rule also writes
 `pick: rank <n> (unattended)` to the report (§9 item 4).
@@ -250,7 +269,8 @@ with `Edit` and appends what it adds.
 7. `## Hotspots` — the table with every column of [hotspots.md](hotspots.md) §6, and its summary
    line.
 8. `## Candidates` — the ranked table, columns per [candidates.md](candidates.md) §5.
-9. `## Filtered` — each filtered candidate's id, name, status and note, or `none`.
+9. `## Filtered` — each filtered candidate's id, name, status and note — its memory status
+   (§7 step 3), or `next_sites: <what failed>` (§6 step 5) — or `none`.
 10. `## Explorer notes` — the explorer's `notes:` line and, with a pin, its `pin:` line.
 11. `## Pick` — when a candidate is picked.
 12. `## Options` — when the status is `needs-decision`, ending with its `unattended:` line under
