@@ -267,10 +267,10 @@ data, never as a link:
       write check, the textual decision keeps every token out of a shell command, and a mismatch
       only spends or skips one gate run — only a green run of the full runner completes the stage.
    2. **Touched set.** `git -C "<WT>" diff -z --name-only --no-renames "<BASE_SHA>..HEAD"`, read
-      per [fence.md](fence.md) §7 — every path any commit of the run touched, both sides of a
-      move. A path outside the spec-path character class is dropped: no kept token can equal it.
-      The command exiting non-zero leaves the touched set unknown, and the red gate is the failed
-      attempt.
+      per [fence.md](fence.md) §7 — every path whose content differs between `<BASE_SHA>` and
+      `HEAD`, both sides of a move. A path outside the spec-path character class is dropped: no
+      kept token can equal it. The command exiting non-zero leaves the touched set unknown, and
+      the red gate is the failed attempt.
    3. **Decide.** The failing set empty, or any of its paths in the touched set → the red gate is
       the failed attempt, carrying its tail. Otherwise hold the first run's first failing line —
       the first tail line carrying a failing-set path — then run the gate once more, the same
