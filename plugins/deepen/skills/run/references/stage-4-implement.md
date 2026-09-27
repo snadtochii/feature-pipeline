@@ -359,5 +359,6 @@ a `failing_check` re-entry.
     `<paths>` are the first 5 failing-set paths in tail order, `, `-joined, then ` and <k> more`
     when there are more; `<range>` is `<first 12 of BASE_SHA>..<first 12 of HEAD>`, the commits
     the touched set was read from; `<line>` is the first run's held failing line, cleaned
-    (controls and ANSI escape sequences stripped, `|` written `/`, cut at 200 characters). The
-    paths are class-checked and need no cleaning.
+    (controls and ANSI escape sequences stripped, every `<WT>/` removed so no absolute worktree
+    path reaches the report, `|` written `/`, cut at 200 characters). The paths are
+    class-checked and need no cleaning.

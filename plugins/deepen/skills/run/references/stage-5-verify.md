@@ -684,11 +684,11 @@ Otherwise:
    `4-implement.md`'s `## Gate re-run` section — from that heading to the next `## ` heading — and
    copy under `## Fix round` each one matching
    `^fix round attempt [0-9]+: re-run (green|red) — failing files .+ untouched by [0-9a-f]{12}\.\.[0-9a-f]{12}; first run: `,
-   cleaned again on copy (controls stripped, `|` written `/`) — with `Edit` when the report
-   exists, else held for its first `Write` (§9). These are the round's gate re-runs
-   ([stage-4-implement.md](stage-4-implement.md) §7 item 10). A line elsewhere in that report — a
-   `failing_check` tail, an agent's reported text — is never one, whatever it reads. No match adds
-   nothing.
+   cleaned again on copy (controls stripped, every `<WT>/` removed, `|` written `/`) — with
+   `Edit` when the report exists, else held for its first `Write` (§9). These are the round's gate
+   re-runs ([stage-4-implement.md](stage-4-implement.md) §7 item 10). A line elsewhere in that
+   report — a `failing_check` tail, an agent's reported text — is never one, whatever it reads.
+   No match adds nothing.
 
 **The reset** — here after an exhausted round, and from a `revert` answer (§3, §5):
 
