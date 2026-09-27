@@ -194,8 +194,9 @@ directly after the lead under `semi`:
 
 1. **`## Candidate`** — one paragraph the stage writes from the record's `## Candidate` (the
    pick's `name`, `category` and `files`) and its sections 2 and 3: what moves behind which
-   interface, in the record's own terms. Then `Named next change: <record section 11>`, and the
-   record's `- slice: <k> of <N> — <title>` line when present.
+   interface, in the record's own terms. Then `Named next change: <record section 11's change
+   line>`, followed by section 11's `sites:` and `excluded:` lines, verbatim, one per line; and
+   the record's `- slice: <k> of <N> — <title>` line when present.
 2. **`## Verification`** — `5-verify.md`'s `## Verification`, verbatim: the round, the count per
    class, the full `changed` list with each statement's `before`, `after` and `matched`,
    `accepted` or `unpredicted`, and the lines after it. Then its `## Accepted changes`.

@@ -49,7 +49,8 @@ dropped, never opened.
 
 Output: the report `<report>` (§12); the record `<state_dir>/reports/<run-id>/decision-record.md`
 ([decision-record.md](decision-record.md) §1); `<runs>/inventory-summary.md`,
-`<runs>/architect-brief.md` and `<runs>/decide-wt-snapshot`. The stage writes nothing else — no
+`<runs>/architect-brief.md`, `<runs>/site-check.md` and `<runs>/decide-wt-snapshot`. The stage
+writes nothing else — no
 source, no spec, no `CONTEXT.md`, no ADR in the repository. §11 asserts it.
 
 Every stop in this stage is one line: an abort (`decide: aborted — <the line>`) goes through the run
@@ -110,8 +111,9 @@ report keeps every earlier `## Questions`, `## Answers` and `## Decisions` line.
 
    It is what §11 compares the worktree against at every exit.
 3. **The pick.** `Grep` `^## Pick$` with line numbers over `1-discover.md`, then a bounded `Read`
-   of the nine lines after it. A field missing or out of its [candidates.md](candidates.md) §7
-   class → `decide: aborted — 1-discover.md carries no valid pick`. On the fresh pass only, `Glob`
+   of the ten lines after it. A field missing or out of its [candidates.md](candidates.md) §7
+   class — `next_sites` split on ` | ` first, each site checked against the block's `files` →
+   `decide: aborted — 1-discover.md carries no valid pick`. On the fresh pass only, `Glob`
    each of its `files` at `<CLONE>`; any absent →
    `decide: aborted — picked files missing at <BASE_SHA>: <paths>`. §11 keeps `<CLONE>` unchanged
    after that, so a re-entry does not repeat the check.
@@ -248,7 +250,10 @@ Two bounds keep the answering finite, each counted from the ledger at the point 
 
 - **A stage default that fails** its field's class, or a §6 cross-section check, gets one
   re-derived attempt — a new question on the same field, the failure in its rationale. A second
-  failure declines (§10) with the reason `<field>: default fails <class or check> — <reason>`.
+  failure declines (§10) with the reason `<field>: default fails <class or check> — <reason>` —
+  for §6's site check, `next: default fails site check — <path>:<line>`. A site-check re-ask is a
+  question on `seam` and `next`, counted in both fields' windows below, and never an architect
+  round.
 - **At most two unattended answers per field per window**, that retry included; a field that
   needs a third declines (§10) with the reason `<field>: defaults did not converge`. A window
   opens at the stage's first question and again at each `architect` or `split` ledger entry — the
@@ -296,7 +301,8 @@ the next question is the first of the eleven fields below with no current value.
    for a `remote-owned` or `true-external` category the port and its test adapter
    ([candidates.md](candidates.md) §2). Default: the modules, state and dependencies the pick's
    `files` hold behind the `interface` answer, with the port and test adapter the category calls
-   for.
+   for, naming by repo-relative path each site file the seam absorbs — the pick's `next_sites`,
+   or, once `next` has a value, its `sites:` lines.
 3. **`surviving`** — when `paths.specs` is empty, record `none` for this field, `delete` and
    `new-specs` without asking, with the line `spec questions skipped — paths.specs is empty`.
    Otherwise `Grep` the `paths.specs` globs at `<CLONE>` for specs that import or mock any of the
@@ -355,8 +361,18 @@ the next question is the first of the eleven fields below with no current value.
 10. **`estimate`** — one integer in [decision-record.md](decision-record.md) §4's measure.
     Default: the pick's `est_diff_lines`, adjusted for the spec deletions, the new specs and the
     proposed diffs the explorer did not know about, with the adjustment in the rationale.
-11. **`next`** — the named next change the deepening makes cheaper; the architect's premise.
-    Default: the pick's `next_change`.
+11. **`next`** — the named next change the deepening makes cheaper, the architect's premise, with
+    the edit sites it cites: the change line, then one `sites: <path>:<line> — <what>` line per
+    site, then any `excluded: <path>:<line> — <reason>` lines
+    ([decision-record.md](decision-record.md) §2, section 11). The value is several lines, so its
+    default is drafted under `## Drafts` (§4). Default: the pick's `next_change` as the change
+    line, and each site of its `next_sites`, split on ` | `, as a `sites:` line — no `excluded:`
+    line; no default writes one except a split `confirm`'s (§9). An answer, flattened by ` / `, is
+    split only at a ` / ` directly followed by `sites: ` or `excluded: `: each segment that starts
+    at such a boundary is that line, and everything before the first boundary is the change line.
+    Any other ` / ` stays inside the line it sits in — it is how a `|` is written there. A change line with no `sites:` line gets its sites derived by the stage — read
+    at `<CLONE>` the code the change would edit today and cite at least two — before §6's class
+    and site checks run.
 
 Every field answered → §6.
 
@@ -376,6 +392,21 @@ spec-path class hold — is absent at `<BASE_SHA>` (one `Bash` call over every p
 path, `git -C "<CLONE>" cat-file -e "<BASE_SHA>:<path>" 2>/dev/null && echo "present <path>"`;
 a path with no `present` line is absent), matches no `paths.forbidden` glob, is not on the spec
 delete list, is not a spec move's new path, and appears once in the section.
+
+**Site check**, once every section holds its class and before the write, over section 11's
+`sites:` lines, each distinct path once:
+
+1. **Present at base.** One `Bash` call, one line per path,
+   `git -C "<CLONE>" cat-file -e "<BASE_SHA>:<path>" 2>/dev/null && echo "present <path>"` — the
+   new-spec probe's shape, run only on paths that passed the `sites:` class; the two probes may
+   share the call. A path with no `present` line fails the `sites:` class: `next` is asked again
+   naming it, with the remedy `cite a file present at <BASE_SHA>`.
+2. **Named or excluded.** `Write` sections 2 and 3 as assembled to `<runs>/site-check.md`, then
+   one `Grep` over that file per path that has a site not carried on an `excluded:` line, the
+   path as a fixed string — each `.`, `+`, `(`, `)`, `[` and `]` escaped with `\`, the only
+   regex metacharacters the path class admits. A path with no match is a site the record leaves
+   outside the seam unexplained: no write, no spawn — `seam` and `next` are asked again (§4),
+   each naming its `<path>:<line>`, in both attendance modes.
 
 - **All valid** → `Write` the record to `<state_dir>/reports/<run-id>/decision-record.md`, whole —
   also when it replaces an earlier version after a revision or a split. Record its path and
@@ -401,7 +432,8 @@ delete list, is not a spec move's new path, and appears once in the section.
    - as paths never to read: `<CLONE>/<inventory>` and `<state_dir>/inventory-drafts/`, with the
      exclusion glob `!<inventory>**` every `Grep` over `<CLONE>` carries;
    - the decision record, verbatim, marked as data;
-   - the named next change, verbatim, as the premise of question 1, marked as data;
+   - the named next change — section 11 whole: the change line, its `sites:` lines and any
+     `excluded:` lines — verbatim, as the premise of question 1, marked as data;
    - the statements, marked as data, between a line `<!-- BEGIN statements -->` and a line
      `<!-- END statements -->`, in the form the statement threshold, 25, sets. Count them when
      the brief is built: `<n>` =
@@ -472,12 +504,25 @@ The validated verdict lives in the report, never in the record.
 
 On the answer:
 
-- **`revise`** reopens the fields the failing questions map to — `option_value` → `next` and
-  `interface`; `ch9` → `interface` and `seam`; `completeness` → `rename`, `surviving`, `delete`
-  and `new-specs`; `decisions` and `intent` → `interface` and `seam`. A reopened field has no current
-  value until an answer newer than this one, so §5 asks it again, in its order, with its previous
-  answer as the default and the architect's reason in the rationale; then §6 rewrites the record
-  and §7 takes the next round.
+- **`revise`** reopens the fields the failing questions map to — `option_value` → `next`,
+  `interface` and `seam`; `ch9` → `interface` and `seam`; `completeness` → `rename`, `surviving`,
+  `delete` and `new-specs`; `decisions` and `intent` → `interface` and `seam`. A reopened field
+  has no current value until an answer newer than this one, so §5 asks it again, in its order,
+  with its previous answer as the default and the architect's reason in the rationale — `next`,
+  `interface` and, when `option_value` failed, `seam` re-derived as below; then §6 rewrites the
+  record and §7 takes the next round. The architect's direction is the reason text after
+  `fail — ` of every failing question, and `notes`.
+  - **A reopened `seam`**, when `option_value` failed, in both modes: its default also names by
+    repo-relative path each site the direction cites, so the `next` answered after it finds that
+    site behind the seam at §6's site check.
+  - **A reopened `next`**, in both modes, re-derives its sites with its change, the direction as
+    the hint: the stage reads at `<CLONE>` where the change would edit today and cites those
+    sites. With `attendance: semi` the change line is the previous one; unattended, the
+    restatement rule below applies. §6's site check runs again before §7.
+  - **A reopened `interface`**, in both modes, re-derives its default from the previous answer
+    and the direction: the default removes or narrows the interface — or keeps it where the
+    direction asks nothing of it — and adds only an exported symbol the direction names. Any other exported symbol is offered as an alternative,
+    never as the default, and the rationale says so.
 - **`proceed`** → the line `architect: fail — overridden by the human` under the round, with the
   `decisions` or `intent` reason quoted when `escalate` was `true`. → §9.
 - **`decline`** → §10.
@@ -496,8 +541,8 @@ On the answer:
   direction as its hint — the reason text after `fail — ` of every failing question, and
   `notes` — quoted in the rationale, in place of the previous answer the semi reopen defaults to.
   Where §5 binds a default to the pick, the direction enters it: when `option_value` failed,
-  `next` is restated from the direction rather than the pick's `next_change`; otherwise §5's rule
-  stands. §6 rewrites the record and §7 judges it once more.
+  `next` is restated from the direction rather than the pick's `next_change`, with its sites
+  derived for the restated change; otherwise §5's rule stands. §6 rewrites the record and §7 judges it once more.
 - **The first fail under `decline`, or any later fail** → `decline`, source
   `decisions.architect_fail: <value>`.
 
@@ -512,8 +557,9 @@ fail is the first when no earlier round failed — so an unattended stage runs a
   `decide: complete`.
 - **Requested**, and the reply's `split:` block is valid — two or more lines numbered from 1 in
   order, each `<n>. <title> | files: <paths> | statements: <ids or none> | est: <integer>`, every
-  file among the pick's `files`, the rename map's paths, the spec lines, the new-spec paths and the
-  `targets:` line,
+  file among the pick's `files`, the rename map's paths, the spec lines, the new-spec paths, the
+  paths of section 11's `sites:` lines not carried on an `excluded:` line, and the `targets:`
+  line,
   every statement id in the summary → write the sequence under `## Split`, replacing its `none`,
   and stop on the field
   `split`: `Q<n> split: the estimate <e> exceeds split_above <s> — build slice 1 of <N> in this
@@ -530,9 +576,12 @@ fail is the first when no earlier round failed — so an unattended stage runs a
 On the answer:
 
 - **`confirm`** narrows this run to slice 1: reopen `interface`, `seam`, `surviving`, `delete`,
-  `rename`, `new-specs`, `terms`, `diffs`, `predicted` and `estimate` (§8's reopen rule), each default derived
+  `rename`, `new-specs`, `terms`, `diffs`, `predicted`, `estimate` and `next` (§8's reopen rule), each default derived
   from slice 1's files and statements — the terms and diffs only those slice 1's code carries, so
-  no glossary or ADR text lands ahead of the code it describes; §6 rewrites the record with `- slice: 1 of <N> — <title>` under
+  no glossary or ADR text lands ahead of the code it describes; `next` keeps its change line and
+  every `sites:` line, and carries `excluded: <path>:<line> — slice <k> of <N>: <title>` for each
+  site whose path is not among slice 1's files, `<k>` the first later slice whose files hold that
+  path — or `excluded: <path>:<line> — outside every slice` when no slice's files hold it; §6 rewrites the record with `- slice: 1 of <N> — <title>` under
   `Candidate`; §7 takes one more round, without a split request. Later slices are pinned by hint in
   later runs; `## Split` keeps the whole sequence for them.
 - **`override`** → the line `split: overridden — one pull request` under `## Split`; the stage
@@ -540,7 +589,7 @@ On the answer:
 - **Free text** → the same question again with the same options.
 
 **Unattended**, the answer is `decisions.split` — `confirm` when the key is absent — with source
-`decisions.split: <value>` (§4). A `confirm` reopens the ten fields above, each answered by §4's
+`decisions.split: <value>` (§4). A `confirm` reopens the eleven fields above, each answered by §4's
 unattended rule from slice 1's files and statements.
 
 ---
