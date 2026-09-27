@@ -353,8 +353,8 @@ a `failing_check` re-entry.
 9. On a re-entry, the `failing_check` it started from, under its own heading; on a `findings`
    re-entry, a `## Fix round` heading with the findings it started from and each finding's latest
    outcome — `applied`, or `not applied — <reason>`. The earlier entries are kept.
-10. Every gate re-run (§4 step 5a), one line each under a `## Gate re-run` heading, present only
-    when a re-run happened; the earlier entries are kept —
+10. Every gate re-run (§4 step 5a), one bare line each — no list marker, no indent — under a
+    `## Gate re-run` heading, present only when a re-run happened; the earlier entries are kept —
     `<first pass | failing_check re-entry | fix round> attempt <n>: re-run <green | red> — failing files <paths> untouched by <range>; first run: <line>`.
     `<paths>` are the first 5 failing-set paths in tail order, `, `-joined, then ` and <k> more`
     when there are more; `<range>` is `<first 12 of BASE_SHA>..<first 12 of HEAD>`, the commits
