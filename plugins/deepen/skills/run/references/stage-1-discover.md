@@ -170,13 +170,16 @@ Zero valid blocks is zero candidates.
 
 1. **Locate the pin**, when there is one:
    - an id pin whose id was minted this run and not filtered by §6 step 5 → that candidate;
+   - an id pin whose id was minted this run and filtered by §6 step 5 →
+     `discover: aborted — pin: <id> filtered — next_sites: <what failed>`. The explorer returned
+     the pinned candidate at `<BASE_SHA>` without valid sites, and an earlier record's sites may
+     cite an older base, so neither grounds the premise;
    - otherwise the candidate the explorer's `pin:` line names, when it survived §6 → that
      candidate, with the line
      `pin: <value> not in the ranked list — explored as pinned, picked <id> <name>`;
    - a `pin:` line naming a block §6 dropped — it failed validation, minted `invalid`, lost a
      collision, or was filtered on its sites — is read as `pin: none`, with the line
-     `pin: <value> named <name>, which §6 dropped`, and the two bullets below apply; so is an id
-     pin whose id was minted this run and filtered on its sites;
+     `pin: <value> named <name>, which §6 dropped`, and the two bullets below apply;
    - an id pin the explorer answered `pin: none` → the recovered record itself, with its earlier
      id and columns, added to the ranked list, and the line `pin: <id> not in the ranked list —
      explored as pinned, picked from its earlier record`. Its sites come from an earlier pick:
@@ -185,7 +188,11 @@ Zero valid blocks is zero candidates.
      bounded `Read` of the ten lines from the match in the lexically greatest `<run-id>`
      directory. Its `- next_sites:` line, split on ` | `, must hold under
      [candidates.md](candidates.md) §7 against the record's `files`. No match, or no valid line →
-     `discover: aborted — pin: <id> has no recorded next_sites — pin by hint`;
+     `discover: aborted — pin: <id> has no recorded next_sites — pin by hint`. This is a limit,
+     not a fault: an id only ever listed as a `## Candidates` row, and a `## Pick` block with no
+     `- next_sites:` line, carry no sites, so such an id runs only while the explorer still
+     returns it — a declined id pinned per §8 case 2's remedy included. The run never proceeds on
+     a premise with no cited sites;
    - a hint the explorer answered `pin: none` → the line `pin: <hint> held no candidate — <the
      explorer's reason>`, and the stage continues as unpinned.
 

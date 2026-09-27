@@ -367,9 +367,10 @@ the next question is the first of the eleven fields below with no current value.
     ([decision-record.md](decision-record.md) §2, section 11). The value is several lines, so its
     default is drafted under `## Drafts` (§4). Default: the pick's `next_change` as the change
     line, and each site of its `next_sites`, split on ` | `, as a `sites:` line — no `excluded:`
-    line; no default writes one except a split `confirm`'s (§9). An answer, flattened by ` / `, is split on ` / `: segments in
-    the `sites:` or `excluded:` class are those lines, and the rest, rejoined with ` / `, is the
-    change line. A change line with no `sites:` line gets its sites derived by the stage — read
+    line; no default writes one except a split `confirm`'s (§9). An answer, flattened by ` / `, is
+    split only at a ` / ` directly followed by `sites: ` or `excluded: `: each segment that starts
+    at such a boundary is that line, and everything before the first boundary is the change line.
+    Any other ` / ` stays inside the line it sits in — it is how a `|` is written there. A change line with no `sites:` line gets its sites derived by the stage — read
     at `<CLONE>` the code the change would edit today and cite at least two — before §6's class
     and site checks run.
 
@@ -579,7 +580,8 @@ On the answer:
   from slice 1's files and statements — the terms and diffs only those slice 1's code carries, so
   no glossary or ADR text lands ahead of the code it describes; `next` keeps its change line and
   every `sites:` line, and carries `excluded: <path>:<line> — slice <k> of <N>: <title>` for each
-  site whose path is not among slice 1's files; §6 rewrites the record with `- slice: 1 of <N> — <title>` under
+  site whose path is not among slice 1's files, `<k>` the first later slice whose files hold that
+  path — or `excluded: <path>:<line> — outside every slice` when no slice's files hold it; §6 rewrites the record with `- slice: 1 of <N> — <title>` under
   `Candidate`; §7 takes one more round, without a split request. Later slices are pinned by hint in
   later runs; `## Split` keeps the whole sequence for them.
 - **`override`** → the line `split: overridden — one pull request` under `## Split`; the stage

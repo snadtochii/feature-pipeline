@@ -62,7 +62,10 @@ Five questions. Any one of them failing fails the verdict.
    named next change is a fail: "the code will be cleaner" is not a named change. Judge it
    against the sites the section cites — its `sites:` lines, each where the change would edit
    today, and its `excluded:` lines: after the change, each site is one edit inside the new
-   module, or its exclusion reason holds. Read each site in the code yourself. A site the record
+   module, or its exclusion reason holds. Read each site in the code yourself. Sites cite the base
+   commit the record was written against: on a record, read them at the project root; on a diff,
+   whose project root is the changed tree, read each site on the diff's removed side, or map its
+   line through the hunk offsets when the diff leaves that line unchanged. A site the record
    leaves outside the seam without an `excluded:` line is a fail reason naming that site.
 2. **Ch. 9 justification**, for any split, extract or merge. *A Philosophy of Software Design*
    ch. 9 asks whether two pieces of code belong together or apart, and a change that separates
