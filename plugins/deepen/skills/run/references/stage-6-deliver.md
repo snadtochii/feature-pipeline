@@ -213,7 +213,7 @@ directly after the lead under `semi`:
    then its `## Reviewers` — every finding with its decision and outcome, a `[security]` one not
    applied counted rather than copied (the copy rules), or
    `reviewer pass skipped — feature plugin reviewer agents not installed`; then its
-   `## Fix round`.
+   `## Fix round`, which carries the fix round's gate re-run lines when there were any.
 5. **`## Decision record`** — from the record: section 2 (the interface shape), section 6 (the
    `rename_map:` block, as a fenced block), section 8 (the `targets:` line and its `CONTEXT.md` and
    ADR diffs, each as a fenced `diff` block, or `targets: none`); section 5's `delete` lines, and
@@ -260,7 +260,13 @@ On both paths. `Read` `<runs>/cost.tsv`; no ledger → the one line `run cost: l
   `wall time: not measured` when `started_epoch` failed its class (§1).
 - **Retries** — from `4-implement.md`: one `Grep` for `attempt` over it, and the lines stating the
   attempts used of the budget and the elapsed wall time, verbatim — the first pass's and every
-  re-entry's. No report → `implement: not reached`.
+  re-entry's. Then its `## Gate re-run` section, when the heading map (§4) has one: one bounded
+  `Read` of it, and each line there matching
+  `^(first pass|failing_check re-entry|fix round) attempt [0-9]+: re-run (green|red) — failing files .+ untouched by [0-9a-f]{12}\.\.[0-9a-f]{12}; first run: `,
+  cleaned again on copy (controls stripped, every `<WT>/` removed, `|` written `/`). A gate
+  re-run line is taken only from that section, never from the `attempt` `Grep`: a `failing_check`
+  tail or an agent's reported text elsewhere in the report can read the same. No report →
+  `implement: not reached`.
 
 The same lines go into the pack's section 7 and the report's `## Run cost`.
 
