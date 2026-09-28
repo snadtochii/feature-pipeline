@@ -322,7 +322,11 @@ the next question is the first of the eleven fields below with no current value.
    from the code, so they are `Grep` patterns only and never reach `Bash`, each matched as a
    literal: every `\`, `.`, `+`, `*`, `?`, `^`, `$`, `|`, `(`, `)`, `[`, `]`, `{` and `}` in the
    term escaped with `\` — and lists every hit under
-   `## Drafts` with its disposition: `absorbed`, `repointed` or `excluded: <reason>`. Its prose
+   `## Drafts` with its disposition: `absorbed`, `repointed` or `excluded: <reason>`. A hit in a
+   file matching a `paths.specs` glob is `repointed` only when it names a symbol or path a
+   `rename_map:` entry renames — the spec-mover applies the rename map and no other edit to an
+   existing spec — and every other spec hit is
+   `excluded: spec text — no run role edits an existing spec outside the rename map`. Its prose
    names the grep and each hit's `<path>:<line>` with its disposition, so the record claims only
    the restatements it enumerates.
 3. **`surviving`** — when `paths.specs` is empty, record `none` for this field, `delete` and
@@ -331,8 +335,9 @@ the next question is the first of the eleven fields below with no current value.
    pick's `files`, and classify each: `unchanged`, `repointed` (by a rename entry), `delete` (it
    tests a module the change removes and the inventory covers its behavior), or `rewrite` (its
    assertions need rewriting — neither a rename nor a deletion). A spec that holds a hit of the
-   `seam` answer's sweep is `unchanged` only when the hit is a comment or title the seam repoints
-   without touching an assertion. Default: the classification,
+   `seam` answer's sweep is `unchanged` only when the hit is a comment or title, never an
+   assertion — the hit is then `repointed` through a `rename_map:` entry or `excluded:`, per the
+   sweep rule. Default: the classification,
    drafted under `## Drafts`. An answer with any `rewrite` asks **`rewrite`** next:
    `Q<n> rewrite: <k> specs need rewritten assertions — delete them for a human rewrite on the pull
    request, or narrow the candidate?`, options
@@ -347,7 +352,10 @@ the next question is the first of the eleven fields below with no current value.
    `repointed` spec's entry. Spec moves — a `modules:` entry whose old path matches a
    `paths.specs` glob — are named in the question. Default: the moves and renames the `interface`
    and `seam` answers imply, with identity entries for symbols that move unrenamed — an empty
-   `rename_map:` when nothing moves.
+   `rename_map:` when nothing moves. A `seam` sweep hit in a spec marked `repointed` whose symbol
+   or path no entry of this answer renames becomes
+   `excluded: spec text — no run role edits an existing spec outside the rename map` in the
+   `seam` draft, before the record is assembled.
 6. **`new-specs`** — the declared spec paths, one per module the change introduces
    ([decision-record.md](decision-record.md) §2, `New specs`). When `paths.specs` is empty,
    record `none` without asking — on a re-ask too, whichever answer reopened the field. Default:
