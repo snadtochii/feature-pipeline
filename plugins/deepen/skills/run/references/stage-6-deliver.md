@@ -195,8 +195,8 @@ directly after the lead under `semi`:
 1. **`## Candidate`** — one paragraph the stage writes from the record's `## Candidate` (the
    pick's `name`, `category` and `files`) and its sections 2 and 3: what moves behind which
    interface, in the record's own terms. Then `Named next change: <record section 11's change
-   line>`, followed by section 11's `sites:` and `excluded:` lines, verbatim, one per line; and
-   the record's `- slice: <k> of <N> — <title>` line when present.
+   line>`, and the record's `- slice: <k> of <N> — <title>` line when present — the change's
+   sites are under `## Decision record`, with section 11.
 2. **`## Verification`** — `5-verify.md`'s `## Verification`, verbatim: the round, the count per
    class, the full `changed` list with each statement's `before`, `after` and `matched`,
    `accepted` or `unpredicted`, and the lines after it. Then its `## Accepted changes`.
@@ -214,8 +214,10 @@ directly after the lead under `semi`:
    applied counted rather than copied (the copy rules), or
    `reviewer pass skipped — feature plugin reviewer agents not installed`; then its
    `## Fix round`, which carries the fix round's gate re-run lines when there were any.
-5. **`## Decision record`** — from the record: section 2 (the interface shape), section 6 (the
-   `rename_map:` block, as a fenced block), section 8 (the `targets:` line and its `CONTEXT.md` and
+5. **`## Decision record`** — from the record: section 2 (the interface shape), section 3 (what
+   sits behind the seam — its prose and its `absorbs:` lines, verbatim, one per line), section 11
+   whole (the change line, then its `sites:` and `excluded:` lines, verbatim, one per line),
+   section 6 (the `rename_map:` block, as a fenced block), section 8 (the `targets:` line and its `CONTEXT.md` and
    ADR diffs, each as a fenced `diff` block, or `targets: none`); section 5's `delete` lines, and
    its `rewrite` lines under `deleted — a human rewrites these on the pull request`
    ([decision-record.md](decision-record.md) §5); and the record's path,
