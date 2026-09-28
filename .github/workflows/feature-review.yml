@@ -1,0 +1,50 @@
+# Runs the feature plugin's review skill on a pull request when it opens and on
+# every push to it. The skill posts one signed review per head SHA and adds the
+# auto-reviewed label; a head it already reviewed is skipped, so a re-run posts
+# nothing new.
+#
+# The plugin installs from this repository's default branch through the
+# marketplace, not from the pull request's checkout.
+#
+# Requires the CLAUDE_CODE_OAUTH_TOKEN secret (from `claude setup-token`), which
+# bills runs against the subscription. Pull requests from forks get no secrets,
+# so the job skips them.
+
+name: Feature review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+  # Labels are an issues-API resource.
+  issues: write
+
+# A push supersedes the review still running on the previous head.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Review pull request
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: anthropics/claude-code-action@v1
+        env:
+          # The skill talks to GitHub through the gh CLI, which reads this.
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          plugin_marketplaces: https://github.com/snadtochii/feature-pipeline.git
+          plugins: feature@feature
+          prompt: /feature:review ${{ github.event.pull_request.number }}
+          claude_args: |
+            --allowedTools "Read,Glob,Grep,Write,TodoWrite,Bash(gh:*),Bash(git:*),Bash(command -v gh),Bash(cat:*),Bash(mktemp:*),Bash(jq:*),Bash(true)"
