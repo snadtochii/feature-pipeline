@@ -140,7 +140,7 @@ grep -nE '^[[:space:]]*(```|~~~)' "<runs>/inventory-summary.md"
 ```
 
 Any output is a hit → `decide: aborted — inventory summary carries <the first matching line>`.
-The summary is plain lines by its producer's contract
+The stage never edits `2-characterize.md` — a hit aborts, whatever the line. The summary is plain lines by its producer's contract
 ([stage-2-characterize.md](stage-2-characterize.md) §9 item 4), so a fenced block in it is check
 material, never formatting. `<inventory>` and `<slug>` have passed their profile and [worktree.md](worktree.md) §1 classes.
 
@@ -251,9 +251,11 @@ Two bounds keep the answering finite, each counted from the ledger at the point 
 - **A stage default that fails** its field's class, or a §6 cross-section check, gets one
   re-derived attempt — a new question on the same field, the failure in its rationale. A second
   failure declines (§10) with the reason `<field>: default fails <class or check> — <reason>` —
-  for §6's site check, `next: default fails site check — <path>:<line>`. A site-check re-ask is a
-  question on `seam` and `next`, counted in both fields' windows below, and never an architect
-  round.
+  for §6's site check, `next: default fails site check — <path>:<line>`, and for §5 field `next`'s
+  count after classification, `next: default fails site check — fewer than <min> absorbed sites`,
+  `<min>` as that field states. A
+  site-check re-ask — a site-check miss or that count — is a question on `seam` and `next`,
+  counted in both fields' windows below, and never an architect round.
 - **At most two unattended answers per field per window**, that retry included; a field that
   needs a third declines (§10) with the reason `<field>: defaults did not converge`. A window
   opens at the stage's first question and again at each `architect` or `split` ledger entry — the
@@ -288,7 +290,8 @@ Asked in this order, one per stop. Before each question, read what its default n
 later default derives from earlier answers, and an answer that invalidates a field already
 answered — a rename that moves a spec the surviving-tests answer called unchanged, an interface
 that no longer hides what the seam answer says, an interface that introduces a module the
-new-specs answer has no path for — asks that field again, depth-first, before the tree moves on.
+new-specs answer has no path for, a seam whose `absorbs:` lines no longer carry a current
+`sites:` line — asks that field again, depth-first, before the tree moves on.
 Two questions are conditional: `rewrite` is raised by a `surviving` answer and
 `create-context` by a `terms` answer, and each is pending while the answer that raised it is newer
 than its own latest answer. On re-entry, a pending conditional question is asked first; otherwise
@@ -299,16 +302,42 @@ the next question is the first of the eleven fields below with no current value.
    callers already cross. Alternatives: a narrower or a wider interface when the callers split.
 2. **`seam`** — what sits behind the interface: the modules, state and dependencies it hides, and
    for a `remote-owned` or `true-external` category the port and its test adapter
-   ([candidates.md](candidates.md) §2). Default: the modules, state and dependencies the pick's
-   `files` hold behind the `interface` answer, with the port and test adapter the category calls
-   for, naming by repo-relative path each site file the seam absorbs — the pick's `next_sites`,
-   or, once `next` has a value, its `sites:` lines.
+   ([candidates.md](candidates.md) §2); then one `absorbs: <path>:<line> — <what moves behind the
+   interface there>` line per site the seam takes in, at least one
+   ([decision-record.md](decision-record.md) §2, section 3). The value is several lines, so its
+   default is drafted under `## Drafts` (§4). Default: the modules, state and dependencies the
+   pick's `files` hold behind the `interface` answer, with the port and test adapter the category
+   calls for; then an `absorbs:` line for each site of the pick's `next_sites`, split on ` | `,
+   whose code the `interface` answer moves behind the interface, its `<path>:<line>` copied
+   exactly from the pick. The rationale names each pick site the seam leaves outside and why — and
+   a pick site the seam takes in at a line other than the one the pick cites, so the `absorbs:`
+   line can be corrected. An answer, flattened by ` / `, is split only at a ` / ` directly
+   followed by `absorbs: `: each segment that starts at such a boundary is that line, and
+   everything before the first boundary is the prose.
+
+   **Sweep.** A `seam` answer that removes, moves or repoints comments, doc strings or spec titles
+   restating the rule the module takes over names the `Grep` it ran — one `Grep` call per term,
+   the private symbol names it deletes and the read-family or key names it centralizes, over
+   `<CLONE>` with the `!<inventory>**` exclusion and over the `paths.specs` globs; the terms come
+   from the code, so they are `Grep` patterns only and never reach `Bash`, each matched as a
+   literal: every `\`, `.`, `+`, `*`, `?`, `^`, `$`, `|`, `(`, `)`, `[`, `]`, `{` and `}` in the
+   term escaped with `\` — and lists every hit under
+   `## Drafts` with its disposition: `absorbed`, `repointed` or `excluded: <reason>`. A hit in a
+   file matching a `paths.specs` glob is `repointed` only when it names a symbol or path a
+   `rename_map:` entry renames — the spec-mover applies the rename map and no other edit to an
+   existing spec — and every other spec hit is
+   `excluded: spec text — no run role edits an existing spec outside the rename map`. Its prose
+   names the grep and each hit's `<path>:<line>` with its disposition, so the record claims only
+   the restatements it enumerates.
 3. **`surviving`** — when `paths.specs` is empty, record `none` for this field, `delete` and
    `new-specs` without asking, with the line `spec questions skipped — paths.specs is empty`.
    Otherwise `Grep` the `paths.specs` globs at `<CLONE>` for specs that import or mock any of the
    pick's `files`, and classify each: `unchanged`, `repointed` (by a rename entry), `delete` (it
    tests a module the change removes and the inventory covers its behavior), or `rewrite` (its
-   assertions need rewriting — neither a rename nor a deletion). Default: the classification,
+   assertions need rewriting — neither a rename nor a deletion). A spec that holds a hit of the
+   `seam` answer's sweep is `unchanged` only when the hit is a comment or title, never an
+   assertion — the hit is then `repointed` through a `rename_map:` entry or `excluded:`, per the
+   sweep rule. Default: the classification,
    drafted under `## Drafts`. An answer with any `rewrite` asks **`rewrite`** next:
    `Q<n> rewrite: <k> specs need rewritten assertions — delete them for a human rewrite on the pull
    request, or narrow the candidate?`, options
@@ -323,7 +352,10 @@ the next question is the first of the eleven fields below with no current value.
    `repointed` spec's entry. Spec moves — a `modules:` entry whose old path matches a
    `paths.specs` glob — are named in the question. Default: the moves and renames the `interface`
    and `seam` answers imply, with identity entries for symbols that move unrenamed — an empty
-   `rename_map:` when nothing moves.
+   `rename_map:` when nothing moves. A `seam` sweep hit in a spec marked `repointed` whose symbol
+   or path no entry of this answer renames becomes
+   `excluded: spec text — no run role edits an existing spec outside the rename map` in the
+   `seam` draft, before the record is assembled.
 6. **`new-specs`** — the declared spec paths, one per module the change introduces
    ([decision-record.md](decision-record.md) §2, `New specs`). When `paths.specs` is empty,
    record `none` without asking — on a re-ask too, whichever answer reopened the field. Default:
@@ -366,13 +398,24 @@ the next question is the first of the eleven fields below with no current value.
     site, then any `excluded: <path>:<line> — <reason>` lines
     ([decision-record.md](decision-record.md) §2, section 11). The value is several lines, so its
     default is drafted under `## Drafts` (§4). Default: the pick's `next_change` as the change
-    line, and each site of its `next_sites`, split on ` | `, as a `sites:` line — no `excluded:`
-    line; no default writes one except a split `confirm`'s (§9). An answer, flattened by ` / `, is
+    line, then each site of its `next_sites`, split on ` | `, classified against the `seam`
+    answer's `absorbs:` lines by its exact `<path>:<line>`: a site with an `absorbs:` line becomes
+    a `sites:` line; a site the `seam` rationale names as taken in at another line becomes
+    `excluded: <path>:<line> — cited line; the edit lands at <path>:<absorbed line>`, and its
+    corrected `absorbs:` line's `<path>:<line>` becomes a `sites:` line; every other site becomes
+    an `excluded: <path>:<line> — <reason>` line, its reason drawn from the `seam` answer's
+    rationale for leaving it outside. The default never writes a `sites:` line the seam does not
+    absorb, and never drops a pick site. After classification, fewer than `<min>` `sites:` lines —
+    `<min>` is two, or one when section 1 carries a `- slice:` line (§9) — fails the field's class
+    with the remedy `the seam absorbs fewer than <min> of the change's sites — widen the seam or
+    pick another next change`, and `seam` and `next` are asked again as for a site-check miss
+    (§4, §6). An answer, flattened by ` / `, is
     split only at a ` / ` directly followed by `sites: ` or `excluded: `: each segment that starts
     at such a boundary is that line, and everything before the first boundary is the change line.
-    Any other ` / ` stays inside the line it sits in — it is how a `|` is written there. A change line with no `sites:` line gets its sites derived by the stage — read
-    at `<CLONE>` the code the change would edit today and cite at least two — before §6's class
-    and site checks run.
+    Any other ` / ` stays inside the line it sits in — it is how a `|` is written there. A change
+    line with no `sites:` line gets its sites derived by the stage — read at `<CLONE>` the code the
+    change would edit today and cite at least two, each then classified against the `absorbs:`
+    lines as above — before §6's class and site checks run.
 
 Every field answered → §6.
 
@@ -393,20 +436,33 @@ path, `git -C "<CLONE>" cat-file -e "<BASE_SHA>:<path>" 2>/dev/null && echo "pre
 a path with no `present` line is absent), matches no `paths.forbidden` glob, is not on the spec
 delete list, is not a spec move's new path, and appears once in the section.
 
-**Site check**, once every section holds its class and before the write, over section 11's
-`sites:` lines, each distinct path once:
+**Site check**, once every section holds its class and before the write — the site rule of
+[decision-record.md](decision-record.md) §2, over section 1's `- next_sites:` line, section 3's
+`absorbs:` lines and section 11's `sites:` and `excluded:` lines. Sites are compared as whole
+`<path>:<line>` strings, never by file path alone:
 
-1. **Present at base.** One `Bash` call, one line per path,
+1. **Present at base.** One `Bash` call over every distinct path of a `sites:` or `absorbs:`
+   line, one line per path,
    `git -C "<CLONE>" cat-file -e "<BASE_SHA>:<path>" 2>/dev/null && echo "present <path>"` — the
-   new-spec probe's shape, run only on paths that passed the `sites:` class; the two probes may
-   share the call. A path with no `present` line fails the `sites:` class: `next` is asked again
-   naming it, with the remedy `cite a file present at <BASE_SHA>`.
-2. **Named or excluded.** `Write` sections 2 and 3 as assembled to `<runs>/site-check.md`, then
-   one `Grep` over that file per path that has a site not carried on an `excluded:` line, the
-   path as a fixed string — each `.`, `+`, `(`, `)`, `[` and `]` escaped with `\`, the only
-   regex metacharacters the path class admits. A path with no match is a site the record leaves
-   outside the seam unexplained: no write, no spawn — `seam` and `next` are asked again (§4),
-   each naming its `<path>:<line>`, in both attendance modes.
+   new-spec probe's shape, run only on paths that passed their line's class; the two probes may
+   share the call. A path with no `present` line fails its line's class: a `sites:` path asks
+   `next` again, an `absorbs:` path asks `seam` again, each naming it, with the remedy
+   `cite a file present at <BASE_SHA>`.
+2. **Absorbed, excluded, carried.** `Write` section 3's `absorbs:` lines and section 11's
+   `sites:` and `excluded:` lines, as assembled and nothing else, to `<runs>/site-check.md` —
+   the whole file on every pass, so no line of an earlier round survives. Then one `Grep` over
+   that file per string, each a fixed-string comparison: the `<path>:<line>` with each `.`, `+`,
+   `(`, `)`, `[` and `]` in the path escaped with `\` — the only regex metacharacters the path
+   class admits — anchored between its label and the ` — ` that follows it:
+   - each `sites:` line's `<path>:<line>` matches `^absorbs: <path>:<line> — `;
+   - each `excluded:` line's `<path>:<line>` matches no `^absorbs: <path>:<line> — `;
+   - each distinct site of the `## Candidate` section's `- next_sites:` line, split on ` | `,
+     matches `^(sites|excluded): <path>:<line> — ` exactly once — `Grep`'s count mode, no count
+     read as zero.
+
+   A miss is a site the record claims the seam does not absorb, a site it excludes while the seam
+   absorbs it, or a Candidate site it drops or lists twice: no write, no spawn — `seam` and `next` are asked again (§4), each naming the
+   `<path>:<line>` and which of the three failed, in both attendance modes.
 
 - **All valid** → `Write` the record to `<state_dir>/reports/<run-id>/decision-record.md`, whole —
   also when it replaces an earlier version after a revision or a split. Record its path and
@@ -505,20 +561,25 @@ The validated verdict lives in the report, never in the record.
 On the answer:
 
 - **`revise`** reopens the fields the failing questions map to — `option_value` → `next`,
-  `interface` and `seam`; `ch9` → `interface` and `seam`; `completeness` → `rename`, `surviving`,
-  `delete` and `new-specs`; `decisions` and `intent` → `interface` and `seam`. A reopened field
+  `interface` and `seam`; `ch9` → `interface` and `seam`; `completeness` → `seam`, `rename`,
+  `surviving`, `delete`, `new-specs` and `next`; `decisions` and `intent` → `interface` and `seam`. A reopened field
   has no current value until an answer newer than this one, so §5 asks it again, in its order,
   with its previous answer as the default and the architect's reason in the rationale — `next`,
   `interface` and, when `option_value` failed, `seam` re-derived as below; then §6 rewrites the
   record and §7 takes the next round. The architect's direction is the reason text after
   `fail — ` of every failing question, and `notes`.
-  - **A reopened `seam`**, when `option_value` failed, in both modes: its default also names by
-    repo-relative path each site the direction cites, so the `next` answered after it finds that
-    site behind the seam at §6's site check.
+  - **A reopened `seam`**, in both modes, re-derives its `absorbs:` lines with the direction as
+    the hint: when `option_value` failed, its default writes an `absorbs:` line, at the exact
+    `<path>:<line>`, for each site the direction names inside the seam, so the `next` answered
+    after it classifies that site as a `sites:` line at §6's site check.
   - **A reopened `next`**, in both modes, re-derives its sites with its change, the direction as
     the hint: the stage reads at `<CLONE>` where the change would edit today and cites those
-    sites. With `attendance: semi` the change line is the previous one; unattended, the
-    restatement rule below applies. §6's site check runs again before §7.
+    sites, classified against the `absorbs:` lines as §5 field `next` states. Every site of the
+    `## Candidate` section's `- next_sites:` line stays in section 11 — a site the direction moves
+    outside the seam is written as `excluded:` with the direction's reason, never dropped — and a
+    derived site beyond the Candidate's is a `sites:` line only with an identical `absorbs:` line.
+    With `attendance: semi` the change line is the previous one; unattended, the restatement rule
+    below applies. §6's site check runs again before §7.
   - **A reopened `interface`**, in both modes, re-derives its default from the previous answer
     and the direction: the default removes or narrows the interface — or keeps it where the
     direction asks nothing of it — and adds only an exported symbol the direction names. Any other exported symbol is offered as an alternative,
@@ -542,7 +603,8 @@ On the answer:
   `notes` — quoted in the rationale, in place of the previous answer the semi reopen defaults to.
   Where §5 binds a default to the pick, the direction enters it: when `option_value` failed,
   `next` is restated from the direction rather than the pick's `next_change`, with its sites
-  derived for the restated change; otherwise §5's rule stands. §6 rewrites the record and §7 judges it once more.
+  derived for the restated change and classified as §5 field `next` states, every Candidate site
+  kept; otherwise §5's rule stands. §6 rewrites the record and §7 judges it once more.
 - **The first fail under `decline`, or any later fail** → `decline`, source
   `decisions.architect_fail: <value>`.
 
@@ -558,9 +620,9 @@ fail is the first when no earlier round failed — so an unattended stage runs a
 - **Requested**, and the reply's `split:` block is valid — two or more lines numbered from 1 in
   order, each `<n>. <title> | files: <paths> | statements: <ids or none> | est: <integer>`, every
   file among the pick's `files`, the rename map's paths, the spec lines, the new-spec paths, the
-  paths of section 11's `sites:` lines not carried on an `excluded:` line, and the `targets:`
-  line,
-  every statement id in the summary → write the sequence under `## Split`, replacing its `none`,
+  paths of section 11's `sites:` lines, and the `targets:` line,
+  every statement id in the summary, and slice 1's files holding at least one path of section 11's
+  `sites:` lines, so the slice keeps a site its seam absorbs → write the sequence under `## Split`, replacing its `none`,
   and stop on the field
   `split`: `Q<n> split: the estimate <e> exceeds split_above <s> — build slice 1 of <N> in this
   run?`, with the options
@@ -578,11 +640,14 @@ On the answer:
 - **`confirm`** narrows this run to slice 1: reopen `interface`, `seam`, `surviving`, `delete`,
   `rename`, `new-specs`, `terms`, `diffs`, `predicted`, `estimate` and `next` (§8's reopen rule), each default derived
   from slice 1's files and statements — the terms and diffs only those slice 1's code carries, so
-  no glossary or ADR text lands ahead of the code it describes; `next` keeps its change line and
-  every `sites:` line, and carries `excluded: <path>:<line> — slice <k> of <N>: <title>` for each
-  site whose path is not among slice 1's files, `<k>` the first later slice whose files hold that
-  path — or `excluded: <path>:<line> — outside every slice` when no slice's files hold it; §6 rewrites the record with `- slice: 1 of <N> — <title>` under
-  `Candidate`; §7 takes one more round, without a split request. Later slices are pinned by hint in
+  no glossary or ADR text lands ahead of the code it describes; the reopened `seam` writes
+  `absorbs:` lines only for sites whose path is among slice 1's files; `next` keeps its change
+  line, keeps as `sites:` lines the sites whose path is among slice 1's files, and writes each
+  other site as `excluded: <path>:<line> — slice <k> of <N>: <title>` in place of its `sites:`
+  line, `<k>` the first later slice whose files hold that path — or
+  `excluded: <path>:<line> — outside every slice` when no slice's files hold it — so a sliced
+  record may hold a single `sites:` line; §6 rewrites the record with
+  `- slice: 1 of <N> — <title>` under `Candidate`; §7 takes one more round, without a split request. Later slices are pinned by hint in
   later runs; `## Split` keeps the whole sequence for them.
 - **`override`** → the line `split: overridden — one pull request` under `## Split`; the stage
   completes as above.

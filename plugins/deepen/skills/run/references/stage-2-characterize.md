@@ -329,13 +329,31 @@ clear it.
    `attendance: unattended`, with its `unattended:` line (§3) — and the §0 `resume:` line.
 2. Directly under it, the coverage gap line when §7 left one.
 3. `## Degradations` — every line §2 step 4 and the dev-server procedure produced (readiness,
-   `seam-auth-failed`, residue, coverage lost), §6's UI-fixture line, plus a skipped install and
-   every `worktreeinclude: skipped` line ([worktree.md](worktree.md) §4).
+   `seam-auth-failed`, residue, coverage lost), §6's UI-fixture line, plus a skipped install,
+   every `worktreeinclude: skipped` line ([worktree.md](worktree.md) §4) and every
+   `summary: check id removed from …` line (item 4).
 4. `## Inventory summary` — what the decide stage reads, and the only part it reads: the statement
    lines verbatim, the fixture matrix with the fixture count and how each was created, the
    coverage line or lines, the uncovered list, the unverifiable list. No check code and no check
    paths, and plain lines only — no fenced block: the decide stage aborts on one
    ([stage-3-decide.md](stage-3-decide.md) §2).
+
+   **No check ids.** The decide stage aborts on a check id in the summary too, so before the
+   report is written the stage checks its own summary: `Write` the assembled section's text to
+   `<runs>/inventory-summary.draft`, then one `Bash` call,
+   `grep -nE 'T[12]-[0-9]{2,3}' "<runs>/inventory-summary.draft"`.
+   - **A hit on a statement line** → abort
+     `characterize: aborted — inventory statement carries a check id: <the line>` — a statement is
+     the committed inventory's, verbatim, and is never rewritten here.
+   - **A hit on any other line** — the fixture matrix, a coverage line, the uncovered or the
+     unverifiable list → rewrite that line without the id, one rewrite per hit line, and record
+     `summary: check id removed from <the line's first words>` under `## Degradations` for each.
+     The uncovered-functions line names the flow instead of its check: it reads
+     `a tier-1 flow reaches it in the browser` in place of the id. Then `Write` the draft again
+     and grep once more; a second hit aborts
+     `characterize: aborted — inventory summary still carries a check id: <the line>`.
+
+   The section is written into the report only when the grep is silent.
 5. `## Checks` — per check id: tier, fixture group, and its result in each round; flaky groups;
    `tier 2 wall time: <s>s`, and the over-two-minutes line when it applies.
 6. `## Coverage` — the method, the numbers, the reason on an estimate, the browser sub-line, the

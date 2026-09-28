@@ -49,10 +49,12 @@ human (`semi`) or by that default (`unattended`). It reads the
 inventory's summary and never its checks, and writes to no working tree: the answers become the
 run's decision record, with `CONTEXT.md` and ADR edits carried in it as proposed diffs
 that the implementer applies in stage 4. The named next change carries the edit sites it cites,
-and before any architect round every site must exist at the base commit and be named in the
-record's seam or excluded with a reason — a premise that fails is asked again, never judged.
+and the seam lists the sites it absorbs. Before any architect round every site must exist at the
+base commit and be matched against the seam's absorbed sites — site by site, not by file path —
+or excluded with a reason, and every site the explorer proposed must be accounted for; a premise
+that fails is asked again, never judged.
 The read-only `architect` agent then judges the record
-against the named next change; a fail is revised, overridden or declined by the human, or, unattended,
+against the named next change's sites; a fail is revised, overridden or declined by the human, or, unattended,
 handled by `decisions.architect_fail`.
 When the estimated diff exceeds `run.split_above`, the architect proposes a sequence of
 independently verifiable pull requests, confirmed or overridden by the human or by
