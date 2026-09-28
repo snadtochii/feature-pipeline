@@ -252,7 +252,8 @@ Two bounds keep the answering finite, each counted from the ledger at the point 
   re-derived attempt — a new question on the same field, the failure in its rationale. A second
   failure declines (§10) with the reason `<field>: default fails <class or check> — <reason>` —
   for §6's site check, `next: default fails site check — <path>:<line>`, and for §5 field `next`'s
-  count after classification, `next: default fails site check — fewer than two absorbed sites`. A
+  count after classification, `next: default fails site check — fewer than <min> absorbed sites`,
+  `<min>` as that field states. A
   site-check re-ask — a site-check miss or that count — is a question on `seam` and `next`,
   counted in both fields' windows below, and never an architect round.
 - **At most two unattended answers per field per window**, that retry included; a field that
@@ -318,18 +319,20 @@ the next question is the first of the eleven fields below with no current value.
    restating the rule the module takes over names the `Grep` it ran — one `Grep` call per term,
    the private symbol names it deletes and the read-family or key names it centralizes, over
    `<CLONE>` with the `!<inventory>**` exclusion and over the `paths.specs` globs; the terms come
-   from the code, so they are `Grep` patterns only and never reach `Bash` — and lists every hit under
+   from the code, so they are `Grep` patterns only and never reach `Bash`, each matched as a
+   literal: every `\`, `.`, `+`, `*`, `?`, `^`, `$`, `|`, `(`, `)`, `[`, `]`, `{` and `}` in the
+   term escaped with `\` — and lists every hit under
    `## Drafts` with its disposition: `absorbed`, `repointed` or `excluded: <reason>`. Its prose
    names the grep and each hit's `<path>:<line>` with its disposition, so the record claims only
-   the restatements it enumerates. A spec that holds a hit is `unchanged` in the `surviving`
-   classification only when the hit is a comment or title the seam repoints without touching an
-   assertion.
+   the restatements it enumerates.
 3. **`surviving`** — when `paths.specs` is empty, record `none` for this field, `delete` and
    `new-specs` without asking, with the line `spec questions skipped — paths.specs is empty`.
    Otherwise `Grep` the `paths.specs` globs at `<CLONE>` for specs that import or mock any of the
    pick's `files`, and classify each: `unchanged`, `repointed` (by a rename entry), `delete` (it
    tests a module the change removes and the inventory covers its behavior), or `rewrite` (its
-   assertions need rewriting — neither a rename nor a deletion). Default: the classification,
+   assertions need rewriting — neither a rename nor a deletion). A spec that holds a hit of the
+   `seam` answer's sweep is `unchanged` only when the hit is a comment or title the seam repoints
+   without touching an assertion. Default: the classification,
    drafted under `## Drafts`. An answer with any `rewrite` asks **`rewrite`** next:
    `Q<n> rewrite: <k> specs need rewritten assertions — delete them for a human rewrite on the pull
    request, or narrow the candidate?`, options
@@ -389,13 +392,16 @@ the next question is the first of the eleven fields below with no current value.
     default is drafted under `## Drafts` (§4). Default: the pick's `next_change` as the change
     line, then each site of its `next_sites`, split on ` | `, classified against the `seam`
     answer's `absorbs:` lines by its exact `<path>:<line>`: a site with an `absorbs:` line becomes
-    a `sites:` line; every other site becomes an `excluded: <path>:<line> — <reason>` line, its
-    reason drawn from the `seam` answer's rationale for leaving it outside. The default never
-    writes a `sites:` line the seam does not absorb, and never drops a pick site. After
-    classification, fewer than two `sites:` lines — fewer than one when section 1 carries a
-    `- slice:` line (§9) — fails the field's class with the remedy `the seam absorbs fewer than
-    two of the change's sites — widen the seam or pick another next change`, and `seam` and `next`
-    are asked again as for a site-check miss (§4, §6). An answer, flattened by ` / `, is
+    a `sites:` line; a site the `seam` rationale names as taken in at another line becomes
+    `excluded: <path>:<line> — cited line; the edit lands at <path>:<absorbed line>`, and its
+    corrected `absorbs:` line's `<path>:<line>` becomes a `sites:` line; every other site becomes
+    an `excluded: <path>:<line> — <reason>` line, its reason drawn from the `seam` answer's
+    rationale for leaving it outside. The default never writes a `sites:` line the seam does not
+    absorb, and never drops a pick site. After classification, fewer than `<min>` `sites:` lines —
+    `<min>` is two, or one when section 1 carries a `- slice:` line (§9) — fails the field's class
+    with the remedy `the seam absorbs fewer than <min> of the change's sites — widen the seam or
+    pick another next change`, and `seam` and `next` are asked again as for a site-check miss
+    (§4, §6). An answer, flattened by ` / `, is
     split only at a ` / ` directly followed by `sites: ` or `excluded: `: each segment that starts
     at such a boundary is that line, and everything before the first boundary is the change line.
     Any other ` / ` stays inside the line it sits in — it is how a `|` is written there. A change
@@ -548,7 +554,7 @@ On the answer:
 
 - **`revise`** reopens the fields the failing questions map to — `option_value` → `next`,
   `interface` and `seam`; `ch9` → `interface` and `seam`; `completeness` → `seam`, `rename`,
-  `surviving`, `delete` and `new-specs`; `decisions` and `intent` → `interface` and `seam`. A reopened field
+  `surviving`, `delete`, `new-specs` and `next`; `decisions` and `intent` → `interface` and `seam`. A reopened field
   has no current value until an answer newer than this one, so §5 asks it again, in its order,
   with its previous answer as the default and the architect's reason in the rationale — `next`,
   `interface` and, when `option_value` failed, `seam` re-derived as below; then §6 rewrites the
