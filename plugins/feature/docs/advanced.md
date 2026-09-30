@@ -160,15 +160,15 @@ repos: [big-leaves-api, big-leaves-astro]
 - A session that does not bypass permissions. Those capabilities also allow the inbox-changing tools and every ticket, artifact and lesson write, and inbox items can come from untrusted sources such as the feedback widget, so the skill's own rule is what keeps it advisory. To back that rule with the harness, add `permissions.deny` rules — each the full name, `mcp__plugin_server-native_ps__` followed by the tool — for `inbox_update`, `inbox_discard`, `inbox_capture`, `inbox_prepare_promotion`, `inbox_mark_promoted`, `pipeline_create_ticket`, `pipeline_update_ticket`, `pipeline_transition_ticket`, `pipeline_write_artifact`, `pipeline_delete_artifact`, `pipeline_upload_asset`, `pipeline_delete_asset`, `pipeline_add_lesson`, `pipeline_update_lesson` and `pipeline_delete_lesson`, and for `Bash`, `Write`, `Edit`, `WebFetch` and `WebSearch`, in the settings of a session or project dedicated to triage — a deny rule wins over any allow rule, so keep these out of settings your everyday sessions share.
 - Claude Code for `/loop` and scheduled tasks. On Codex, bind the server through `config.toml` as for the other server tools and invoke the skill directly.
 
-**Projects map (optional).** Repo context — whether the code already shows a change, or a ticket kept in the repo covers an item — needs a map from the server's project UUID to your local checkout. It lives outside the plugin, so plugin updates never replace it:
+**Repo paths (optional).** Repo context — whether the code already shows a change, or a ticket kept in the repo covers an item — needs the path of your local checkout. Triage takes it from the project's `path` in the personal server's project registry, carried on each pending entry. For a project whose registry path is empty or wrong on this machine, `~/.claude/feature-triage/projects.yaml` overrides it; the file lives outside the plugin, so plugin updates never replace it:
 
 ```yaml
-# ~/.claude/feature-triage/projects.yaml
+# ~/.claude/feature-triage/projects.yaml — optional override of registry paths
 projects:
   <project-uuid>: /absolute/path/to/checkout   # project name
 ```
 
-Without the file, triage still runs on inbox items and server tickets alone. Mapped checkouts are only read, and attachments are never opened.
+A path from either source is used only when it is absolute and exists on this machine; any other is listed under the summary's missing paths. Without a registry path or an override, triage still runs on inbox items and server tickets alone. Checkouts are only read, and attachments are never opened.
 
 **Pilot under `/loop`.** Run `/loop 6h /feature:triage` in a Claude Code session to tune the classifications against your real inbox. A `/loop` task runs only while that session stays open; once the classifications look right, move to a scheduled task.
 
@@ -187,8 +187,8 @@ Invoke the `feature:triage` skill:
     /feature:triage
 
 That skill is self-contained and owns the whole procedure: the tool rule, the classification
-guidance, the projects map and the summary. Where anything in this prompt appears to disagree with
-the skill, the skill wins.
+guidance, repo-path resolution and the summary. Where anything in this prompt appears to
+disagree with the skill, the skill wins.
 
 The run produces TRIAGE ASSESSMENTS ONLY. It never changes an inbox item's status, body or project,
 never creates a ticket, and never edits a file. If you find yourself about to do any of those,
@@ -196,8 +196,8 @@ something has gone wrong: stop and report it.
 
 Prerequisites the run itself checks, listed so a failure is legible: the `feature` plugin and the
 `server-native` connector plugin must be installed, the personal server must be reachable, and the
-connector's credential must carry the `triage` capability. Repo context is optional and comes from
-~/.claude/feature-triage/projects.yaml.
+connector's credential must carry the `triage` capability. Repo context is optional: it comes from
+each project's registry path, and ~/.claude/feature-triage/projects.yaml overrides it where set.
 
 If the `feature:triage` skill does not resolve, or the server is unreachable, do NOT improvise the
 procedure by hand. Report which one failed and stop.
@@ -208,12 +208,12 @@ When the run finishes, report in this order:
 2. The counts per classification.
 3. The refs written, the refs skipped on 409, and the refs that failed, each with its error, and
    the context errors.
-4. The refs where repo context was used, and the projects-map status.
+4. The refs where repo context was used, and the repo-path counts.
 
 Never change an inbox item. Never create a ticket. Never edit a file.
 ```
 
-**Each run** fetches the pending list once, then works through one project at a time — gathers that project's inbox items and tickets once, classifies its pending items and writes their assessments before moving on — and ends with a summary: counts per classification, refs written, refs skipped because the item changed or was reviewed meanwhile (a 409 — a changed item comes back next run), refs that failed, context reads that errored, refs where repo context was used, and the projects-map status. A missing connector, an unreachable server or a credential without `triage` aborts the run with one message before anything is written; a server that drops mid-run stops it with one message, keeping every assessment already written. A credential without `pipeline` costs only ticket context: those items are classified without it, and the summary lists the errors. A project's inbox list carries every item it has ever captured, whatever its status, so a run's context grows with the inbox's history, not only with the pending count. A very large first backlog may take several runs: every item whose assessment was not written stays pending.
+**Each run** fetches the pending list once, then works through one project at a time — gathers that project's inbox items and tickets once, classifies its pending items and writes their assessments before moving on — and ends with a summary: counts per classification, refs written, refs skipped because the item changed or was reviewed meanwhile (a 409 — a changed item comes back next run), refs that failed, context reads that errored, refs where repo context was used, and the repo-path counts with any missing paths. A missing connector, an unreachable server or a credential without `triage` aborts the run with one message before anything is written; a server that drops mid-run stops it with one message, keeping every assessment already written. A credential without `pipeline` costs only ticket context: those items are classified without it, and the summary lists the errors. A project's inbox list carries every item it has ever captured, whatever its status, so a run's context grows with the inbox's history, not only with the pending count. A very large first backlog may take several runs: every item whose assessment was not written stays pending.
 
 ## Configuration reference
 
