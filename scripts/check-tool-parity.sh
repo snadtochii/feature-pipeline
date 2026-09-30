@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Check that every skill's server-tool (`pipeline_*` and `ping`) allowed-tools
+# Check that every skill's server-tool (`pipeline_*`, `inbox_*` and `ping`) allowed-tools
 # entries are dual-listed correctly: one bare name and one plugin-scoped name
 # per tool, with the two sets identical.
 #
@@ -45,26 +45,31 @@ if not plugin_name or len(servers) != 1:
 prefix = f"mcp__plugin_{plugin_name}_{servers[0]}__"
 print(f"derived scoped prefix: {prefix}")
 
-# A server tool is any `pipeline_*` name plus `ping`, the connector's one tool
-# without that prefix; `$` anchoring keeps `pinger` or `ping_x` out.
-tool = r"(pipeline_\w+|ping)"
+# A server tool is any `pipeline_*` or `inbox_*` name plus `ping`, the
+# connector's one tool without either prefix; `$` anchoring keeps `pinger` or
+# `ping_x` out.
+tool = r"(pipeline_\w+|inbox_\w+|ping)"
 bare_re = re.compile(r"^  - " + tool + r"$")
 scoped_re = re.compile(r"^  - " + re.escape(prefix) + tool + r"$")
-stray_re = re.compile(r"^  - (mcp__plugin_\S*?(?:pipeline_\w+|__ping))$")
+stray_re = re.compile(r"^  - (mcp__plugin_\S*?(?:pipeline_\w+|inbox_\w+|__ping))$")
 
 # Regression probes — every string in `caught` must match, none in `clean`.
 probes = {
     bare_re: (
-        ["  - ping", "  - pipeline_get_ticket"],
+        ["  - ping", "  - pipeline_get_ticket", "  - inbox_triage_pending"],
         ["  - pinger", "  - ping_x", f"  - {prefix}ping"],
     ),
     scoped_re: (
-        [f"  - {prefix}ping", f"  - {prefix}pipeline_list_projects"],
+        [f"  - {prefix}ping", f"  - {prefix}pipeline_list_projects", f"  - {prefix}inbox_list"],
         [f"  - {prefix}pinger", "  - ping"],
     ),
     stray_re: (
-        ["  - mcp__plugin_feature_ps__ping", "  - mcp__plugin_feature_ps__pipeline_get_ticket"],
-        ["  - mcp__playwright__ping", "  - ping", "  - mcp__plugin_x_ps__typing"],
+        [
+            "  - mcp__plugin_feature_ps__ping",
+            "  - mcp__plugin_feature_ps__pipeline_get_ticket",
+            "  - mcp__plugin_feature_ps__inbox_get",
+        ],
+        ["  - mcp__playwright__ping", "  - ping", "  - mcp__plugin_x_ps__typing", "  - mcp__playwright__inbox_x"],
     ),
 }
 probe_failures = []
@@ -110,7 +115,7 @@ for name, skill in targets:
     ]
 
     if not bare and not scoped and not stray:
-        continue  # declares no pipeline tools at all
+        continue  # declares no server tools at all
 
     checked += 1
 
@@ -132,7 +137,7 @@ for name, skill in targets:
         print(f"  ok  {name}: {len(bare)} tool(s) dual-listed")
 
 if not checked:
-    print("FAIL: nothing declared any server tools (pipeline_* or ping) — check the skills/agents paths", file=sys.stderr)
+    print("FAIL: nothing declared any server tools (pipeline_*, inbox_* or ping) — check the skills/agents paths", file=sys.stderr)
     sys.exit(1)
 
 if failures:

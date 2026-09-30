@@ -12,6 +12,7 @@ Deeper material that doesn't belong in the [README](../../../README.md) front do
 - [Stage subagents and per-stage models (`--plan-model`, `--build-model`)](#stage-subagents-and-per-stage-models---plan-model---build-model)
 - [Epics and blocker dependencies](#epics-and-blocker-dependencies)
 - [Ship flags (`--base`, `--merge`, `--ui-test`, `--attach-screenshots`, `--parallel`, `--worktree`)](#ship-flags---base---merge---ui-test---attach-screenshots---parallel---worktree)
+- [Inbox triage (`/feature:triage`)](#inbox-triage-featuretriage)
 - [Configuration reference](#configuration-reference)
   - [Project conventions (CLAUDE.md)](#project-conventions-claudemd)
   - [Ticket prefix](#ticket-prefix)
@@ -148,6 +149,71 @@ repos: [big-leaves-api, big-leaves-astro]
 - Single-repo workspaces (the common case) never see the field or the table column.
 - The worktree setup contract has a multi-repo convention — workspace-level `worktree.setup`, per-repo `.worktreeinclude` — documented in [Worktree setup](#worktree-setup).
 
+## Inbox triage (`/feature:triage`)
+
+`/feature:triage` classifies every `unreviewed` item in the personal server's inbox whose triage assessment is missing or stale, and writes one assessment per item back to the server: a classification (`ready`, `needs_clarification`, `keep` or `discard_candidate`), a short rationale, a question when the item needs one, and the related inbox items or tickets. The assessment is advice only — the skill never changes an item's status, body or project and never creates a ticket; you act on it during the inbox review, or ignore it.
+
+**Prerequisites.**
+
+- The `server-native` connector plugin installed ([Storage mode and the personal server](#storage-mode-and-the-personal-server)), whatever the current project's storage mode — the inbox lives only on the server.
+- On a server running in restricted mode, a connector credential carrying the `mcp`, `inbox`, `triage` and `pipeline` capabilities.
+- A session that does not bypass permissions. Those capabilities also allow the inbox-changing tools and every ticket, artifact and lesson write, and inbox items can come from untrusted sources such as the feedback widget, so the skill's own rule is what keeps it advisory. To back that rule with the harness, add `permissions.deny` rules — each the full name, `mcp__plugin_server-native_ps__` followed by the tool — for `inbox_update`, `inbox_discard`, `inbox_capture`, `inbox_prepare_promotion`, `inbox_mark_promoted`, `pipeline_create_ticket`, `pipeline_update_ticket`, `pipeline_transition_ticket`, `pipeline_write_artifact`, `pipeline_delete_artifact`, `pipeline_upload_asset`, `pipeline_delete_asset`, `pipeline_add_lesson`, `pipeline_update_lesson` and `pipeline_delete_lesson`, and for `Bash`, `Write`, `Edit`, `WebFetch` and `WebSearch`, in the settings of a session or project dedicated to triage — a deny rule wins over any allow rule, so keep these out of settings your everyday sessions share.
+- Claude Code for `/loop` and scheduled tasks. On Codex, bind the server through `config.toml` as for the other server tools and invoke the skill directly.
+
+**Projects map (optional).** Repo context — whether the code already shows a change, or a ticket kept in the repo covers an item — needs a map from the server's project UUID to your local checkout. It lives outside the plugin, so plugin updates never replace it:
+
+```yaml
+# ~/.claude/feature-triage/projects.yaml
+projects:
+  <project-uuid>: /absolute/path/to/checkout   # project name
+```
+
+Without the file, triage still runs on inbox items and server tickets alone. Mapped checkouts are only read, and attachments are never opened.
+
+**Pilot under `/loop`.** Run `/loop 6h /feature:triage` in a Claude Code session to tune the classifications against your real inbox. A `/loop` task runs only while that session stays open; once the classifications look right, move to a scheduled task.
+
+**Scheduled task.** Save this prompt as `~/.claude/scheduled-tasks/inbox-triage/SKILL.md`, then register the task and set its schedule in the Claude Code Desktop scheduled-tasks panel:
+
+```markdown
+---
+name: inbox-triage
+description: Run one feature:triage pass over the personal-server inbox: classify every pending item and write advisory triage assessments.
+---
+
+Run one inbox TRIAGE pass over the personal server.
+
+Invoke the `feature:triage` skill:
+
+    /feature:triage
+
+That skill is self-contained and owns the whole procedure: the tool rule, the classification
+guidance, the projects map and the summary. Where anything in this prompt appears to disagree with
+the skill, the skill wins.
+
+The run produces TRIAGE ASSESSMENTS ONLY. It never changes an inbox item's status, body or project,
+never creates a ticket, and never edits a file. If you find yourself about to do any of those,
+something has gone wrong: stop and report it.
+
+Prerequisites the run itself checks, listed so a failure is legible: the `feature` plugin and the
+`server-native` connector plugin must be installed, the personal server must be reachable, and the
+connector's credential must carry the `triage` capability. Repo context is optional and comes from
+~/.claude/feature-triage/projects.yaml.
+
+If the `feature:triage` skill does not resolve, or the server is unreachable, do NOT improvise the
+procedure by hand. Report which one failed and stop.
+
+When the run finishes, report in this order:
+
+1. The outcome in one line: how many pending items were assessed, or the skill's abort message.
+2. The counts per classification.
+3. The refs written, the refs skipped on 409, and the refs that failed, each with its error.
+4. The refs where repo context was used, and the projects-map status.
+
+Never change an inbox item. Never create a ticket. Never edit a file.
+```
+
+**Each run** fetches the pending list once, then works through one project at a time — gathers that project's inbox items and tickets once, classifies its pending items and writes their assessments before moving on — and ends with a summary: counts per classification, refs written, refs skipped because the item changed or was reviewed meanwhile (a 409 — a changed item comes back next run), refs that failed, refs where repo context was used, and the projects-map status. A missing connector, an unreachable server or a credential without `triage` aborts the run with one message before anything is written. A very large first backlog may take several runs: every item whose assessment was not written stays pending.
+
 ## Configuration reference
 
 All project config lives in `claudedocs/tickets/config.yaml`. `/feature:setup` writes it in one guided run, proposing detected values and documented defaults for you to confirm. Everything except `prefix` is optional.
@@ -274,7 +340,7 @@ Recommended for full functionality, but optional:
 - **Playwright** — required for the close stage's test checkpoint (UI testing), including the `browser_resize` tool the required UI checks use for desktop and mobile width.
 - **Chrome DevTools** — enhanced browser testing.
 - **Serena** — semantic code navigation; used by the `code-explorer` and `code-architect` agents when available, falling back to Grep/Glob/Read otherwise.
-- **Personal server** — required only in server-native storage mode, where it *is* the ticket store. Shipped as a separate `server-native` plugin you install alongside `feature`; setup for both platforms is below.
+- **Personal server** — required in server-native storage mode, where it *is* the ticket store, and by `/feature:triage` in either mode, since the inbox it classifies lives only on the server ([Inbox triage](#inbox-triage-featuretriage)). Shipped as a separate `server-native` plugin you install alongside `feature`; setup for both platforms is below.
 
 ### Storage mode and the personal server
 
@@ -292,7 +358,7 @@ project: <your-project-uuid>    # required with server-native — the project's 
 ```
 
 - **`fs-native`** — tickets are the folder tree under `claudedocs/tickets/` described in the [README](../../../README.md#tickets). A missing `mode` key or a missing `config.yaml` means this. Ticket reads and writes are entirely local.
-- **`server-native`** — tickets are authoritative rows on a personal MCP server, and `project:` is the project's UUID, exactly as the server's `pipeline_*` tools take it as `project_id`. That server's tool surface spans several domains; the `feature` skills use only its `pipeline_*` tools and its `ping`. The state folders (`backlog/`, `in-progress/`, `review/`, `done/`) do not exist, and artifact bodies carry no frontmatter — the row is the only metadata source. `mode: server-native` with no `project` key is a config error, not a fallback.
+- **`server-native`** — tickets are authoritative rows on a personal MCP server, and `project:` is the project's UUID, exactly as the server's `pipeline_*` tools take it as `project_id`. That server's tool surface spans several domains; the pipeline skills use its `pipeline_*` tools and its `ping`, and `/feature:triage` its inbox triage tools ([Inbox triage](#inbox-triage-featuretriage)). The state folders (`backlog/`, `in-progress/`, `review/`, `done/`) do not exist, and artifact bodies carry no frontmatter — the row is the only metadata source. `mode: server-native` with no `project` key is a config error, not a fallback.
 
 Read the UUID from your personal server's project registry — the id its `pipeline_*` tools take as `project_id` — and paste it as-is: the canonical 36-character form, hex digits in 8-4-4-4-12 groups, either case, no braces or `urn:uuid:` prefix. A slug or project name is not accepted, and no skill resolves one: a non-UUID value stops the run before any server call, with this message:
 
@@ -306,7 +372,7 @@ A well-formed UUID the server does not know fails at the first `pipeline_*` call
 
 The skills read the mode once per run and then load one reference per storage concern for that mode. Under `plugins/feature/skills/flow/references/`, `storage.md` is the detection stub and each cross-stage concern (storage, ticket-resolution, state-transitions, lessons-log) plus the two flow-private ones (epic-walk, keying) is a `<concern>-fs.md` / `<concern>-server.md` pair — the stub's pointer table is the authoritative list. A skill with storage mechanics of its own keeps a skill-local pair at `skills/<skill>/references/storage-fs.md` / `storage-server.md` — `build`, `review-stage`, `close-stage`, `sync`, `ship`, `discover`, and `setup` today — loaded once, at the skill's start (`setup`: at its storage-mode question, since there the mode is an answer rather than a detection), and cited by section number from then on. A file for the other mode is never opened, so an fs-native run carries no server prose and a server-native run no folder choreography; each mode file opens with a "never needs this file" header naming the mode it serves. `scripts/check-mode-split.sh` enforces the split.
 
-Nothing else in this section matters unless you run `server-native`. If a `pipeline_*` tool is unavailable or a call fails in that mode, the skill **stops** naming the server and the failed operation — it never silently writes local files instead. `/feature:setup` is the one exception: a connector that does not answer its `ping` leaves server-native unavailable, and a missing or failing project list falls back to asking for the UUID. Under `/feature:setup --check`, the same unanswered `ping` is a failed line in the check report.
+Nothing else in this section matters unless you run `server-native` or `/feature:triage` — triage needs only the connector setup below. If a `pipeline_*` tool is unavailable or a call fails in that mode, the skill **stops** naming the server and the failed operation — it never silently writes local files instead. `/feature:setup` is the one exception: a connector that does not answer its `ping` leaves server-native unavailable, and a missing or failing project list falls back to asking for the UUID. Under `/feature:setup --check`, the same unanswered `ping` is a failed line in the check report.
 
 **Screenshot uploads (server-native only).** The `## Screenshots` section of `05-tests.md` hosts its captures through the `personal-server` CLI, which the pipeline invokes but never installs or configures. Three things have to be in the agent's environment:
 
@@ -340,7 +406,7 @@ A `flow` run loads in five contexts: the conversation that invoked `flow`, then 
 
 The server is **not** declared by the `feature` plugin. It lives in a second, separate plugin — **`server-native`** — that carries nothing but the server declaration: no skills, no agents, no hooks.
 
-That split is the whole opt-in mechanism. Install `feature` alone and no MCP server is declared, so none connects and there is nothing to configure or switch off. Install `server-native` alongside it only when you actually run server-native projects:
+That split is the whole opt-in mechanism. Install `feature` alone and no MCP server is declared, so none connects and there is nothing to configure or switch off. Install `server-native` alongside it only when you actually run server-native projects or `/feature:triage`, whatever your projects' storage mode:
 
 ```
 feature                    → the pipeline skills. Everyone installs this.
@@ -380,6 +446,6 @@ Codex infers the transport from the presence of `url`, so the block needs no `ty
 export PERSONAL_SERVER_MCP_TOKEN='…'
 ```
 
-Codex namespaces MCP tools without a plugin segment, so keying the block `ps` (as above) yields `mcp__ps__pipeline_get_ticket`. The skills' `allowed-tools` list the bare `pipeline_*` names alongside the Claude-scoped ones; the bare entry is how the skills name the tool, standing in for whatever your `config.toml` key makes the callable name. If your Codex version enforces `allowed-tools` against the qualified MCP name, add the qualified form to the affected skill's frontmatter — that name depends on your server key, which is why the plugin does not hardcode one.
+Codex namespaces MCP tools without a plugin segment, so keying the block `ps` (as above) yields `mcp__ps__pipeline_get_ticket`. The skills' `allowed-tools` list the bare `pipeline_*`, `inbox_*` and `ping` names alongside the Claude-scoped ones; the bare entry is how the skills name the tool, standing in for whatever your `config.toml` key makes the callable name. If your Codex version enforces `allowed-tools` against the qualified MCP name, add the qualified form to the affected skill's frontmatter — that name depends on your server key, which is why the plugin does not hardcode one.
 
 With the server added, run `/feature:setup` in the project: it checks that the server's `ping` answers, lets you pick the project from the server's list or paste its UUID, and writes `mode: server-native` and `project:` to `config.yaml`. Then run `/feature:setup --check`, and again before a `ship` and after any change to `config.yaml`: it reads the config without changing anything, confirms the project UUID's form and that the server's `ping` answers, probes `test.url`, checks the `.worktreeinclude` patterns, `jq` and Playwright, and prints one line per check with its fix.
