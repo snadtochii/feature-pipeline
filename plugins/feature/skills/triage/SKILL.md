@@ -89,7 +89,7 @@ For the current group, once:
 - `pipeline_list_tickets` with that `project_id`. An empty list is normal for a project whose tickets live in its repo.
 - When the project is mapped (step 2) and its path exists: read-only `Glob` / `Grep` / `Read` in that checkout, scoped to what the items name — the files, modules or features their bodies mention, and `claudedocs/tickets/**` for tickets kept in the repo. Every read resolves inside the mapped checkout root: never an absolute path or a `..` taken from an item, and never a secret or credential file (`.env*`, `*.pem`, `*.key`, `id_*`, `secrets*`, anything under `.git/`). A ticket there counts as done only when its own frontmatter `status` is `done` (`01-spec.md`, or `prd.md` for an epic); where it sits on disk says nothing. A `cancelled` ticket delivered nothing: it can be a related ref, never the reason for `discard_candidate`.
 
-The group with no `project_id` works from that unfiltered list across all projects, and gets no ticket lookup or repo context.
+The group with no `project_id` works from that unfiltered list across all projects, and gets no ticket lookup or repo context. A group with a `project_id` compares its entries only with that project's items and tickets: an item filed under another project is never a duplicate or cover candidate, so each group's context stays one project wide.
 
 `inbox_list` returns full items, bodies included, so a listed item is never fetched again. Fetch a single record only when a candidate is not in hand: `inbox_get` for an item no loaded list contains (a ref named in a `previous` assessment's `related_refs`, say), `pipeline_get_ticket` for a ticket's status or description.
 
