@@ -165,7 +165,7 @@ Triage summary (prompt triage-1, model <model id>)
 - written: <refs>
 - skipped (409): <refs, or none>
 - failed: <ref — error, or none>
-- context errors: <tool — error, projects.yaml — unparseable, or none>
+- context errors: <tool — error entries, plus projects.yaml — unparseable when step 2 recorded it; or none>
 - repo context used: <refs, or none>
 - repo paths: <n> from registry, <m> from override, <k> unresolved; missing paths: <paths, or none>
 ```
