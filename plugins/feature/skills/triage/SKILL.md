@@ -93,7 +93,17 @@ The group with no `project_id` works from that unfiltered list across all projec
 
 `inbox_list` returns full items, bodies included, so a listed item is never fetched again. Fetch a single record only when a candidate is not in hand: `inbox_get` for an item no loaded list contains (a ref named in a `previous` assessment's `related_refs`, say), `pipeline_get_ticket` for a ticket's status or description.
 
-**Done when** the current group has its inbox list and ticket list in hand.
+**When a context read fails.** Judge each failed `inbox_list`, `pipeline_list_tickets`, `inbox_get` or `pipeline_get_ticket` call by its error, and never retry it:
+
+- The server cannot be reached — the tool is no longer available, or the call fails on a connection error or a timeout → stop the run. Print this message, then the step 6 summary of what was written so far, and stop:
+
+  ```
+  Triage aborted: <tool> failed against the personal server mid-run. <error detail>. Assessments already written stay on the server; every item not yet written stays pending for the next run.
+  ```
+
+- The server answers with an error — a missing capability (a credential without `pipeline` rejects the ticket reads), an unknown ref → carry on without that context and record `<tool> — <error>` for the summary's context-errors line. An entry classified without its group's inbox list or ticket list says so in its rationale, since no duplicate or covering-ticket check ran for it.
+
+**Done when** the current group has its inbox list and ticket list in hand, or each missing one is recorded as a context error.
 
 ### 4. Classify the group's entries
 
@@ -128,9 +138,10 @@ Trim `rationale` and `question` to 400 characters before sending. Handle each re
 
 - Success → count it as written.
 - Error text containing `Re-read the item` (the item changed after it was fetched) or `only unreviewed items take a triage assessment` (it was reviewed meanwhile) → log `<short_ref>: skipped (409)` and continue. The next run picks up a changed item again.
+- The server cannot be reached — the tool is no longer available, or the call fails on a connection error or a timeout → stop the run with step 3's mid-run abort message, naming `inbox_triage_assess`, then the step 6 summary.
 - Any other error → log `<short_ref>: failed — <error text>` and continue.
 
-**Done when** every entry in the current group has been sent exactly once and has a result of written, skipped (409) or failed. Then return to step 3 for the next group; once no group is left, continue to step 6.
+**Done when** every entry in the current group has been sent exactly once and has a result of written, skipped (409) or failed, or the run has stopped on an unreachable server. Then return to step 3 for the next group; once no group is left, continue to step 6.
 
 ### 6. Print the summary
 
@@ -143,6 +154,7 @@ Triage summary (prompt triage-1, model <model id>)
 - written: <refs>
 - skipped (409): <refs, or none>
 - failed: <ref — error, or none>
+- context errors: <tool — error, or none>
 - repo context used: <refs, or none>
 - projects map: <loaded (n projects) | absent | unparseable | not read>; missing paths: <paths, or none>
 ```

@@ -206,13 +206,14 @@ When the run finishes, report in this order:
 
 1. The outcome in one line: how many pending items were assessed, or the skill's abort message.
 2. The counts per classification.
-3. The refs written, the refs skipped on 409, and the refs that failed, each with its error.
+3. The refs written, the refs skipped on 409, and the refs that failed, each with its error, and
+   the context errors.
 4. The refs where repo context was used, and the projects-map status.
 
 Never change an inbox item. Never create a ticket. Never edit a file.
 ```
 
-**Each run** fetches the pending list once, then works through one project at a time — gathers that project's inbox items and tickets once, classifies its pending items and writes their assessments before moving on — and ends with a summary: counts per classification, refs written, refs skipped because the item changed or was reviewed meanwhile (a 409 — a changed item comes back next run), refs that failed, refs where repo context was used, and the projects-map status. A missing connector, an unreachable server or a credential without `triage` aborts the run with one message before anything is written. A very large first backlog may take several runs: every item whose assessment was not written stays pending.
+**Each run** fetches the pending list once, then works through one project at a time — gathers that project's inbox items and tickets once, classifies its pending items and writes their assessments before moving on — and ends with a summary: counts per classification, refs written, refs skipped because the item changed or was reviewed meanwhile (a 409 — a changed item comes back next run), refs that failed, context reads that errored, refs where repo context was used, and the projects-map status. A missing connector, an unreachable server or a credential without `triage` aborts the run with one message before anything is written; a server that drops mid-run stops it with one message, keeping every assessment already written. A credential without `pipeline` costs only ticket context: those items are classified without it, and the summary lists the errors. A very large first backlog may take several runs: every item whose assessment was not written stays pending.
 
 ## Configuration reference
 
