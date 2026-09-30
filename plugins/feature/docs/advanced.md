@@ -208,7 +208,7 @@ When the run finishes, report in this order:
 2. The counts per classification.
 3. The refs written, the refs skipped on 409, and the refs that failed, each with its error, and
    the context errors.
-4. The refs where repo context was used, and the repo-path counts.
+4. The refs where repo context was used, and the repo-path counts with any missing paths.
 
 Never change an inbox item. Never create a ticket. Never edit a file.
 ```
