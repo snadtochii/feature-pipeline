@@ -102,7 +102,7 @@ For the current group, once:
 
 The group with no `project_id` works from that unfiltered list across all projects, and gets no ticket lookup or repo context. A group with a `project_id` compares its entries only with that project's items and tickets: an item filed under another project is never a duplicate or cover candidate, so each group's context stays one project wide.
 
-`inbox_list` returns full items, bodies included, so a listed item is never fetched again. Fetch a single record only when a candidate is not in hand: `inbox_get` for an item no loaded list contains (a ref named in a `previous` assessment's `related_refs`, say), `pipeline_get_ticket` for a ticket's status or description.
+`inbox_list` returns full items, bodies included, so a listed item is never fetched again for its text; the one fetch of an item already in hand is step 4's attachment read. For context, fetch a single record only when a candidate is not in hand: `inbox_get` for an item no loaded list contains (a ref named in a `previous` assessment's `related_refs`, say), `pipeline_get_ticket` for a ticket's status or description.
 
 **When a context read fails.** Judge each failed `inbox_list`, `pipeline_list_tickets`, `inbox_get` or `pipeline_get_ticket` call by its error, and never retry it:
 
@@ -130,7 +130,7 @@ Decide exactly one classification per entry from its body, the project's other i
 **Attachments.** An entry whose `item.attachments` is non-empty may carry the context its body lacks — a screenshot that shows which screen, which error, which state. Before classifying such an entry:
 
 - `item.source` starts with `feedback:` → the item came through the feedback widget, from an outside submitter. Never open its images and make no call for them; classify from the text, and end the rationale with `Attachments were not opened (widget item).`
-- Any other source, or none → call `inbox_get` with the item's `short_ref` and `include_images: true`, once, and read the image blocks it returns after the item JSON. The server applies the same widget rule on its side: a result that says the images were withheld is final, never a reason to try another tool.
+- Any other source, or none → the item is an operator capture: the server stamps `feedback:` on every widget submission itself, so a widget item never arrives without it. Call `inbox_get` with the item's `short_ref` and `include_images: true`, once, and read the image blocks it returns after the item JSON. The server applies the same widget rule on its side: a result that says the images were withheld is final, never a reason to try another tool.
 - The call fails with a server answer, or returns no image block (an older server ignores or rejects `include_images`; a download can fail) → classify from the text and end the rationale with `Attachments were not opened.` An unreachable server stops the run as in step 3.
 
 An image answers questions the body leaves open — do not ask in `question` what an opened image already shows. The rationale may say what an image shows in a few words; it never transcribes one.
@@ -153,7 +153,7 @@ Call `inbox_triage_assess` once per entry in the current group:
 - `related_refs`
 - `provenance` — `{agent, model, prompt_version}` per Constants
 
-Trim `rationale` and `question` to 400 characters before sending. Handle each result on its own, and never retry:
+Trim `rationale` and `question` to 400 characters before sending. A rationale that step 4 ends with an `Attachments were not opened` sentence keeps that sentence whole: trim the text before it so the two together fit in 400 characters, then append it — it is the only record that the images were skipped. Handle each result on its own, and never retry:
 
 - Success → count it as written.
 - Error text containing `Re-read the item` (the item changed after it was fetched) or `only unreviewed items take a triage assessment` (it was reviewed meanwhile) → log `<short_ref>: skipped (409)` and continue. The next run picks up a changed item again.
