@@ -56,7 +56,7 @@ A passing probe does not promise acceptance. gh refuses the attach itself on a G
 **GitHub set** — the curated captures a pull request shows. Tickets in ascending order of the ID's numeric part — a home whose names carry no `<ticket-id>-` prefix is one ticket — and within each ticket:
 
 1. For each acceptance criterion `n`, ascending, failed and passed alike: `AC-<n>-desktop`. Its `AC-<n>-mobile` joins the set only
-   - **(a)** directly after the desktop capture, when the criterion's failed entry records `**Viewport**: mobile` — it failed at mobile width and passed at desktop width; or
+   - **(a)** directly after the desktop capture, when every failed entry for criterion `n` records `**Viewport**: mobile` — it failed at mobile width and passed at desktop width; or
    - **(b)** in the desktop capture's slot, when the pass produced no `AC-<n>-desktop`.
 2. The desktop state captures (`error`, `empty`, `disabled`), by name ascending.
 
@@ -66,7 +66,7 @@ No numeric ceiling applies: the whole set is posted, in §6 batches. An epic's i
 
 1. `### Desktop` — acceptance-criterion captures by ticket, then criterion number; then state captures by name.
 2. `### Mobile` — the same, at mobile width.
-3. `### Other` — every name that matches neither viewport grammar, unsafe names included, alphabetical.
+3. `### Other` — every name outside the acceptance-criterion and state grammar above, whatever viewport suffix it carries, unsafe names included, alphabetical.
 
 A group with no entry is omitted, and an empty evidence home is the writer's single no-captures line with no subheading. No count ceiling applies.
 
@@ -120,9 +120,9 @@ The **part body** carries batch `<k>` ≥ 2 of a GitHub set over 50 (§6 **Batch
 ```
 
 - `<K>` is the number of batches; the post itself is part 1.
-- One image line per file in that batch, in §3 order. The pointer and not-attached lines ride batch 1 only, and a part never repeats a file of an earlier batch.
+- One image line per file in that batch, in §3 GitHub-set order. The pointer and not-attached lines ride batch 1 only, and a part never repeats a file of an earlier batch.
 
-The **manifest variant** has the same heading and marker, then the pointer line(s), then one line — `Screenshots were not attached; they are local to the run that captured them.` — and the GitHub set's paths relative to the project root as a list, in §3 order. A listed path is not rewritten by gh, so an absolute one would publish the local username and directory layout. It is what a fallback posts, because an attach body posted without `--attach` would leave dangling local image references; it has no part bodies.
+The **manifest variant** has the same heading and marker, then the pointer line(s), then one line — `Screenshots were not attached; they are local to the run that captured them.` — and the GitHub set's paths relative to the project root as a list, in §3 GitHub-set order. A listed path is not rewritten by gh, so an absolute one would publish the local username and directory layout. It is what a fallback posts, because an attach body posted without `--attach` would leave dangling local image references; it has no part bodies.
 
 ## §6 Command construction
 
@@ -137,7 +137,7 @@ gh pr comment "<N>" --body-file "$WORK/comment.md" \
   --attach "/abs/evidence-home/AC-1-desktop.png#AC-1 desktop"
 ```
 
-**Batches.** gh accepts at most 50 `--attach` files per command. The GitHub set's attachable files are cut, in §3 order, into consecutive batches of at most 50. Batch 1 is the post's own `--attach` list. Each later batch is one part comment — its §5 part body and its own `--attach` list — posted after the post exists, in batch order:
+**Batches.** gh accepts at most 50 `--attach` files per command. The GitHub set's attachable files are cut, in §3 GitHub-set order, into consecutive batches of at most 50. Batch 1 is the post's own `--attach` list. Each later batch is one part comment — its §5 part body and its own `--attach` list — posted after the post exists, in batch order:
 
 ```bash
 gh pr comment "<N>" --body-file "<part-2 body>" \
@@ -159,7 +159,7 @@ Tiers, in order — each taken only when the one before it cannot run or is refu
 Falling through:
 
 - **Probe fails** (§2) → next tier, reason `gh has no --attach`.
-- **Path gate fails** (§4), or selection leaves nothing attachable → next tier, reason `evidence path not attach-safe` / `no attachable captures`.
+- **Path gate fails** (§4), or the GitHub set leaves nothing attachable → next tier, reason `evidence path not attach-safe` / `no attachable captures`.
 - **gh exits non-zero on the attach command** → first reconcile whether the post landed, because gh still creates the PR (or posts the edit) with the uploads that succeeded, prints its URL and exits non-zero when a later upload fails:
   - **Post landed** — `gh pr create` printed a PR URL on stdout, or a PR is now open for the branch (`gh pr view "<branch>" --json url,state`); for a comment post, §8's dedupe read now finds the marker. The post stands: no retry, and the outcome is `attached <k> (partial: <gh's first error line>)`, where `<k>` counts the attached captures the post references.
   - **Nothing posted** → reason `gh refused --attach: <gh's first error line>`, then **one** retry with the next tier.
