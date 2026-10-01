@@ -168,7 +168,9 @@ projects:
   <project-uuid>: /absolute/path/to/checkout   # project name
 ```
 
-A path from either source is used only when it is absolute and exists on this machine; any other is listed under the summary's missing paths. Without a registry path or an override, triage still runs on inbox items and server tickets alone. Checkouts are only read, and attachments are never opened.
+A path from either source is used only when it is absolute and exists on this machine; any other is listed under the summary's missing paths. Without a registry path or an override, triage still runs on inbox items and server tickets alone. Checkouts are only read.
+
+**Attachments.** Triage opens an item's attached images through `inbox_get` with `include_images: true`, so a screenshot can settle what the body leaves open. It never opens the images of an item captured through the feedback widget (a `source` starting `feedback:`): those come from outside submitters, and the server withholds them on that tool as well. This needs a personal server whose `inbox_get` takes `include_images`; against an older one, triage classifies from the text alone and says so in the rationale.
 
 **Pilot under `/loop`.** Run `/loop 6h /feature:triage` in a Claude Code session to tune the classifications against your real inbox. A `/loop` task runs only while that session stays open; once the classifications look right, move to a scheduled task.
 
