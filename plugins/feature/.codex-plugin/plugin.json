@@ -2,7 +2,7 @@
   "name": "feature",
   "displayName": "Feature Pipeline",
   "description": "Agentic feature development pipeline.",
-  "version": "3.14.0",
+  "version": "3.14.1",
   "author": {
     "name": "Serhii Nadtochii",
     "url": "https://github.com/snadtochii"
