@@ -3,7 +3,7 @@
 Canonical logic for attaching `ui-tester` screenshots to a GitHub pull request with `gh … --attach`: when it is enabled, the capability probe, which captures each destination shows and in what order, the posted-body shape, the command construction and its batches, the fallback order and the pre-upload dedupe. Consumers:
 
 - **`close-stage`** ([`../../close-stage/SKILL.md`](../../close-stage/SKILL.md)) — §1 binding, §3 GitHub set, §4 alt text and path gate, §5 posted bodies, and §6 **Batches** to cut the part bodies, for the PR body its finalizer opens on `--pr` and the part comments that follow it.
-- **The `feature:finalizer`**, through [`pr-creation.md`](pr-creation.md) §4 — §2 probe, §6 command and batches, §7 fallback, and §8's read before part comments, when it opens that PR.
+- **The `feature:finalizer`**, through [`pr-creation.md`](pr-creation.md) §4 — §2 probe, §6 command and batches, §7 fallback, and §8's read to reconcile a failed part comment, when it opens that PR.
 - **Ship's end-of-run pass** ([`../../ship/references/ui-verification.md`](../../ship/references/ui-verification.md) step 3) — every section, for its evidence comment.
 - **The `05-tests.md` `## Screenshots` section**, written by `close-stage`'s test checkpoint and by ship's end-of-run pass — §3's recognized-name grammar, **Artifact order** and safe-name regex, and §4's alt-text grammar, on every browser pass whether or not attaching is enabled. §3's size filter and its **GitHub set** are upload rules and do not bound that section. The entry shapes it renders stay in each writer's storage file.
 
@@ -165,7 +165,11 @@ Falling through:
   - **Nothing posted** → reason `gh refused --attach: <gh's first error line>`, then **one** retry with the next tier.
 
   The GHES, token-type and role refusals happen before any upload. A failure part-way through the uploads (network) can leave uploaded assets no post references; the outcome notes `uploads may be orphaned`, since an upload cannot be deleted.
-- **A part comment fails** (§6 **Batches**: its probe fails, or gh exits non-zero on it) → reconcile with §8's read whether its part marker landed. Landed → it stands. Not landed → the post and the parts already landed stand: the part is never retried and never falls back to a manifest, and the parts after it are not posted. The outcome is `attached <k> (partial: part <p> of <K>: <reason>)`, where `<k>` counts the captures the landed post and parts reference.
+- **A part comment fails** (§6 **Batches**: its probe failed, or gh exits non-zero on it). A part is never retried and never falls back to a manifest. A failed probe posted nothing; a non-zero exit is reconciled with §8's read, because gh posts the comment with the uploads that succeeded before it exits, as it does for the post itself:
+  - **Landed** — the read finds its part marker. The part stands, the parts after it are still posted, and the outcome is `attached <k> (partial: part <p> of <K>: <gh's first error line>)`.
+  - **Not landed**, a failed probe, or **the read fails** → the post and the parts already landed stand, and the parts after it are not posted. The outcome is `attached <k> (partial: part <p> of <K>: <reason>)`, the reason being `dedupe read failed` when the read failed.
+
+  `<k>` counts the captures the landed post and parts reference. When more than one partial occurs, the outcome names the first.
 - A refused attach never fails the stage or the run, and a retry never re-posts to a PR the failed command already created or commented on.
 
 **Outcome line** — the caller reports exactly one:
@@ -197,11 +201,10 @@ fi
 
 Only a marker authored by the account gh posts as counts — the PR's body when that account opened the PR, and that account's comments. A marker anyone else writes into a comment is ignored, so a third party cannot suppress the evidence post. The login reaches the filter through the environment, never interpolated into it.
 
-- Every marker the post needs is found → post nothing; outcome `already posted` (fresh evidence is not re-posted, and the report says so).
-- Some are found → post only the missing ones: a found main marker skips the post itself, a found part marker skips that part. The outcome counts only what this run posted.
-- None found → continue to §2.
+- The main marker is found → post nothing, parts included; outcome `already posted` (fresh evidence is not re-posted, and the report says so). Parts follow only a post this run made: a GitHub set recomputed since an earlier post — new captures, or a changed failed-criteria list — can move the batch boundaries, so a part posted beside an earlier run's post could repeat or skip captures.
+- The main marker is absent → continue to §2.
 
 The dedupe read, the §2 probe and the §3 size listing are read-only and independent, so they go out as parallel calls in one message; their results are acted on only after the marker check, and only the upload waits for it. A probe result holds for the whole run.
-- The read itself fails → the attach tier is skipped with reason `dedupe read failed`; the lower tiers upload nothing.
+- The read itself fails before the post → the attach tier is skipped with reason `dedupe read failed`; the lower tiers upload nothing. Failing while it reconciles a part, it is §7's not-landed case.
 
-A PR body carries the main marker. Its guard is the finalizer's own idempotency: a finalizer that finds the ticket's PR already open never creates it again, so it never attaches batch 1 again. The part comments that follow it are guarded by this read: the finalizer runs it once after the PR is created or found open, re-entry included, and posts only the parts whose markers are absent.
+A PR body carries the main marker. Its guard is the finalizer's own idempotency: a finalizer that finds the ticket's PR already open never creates it again and attaches nothing to it — no batch 1 and no part, the same rule as a found main marker. Parts follow only a PR the finalizer created in this run, so no read precedes them; the read runs only to reconcile a part whose command exited non-zero (§7).
