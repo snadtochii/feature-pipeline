@@ -20,7 +20,7 @@ A screen with no form or dialog still gets the viewport checks in §2. A state t
 
 - **Desktop**: 1280×800. **Mobile**: 390×844.
 - Set each with the resize tool of the browser the session drives: `mcp__playwright__browser_resize` for a Playwright session, `mcp__chrome-devtools__resize_page` for an attached DevTools tab.
-- Every acceptance-criterion screenshot and every state screenshot from §1 is captured at both widths.
+- Exactly one capture per acceptance criterion per viewport, and one per §1 state per viewport — every one at both widths. No additional variant of a condition already captured (a second angle, a scrolled copy, a re-take under another name): the fixed §3 name is the capture, and a rerun overwrites it.
 - A resize that is unavailable (the tool is not exposed in this session) or fails is a failed check under the UI-states criterion, with the reason. Never record a width as "not verified".
 
 ## 3. Capture
@@ -55,5 +55,6 @@ A defect on the findings list stays a finding. It is never reported as a polish 
 
 - Each finding is a bug report with category `layout` or `error-state`, listed under `## Failed Criteria` against the spec's UI-states acceptance criterion. When the spec has no such criterion, list it against the implicit criterion **UI states (required check)**.
 - Every failed check from §1–§3 (untriggerable state, unavailable resize, unwritable screenshot) is listed the same way, with its reason.
+- Every failed criterion and every failed check — the implicit **UI states (required check)** included — names the viewport it failed at: `**Viewport**: desktop | mobile | both`. `both` is the value whenever the failure is not specific to one width.
 - Observations go in a separate `## Observations` section, which never affects the verdict.
 - Name the evidence home and the screenshot filenames in the report.

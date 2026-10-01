@@ -90,7 +90,7 @@ codex plugin list                           # verify feature@feature is installe
 
 `flow`, `plan`, `build`, `review-stage`, `close-stage`, and `ship` select the active Claude or Codex runtime from the available tools. Claude keeps native skill and agent invocation; Codex loads the same skill and role instructions into fresh children and resumes paused stages with your answers. Nested agent support is required, and reviewer batches and ship worker counts respect the active runtime's limits. See [runtime behavior and stage models](plugins/feature/docs/advanced.md#stage-subagents-and-per-stage-models---plan-model---build-model).
 
-Resumption is auto-detected from the artifacts on disk; delete them to start a stage fresh. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md) for the `--pr` auto-PR flow, `--no-ui-testing`, `--attach-screenshots` (opt-in screenshot uploads to PRs), `--no-commit` and the `git.commit` config default, `--worktree` isolation, epics, and blocker dependencies.
+Resumption is auto-detected from the artifacts on disk; delete them to start a stage fresh. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md) for the `--pr` auto-PR flow, `--no-ui-testing`, `--attach-screenshots` (opt-in upload of a curated desktop screenshot set to PRs), `--no-commit` and the `git.commit` config default, `--worktree` isolation, epics, and blocker dependencies.
 
 ## Standalone helpers
 
@@ -169,7 +169,7 @@ git:                             # presets the verdict gate's commit question
 
 `worktree.setup` pairs with a committed `.worktreeinclude` file at each repo's root — gitignore-style patterns listing the gitignored files (`.env`, auth sessions) a worktree creator copies into a fresh worktree before running setup. In a multi-repo workspace, `worktree.setup` is workspace-level and repo-agnostic (manifest sniffing); see the worktree contract in the full reference below.
 
-Every browser pass records its captures in the ticket's own `05-tests.md` — as links relative to that file in `fs-native` mode, as uploaded server assets in `server-native` mode — so the visual record lives with the ticket whether or not you attach screenshots to PRs. Section shape and the server-native prerequisites: [Required UI checks](plugins/feature/docs/advanced.md#required-ui-checks).
+Every browser pass records its captures in the ticket's own `05-tests.md` — as links relative to that file in `fs-native` mode, as uploaded server assets in `server-native` mode, grouped desktop then mobile — so the visual record lives with the ticket whether or not you attach screenshots to PRs. Section shape and the server-native prerequisites: [Required UI checks](plugins/feature/docs/advanced.md#required-ui-checks).
 
 The pipeline also reads your project's `CLAUDE.md` / `AGENTS.md` for conventions and for the lint, typecheck and test commands build validates each plan step with. Full reference — auth/`storage_state`, the worktree contract, and MCP setup — is in [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#configuration-reference).
 

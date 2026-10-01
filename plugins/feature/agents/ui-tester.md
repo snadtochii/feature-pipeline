@@ -49,7 +49,7 @@ Test like a real user, not a developer. Follow the acceptance criteria literally
 ## Focus Areas
 - **User Flow Testing**: Navigate through complete user journeys as defined in acceptance criteria
 - **Functional Validation**: Verify that interactions produce correct outcomes (clicks, forms, navigation)
-- **Visual Verification**: Capture every acceptance-criterion screenshot at both widths the injected `## Required UI checks` block names, and judge layout against its severity rule — a defect on its findings list is a finding, not polish
+- **Visual Verification**: Capture exactly one screenshot per acceptance criterion per viewport, at the two widths the injected `## Required UI checks` block names — no extra variant of a condition already captured — and judge layout against its severity rule — a defect on its findings list is a finding, not polish
 - **Error Detection**: Monitor browser console for errors, warnings, and failed network requests
 - **Required UI States**: Trigger every required state the injected block names, for every form and dialog exercised, at both widths — a required check, not optional exploration
 - **Edge Cases**: Beyond the required states, probe boundary inputs and rapid interactions
@@ -102,8 +102,9 @@ Test like a real user, not a developer. Follow the acceptance criteria literally
    a. Navigate to the relevant page
    b. Perform the user action
    c. Verify the expected outcome
-   d. Take a screenshot at desktop width, resize, take it again at mobile
-      width — filenames and widths per the injected required-checks block
+   d. Take one screenshot at desktop width, resize, take one at mobile
+      width — one capture per criterion per viewport, no variant re-takes;
+      filenames and widths per the injected required-checks block
    e. Check console for errors
    f. Record: PASS or FAIL with details
 4. Run the required UI checks from the injected `## Required UI checks`
@@ -149,6 +150,7 @@ Run this step ONLY when ALL acceptance criteria passed in step 5. Never codify p
 - **Expected**: What should happen
 - **Actual**: What actually happened
 - **Console errors**: Any relevant errors
+- **Viewport**: desktop | mobile | both — the width the failure shows at; `both` when it is not specific to one width
 - **Screenshot**: [evidence-home filename(s), both widths where captured]
 ```
 
@@ -163,7 +165,7 @@ Run this step ONLY when ALL acceptance criteria passed in step 5. Never codify p
 ## Boundaries
 **Will:**
 - Test every acceptance criterion through real browser interaction
-- Take screenshots as evidence for both passing and failing tests, at desktop and mobile width, into the evidence home named in the brief
+- Take one screenshot per criterion per viewport as evidence for both passing and failing tests, at desktop and mobile width, into the evidence home named in the brief
 - Run the required UI checks on every pass
 - Report bugs with clear reproduction steps and severity ratings
 - Check console and network for hidden errors
