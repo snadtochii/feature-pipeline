@@ -44,7 +44,7 @@ Every shared mutation in a `--parallel` run is orchestrator-only, in the forms [
 
 ## §7 UI evidence home and hosting
 
-Screenshots go to the evidence home declared in [the close stage's `storage-fs.md`](../../close-stage/references/storage-fs.md) §8 — its location, its epic form and its gitignore expectation live there — with the filenames fixed by [`ui-checks.md`](../../build/references/ui-checks.md) §3. Whether they are hostable is ship's decision: run `git check-ignore "<evidence-home>"` (mirror the pre-write guard in `debug` and build's `--pr` flow) and take the **Tracked** or **Ignored** outcome in `ui-verification.md` step 3 accordingly. With attaching enabled, that decision is the fallback below the **Attached** outcome: Tracked is [`ui-attach.md`](../../build/references/ui-attach.md) §7's hosted-link tier, and Ignored its path manifest.
+Screenshots go to the evidence home declared in [the close stage's `storage-fs.md`](../../close-stage/references/storage-fs.md) §8 — its location, its epic form and its gitignore expectation live there — with the filenames fixed by [`ui-checks.md`](../../build/references/ui-checks.md) §3. Whether they are hostable is ship's decision: run `git check-ignore "<evidence-home>"` (mirror the pre-write guard in `debug` and build's `--pr` flow) and take the **Tracked** or **Ignored** outcome in `ui-verification.md` step 3 accordingly. With attaching enabled, that decision is the fallback below the **Attached** outcome: Tracked is [`ui-attach.md`](../../build/references/ui-attach.md) §7's hosted-link tier, and Ignored its path manifest. Every outcome's post carries one `Full capture set:` line per covered ticket, its `<pointer>` the **Pointer** of [the close stage's `storage-fs.md`](../../close-stage/references/storage-fs.md) §8.
 
 ## §8 UI verification write-back
 
@@ -63,7 +63,7 @@ verdict: <pass | partial>
 - [ ] AC <n> — FAIL — <tester's note>
 
 ## Failed Criteria
-<one entry per failed criterion or failed required UI check: what failed, where, the screenshot name; for an epic child, the epic-wide required-check failures too, each marked epic-wide>
+<one entry per failed criterion or failed required UI check: what failed, where, the screenshot name and its `**Viewport**: desktop | mobile | both` line; for an epic child, the epic-wide required-check failures too, each marked epic-wide>
 
 ## Observations
 <the tester's non-failing notes; for an epic child, the epic-wide notes too, each marked epic-wide>
@@ -79,7 +79,7 @@ verdict: <pass | partial>
 
 **Verdict rule.** Every criterion and every required UI check passed → `pass`. `## Failed Criteria` present → `partial`. `fail` is never written.
 
-**`## Screenshots` section.** Composed by the rules in [the close stage's `storage-fs.md`](../../close-stage/references/storage-fs.md) §8 — the same one `wc -c -- "<evidence-home>"/*.png` listing, the same order, entry form, relative-path rule, unsafe-name demotion to plain text and empty-home line — issued before the body is composed, since its names and sizes are inputs to that body. An epic pass shares one evidence home (§7), so that listing goes out **once** for the whole pass and every covered child's section is composed from the one result. Two rules arise only here:
+**`## Screenshots` section.** Composed by the rules in [the close stage's `storage-fs.md`](../../close-stage/references/storage-fs.md) §8 — the same one `wc -c -- "<evidence-home>"/*.png` listing, the same order ([`ui-attach.md`](../../build/references/ui-attach.md) §3's **Artifact order**, under `### Desktop`, `### Mobile` and `### Other` subheadings), entry form, relative-path rule, unsafe-name demotion to plain text and empty-home line — issued before the body is composed, since its names and sizes are inputs to that body. An epic pass shares one evidence home (§7), so that listing goes out **once** for the whole pass and every covered child's section is composed from the one result. Two rules arise only here:
 
 - **Which home a child reads.** A pass covering an epic writes each child's artifact from the epic-level evidence home (§7), never from the child's own, so the epic-level-home case of that §8's relative-path rule is the one governing every entry in that child's section.
 - **Per-child filtering.** Each child lists only the captures whose names carry its own `<ticket-id>-` prefix ([`ui-checks.md`](../../build/references/ui-checks.md) §3), never a sibling's.
