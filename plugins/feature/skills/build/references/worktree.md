@@ -161,7 +161,7 @@ Once a worktree is bound, every command must be aimed explicitly. A missed site 
 | Triviality short-circuit `git diff --shortstat` | review-stage SKILL.md, triviality short-circuit |
 | Base resolution + merge-base `git diff` + untracked-file listing | review-stage SKILL.md, Entry base step and diff collection |
 | `git check-ignore -q claudedocs`, `git add -A`, `git reset -q -- claudedocs/` | [`commit.md`](commit.md) §1 |
-| `git check-ignore -q <auth.storage_state>` session-state backstop — the committed repository's entry (its `test.repos` entry, else, in a single-repo workspace, the flat block's), resolved inside `<wt-path>` | [`commit.md`](commit.md) §1 |
+| `git check-ignore -q <auth.storage_state>` session-state backstop — the committed repository's declared path, resolved inside `<wt-path>` | [`commit.md`](commit.md) §1 |
 | `git commit -F <message-file>` — the **git half only**; the message file itself is a `/tmp` or scratchpad path | [`commit.md`](commit.md) §2, [`pr-creation.md`](pr-creation.md) §3 |
 | `git fetch origin`, base resolution | [`pr-creation.md`](pr-creation.md) §1 |
 | `git push -u origin "<branch>"` | [`pr-creation.md`](pr-creation.md) §4 |
