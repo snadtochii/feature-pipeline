@@ -1,6 +1,6 @@
 # Test Pre-flight
 
-The close stage uses this reference at its test checkpoint in two places. [Entry selection](#entry-selection) decides which entry or entries the ticket is tested against, and it is decided **before** the skip-detection scan, so its "no testable repo in ticket" skip lands without the scan. §1–§6 then run once per selected entry on the path where a `ui-tester` spawn was about to happen — i.e. **after** the skip-detection scan has decided the plan has UI signals, but **before** the `ui-tester` `Task` call. They run a cheap reachability gate so the browser subagent is never spawned against an app that can't be reached, and they hand the agent a declared auth recipe instead of letting it guess.
+The close stage uses this reference at its test checkpoint in two places. [Entry selection](#entry-selection) decides which entry or entries the ticket is tested against, and it is decided **before** the skip-detection scan, so its "no testable repo in ticket" skip lands without the scan. §1–§6 then run once per selected entry on the path where a `ui-tester` spawn was about to happen — i.e. **after** the skip-detection scan has decided the plan has UI signals, but **before** the `ui-tester` `Task` call. They run a cheap reachability gate so the browser subagent is never spawned against an app that can't be reached, and they hand the agent a declared auth recipe instead of letting it guess. Ship's end-of-run browser pass reuses Entry selection and §1–§5 per pass, as [`ui-verification.md`](../../ship/references/ui-verification.md) describes.
 
 `--no-ui-testing` bypasses this reference entirely, Entry selection included. The no-UI-signal skip bypasses §1–§6 — neither resolves a URL, curls, nor boots a `start` command. Pre-flight only runs when a spawn was actually going to happen (this is what keeps the cheap gate ahead of the expensive spawn).
 
@@ -51,7 +51,7 @@ Two values in an entry are resolved against a root, never against the close stag
 
 ### Entry selection
 
-The test checkpoint selects its entries once, from two inputs: the ticket's `repos:` as the close stage binds it ([`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §2), and the `test:` block. The flat block is **present** when the `test:` block holds at least one flat key (`url`, `start`, `start_timeout`, `auth`). The first matching row wins:
+The test checkpoint selects its entries once, from two inputs: the ticket's `repos:` as the close stage binds it ([`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §2), or as ship's end-of-run pass binds it ([ship's `storage-fs.md`](../../ship/references/storage-fs.md) / [ship's `storage-server.md`](../../ship/references/storage-server.md) §1), and the `test:` block. The flat block is **present** when the `test:` block holds at least one flat key (`url`, `start`, `start_timeout`, `auth`). The first matching row wins:
 
 1. **`test.repos` declared and the ticket has `repos:`** — the selected entries are the ticket's `repos:` values that have a `test.repos` entry, in `repos:` order. Zero → the [no testable repo skip](#skip-artifact-no-testable-repo-in-ticket). One → one pass. Two or more → one pass per entry, run sequentially.
 2. **The ticket has no `repos:` and the flat block is present** → the flat block, one pass.
@@ -67,7 +67,7 @@ A `repos:` value matches a key only when the two strings are identical, case inc
 
 #### Skip artifact (no testable repo in ticket)
 
-When selection finds nothing to test, the close stage writes `<ticket-folder>/05-tests.md` without running the skip-detection scan, booting anything, or spawning `ui-tester`. Its first line is the skip label; what the label means for the verdict is defined at the close stage's `SKILL.md`, test checkpoint step c:
+When selection finds nothing to test, the close stage writes `<ticket-folder>/05-tests.md` without running the skip-detection scan, booting anything, or spawning `ui-tester`. Ship's end-of-run pass writes no skip artifact; it records the outcome per its own reference. The artifact's first line is the skip label; what the label means for the verdict is defined at the close stage's `SKILL.md`, test checkpoint step c:
 
 ```
 verdict: skipped (no testable repo in ticket)

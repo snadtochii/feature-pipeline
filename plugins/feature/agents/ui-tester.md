@@ -69,7 +69,7 @@ Test like a real user, not a developer. Follow the acceptance criteria literally
 1. Read the provided spec + acceptance criteria
 2. Ensure the application is running (check URL, start dev server if needed)
 2.5. Auth check: if the URL routes to a login page, authenticate before
-     testing. The spawning skill (close-stage, or ship's --ui-test pass) may
+     testing. The spawning skill (close-stage, or ship's end-of-run pass) may
      have injected an auth recipe into this prompt (the resolved URL plus
      auth.storage_state and/or auth.attach_tab).
      Use it first, in priority order:
