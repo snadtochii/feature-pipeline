@@ -200,7 +200,7 @@ claudedocs/tickets/<state>/<id>/        # the ticket folder; <state> ∈ {backlo
 ├── 04-review.md            # Review stage: merged findings (4 reviewer subagents) and their decisions
 ├── 05-tests.md             # Close stage: UI test results, skip artifact, or Failed Criteria section
 ├── 06-summary.md           # Close stage summary (always written, content varies per verdict)
-└── screenshots/            # Browser-pass captures (close stage, or ship's --ui-test) — 05-tests.md links them relative to itself
+└── screenshots/            # Browser-pass captures (close stage, or ship's end-of-run pass) — 05-tests.md links them relative to itself
 ```
 
 ### Epic with children layout (discover multi-mode output)

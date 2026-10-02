@@ -22,7 +22,7 @@ Attaching is **off by default**. Two switches turn it on, and neither turns it o
 - **Config** — `git.attach_screenshots: true|false` in `claudedocs/tickets/config.yaml`, default `false`, model-read from the caller's existing copy of the file like the other `git:` keys. Any other value prints `git.attach_screenshots: <value> is not true|false — treating as false.`
 - **Flag** — `--attach-screenshots` enables it for one run.
 
-`attach` is bound on when the config is `true` or the flag is passed. A flag passed to a run with nothing to post to — no `--pr` on a close, no `--ui-test` on ship — prints one line, `--attach-screenshots has no effect — <no PR in this run | no --ui-test pass>.`, and the run continues.
+`attach` is bound on when the config is `true` or the flag is passed. A flag passed to a run with nothing to post to — no `--pr` on a close, `--no-ui-testing` on ship — prints one line, `--attach-screenshots has no effect — <no PR in this run | --no-ui-testing skips the end-of-run pass>.`, and the run continues.
 
 Why off: an upload cannot be undone, and an asset uploaded to a public repository is world-readable. On a private repository it renders only for logged-in users with access to the repository. A project opts in knowing what its captures show.
 
@@ -43,7 +43,7 @@ A passing probe does not promise acceptance. gh refuses the attach itself on a G
 
 **Input**: the `*.png` files in the evidence home with their byte sizes, from one Bash listing — `wc -c -- "<evidence-home>"/*.png`, which quotes the directory and so has no precondition of its own; §4's path gate is a precondition of the command lines that carry that absolute path as an argv value, never of this listing — plus the failed criteria — `05-tests.md`'s `## Failed Criteria` on the close path, the tester's report on ship's — each with its `**Viewport**` line ([`ui-checks.md`](ui-checks.md) §5). A failed entry without that line counts as `both`.
 
-**Per-repo homes.** A close-stage ticket tested in two or more passes, one per repository ([`../../close-stage/references/test-preflight.md`](../../close-stage/references/test-preflight.md) Entry selection), writes each pass's captures to a per-repo home, `<evidence-home>/<repo>/`, as the caller's storage file defines it. The listing then covers each per-repo home, one `wc -c -- "<evidence-home>/<repo>"/*.png` per repo in the same Bash call, separated by `;`, never `&&`, so an absent or empty home cannot stop the listings after it, and each failed criterion's `**Repo**: <repo>` line assigns it to its repo. Every rule below applies within each repo, repos in pass order — the ticket's `repos:` order.
+**Per-repo homes.** A ticket tested in two or more passes, one per repository ([`../../close-stage/references/test-preflight.md`](../../close-stage/references/test-preflight.md) Entry selection) — by the close stage, or by ship's end-of-run pass — writes each pass's captures to a per-repo home, `<evidence-home>/<repo>/`, as the caller's storage file defines it. The listing then covers each per-repo home, one `wc -c -- "<evidence-home>/<repo>"/*.png` per repo in the same Bash call, separated by `;`, never `&&`, so an absent or empty home cannot stop the listings after it, and each failed criterion's `**Repo**: <repo>` line assigns it to its repo. Every rule below applies within each repo, repos in pass order — the ticket's `repos:` order.
 
 **Recognized names** — the [`ui-checks.md`](ui-checks.md) §3 grammar, with its optional `<ticket-id>-` epic prefix:
 

@@ -100,7 +100,7 @@ Run directly, outside the pipeline:
 |---|---|
 | `/feature:guide` | Index of the standalone helpers — what each one does and when to reach for it. |
 | `/feature:setup` | Configure a project in one guided run: detect its commands, ask what detection leaves open, bind the server project for server-native storage, and write `config.yaml`, the fs-native ticket folders, `.worktreeinclude` and optional `.gitignore` / `## Commands` lines, each after an approved diff. Re-runs keep what exists. `--check` verifies a configured project read-only, one line per check with its fix — run it before `ship` and after changing `config.yaml`. See [Configuration](#configuration). |
-| `/feature:ship <id>` | Autonomous build → review → address loop over a ticket or `blocked_by` chain, ending at an open PR (`--merge` to land it, `--parallel` to build independent tickets concurrently — in multi-repo workspaces per-repo lanes run side by side, with isolated worktrees where one repo builds several tickets at once). See [ship's flags](plugins/feature/docs/advanced.md#ship-flags---base---merge---ui-test---attach-screenshots---parallel---worktree). |
+| `/feature:ship <id>` | Autonomous build → review → address loop over a ticket or `blocked_by` chain, ending at an open PR (`--merge` to land it, `--parallel` to build independent tickets concurrently — in multi-repo workspaces per-repo lanes run side by side, with isolated worktrees where one repo builds several tickets at once). See [ship's flags](plugins/feature/docs/advanced.md#ship-flags---base---merge---no-ui-testing---attach-screenshots---parallel---worktree). |
 | `/feature:review [<pr>]` | Review open PRs against a maintainability rubric; post inline + summary findings. Never approves or edits code. Omit `<pr>` to scan every open PR. |
 | `/feature:address-review [<pr>]` | Validate a PR's review feedback — automated findings and human comments — fix the accepted ones, and post signed replies. Omit `<pr>` to use the current branch's PR. |
 | `/feature:debug <description>` | Runtime-evidence root-cause debugger: hypothesize → reproduce → fix (gated) → verify. |
@@ -154,7 +154,7 @@ Project config lives in `claudedocs/tickets/config.yaml`, and `/feature:setup` w
 ```yaml
 prefix: FP
 mode: fs-native                  # where tickets live; omit the key and you get this
-test:                            # lets the close stage and ship's --ui-test reach your app
+test:                            # lets the close stage and ship's end-of-run pass reach your app
   url: http://localhost:4200
   start: "npm start"
   start_timeout: 60
@@ -195,7 +195,7 @@ The pipeline also reads your project's `CLAUDE.md` / `AGENTS.md` for conventions
 
 - Claude Code CLI or Codex CLI
 - Git — for the review stage's diff
-- Playwright MCP — for the close stage's UI test checkpoint, including its `browser_resize` tool for the desktop and mobile checks (optional; skip with `--no-ui-testing`)
+- Playwright MCP — for the close stage's UI test checkpoint and ship's end-of-run browser pass, including its `browser_resize` tool for the desktop and mobile checks (optional; skip either with `--no-ui-testing`)
 - A personal MCP server — for `mode: server-native`, where it *is* the ticket store (optional; the default `fs-native` pipeline needs no server), and for `/feature:triage` in either mode, since the inbox lives only on the server. Its tool surface spans several domains; the pipeline skills use its `pipeline_*` tools and its `ping`, and `/feature:triage` its inbox triage tools plus `pipeline_*` ticket reads — see [Inbox triage](plugins/feature/docs/advanced.md#inbox-triage-featuretriage). On Claude Code install the separate `server-native` plugin alongside `feature` and it prompts for a URL and token; on Codex add the server to `config.toml`. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#storage-mode-and-the-personal-server)
 - GitHub CLI (`gh`), authenticated, with a GitHub `origin` — for `--pr` and the `ship`/`review`/`address-review`/`sync` helpers; the pipeline degrades to local commits without it, and the PR helpers fail closed (change nothing) without it. Attaching screenshots to PRs (opt-in) needs `gh` 2.99.0 or later; an older `gh` falls back to linking or listing them
 
