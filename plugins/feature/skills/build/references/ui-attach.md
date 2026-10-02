@@ -56,7 +56,7 @@ A passing probe does not promise acceptance. gh refuses the attach itself on a G
 **GitHub set** — the curated captures a pull request shows. Tickets in ascending order of the ID's numeric part — a home whose names carry no `<ticket-id>-` prefix is one ticket — and within each ticket:
 
 1. For each acceptance criterion `n`, ascending, failed and passed alike: `AC-<n>-desktop`. Its `AC-<n>-mobile` joins the set only
-   - **(a)** directly after the desktop capture, when every failed entry for criterion `n` records `**Viewport**: mobile` — it failed at mobile width and passed at desktop width; or
+   - **(a)** directly after the desktop capture, when at least one failed entry exists for criterion `n` and every such entry records `**Viewport**: mobile` — it failed at mobile width and passed at desktop width; or
    - **(b)** in the desktop capture's slot, when the pass produced no `AC-<n>-desktop`.
 2. The desktop state captures (`error`, `empty`, `disabled`), by name ascending.
 
@@ -203,8 +203,8 @@ Only a marker authored by the account gh posts as counts — the PR's body when 
 
 - The main marker is found → post nothing, parts included; outcome `already posted` (fresh evidence is not re-posted, and the report says so). Parts follow only a post this run made: a GitHub set recomputed since an earlier post — new captures, or a changed failed-criteria list — can move the batch boundaries, so a part posted beside an earlier run's post could repeat or skip captures.
 - The main marker is absent → continue to §2.
+- The read itself fails before the post → the attach tier is skipped with reason `dedupe read failed`; the lower tiers upload nothing.
 
 The dedupe read, the §2 probe and the §3 size listing are read-only and independent, so they go out as parallel calls in one message; their results are acted on only after the marker check, and only the upload waits for it. A probe result holds for the whole run.
-- The read itself fails before the post → the attach tier is skipped with reason `dedupe read failed`; the lower tiers upload nothing. Failing while it reconciles a part, it is §7's not-landed case.
 
 A PR body carries the main marker. Its guard is the finalizer's own idempotency: a finalizer that finds the ticket's PR already open never creates it again and attaches nothing to it — no batch 1 and no part, the same rule as a found main marker. Parts follow only a PR the finalizer created in this run, so no read precedes them; the read runs only to reconcile a part whose command exited non-zero (§7).
