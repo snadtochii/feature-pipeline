@@ -145,7 +145,7 @@ repos: [big-leaves-api, big-leaves-astro]
 
 - Values are **exact on-disk directory names**, never shortened.
 - Epics carry the union of their children's repos; each child carries its own subset. The decomposition tables show a `Repos` column so you can check whether a split follows repo seams.
-- Two consumers parse the field: `ship --parallel` partitions its run into per-repo lanes from `repos:` (see the flag above), and [`--worktree`](#worktree-isolation---worktree) eligibility binds the worktree's repository from a single entry and builds in place when the field names 2+ repos. Everywhere else it is informational — at-a-glance visibility into a ticket's repo footprint.
+- Three consumers parse the field: `ship --parallel` partitions its run into per-repo lanes from `repos:` (see the flag above), [`--worktree`](#worktree-isolation---worktree) eligibility binds the worktree's repository from a single entry and builds in place when the field names 2+ repos, and the close stage's test checkpoint selects the [`test.repos`](#app-test-config) entries to browser-test. Everywhere else it is informational — at-a-glance visibility into a ticket's repo footprint.
 - Single-repo workspaces (the common case) never see the field or the table column.
 - The worktree setup contract has a multi-repo convention — workspace-level `worktree.setup`, per-repo `.worktreeinclude` — documented in [Worktree setup](#worktree-setup).
 - The `test:` block has a per-repo form — one `test.repos.<dir-name>` entry per repository — documented in [App test config](#app-test-config).
@@ -281,8 +281,12 @@ test:
 - Each entry holds the flat block's keys (`url`, `start`, `start_timeout`, `auth.storage_state`, `auth.attach_tab`) and stands alone: it inherits nothing from a flat block beside it or from another entry, and a key it leaves out behaves as that key does when the flat block omits it. `start_timeout` keeps its 1–540 range per entry.
 - An entry's `start` runs from that repository's root, or from its worktree when one is bound, so it needs no `cd <repo> &&` prefix — one would break under a worktree, whose root has no `<repo>/` subfolder.
 - An entry's `auth.storage_state` is relative to that repository's root, like its `.worktreeinclude` patterns.
+- The close stage tests the entries whose keys appear in the ticket's `repos:`, in that order: one match is one browser pass, and two or more run one pass per repository, sequentially, each booted and torn down on its own, with screenshots kept per repository. Any failing pass makes the verdict `partial`, and the fix loop re-tests only the repositories that failed.
+- Entries a ticket tests together need distinct URLs: a later entry whose URL an earlier pass already used is not tested and is recorded unreachable, since the app answering there is the earlier repository's.
+- A ticket whose `repos:` names no repository with an entry gets a *no testable repo in ticket* skip instead of a browser pass.
+- A ticket without `repos:` uses the flat block when one is declared; with only `test.repos` declared, it gets the same skip.
 
-The full contract — launch directory, path base, and how the commit backstop resolves the session path — is in `skills/close-stage/references/test-preflight.md`.
+The full contract — launch directory, path base, entry selection, and how the commit backstop resolves the session path — is in `skills/close-stage/references/test-preflight.md`.
 
 `auth.storage_state` is loaded by the `ui-tester` via the Playwright MCP `browser_set_storage_state` tool (it restores the saved cookies/localStorage before navigating); on a Playwright MCP version that doesn't expose that tool, the tester falls back to `attach_tab`. The file must sit inside the project/workspace root (Playwright MCP restricts file access to the workspace root unless launched with `--allow-unrestricted-file-access`); the tester receives the path resolved against the main checkout, which always does, so a repo-relative path in a `test.repos` entry qualifies. Produce it once with your normal Playwright auth setup, or let the tester save it after a one-time login (it confirms the path is gitignored before saving, since the file holds live session cookies). When the app is unreachable and no `start` is declared (or it times out), the checkpoint records a non-blocking skip and proceeds. `start_timeout` raises the boot ceiling for a `start` that takes longer than a minute — one that builds a container image, for example.
 
