@@ -167,6 +167,24 @@ git:                             # presets the verdict gate's commit question
 
 `mode: fs-native` keeps tickets as the folder tree above, read and written locally. The alternative is `mode: server-native`, where tickets are rows on a personal MCP server; it additionally requires `project: <uuid>` — the project's UUID in that server's registry — and there are no state folders. Setup for both platforms is in the full reference below.
 
+In a multi-repo workspace, `test:` takes one `test.repos.<dir-name>` entry per UI repo instead — the same keys as the flat block, keyed by the repo's exact directory name — and each entry's `start` runs from that repo's root, or from its worktree when one is bound:
+
+```yaml
+test:
+  repos:
+    big-leaves-admin:
+      url: http://localhost:4200
+      start: "exec npx ng serve --port 4200"
+      start_timeout: 240
+      auth:
+        attach_tab: true
+    big-leaves-astro:
+      url: http://localhost:4321
+      start: "npm run dev"
+```
+
+The flat block stays the single-repo form. Details: [App test config](plugins/feature/docs/advanced.md#app-test-config).
+
 `worktree.setup` pairs with a committed `.worktreeinclude` file at each repo's root — gitignore-style patterns listing the gitignored files (`.env`, auth sessions) a worktree creator copies into a fresh worktree before running setup. In a multi-repo workspace, `worktree.setup` is workspace-level and repo-agnostic (manifest sniffing); see the worktree contract in the full reference below.
 
 Every browser pass records its captures in the ticket's own `05-tests.md` — as links relative to that file in `fs-native` mode, as uploaded server assets in `server-native` mode, grouped desktop then mobile — so the visual record lives with the ticket whether or not you attach screenshots to PRs. Section shape and the server-native prerequisites: [Required UI checks](plugins/feature/docs/advanced.md#required-ui-checks).
