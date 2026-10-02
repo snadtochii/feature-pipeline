@@ -186,18 +186,25 @@ names_word() {
     printf '%s\n' "$1" | grep -E "(^|[^[:alnum:]_.-])$2([^[:alnum:]_.-]|\$)" >/dev/null
 }
 
-# Prints the dev server's port when the dev script names vite or next, else nothing.
+# Prints the dev server's port when the script names a recognised dev server,
+# else nothing. The dev script ($2 = dev) recognises vite, next, `astro dev` and
+# `ng serve`; the start script ($2 = start) only `astro dev` and `ng serve` — a
+# start script naming vite or next runs a production or preview server.
 dev_script_port() {
-    local dev="$1" port=""
-    if names_word "$dev" vite; then
+    local script="$1" which="$2" port=""
+    if [ "$which" = dev ] && names_word "$script" vite; then
         port=5173
-    elif names_word "$dev" next; then
+    elif [ "$which" = dev ] && names_word "$script" next; then
         port=3000
+    elif names_word "$script" 'astro[[:space:]]+dev'; then
+        port=4321
+    elif names_word "$script" 'ng[[:space:]]+serve'; then
+        port=4200
     else
         return 0
     fi
     local override
-    override=$(printf '%s\n' "$dev" \
+    override=$(printf '%s\n' "$script" \
         | sed -nE 's/^(.*[[:space:]])?(--port(=|[[:space:]]+)|-p[[:space:]]+)([0-9]+)([[:space:]].*)?$/\4/p' \
         | head -n 1 || true)
     if [ -n "$override" ]; then
@@ -247,10 +254,18 @@ if [ -f "$root/package.json" ] && jq -e 'type == "object"' "$root/package.json" 
 
     if has_script dev; then
         dev=$(jq -r '.scripts.dev' "$root/package.json" 2>/dev/null || true)
-        dev_port=$(dev_script_port "$dev")
+        dev_port=$(dev_script_port "$dev" dev)
         if [ -n "$dev_port" ]; then
             test_url="http://localhost:$dev_port"
             test_start="$package_manager run dev"
+        fi
+    fi
+    if [ -z "$test_url" ] && has_script start; then
+        start_script=$(jq -r '.scripts.start' "$root/package.json" 2>/dev/null || true)
+        start_port=$(dev_script_port "$start_script" start)
+        if [ -n "$start_port" ]; then
+            test_url="http://localhost:$start_port"
+            test_start="$package_manager run start"
         fi
     fi
 fi
