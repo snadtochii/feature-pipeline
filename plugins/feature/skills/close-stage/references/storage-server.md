@@ -10,7 +10,7 @@ The working copy is the `01-spec.md`, `03-implementation.md` and — whichever e
 
 ## §2 Ticket metadata
 
-Read ticket metadata reads the ticket row: bind `status`, `kind`, `epic`, `parent` and `pr_url`. For an epic child, the epic's declared `children:` roster lives on the epic's row; the finalizer reads it there from the handle the spawn prompt carries, so the stage does not.
+Read ticket metadata reads the ticket row: bind `status`, `kind`, `epic`, `parent` and `pr_url`. The row has no `repos` field: the test checkpoint's selection takes the no-`repos:` rows of [`test-preflight.md`](test-preflight.md) Entry selection — the flat `test:` block when present. For an epic child, the epic's declared `children:` roster lives on the epic's row; the finalizer reads it there from the handle the spawn prompt carries, so the stage does not.
 
 ## §3 Artifact writes
 

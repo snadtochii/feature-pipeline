@@ -43,6 +43,8 @@ A passing probe does not promise acceptance. gh refuses the attach itself on a G
 
 **Input**: the `*.png` files in the evidence home with their byte sizes, from one Bash listing — `wc -c -- "<evidence-home>"/*.png`, which quotes the directory and so has no precondition of its own; §4's path gate is a precondition of the command lines that carry that absolute path as an argv value, never of this listing — plus the failed criteria — `05-tests.md`'s `## Failed Criteria` on the close path, the tester's report on ship's — each with its `**Viewport**` line ([`ui-checks.md`](ui-checks.md) §5). A failed entry without that line counts as `both`.
 
+**Per-repo homes.** A close-stage ticket tested in two or more passes, one per repository ([`../../close-stage/references/test-preflight.md`](../../close-stage/references/test-preflight.md) Entry selection), writes each pass's captures to a per-repo home, `<evidence-home>/<repo>/`, as the caller's storage file defines it. The listing then covers each per-repo home, one `wc -c -- "<evidence-home>/<repo>"/*.png` per repo in the same Bash call, separated by `;`, never `&&`, so an absent or empty home cannot stop the listings after it, and each failed criterion's `**Repo**: <repo>` line assigns it to its repo. Every rule below applies within each repo, repos in pass order — the ticket's `repos:` order.
+
 **Recognized names** — the [`ui-checks.md`](ui-checks.md) §3 grammar, with its optional `<ticket-id>-` epic prefix:
 
 - Acceptance criterion: `[<ticket-id>-]AC-<n>-<desktop|mobile>.png`
@@ -60,7 +62,7 @@ A passing probe does not promise acceptance. gh refuses the attach itself on a G
    - **(b)** in the desktop capture's slot, when the pass produced no `AC-<n>-desktop`.
 2. The desktop state captures (`error`, `empty`, `disabled`), by name ascending.
 
-No numeric ceiling applies: the whole set is posted, in §6 batches. An epic's integration-PR post applies the rule per child, children in ticket order; a multi-solo run applies it to each ticket's own post.
+No numeric ceiling applies: the whole set is posted, in §6 batches. An epic's integration-PR post applies the rule per child, children in ticket order; a multi-solo run applies it to each ticket's own post. A ticket with per-repo homes builds its set per repo, in pass order, each repo applying the rule above to its own captures and only the failed entries whose `**Repo**` line names it.
 
 **Artifact order** — every capture in the evidence home, for the `05-tests.md` `## Screenshots` section, grouped by viewport under three subheadings in this order:
 
@@ -68,7 +70,7 @@ No numeric ceiling applies: the whole set is posted, in §6 batches. An epic's i
 2. `### Mobile` — the same, at mobile width.
 3. `### Other` — every name outside the acceptance-criterion and state grammar above, whatever viewport suffix it carries, unsafe names included, alphabetical.
 
-A group with no entry is omitted, and an empty evidence home is the writer's single no-captures line with no subheading. No count ceiling applies.
+A group with no entry is omitted, and an empty evidence home is the writer's single no-captures line with no subheading. No count ceiling applies. With per-repo homes, the order applies inside one block per repo, in pass order, as the caller's storage file lays the blocks out; an unsafe name stays in its own repo's `Other` group.
 
 An empty evidence home, or one holding no recognized name, selects nothing for GitHub: no UI-evidence section is posted, and the outcome is `none`.
 
@@ -82,10 +84,11 @@ An empty evidence home, or one holding no recognized name, selects nothing for G
 | `FP-12-AC-3-mobile.png` | `FP-12 AC-3 mobile` |
 | `settings-empty-mobile.png` | `settings empty mobile` |
 | `FP-12-settings-error-desktop.png` | `FP-12 settings error desktop` |
+| `big-leaves-admin/AC-3-desktop.png` (per-repo home) | `big-leaves-admin AC-3 desktop` |
 
-Every token is `[A-Za-z0-9-]`, so alt text never contains `#` — the delimiter between path and alt in an `--attach` value.
+A capture in a per-repo home takes its repo key as a leading token. Every file-name token is `[A-Za-z0-9-]`, and a repo key matches `^[A-Za-z0-9._-]+$` ([`../../close-stage/references/test-preflight.md`](../../close-stage/references/test-preflight.md) Entry selection), so alt text never contains `#` — the delimiter between path and alt in an `--attach` value.
 
-**Path gate.** Body references and `--attach` values carry the evidence home's **absolute** path: gh matches a reference against the attached file by resolving it from the process working directory, which is the worktree when one is bound ([`worktree.md`](worktree.md) §3). The absolute evidence-home path must match `^/[A-Za-z0-9._/-]+$`. A path with a space, `#`, a quote, `$` or any other character outside that set skips the attach tier with reason `evidence path not attach-safe` — it is neither quoted around nor escaped.
+**Path gate.** Body references and `--attach` values carry the evidence home's **absolute** path: gh matches a reference against the attached file by resolving it from the process working directory, which is the worktree when one is bound ([`worktree.md`](worktree.md) §3). The absolute evidence-home path must match `^/[A-Za-z0-9._/-]+$`; with per-repo homes, each `<evidence-home>/<repo>` path is held to the same pattern. A path with a space, `#`, a quote, `$` or any other character outside that set skips the attach tier with reason `evidence path not attach-safe` — it is neither quoted around nor escaped.
 
 ## §5 Posted body
 

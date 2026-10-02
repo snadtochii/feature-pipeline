@@ -10,7 +10,7 @@ Canonical logic for the close stage's storage-touching steps in fs-native storag
 
 ## §2 Ticket metadata
 
-Read ticket metadata reads the frontmatter of `01-spec.md`: bind `status`, `kind`, `epic` and `parent`. For an epic child, the epic's declared `children:` roster lives in the epic's `prd.md` frontmatter; the finalizer reads it there from the absolute path the spawn prompt carries, so the stage does not.
+Read ticket metadata reads the frontmatter of `01-spec.md`: bind `status`, `kind`, `epic`, `parent`, and `repos` where present — the test checkpoint's selection input ([`test-preflight.md`](test-preflight.md) Entry selection). For an epic child, the epic's declared `children:` roster lives in the epic's `prd.md` frontmatter; the finalizer reads it there from the absolute path the spawn prompt carries, so the stage does not.
 
 ## §3 Artifact writes
 
@@ -44,6 +44,7 @@ Every `ui-tester` capture — the close stage's test checkpoint and ship's end-o
 
 - **Ticket pass**: `<ticket-folder>/screenshots/`, the absolute path in the main checkout — with a worktree bound it still resolves there, never inside `<wt-path>`, so the evidence stays with the ticket's other artifacts.
 - **A pass covering an epic**: `<epic-folder>/screenshots/`.
+- **A ticket pass over two or more repositories** (two or more entries selected per [`test-preflight.md`](test-preflight.md) Entry selection): each pass writes to its own per-repo home, `<ticket-folder>/screenshots/<repo>/`, the absolute path in the main checkout, `<repo>` being that pass's validated `test.repos` key. A ticket with one selected entry keeps the ticket-pass home.
 
 The spawn prompt carries the resolved absolute path, never a link to this section. Fixed filenames overwrite a prior run's captures.
 
@@ -51,15 +52,15 @@ The spawn prompt carries the resolved absolute path, never a link to this sectio
 
 **Attaching.** With attaching enabled ([`ui-attach.md`](../../build/references/ui-attach.md) §1), the selected captures are uploaded to GitHub's attachment storage by the `gh … --attach` call that posts them — the only place they go beyond this directory.
 
-**Screenshot section — stated once, here.** `05-tests.md` carries a `## Screenshots` section on every browser pass. Its input is one Bash listing of the evidence home, `wc -c -- "<evidence-home>"/*.png`, whose names and sizes are inputs to the artifact body — so the listing goes out in the message *before* the one that writes `05-tests.md`, never in it.
+**Screenshot section — stated once, here.** `05-tests.md` carries a `## Screenshots` section on every browser pass. Its input is one Bash listing of the evidence home, `wc -c -- "<evidence-home>"/*.png`, whose names and sizes are inputs to the artifact body — so the listing goes out in the message *before* the one that writes `05-tests.md`, never in it. With per-repo homes, that one Bash call lists each of them — one `wc -c -- "<evidence-home>/<repo>"/*.png` per repo, the `<repo>` segment being the validated key, the commands separated by `;`, never `&&`, so an absent or empty home cannot stop the listings after it.
 
-- **Order.** [`ui-attach.md`](../../build/references/ui-attach.md) §3's **Artifact order**: the entries sit under `### Desktop`, `### Mobile` and `### Other` subheadings inside the section, a group with no entry omitted. The section lists every capture the listing returned; §3's GitHub set is an upload rule and does not apply here.
+- **Order.** [`ui-attach.md`](../../build/references/ui-attach.md) §3's **Artifact order**: the entries sit under `### Desktop`, `### Mobile` and `### Other` subheadings inside the section, a group with no entry omitted. The section lists every capture the listing returned; §3's GitHub set is an upload rule and does not apply here. With per-repo homes, the section holds one `### <repo>` block per pass, in pass order, and the Desktop/Mobile/Other groups are `####` subheadings inside each block.
 - **Pointer.** The `<pointer>` of [`ui-attach.md`](../../build/references/ui-attach.md) §5's `Full capture set:` line, one per covered ticket: `` `claudedocs/tickets/…/<id>/05-tests.md`, section Screenshots `` — the state folder elided, because the transition after the post moves the ticket's folder; an epic child's is `` `claudedocs/tickets/…/<EPIC-ID>/tasks/<CHILD-ID>/05-tests.md`, section Screenshots ``. No URL, no count.
 - **Entry.** `- ![<alt>](<relative-path>) — <size>`. `<alt>` is [`ui-attach.md`](../../build/references/ui-attach.md) §4's alt text for a recognized name, and the bare filename for a name that passes §3's safe-name regex without matching either grammar. `<size>` is the listed byte count in KiB to one decimal.
-- **Relative path.** `<relative-path>` is relative to the folder holding `05-tests.md`: `screenshots/<name>.png` when the evidence home is the ticket-pass home, `../../screenshots/<name>.png` when a child's artifact is written from the epic-level home. Never project-root-relative, never absolute — the ticket's folder moves between state folders with everything inside it ([`flow/SKILL.md`](../../flow/SKILL.md)'s Artifact Convention), so only a self-relative link survives that move, and it resolves in any Markdown preview.
+- **Relative path.** `<relative-path>` is relative to the folder holding `05-tests.md`: `screenshots/<name>.png` when the evidence home is the ticket-pass home, `screenshots/<repo>/<name>.png` from a per-repo home, `../../screenshots/<name>.png` when a child's artifact is written from the epic-level home. Never project-root-relative, never absolute — the ticket's folder moves between state folders with everything inside it ([`flow/SKILL.md`](../../flow/SKILL.md)'s Artifact Convention), so only a self-relative link survives that move, and it resolves in any Markdown preview.
 - **Unsafe name.** A name that fails §3's safe-name regex `^[A-Za-z0-9-]+\.png$` can hold `)`, `[`, `#` or a space, so its entry is plain text with no link syntax — `- <name> — <size>` — sorted into `### Other`. No unescaped name ever reaches a Markdown link.
-- **Empty home.** A listing that matches nothing — an absent evidence home included — gives the section one line, `No captures were written.`, and leaves the verdict untouched.
-- **When.** Every browser pass writes the section, a pass whose `ui-tester` crashed or timed out included: partial captures are exactly the evidence a human needs after a crash. Each fix iteration recomposes it from the evidence home's current contents. A skip variant carries no section at all.
+- **Empty home.** A listing that matches nothing — an absent evidence home included — gives the section one line, `No captures were written.`, and leaves the verdict untouched. With per-repo homes, an empty repo's home gives that repo's `### <repo>` block the same line.
+- **When.** Every browser pass writes the section, a pass whose `ui-tester` crashed or timed out included: partial captures are exactly the evidence a human needs after a crash. In a run of two or more passes, an interim write made before the last pass carries no section; the write after the last pass carries every repository's block. Each fix iteration recomposes it from the evidence home's current contents. A skip variant carries no section at all.
 
 ## §9 Error handling
 
