@@ -1,0 +1,9 @@
+{
+  "name": "npm-preview-start",
+  "private": true,
+  "scripts": {
+    "dev": "nuxt dev",
+    "start": "next start",
+    "build": "next build"
+  }
+}

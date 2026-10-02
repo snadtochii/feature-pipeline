@@ -6,7 +6,7 @@ Procedure for `/feature:setup --check`, the read-only doctor: it verifies a conf
 
 - **Read-only end to end.** No project file is written, no server is mutated, and no process is started — `test.start` is never booted. The only files created are check 4's pattern and match lists, in a `mktemp -d` directory that each check 4 run creates and removes on exit, whatever it found.
 - **Asks nothing.** No question, no approval, no default taken from silence. The run is the same with a user present and in a headless run.
-- **Calls.** One server call: check 2's read-only round-trip, which only the server-native `§5` makes. One network probe per declared test URL: check 3's `curl` of the flat `test.url` and, in an fs-native multi-repo workspace, of each validly keyed `test.repos` entry's `url`. Nothing else leaves the machine.
+- **Calls.** One server call: check 2's read-only round-trip, which only the server-native `§5` makes. One network probe per declared test URL: check 3's `curl` of the flat `test.url` and, in an fs-native multi-repo workspace, of the `url` of each `test.repos` entry whose key passes both of check 3's key checks. Nothing else leaves the machine.
 - **Never stops.** A problem is a `FAIL` line with its fix; a check that does not apply or cannot run is a `--` line with the reason; the run always reaches the summary. A probe that errors — `git` absent, `curl` missing — becomes that check's `FAIL` or `--` line.
 - **Names only.** A `.worktreeinclude` match is reported by its path. No dotenv-family file or other secret is opened, read or printed.
 - **Repo text stays data.** A URL is held in a shell variable (check 3); a pattern reaches `git` through a file (check 4). No value read from the project is pasted into a command position.
@@ -65,15 +65,15 @@ In this order. A check marked *needs config* prints `-- <check>: not run — con
    - No `test:` block → `-- test.url: no test: block — the test checkpoint discovers a URL itself`, and nothing below runs.
    - **Shape** — the lines `§6` of the file check 1 loaded defines, for the workspace shape the probe's `repo:` lines give. With no file loaded (unknown `mode`), no shape line.
    - **Keys** — each `test.repos` key, in key order, against the close stage's key rule ([test-preflight.md](../../close-stage/references/test-preflight.md), "Entry selection"). A key is report text only; it never reaches a command line.
-     - Not matching `^[A-Za-z0-9._-]+$`, or `.` / `..` → `FAIL test.repos (<key>): not a valid key — rename it to the repository's exact directory name`. Its `url` is not probed.
-     - In a multi-repo workspace, naming no `repo:` child → `FAIL test.repos (<key>): names no repository in the workspace — rename it to the repository's exact directory name`.
+     - Failing that rule → `FAIL test.repos (<key>): not a valid key — rename it to the repository's exact directory name`. Its `url` is not probed.
+     - In a multi-repo workspace, naming no `repo:` child → `FAIL test.repos (<key>): names no repository in the workspace — rename it to the repository's exact directory name`. Its `url` is not probed: such a key has no launch directory ([test-preflight.md](../../close-stage/references/test-preflight.md), "Launch directory and path base"), so nothing could boot it.
    - **Flat `test.url`** — skipped when the block holds `test.repos` and no flat key.
      - No `url` → `-- test.url: not set — the test checkpoint resolves one per test-preflight.md §1`.
      - Otherwise probe it exactly as [`test-preflight.md` §2](../../close-stage/references/test-preflight.md#2-reachability-check) does, the URL held as data, and read the result against that section's reachable status set:
        - reachable → `ok test.url: HTTP <code> at <url>`. The status says something answers; it does not say which app.
        - unreachable, `test.start` set → `ok test.url: boots on demand — not exercised (HTTP <code> at <url>)`.
        - unreachable, no `test.start` → `FAIL test.url: <url> unreachable (HTTP <code>) — start the app, or declare test.start (re-run /feature:setup)`.
-   - **Each `test.repos` entry** with a valid key, in key order, in an fs-native multi-repo workspace only — the one shape whose tickets carry the `repos:` an entry is selected by. In any other shape no entry is probed: the test checkpoint never reads one, and the `§6` shape line above already reports them. The same probe and status set as the flat `test.url`, with the entry's own `url` and `start`, each line labelled `test.url (<repo>)`:
+   - **Each `test.repos` entry** whose key passes both key checks above, in key order, in an fs-native multi-repo workspace only — the one shape whose tickets carry the `repos:` an entry is selected by. In any other shape no entry is probed: the test checkpoint never reads one, and the `§6` shape line above already reports them. The same probe and status set as the flat `test.url`, with the entry's own `url` and `start`, each line labelled `test.url (<repo>)`:
      - no `url` → `-- test.url (<repo>): not set — the test checkpoint resolves one per test-preflight.md §1`;
      - reachable → `ok test.url (<repo>): HTTP <code> at <url>`;
      - unreachable, the entry's `start` set → `ok test.url (<repo>): boots on demand — not exercised (HTTP <code> at <url>)`;
