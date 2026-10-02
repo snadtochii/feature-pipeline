@@ -1,12 +1,12 @@
 # Setup Check
 
-Procedure for `/feature:setup --check`, the read-only doctor: it verifies a configured project against the contracts the stages apply and prints one line per check with its fix. Read only when setup runs with `--check` — the guided run never needs this file. Referenced by setup's [`SKILL.md`](../SKILL.md), which enters it from Process step 1 with `<project-root>` and `<plugin-root>` bound. Check 2 is the one check whose text depends on the storage mode; it lives in `§5` of the detected mode's file, [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md).
+Procedure for `/feature:setup --check`, the read-only doctor: it verifies a configured project against the contracts the stages apply and prints one line per check with its fix. Read only when setup runs with `--check` — the guided run never needs this file. Referenced by setup's [`SKILL.md`](../SKILL.md), which enters it from Process step 1 with `<project-root>` and `<plugin-root>` bound. Two checks depend on the storage mode — check 2's line and check 3's shape lines — and they live in `§5` and `§6` of the detected mode's file, [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md).
 
 ## §1 Rules
 
 - **Read-only end to end.** No project file is written, no server is mutated, and no process is started — `test.start` is never booted. The only files created are check 4's pattern and match lists, in a `mktemp -d` directory that each check 4 run creates and removes on exit, whatever it found.
 - **Asks nothing.** No question, no approval, no default taken from silence. The run is the same with a user present and in a headless run.
-- **Calls.** One server call: check 2's read-only round-trip, which only the server-native `§5` makes. One network probe: check 3's `curl` of `test.url`. Nothing else leaves the machine.
+- **Calls.** One server call: check 2's read-only round-trip, which only the server-native `§5` makes. One network probe per declared test URL: check 3's `curl` of the flat `test.url` and, in an fs-native multi-repo workspace, of the `url` of each `test.repos` entry whose key passes both of check 3's key checks. Nothing else leaves the machine.
 - **Never stops.** A problem is a `FAIL` line with its fix; a check that does not apply or cannot run is a `--` line with the reason; the run always reaches the summary. A probe that errors — `git` absent, `curl` missing — becomes that check's `FAIL` or `--` line.
 - **Names only.** A `.worktreeinclude` match is reported by its path. No dotenv-family file or other secret is opened, read or printed.
 - **Repo text stays data.** A URL is held in a shell variable (check 3); a pattern reaches `git` through a file (check 4). No value read from the project is pasted into a command position.
@@ -24,7 +24,7 @@ Procedure for `/feature:setup --check`, the read-only doctor: it verifies a conf
      for f in .worktreeinclude */.worktreeinclude; do [ -f "$f" ] && echo "include: $f"; done
      ```
      The shape lines follow setup's workspace-shape predicate ([detection.md](detection.md) §4), which reads `.git` entries alone, independent of the git test. No `repo:` line and no `shape:` line means a single-repo workspace with no `.git` of its own. One or more `repo:` lines is a multi-repo workspace: each named child is a repository, and check 4 runs once per child.
-  2. Everything else, built from the first message's results, as parallel calls: the storage file check 1 loads, the `test.url` probe (check 3), check 2's round-trip and check 4's run for each repository with an `include:` line.
+  2. Everything else, built from the first message's results, as parallel calls: the storage file check 1 loads, check 3's URL probes — one call per URL, each held as data — check 2's round-trip and check 4's run for each repository with an `include:` line.
 
   Checks 2 and 6 also look at the session's tool list — which tools are exposed, deferred tools included — a fact in hand, not a call.
 
@@ -61,13 +61,23 @@ In this order. A check marked *needs config* prints `-- <check>: not run — con
 
    Then load the file for the detected mode — `fs-native`, which a config with no `mode` key detects as, or `server-native`, including a server-native declaration that failed on its `project` — once, in full: [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md).
 2. **`storage`** — *needs config.* Defined by `§5` of the file check 1 loaded. With no file loaded (unknown `mode`) → `-- storage: not run — no storage mode declared (check 1)`.
-3. **`test.url`** — *needs config.*
-   - No `test:` block → `-- test.url: no test: block — the test checkpoint discovers a URL itself`.
-   - A `test:` block with no `url` → `-- test.url: not set — the test checkpoint resolves one per test-preflight.md §1`.
-   - Otherwise probe it exactly as [`test-preflight.md` §2](../../close-stage/references/test-preflight.md#2-reachability-check) does, the URL held as data, and read the result against that section's reachable status set:
-     - reachable → `ok test.url: HTTP <code> at <url>`. The status says something answers; it does not say which app.
-     - unreachable, `test.start` set → `ok test.url: boots on demand — not exercised (HTTP <code> at <url>)`.
-     - unreachable, no `test.start` → `FAIL test.url: <url> unreachable (HTTP <code>) — start the app, or declare test.start (re-run /feature:setup)`.
+3. **`test`** — *needs config.* The `test:` block's shape, its `test.repos` keys and every declared URL, in this order. The flat block is present when the block holds at least one flat key (`url`, `start`, `start_timeout`, `auth`).
+   - No `test:` block → `-- test.url: no test: block — the test checkpoint discovers a URL itself`, and nothing below runs.
+   - **Shape** — the lines `§6` of the file check 1 loaded defines, for the workspace shape the probe's `repo:` lines give. With no file loaded (unknown `mode`), no shape line.
+   - **Keys** — each `test.repos` key, in key order, against the close stage's key rule ([test-preflight.md](../../close-stage/references/test-preflight.md), "Entry selection"). A key is report text only; it never reaches a command line.
+     - Failing that rule → `FAIL test.repos (<key>): not a valid key — rename it to the repository's exact directory name`. Its `url` is not probed.
+     - In a multi-repo workspace, naming no `repo:` child → `FAIL test.repos (<key>): names no repository in the workspace — rename it to the repository's exact directory name`. Its `url` is not probed: such a key has no launch directory ([test-preflight.md](../../close-stage/references/test-preflight.md), "Launch directory and path base"), so nothing could boot it.
+   - **Flat `test.url`** — skipped when the block holds `test.repos` and no flat key.
+     - No `url` → `-- test.url: not set — the test checkpoint resolves one per test-preflight.md §1`.
+     - Otherwise probe it exactly as [`test-preflight.md` §2](../../close-stage/references/test-preflight.md#2-reachability-check) does, the URL held as data, and read the result against that section's reachable status set:
+       - reachable → `ok test.url: HTTP <code> at <url>`. The status says something answers; it does not say which app.
+       - unreachable, `test.start` set → `ok test.url: boots on demand — not exercised (HTTP <code> at <url>)`.
+       - unreachable, no `test.start` → `FAIL test.url: <url> unreachable (HTTP <code>) — start the app, or declare test.start (re-run /feature:setup)`.
+   - **Each `test.repos` entry** whose key passes both key checks above, in key order, in an fs-native multi-repo workspace only — the one shape whose tickets carry the `repos:` an entry is selected by. In any other shape no entry is probed: the test checkpoint never reads one, and the `§6` shape line above already reports them. The same probe and status set as the flat `test.url`, with the entry's own `url` and `start`, each line labelled `test.url (<repo>)`:
+     - no `url` → `-- test.url (<repo>): not set — the test checkpoint resolves one per test-preflight.md §1`;
+     - reachable → `ok test.url (<repo>): HTTP <code> at <url>`;
+     - unreachable, the entry's `start` set → `ok test.url (<repo>): boots on demand — not exercised (HTTP <code> at <url>)`;
+     - unreachable, no `start` → `FAIL test.url (<repo>): <url> unreachable (HTTP <code>) — start the app, or declare test.repos.<repo>.start (re-run /feature:setup)`.
 4. **`.worktreeinclude`** — per repository: `<project-root>` in a single-repo workspace, each `repo:` child in a multi-repo one. Every pattern matches at least one existing file, and every match is gitignored — the gate a fresh worktree's copy relies on ([advanced.md](../../../docs/advanced.md#the-worktreeinclude-file)).
    - `git: no`, or the repository is not a git repository → `-- .worktreeinclude: not a git repository`.
    - No file → `-- .worktreeinclude: none — a fresh worktree gets no gitignored file copied`.
@@ -101,7 +111,7 @@ In this order. A check marked *needs config* prints `-- <check>: not run — con
 
      A multi-repo run issues one such call per repository; each removes only its own temp directory.
 5. **`jq`** — the probe's `jq:` line. `yes` → `ok jq`; `no` → `FAIL jq: not on PATH — install jq; setup's detector needs it`.
-6. **`playwright`** — *needs config.* Checked only when a `test:` block exists, else `-- playwright: no test: block`. The session must expose `mcp__playwright__browser_resize`, the tool the test checkpoint's required UI checks call; its presence is the check, and it is never called.
+6. **`playwright`** — *needs config.* Checked only when test config exists — a `test:` block holding a flat key or at least one `test.repos` entry — else `-- playwright: no test config`. The session must expose `mcp__playwright__browser_resize`, the tool the test checkpoint's required UI checks call; its presence is the check, and it is never called.
    - Exposed → `ok playwright: browser_resize exposed`.
    - A `browser_resize` tool under another server name → `FAIL playwright: registered as <server> — the test checkpoint calls mcp__playwright__ tools; register the server under the key playwright`.
    - None → `FAIL playwright: no browser_resize tool in this session — install the Playwright MCP server (advanced.md, MCP servers)`.
