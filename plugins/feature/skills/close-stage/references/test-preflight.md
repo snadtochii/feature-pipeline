@@ -4,9 +4,11 @@ The close stage invokes this at its test checkpoint on the path where a `ui-test
 
 `--no-ui-testing` and the no-UI-signal skip both bypass this reference entirely — neither resolves a URL, curls, nor boots a `start` command. Pre-flight only runs when a spawn was actually going to happen (this is what keeps the cheap gate ahead of the expensive spawn).
 
-The close stage reads the `test:` block by **model-reading** the flat YAML in `claudedocs/tickets/config.yaml`; it does **not** shell out to `yq`/`jq`.
+The close stage reads the `test:` block by **model-reading** it from `claudedocs/tickets/config.yaml`, in either of its two forms below; it does **not** shell out to `yq`/`jq`.
 
 ## The `test:` block (all keys optional)
+
+**Single-repo form** — the flat block:
 
 ```yaml
 test:
@@ -19,6 +21,33 @@ test:
 ```
 
 Absent block, or any absent key → that part of the gate degrades to today's behavior (URL discovery falls through to the CLAUDE.md → port-probe path; no `start` boot; the agent's own auth fallback applies). Backward compatibility is the absence of every key.
+
+**Multi-repo form** — one `test.repos.<dir-name>` entry per repository the workspace tests:
+
+```yaml
+test:
+  repos:
+    big-leaves-admin:
+      url: http://localhost:4200
+      start: "exec npx ng serve --port 4200"
+      start_timeout: 240
+      auth:
+        attach_tab: true
+    big-leaves-astro:
+      url: http://localhost:4321
+      start: "npm run dev"
+```
+
+- **Key** — the repository's exact on-disk directory name under the project root, the same string a ticket's `repos:` frontmatter carries.
+- **Entry** — holds the flat block's keys (`url`, `start`, `start_timeout`, `auth.storage_state`, `auth.attach_tab`), each with the flat key's meaning and limits; `start_timeout` keeps its 1–540 range per entry. An entry is self-contained: it inherits nothing from a flat block beside it or from another entry, and a key it leaves out degrades exactly as the same flat key does when absent.
+- **Coexistence** — both forms may appear in one `test:` block. A pass reads exactly one entry — the flat block or one `test.repos` entry — and which one is the test checkpoint's selection. In the sections below, `test.<key>` means that key of the entry the pass reads.
+
+### Launch directory and path base
+
+Two values in an entry are resolved against a root, never against the close stage's current directory:
+
+- **Launch directory** — where `test.start` runs (§3). With a worktree bound for the entry's repository ([`worktree.md`](../../build/references/worktree.md) §3) — a `test.repos` entry whose key equals `<repo-root>`'s directory name, or the flat block in a worktree-bound run — it is `<wt-path>`, so the server runs the worktree's own dependencies. Otherwise a `test.repos` entry launches from its repository's root (`<project-root>/<dir-name>`) and the flat block from the project root (the directory holding `claudedocs/tickets/`, which is the repository itself in a single-repo workspace). A `start` therefore needs no `cd <repo> &&` prefix, and such a prefix breaks under a worktree, whose root has no `<repo>/` subfolder. A `test.repos` key that names no directory under the project root has no launch directory: nothing is booted, and the pass continues as §3's no-`test.start` case.
+- **`auth.storage_state` base** — a `test.repos` entry's path is relative to its repository's root, and the flat block's to the project root — the same convention as a repo-relative `.worktreeinclude` pattern. §5 and the commit backstop resolve that one relative path against different trees, on purpose (§5). The backstop reads the flat block's path only in a single-repo workspace, where the project root is the committed repository; a multi-repo workspace declares its session paths per entry.
 
 ## §1 Resolve a candidate URL
 
@@ -57,12 +86,16 @@ Reachable status set is `200 301 302 401 403` — this reference is its single s
 
 ## §3 Unreachable handling
 
-- **`test.start` is set** → boot it and poll (bounded). With a worktree bound ([`worktree.md`](../../build/references/worktree.md) §3), launch it from `<wt-path>` so the server runs the worktree's own dependencies; that worktree caveat is surfaced by the close stage's test checkpoint. **Fixed-port hazard:** `test.url` is a fixed address — a server already listening there, from another checkout, a previous run, or a long-lived instance serving a different branch, answers §2's `curl`, so this boot never happens and the reachable app may not be the code under test. Use a **fixed, ticket-keyed** path (not `mktemp`) so the separate §4 teardown `Bash` call can reconstruct it — shell variables do not persist across `Bash` tool calls, so a random `mktemp` path would be lost and teardown would silently no-op (leaking the server). **Write `test.start` verbatim into a launch script with the `Write` tool** (not a shell heredoc): create `/tmp/fp-test-preflight-<ticket-id>.sh` whose entire body is the `test.start` value. Writing it as file content — rather than substituting it into a shell command — means any quotes / `$()` / backticks in the declared command can't break out of quoting or be re-evaluated. `test.start` is the user's own declared command (same trust tier as `worktree.setup`); never put untrusted ticket text (spec title, AC text) in this file. Then launch it and capture the PID via `Bash`:
+- **`test.start` is set** → boot it and poll (bounded). Launch it from the entry's launch directory ([Launch directory and path base](#launch-directory-and-path-base)) — `<wt-path>` when a worktree is bound; that worktree caveat is surfaced by the close stage's test checkpoint. **Fixed-port hazard:** `test.url` is a fixed address — a server already listening there, from another checkout, a previous run, or a long-lived instance serving a different branch, answers §2's `curl`, so this boot never happens and the reachable app may not be the code under test. Use a **fixed, ticket-keyed** path (not `mktemp`) so the separate §4 teardown `Bash` call can reconstruct it — shell variables do not persist across `Bash` tool calls, so a random `mktemp` path would be lost and teardown would silently no-op (leaking the server). **Write `test.start` verbatim into a launch script with the `Write` tool** (not a shell heredoc): create `/tmp/fp-test-preflight-<ticket-id>.sh` whose entire body is the `test.start` value. Writing it as file content — rather than substituting it into a shell command — means any quotes / `$()` / backticks in the declared command can't break out of quoting or be re-evaluated. `test.start` is the user's own declared command (same trust tier as `worktree.setup`); never put untrusted ticket text (spec title, AC text) in this file. Then launch it from the launch directory and capture the PID via `Bash`. **Hold the launch directory as data**, as §2 holds the URL — it is config-derived, so assign it to `dir` as a literal value and reference `"$dir"`; never paste it into a command position:
   ```bash
+  dir='<launch-directory>'                             # literal data value — never pasted into a command position
   PIDFILE="/tmp/fp-test-preflight-<ticket-id>.pid"     # fixed path — reconstructable in the §4 teardown call
-  nohup bash "/tmp/fp-test-preflight-<ticket-id>.sh" >"/tmp/fp-test-preflight-<ticket-id>.log" 2>&1 &
-  echo $! > "$PIDFILE"
+  if cd "$dir"; then
+    nohup bash "/tmp/fp-test-preflight-<ticket-id>.sh" >"/tmp/fp-test-preflight-<ticket-id>.log" 2>&1 &
+    echo $! > "$PIDFILE"
+  fi
   ```
+  A failed `cd` boots nothing and writes no PID file: skip the poll and continue as the no-`test.start` case below.
   Then poll the resolved URL on a bounded loop (`<start_timeout>`-second ceiling, default 60 — no unbounded wait). Resolve `<start_timeout>` model-side from `test.start_timeout`: a positive integer from 1 to 540 is used as-is; an absent key uses 60, and any other value (non-integer, zero, negative, above 540) falls back to 60 with a one-line note. Substitute only that validated integer into the command — never the raw value. Give this poll's shell call a timeout of at least `(<start_timeout> + 30)` seconds, so the runtime's default cannot cut the poll short — the runtime reference's Tool results section names the parameter:
   ```bash
   deadline=$((SECONDS + <start_timeout>))
@@ -103,7 +136,7 @@ The close stage composes the recipe into the `ui-tester` spawn prompt (mirrors h
 
 - **Resolved URL** — the pre-flight-resolved, reachable URL. The `ui-tester` spawn prompt receives this URL directly; the agent does not re-discover it.
 - **`auth.attach_tab`** (when truthy) — instruct the agent to prefer attaching to an already-authenticated same-origin tab.
-- **`auth.storage_state`** (when present) — inject the path. The agent loads it with the Playwright MCP `browser_set_storage_state` tool (it restores cookies/localStorage from the file before navigating to the protected route). That tool is additive-optional: on a Playwright MCP version that exposes it, `storage_state` is the first-choice auth path; on older versions the agent falls back to `attach_tab`. The path must point at a file inside the project/workspace root (Playwright MCP restricts file access to the workspace root unless launched with `--allow-unrestricted-file-access`). The `--storage-state` server-launch flag is a session-global alternative, not used here.
+- **`auth.storage_state`** (when present) — inject the path as an absolute path, resolved from its base ([Launch directory and path base](#launch-directory-and-path-base)) against the **main checkout** — the entry's repository root for a `test.repos` entry, the project root for the flat block — never against `<wt-path>`. The agent loads it with the Playwright MCP `browser_set_storage_state` tool (it restores cookies/localStorage from the file before navigating to the protected route). That tool is additive-optional: on a Playwright MCP version that exposes it, `storage_state` is the first-choice auth path; on older versions the agent falls back to `attach_tab`. The file must sit inside the project/workspace root (Playwright MCP restricts file access to the workspace root unless launched with `--allow-unrestricted-file-access`); the main checkout always does, and a session the agent saves there survives worktree teardown. The commit backstop ([`commit.md`](../../build/references/commit.md) §1) resolves the same relative path inside the tree being committed instead — `<wt-path>` when one is bound — because that is where an un-ignored copy would be staged. The two bases differ on purpose. The `--storage-state` server-launch flag is a session-global alternative, not used here.
 
 The agent consumes this recipe with priority `storage_state → attach_tab → existing fallback (CLAUDE.md hint → ask)`; see `agents/ui-tester.md`.
 
@@ -133,6 +166,6 @@ The ui-tester subagent was not spawned. Browser-level acceptance-criteria verifi
 - **Cheap gate, always first** — a `curl` (and at most a `start` poll bounded by `test.start_timeout`) is always paid before the `ui-tester` spawn; the agent is never spawned against an unreachable, un-bootable app.
 - **Boots only what is declared** — the pre-flight starts the declared `test.start` and nothing else. It never builds images, starts compose projects, creates schemas, seeds data or picks a second port. A project that needs an isolated stack declares that stack as its `test.start`, and that `test.start` tears its own stack down when signalled (e.g. `trap 'docker compose -f <file> down' EXIT TERM` before a backgrounded `up` and `wait`) — §4 kills only the launcher PID, and a stack left running keeps answering `test.url`.
 - **No auth detection** — reachability only; the gate never interprets `401`/`403`/a `200` SPA shell as "auth-gated." Auth-gated-with-no-recipe still spawns the agent (it's reachable), which fails fast and is recorded as a non-blocking skip by the agent's own report.
-- **No literal secrets** — `config.yaml` is committed; `auth.storage_state` is a path to a gitignored session file and `auth.attach_tab` is a bool. Credentials are never read from or written into `config.yaml`.
-- **Model-read** — the `test:` block is consumed by the close stage (this reference + the injected spawn prompt), never by a script.
+- **No literal secrets** — `config.yaml` is committed; in every entry, flat or `test.repos`, `auth.storage_state` is a path to a gitignored session file and `auth.attach_tab` is a bool. Credentials are never read from or written into `config.yaml`.
+- **Model-read** — the `test:` block, in either form, is consumed by the close stage (this reference + the injected spawn prompt), never by a script.
 - **bash-3.2 / macOS-default portable** — `curl`, `nohup`, `$!` PID capture, `kill`, POSIX `while`/`case`; no associative arrays, no `mapfile`, no `setsid` (absent on macOS).

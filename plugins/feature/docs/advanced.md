@@ -145,9 +145,10 @@ repos: [big-leaves-api, big-leaves-astro]
 
 - Values are **exact on-disk directory names**, never shortened.
 - Epics carry the union of their children's repos; each child carries its own subset. The decomposition tables show a `Repos` column so you can check whether a split follows repo seams.
-- One consumer parses the field: `ship --parallel` partitions its run into per-repo lanes from `repos:` (see the flag above). Everywhere else it is informational — at-a-glance visibility into a ticket's repo footprint.
+- Two consumers parse the field: `ship --parallel` partitions its run into per-repo lanes from `repos:` (see the flag above), and [`--worktree`](#worktree-isolation---worktree) eligibility binds the worktree's repository from a single entry and builds in place when the field names 2+ repos. Everywhere else it is informational — at-a-glance visibility into a ticket's repo footprint.
 - Single-repo workspaces (the common case) never see the field or the table column.
 - The worktree setup contract has a multi-repo convention — workspace-level `worktree.setup`, per-repo `.worktreeinclude` — documented in [Worktree setup](#worktree-setup).
+- The `test:` block has a per-repo form — one `test.repos.<dir-name>` entry per repository — documented in [App test config](#app-test-config).
 
 ## Inbox triage (`/feature:triage`)
 
@@ -258,9 +259,32 @@ test:
     attach_tab: true                  # fallback: attach to an already-authenticated running tab
 ```
 
-Every key is optional; with no `test:` block the test checkpoint discovers the URL and handles auth inside the tester. **No secrets in `config.yaml`** — it is committed, so `auth.storage_state` is a path to a gitignored session file, never an inline credential.
+Every key is optional; with no `test:` block the test checkpoint discovers the URL and handles auth inside the tester. **No secrets in `config.yaml`** — it is committed, so `auth.storage_state` is a path to a gitignored session file, never an inline credential. The flat block's `start` runs from the project root (the directory holding `claudedocs/tickets/`) and its `auth.storage_state` is relative to it; with a worktree bound, `start` runs from the worktree.
 
-`auth.storage_state` is loaded by the `ui-tester` via the Playwright MCP `browser_set_storage_state` tool (it restores the saved cookies/localStorage before navigating); on a Playwright MCP version that doesn't expose that tool, the tester falls back to `attach_tab`. The file must sit inside the project/workspace root (Playwright MCP restricts file access to the workspace root unless launched with `--allow-unrestricted-file-access`). Produce it once with your normal Playwright auth setup, or let the tester save it after a one-time login (it confirms the path is gitignored before saving, since the file holds live session cookies). When the app is unreachable and no `start` is declared (or it times out), the checkpoint records a non-blocking skip and proceeds. `start_timeout` raises the boot ceiling for a `start` that takes longer than a minute — one that builds a container image, for example.
+**Multi-repo workspaces.** In a [multi-repo workspace](#multi-repo-workspaces) the flat block stays the single-repo form; declare one `test.repos.<dir-name>` entry per repository you test instead:
+
+```yaml
+test:
+  repos:
+    big-leaves-admin:
+      url: http://localhost:4200
+      start: "exec npx ng serve --port 4200"
+      start_timeout: 240
+      auth:
+        attach_tab: true
+    big-leaves-astro:
+      url: http://localhost:4321
+      start: "npm run dev"
+```
+
+- The key is the repository's exact directory name — the string a ticket's `repos:` carries.
+- Each entry holds the flat block's keys (`url`, `start`, `start_timeout`, `auth.storage_state`, `auth.attach_tab`) and stands alone: it inherits nothing from a flat block beside it or from another entry, and a key it leaves out behaves as that key does when the flat block omits it. `start_timeout` keeps its 1–540 range per entry.
+- An entry's `start` runs from that repository's root, or from its worktree when one is bound, so it needs no `cd <repo> &&` prefix — one would break under a worktree, whose root has no `<repo>/` subfolder.
+- An entry's `auth.storage_state` is relative to that repository's root, like its `.worktreeinclude` patterns.
+
+The full contract — launch directory, path base, and how the commit backstop resolves the session path — is in `skills/close-stage/references/test-preflight.md`.
+
+`auth.storage_state` is loaded by the `ui-tester` via the Playwright MCP `browser_set_storage_state` tool (it restores the saved cookies/localStorage before navigating); on a Playwright MCP version that doesn't expose that tool, the tester falls back to `attach_tab`. The file must sit inside the project/workspace root (Playwright MCP restricts file access to the workspace root unless launched with `--allow-unrestricted-file-access`); the tester receives the path resolved against the main checkout, which always does, so a repo-relative path in a `test.repos` entry qualifies. Produce it once with your normal Playwright auth setup, or let the tester save it after a one-time login (it confirms the path is gitignored before saving, since the file holds live session cookies). When the app is unreachable and no `start` is declared (or it times out), the checkpoint records a non-blocking skip and proceeds. `start_timeout` raises the boot ceiling for a `start` that takes longer than a minute — one that builds a container image, for example.
 
 Ship's `--ui-test` pass needs `test.url` and `test.start`, which the pass boots so the app serves the PR head — `test.url` alone never yields a verified pass. Without them the pass posts a *not verified* comment to the PR naming the URL and the head SHA. An app already reachable when the pass starts is *not verified* too: a fixed port may be answered by another checkout or a long-lived instance serving a different branch, so stop your own server and let `test.start` boot the app. The pass never builds images, starts compose stacks or seeds data; a project that needs an isolated stack declares it as its `test.start`, and raises `start_timeout` when that boot builds an image. Such a `test.start` must tear its own stack down when signalled — for example `trap 'docker compose -f <file> down' EXIT TERM` before a backgrounded `up` and `wait` — because teardown stops only the launcher process, and a stack left running keeps answering `test.url`, so the next pass reads it as *not verified*.
 
@@ -276,7 +300,7 @@ git:
 ```
 
 - `prompt` (or an absent block/key) — the interactive ask, exactly as without the config.
-- `always` — skip the prompt and commit: staging is `git add -A` narrowed by exclusion guards (tracked `claudedocs/`, an un-ignored `test.auth.storage_state`), then a commit message referencing the ticket ID; no push, no PR. The sweep honors `.gitignore` but includes every other untracked file — keep secrets gitignored, because under `always` no human reviews what gets staged. `always` presets the prompt's answer to yes, nothing more — it commits onto the **current branch**, exactly as an interactive "yes" would, trunk included; use `--pr` or branch first if you don't want commits on `main`.
+- `always` — skip the prompt and commit: staging is `git add -A` narrowed by exclusion guards (tracked `claudedocs/`, an un-ignored declared `auth.storage_state` — the committed repository's `test.repos` entry's, or the flat block's in a single-repo workspace), then a commit message referencing the ticket ID; no push, no PR. The sweep honors `.gitignore` but includes every other untracked file — keep secrets gitignored, because under `always` no human reviews what gets staged. `always` presets the prompt's answer to yes, nothing more — it commits onto the **current branch**, exactly as an interactive "yes" would, trunk included; use `--pr` or branch first if you don't want commits on `main`.
 - `never` — skip the prompt and leave the changes uncommitted; the ticket still finalizes to `done/` and the final message points at `git status`.
 - `attach_screenshots: true` — attach the browser pass's screenshots to the PR the close stage opens with `--pr`, and to ship's `--ui-test` comment ([Attach screenshots to PRs](#attach-screenshots-to-prs---attach-screenshots)). Default `false`: uploads are irreversible and world-readable on a public repository. Any other value is treated as `false` with a one-line notice.
 
@@ -322,7 +346,7 @@ worktree:
   setup: "pnpm install"
 ```
 
-A fresh worktree then receives `.env` and `.auth/admin.json` (the Playwright storage-state file that `test.auth.storage_state` points at) copied from the main checkout — both remain gitignored in the worktree — and `pnpm install` produces its `node_modules`. The worktree builds, validates, and UI-tests like the main checkout.
+A fresh worktree then receives `.env` and `.auth/admin.json` (the Playwright storage-state file that the declared `auth.storage_state` points at) copied from the main checkout — both remain gitignored in the worktree — and `pnpm install` produces its `node_modules`. The worktree builds, validates, and UI-tests like the main checkout.
 
 **Trust and secrets.** `worktree.setup` is the user's own declared command — the same trust tier as `test.start` — and follows the same execution discipline as `test.start` (see `skills/close-stage/references/test-preflight.md`): the command is written verbatim into a script file with the Write tool — on a Bash-only surface, via a nonce-delimited single-quoted heredoc (`skills/review/references/pr-comments.md` §4) — never substituted into a shell command line, and ticket-derived text never goes into it. **No secrets in `config.yaml` or `.worktreeinclude`** — both are committed; patterns reference paths, never secret values, and the copied files stay gitignored in the worktree too.
 

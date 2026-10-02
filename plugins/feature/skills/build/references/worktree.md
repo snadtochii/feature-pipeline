@@ -116,7 +116,7 @@ Copy every file matching a `.worktreeinclude` pattern from `<repo-root>` into `<
 git -C "<wt-path>" check-ignore -q "<rel-path>" || echo "not ignored: <rel-path>"
 ```
 
-Any path that comes back **not ignored** → print one line naming the file and the remedy (`commit its .gitignore entry to <BASE_BRANCH>`), and add it to the run's **exclusion list**, which [`commit.md`](commit.md) §1 applies as `git reset -q -- "<rel-path>"` at every commit this run makes. This generalizes `commit.md` §1's single-path `test.auth.storage_state` backstop to the actual set of files provisioning moves.
+Any path that comes back **not ignored** → print one line naming the file and the remedy (`commit its .gitignore entry to <BASE_BRANCH>`), and add it to the run's **exclusion list**, which [`commit.md`](commit.md) §1 applies as `git reset -q -- "<rel-path>"` at every commit this run makes. This generalizes `commit.md` §1's single-path `auth.storage_state` backstop to the actual set of files provisioning moves.
 
 Write the list to the caller's worktree record too (build: the `## Worktree` block's `excluded:` field), so a resumed run can see what a prior pass found. Treat that record as a **hint, not the source of truth** — step 1's adopt path re-derives the list, because a record can be stale, absent, or predate the field, and an empty list silently disables the guard.
 
@@ -161,13 +161,13 @@ Once a worktree is bound, every command must be aimed explicitly. A missed site 
 | Triviality short-circuit `git diff --shortstat` | review-stage SKILL.md, triviality short-circuit |
 | Base resolution + merge-base `git diff` + untracked-file listing | review-stage SKILL.md, Entry base step and diff collection |
 | `git check-ignore -q claudedocs`, `git add -A`, `git reset -q -- claudedocs/` | [`commit.md`](commit.md) §1 |
-| `git check-ignore -q <test.auth.storage_state>` session-state backstop | [`commit.md`](commit.md) §1 |
+| `git check-ignore -q <auth.storage_state>` session-state backstop — the committed repository's entry (its `test.repos` entry, else, in a single-repo workspace, the flat block's), resolved inside `<wt-path>` | [`commit.md`](commit.md) §1 |
 | `git commit -F <message-file>` — the **git half only**; the message file itself is a `/tmp` or scratchpad path | [`commit.md`](commit.md) §2, [`pr-creation.md`](pr-creation.md) §3 |
 | `git fetch origin`, base resolution | [`pr-creation.md`](pr-creation.md) §1 |
 | `git push -u origin "<branch>"` | [`pr-creation.md`](pr-creation.md) §4 |
 | `gh pr create` — `gh` infers the repository from the working directory | [`pr-creation.md`](pr-creation.md) §4 |
 | `gh pr view` / `gh pr list` / `git fetch` / `git symbolic-ref` / `git merge-base --is-ancestor` | [`pr-creation.md`](pr-creation.md) Merge predicate |
-| `test.start` boot — so the server runs against the worktree's own dependencies | [`test-preflight.md`](../../close-stage/references/test-preflight.md) §3 |
+| `test.start` boot — `<wt-path>` is its launch directory, in place of the repository or project root, so the server runs against the worktree's own dependencies | [`test-preflight.md`](../../close-stage/references/test-preflight.md) §3 |
 | `worktree.setup` | §2 step 5 above |
 | **Reviewer subagent prompts** — the shared base's "Project root path" | review-stage SKILL.md, shared base |
 | **`ui-tester` spawn prompt** — its working directory, and the target directory for any codified spec file | close-stage SKILL.md, test checkpoint step b |
