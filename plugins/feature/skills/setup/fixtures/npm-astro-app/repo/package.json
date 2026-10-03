@@ -1,0 +1,10 @@
+{
+  "name": "npm-astro-app",
+  "private": true,
+  "scripts": {
+    "dev": "NODE_ENV=testing astro dev --config astro.config.vercel.ts",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  }
+}

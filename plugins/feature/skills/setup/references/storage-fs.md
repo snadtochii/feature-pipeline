@@ -31,3 +31,15 @@ Canonical logic for setup's ticket-store and config writes in fs-native storage 
 
 - `--check`'s check 2 ([check.md](check.md) §3) in this mode. The ticket store is local, so the check reads only what check 1 already read and makes no call.
 - The line is `ok storage: fs-native — local ticket store`, with `; no prefix — discover asks for one on its first run` appended when `config.yaml` has no `prefix` key. Neither case fails: discover's first run supplies a missing prefix.
+
+## §6 Test form
+
+- **Which form.** A single-repo workspace takes the flat `test:` block — the skill body's Process step 5, items 4–5, as written. A multi-repo workspace takes the per-repo form: one `test.repos.<dir-name>` entry per child repository the user chooses at item 4, keyed by that repository's exact directory name — the string a ticket's `repos:` carries, which is what the test checkpoint selects an entry by. The entry's keys, their limits, and where an entry's `start` runs are defined in [test-preflight.md](../../close-stage/references/test-preflight.md), "The `test:` block" and "Launch directory and path base"; this file does not restate them.
+- **An existing flat block in a multi-repo workspace** stays byte-for-byte beside the new `test.repos` entries and seeds none of them. It then applies only to tickets that carry no `repos:`; the report says so.
+- **Doctor shape lines.** `--check`'s check 3 ([check.md](check.md) §3) prints these in this mode. The flat block is present when the `test:` block holds at least one flat key (`url`, `start`, `start_timeout`, `auth`):
+  - multi-repo, flat block present, no `test.repos` → `FAIL test: flat block in a multi-repo workspace — declare one test.repos.<dir-name> entry per UI repo (re-run /feature:setup)`;
+  - multi-repo, flat block and `test.repos` → `-- test: flat block kept beside test.repos — it applies only to tickets without repos:`;
+  - single-repo, `test.repos` and no flat block → `FAIL test: test.repos in a single-repo workspace — tickets here carry no repos:, so no entry is ever selected; declare the flat test.url / test.start (re-run /feature:setup)`;
+  - single-repo, flat block and `test.repos` → `-- test: test.repos entries are never selected in a single-repo workspace — the flat block is what the test checkpoint reads`.
+
+  Any other shape prints no shape line.

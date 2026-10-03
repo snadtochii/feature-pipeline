@@ -4,7 +4,7 @@ Canonical logic for ship's storage-touching steps in server-native storage mode.
 
 ## §1 Ticket metadata and roster
 
-Read ticket metadata reads the ticket row: `kind`, `parent_id`, `blocked_by`. The row has no `repos` field, so every run is one lane — there is nothing to partition on. An **epic run's roster** is derived: `pipeline_list_tickets` filtered client-side to rows whose `parent_id` is the epic's ID; every listed row is materialized (a child exists only once created), so nothing is skipped.
+Read ticket metadata reads the ticket row: `kind`, `parent_id`, `blocked_by`. The row has no `repos` field, so every run is one lane — there is nothing to partition on — and the end-of-run UI pass takes [`test-preflight.md`](../../close-stage/references/test-preflight.md) Entry selection's rows for a ticket without `repos:`, applied per [`ui-verification.md`](ui-verification.md) step 0: the flat `test:` block when present. An **epic run's roster** is derived: `pipeline_list_tickets` filtered client-side to rows whose `parent_id` is the epic's ID; every listed row is materialized (a child exists only once created), so nothing is skipped.
 
 ## §2 Lessons store
 
@@ -75,7 +75,7 @@ verdict: <pass | partial>
 <one entry per capture, or the empty-home line>
 ```
 
-- `<sha>` is the commit under test: `git rev-parse HEAD` of the checked-out assembled branch at test time.
+- `<sha>` is the commit under test: `git -C "<tested-path>" rev-parse HEAD` of the checked-out assembled branch at test time, `<tested-path>` being the checkout the pass tested ([`ui-verification.md`](ui-verification.md) step 1).
 - The provenance line is first and `verdict:` second on purpose. Routers take the verdict from `06-summary.md`, never from this artifact's opening lines, and the provenance line is what tells a reader this result came from ship's pass rather than a close-stage checkpoint.
 - One `## Acceptance Criteria` line per criterion of this ticket, numbered as its own spec numbers them.
 - `## Failed Criteria` is present only when a criterion or a required UI check failed — a required-check failure the tester listed against the implicit `UI states (required check)` criterion counts, even with no numbered criterion to attach it to. `## Observations` holds only non-failing notes, never a failure.
@@ -100,7 +100,7 @@ Upsert it passing the row verdict it already carried back unchanged — omitted 
 
 **Order and scope.** The `05-tests.md` upsert completes before the `06-summary.md` upsert, never in parallel with it, so the rows' `updated_at` ordering matches the write order. No row status changes — `pipeline_transition_ticket` is never called here.
 
-**Failure.** A call that fails is reported in the run report, naming the ticket and the artifact, and the run continues to its normal open/merge ending — the `--ui-test` exception to the loud-failure rule of [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md), since the pass never blocks the run. Nothing falls back to local files.
+**Failure.** A call that fails is reported in the run report, naming the ticket and the artifact, and the run continues to its normal open/merge ending — the end-of-run UI pass's exception to the loud-failure rule of [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md), since the pass never blocks the run. Nothing falls back to local files.
 
 ## §9 Close record
 
