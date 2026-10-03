@@ -81,12 +81,7 @@ verdict: <pass | partial>
 
 **Verdict rule.** Every criterion and every required UI check passed → `pass`. `## Failed Criteria` present → `partial`. `fail` is never written.
 
-**Two or more passes.** A ticket tested in two or more passes ([`ui-verification.md`](ui-verification.md) step 0) gets one `05-tests.md` holding every pass, in the close stage's multi-pass layout; with one pass the body above is unchanged.
-
-- `## Acceptance Criteria` — one line per criterion, merged across passes: failed when any pass failed it, passed when some pass passed it and none failed, `not-verified` when no pass covered it (every pass reported it not applicable, or degraded).
-- `## Failed Criteria` — every pass's failed entries combined, each carrying a `**Repo**: <repo>` line beside its `**Viewport**` line; present only when some pass recorded one.
-- `## Pass: <repo>` — one section per pass, in pass order, after `## Observations`: that pass's report minus the failed entries moved up, or the reason the pass degraded — the setup gap, or a tester that crashed or timed out.
-- The verdict rule above is unchanged: `partial` exactly when `## Failed Criteria` is present.
+**Two or more passes.** A ticket tested in two or more passes ([`ui-verification.md`](ui-verification.md) step 0) gets one `05-tests.md` holding every pass, under the close stage's [Multi-pass results](../../close-stage/references/test-preflight.md#multi-pass-results) rules; with one pass the body above is unchanged. The merged `## Acceptance Criteria` and combined `## Failed Criteria` take their places in the body above, and the `## Pass: <repo>` sections follow `## Observations`. A pass whose tester crashed or timed out records that as its `## Pass` section's reason. The verdict rule above is unchanged: `partial` exactly when `## Failed Criteria` is present.
 
 **`## Screenshots` section.** Composed by the rules in [the close stage's `storage-fs.md`](../../close-stage/references/storage-fs.md) §8 — the same one `wc -c -- "<evidence-home>"/*.png` listing, the same order ([`ui-attach.md`](../../build/references/ui-attach.md) §3's **Artifact order**, under `### Desktop`, `### Mobile` and `### Other` subheadings), entry form, relative-path rule, unsafe-name demotion to plain text and empty-home line — issued before the body is composed, since its names and sizes are inputs to that body. An epic's passes share the epic-level evidence home (§7) — split into per-repo homes when §7 splits it — so that listing goes out **once** for the whole epic and every covered child's section is composed from the one result. Three rules arise only here:
 

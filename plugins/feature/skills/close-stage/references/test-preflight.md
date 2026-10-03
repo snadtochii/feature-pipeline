@@ -1,6 +1,6 @@
 # Test Pre-flight
 
-The close stage uses this reference at its test checkpoint in two places. [Entry selection](#entry-selection) decides which entry or entries the ticket is tested against, and it is decided **before** the skip-detection scan, so its "no testable repo in ticket" skip lands without the scan. §1–§6 then run once per selected entry on the path where a `ui-tester` spawn was about to happen — i.e. **after** the skip-detection scan has decided the plan has UI signals, but **before** the `ui-tester` `Task` call. They run a cheap reachability gate so the browser subagent is never spawned against an app that can't be reached, and they hand the agent a declared auth recipe instead of letting it guess. Ship's end-of-run browser pass reuses Entry selection and §1–§5 per pass, as [`ui-verification.md`](../../ship/references/ui-verification.md) describes.
+The close stage uses this reference at its test checkpoint in two places. [Entry selection](#entry-selection) decides which entry or entries the ticket is tested against, and it is decided **before** the skip-detection scan, so its "no testable repo in ticket" skip lands without the scan. §1–§6 then run once per selected entry on the path where a `ui-tester` spawn was about to happen — i.e. **after** the skip-detection scan has decided the plan has UI signals, but **before** the `ui-tester` `Task` call. They run a cheap reachability gate so the browser subagent is never spawned against an app that can't be reached, and they hand the agent a declared auth recipe instead of letting it guess. Ship's end-of-run browser pass reuses Entry selection, Multi-pass results and §1–§5 per pass, as [`ui-verification.md`](../../ship/references/ui-verification.md) describes.
 
 `--no-ui-testing` bypasses this reference entirely, Entry selection included. The no-UI-signal skip bypasses §1–§6 — neither resolves a URL, curls, nor boots a `start` command. Pre-flight only runs when a spawn was actually going to happen (this is what keeps the cheap gate ahead of the expensive spawn).
 
@@ -81,6 +81,16 @@ Browser verification was not run, and no app was booted.
 - [ ] AC 2 — not-tested (no testable repo)
 ...
 ```
+
+### Multi-pass results
+
+A run of two or more passes records every pass in one `05-tests.md`. The consumer's artifact body decides where each section sits; these rules are shared by the close stage and ship's end-of-run pass:
+
+- **Merged criteria** — `## Acceptance Criteria` holds one line per criterion, merged across passes: failed when any pass failed it, passed when some pass passed it and none failed, `not-verified` when no pass covered it (every pass reported it not applicable, or ended without a report).
+- **Combined failures** — `## Failed Criteria` combines every pass's failed entries, each carrying a `**Repo**: <repo>` line beside its `**Viewport**` line, and is present only when some pass recorded one.
+- **Per-pass record** — one `## Pass: <repo>` section per pass, in pass order: that pass's report minus the failed entries moved up, or the reason the pass ended without a report — its unreachable or duplicate-URL result, or another setup gap.
+
+With one pass, the artifact is the consumer's single-pass body.
 
 ## §1 Resolve a candidate URL
 
