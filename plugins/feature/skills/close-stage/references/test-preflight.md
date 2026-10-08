@@ -107,7 +107,7 @@ An entry that declares `driver` is a **driver pass**: the close stage's test che
   - `<pass-dir>/entry.json` — the entry file, written with `Write`.
   - `<pass-dir>/session` — the session id alone, written with `Write` and checked against `^[a-f0-9]{12}$` on every read.
   - `<pass-dir>/steps/` — `<step-dir>`, the one directory the tester writes step files into; its own `Write` creates it.
-- **Quoted paths** — every path a driver shell line or the driver block single-quotes is built from the home directory, `<pass-key>`, or the pass's evidence home. The evidence home is checked as the home directory is, before lifecycle step 3: it must be an absolute path holding no `'`, and one that does not is the driver-unavailable result, naming it.
+- **Quoted paths** — every path a driver shell line or the driver block single-quotes is built from the home directory, `<pass-key>`, or the pass's evidence home. `<pass-key>` is checked before lifecycle step 1, since `<pass-dir>` reaches `rm -rf`: it must match `^[A-Za-z0-9._-]+$` and be neither `.` nor `..`, so `<pass-dir>` is one segment below `<home>/.feature-pipeline/close-stage/` and holds no `'`. The evidence home is checked as the home directory is, before lifecycle step 3: it must be an absolute path holding no `'`. A value that fails its check is the driver-unavailable result, naming it, and nothing under `<pass-dir>` is touched.
 
 #### Driver lifecycle
 
