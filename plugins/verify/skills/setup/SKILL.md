@@ -97,7 +97,10 @@ driver only as a value inside `entry.json` (§6), which the driver runs from a f
 **Candidates.**
 
 - The flat block, when `test:` holds `url` as its own key. A flat block holding only `auth`
-  (or only `start`) is not a candidate.
+  (or only `start`) is not a candidate. In a multi-repo workspace — `<project-root>` has no
+  `.git` of its own while an immediate child directory does (`Glob` for `.git` and
+  `*/.git`) — the flat block is not offered either: it is the single-repo form, and the
+  report names it with that reason.
 - Each `test.repos.<dir>` entry whose key matches `^[A-Za-z0-9._-]+$` and is neither `.` nor
   `..`, whose key names an existing directory under `<project-root>` (`Glob`), and which holds
   `url`. An entry failing any of these is not offered, and the report names it with the
@@ -326,7 +329,7 @@ Defaults:
 Warnings:
   <map-path> is git-ignored — the map must be committed to be shared
   <storage_state> is not git-ignored — the session file could be committed
-  test.repos.<dir> — not offered: <reason>
+  <entry-label> — not offered: <reason>
 Next: review and commit <map-path>, then fill its manual blocks
 ```
 
