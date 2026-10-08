@@ -18,33 +18,9 @@
 // Zero dependencies: Node 22+ built-ins only (global WebSocket for CDP).
 // Everything under lib/ is private; this file is the only command.
 
-import { validateEntry } from './lib/entry.mjs';
 import { parseArgv } from './lib/args.mjs';
 import { errorDoc, exitCodeFor, render, writeOut } from './lib/output.mjs';
-import { readJsonFile, validateSteps } from './lib/steps.mjs';
-
-// Each verb's module is loaded only when that verb runs.
-const HANDLERS = {
-  launch: async (input) => (await import('./lib/lifecycle.mjs')).launch(input),
-  cleanup: async (input) => (await import('./lib/lifecycle.mjs')).cleanup(input),
-  drive: async (input) => (await import('./lib/drive.mjs')).drive(input),
-  evidence: async (input) => (await import('./lib/evidence.mjs')).evidence(input),
-  doctor: async (input) => (await import('./lib/doctor.mjs')).doctor(input),
-  install: async (input) => (await import('./lib/install.mjs')).install(input),
-};
-
-// Read and validate every input file before any verb acts, so an invocation
-// error exits 2 with nothing started (CONTRACT.md §3).
-function loadInputs(verb, flags) {
-  const input = { ...flags };
-  if (verb === 'launch') {
-    input.entry = validateEntry(readJsonFile(flags.entry, 'entry'));
-  }
-  if (verb === 'drive') {
-    input.steps = validateSteps(readJsonFile(flags.steps, 'steps'));
-  }
-  return input;
-}
+import { VERBS } from './lib/verbs.mjs';
 
 async function main(argv) {
   try {
@@ -53,7 +29,8 @@ async function main(argv) {
     if (parsed.selfTest) {
       doc = await (await import('./lib/selftest.mjs')).runSelfTest();
     } else {
-      doc = await HANDLERS[parsed.verb](loadInputs(parsed.verb, parsed.flags));
+      const verb = VERBS[parsed.verb];
+      doc = await verb.run(verb.load(parsed.flags));
     }
     writeOut(render(doc));
     return 0;

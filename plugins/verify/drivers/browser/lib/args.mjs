@@ -3,7 +3,7 @@
 // Long flags only, `--flag value` and `--flag=value` both accepted; an unknown,
 // repeated or misused flag is an invocation error (CONTRACT.md §4). Path flags
 // must be absolute and session ids well-formed — both checked here, before any
-// verb runs.
+// verb runs. Each verb's flags come from the verb table in verbs.mjs.
 //
 // Private to the implementation: only cli.mjs is a command.
 
@@ -11,19 +11,7 @@ import path from 'node:path';
 
 import { UsageError } from './output.mjs';
 import { validateId } from './session.mjs';
-
-const VALUE = 'value';
-const BOOL = 'bool';
-
-/** Per-verb flag table: allowed flags, required flags, exactly-one-of groups. */
-export const VERBS = {
-  launch: { flags: { entry: VALUE }, required: ['entry'] },
-  doctor: { flags: { session: VALUE }, required: [] },
-  drive: { flags: { session: VALUE, steps: VALUE, evidence: VALUE }, required: ['session', 'steps', 'evidence'] },
-  evidence: { flags: { session: VALUE }, required: ['session'] },
-  cleanup: { flags: { session: VALUE, all: BOOL }, required: [], exactlyOne: ['session', 'all'] },
-  install: { flags: {}, required: [] },
-};
+import { BOOL, VERBS } from './verbs.mjs';
 
 const PATH_FLAGS = new Set(['entry', 'steps', 'evidence']);
 

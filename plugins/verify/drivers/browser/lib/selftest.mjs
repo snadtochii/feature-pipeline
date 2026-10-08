@@ -26,6 +26,7 @@ import { ComputeError, UsageError, exitCodeFor, render } from './output.mjs';
 import { isAlive, processStart, stopGroup, waitExit } from './proc.mjs';
 import { isValidId, newId } from './session.mjs';
 import { DEFAULT_TIMEOUT_MS, isValidName, validateSteps } from './steps.mjs';
+import { VERBS } from './verbs.mjs';
 
 const CLI = fileURLToPath(new URL('../cli.mjs', import.meta.url));
 
@@ -201,6 +202,17 @@ const CASES = [
     throwsUsage(() => parseArgv(['launch', '--self-test']), '--self-test');
     throwsUsage(() => parseArgv(['--self-test', 'launch']), '--self-test');
     throwsUsage(() => parseArgv(['drive', '--session', '0123456789ab', '--steps']), 'needs a value');
+  }],
+  ['verbs: every entry is complete and names only its own flags', () => {
+    assert(Object.keys(VERBS).sort().join(',') === 'cleanup,doctor,drive,evidence,install,launch', `verbs: ${Object.keys(VERBS).join(',')}`);
+    for (const [name, spec] of Object.entries(VERBS)) {
+      assert(typeof spec.load === 'function' && typeof spec.run === 'function', `${name}: load/run`);
+      for (const flag of [...spec.required, ...(spec.exactlyOne || [])]) {
+        assert(Object.hasOwn(spec.flags, flag), `${name}: --${flag} is not one of its flags`);
+      }
+    }
+    const loaded = VERBS.evidence.load({ session: '0123456789ab' });
+    assert(loaded.session === '0123456789ab', 'a verb without input files keeps its flags');
   }],
   ['install: version comparison', () => {
     assert(isOlder('0.1.0', '0.2.0') === true && isOlder('0.10.0', '0.9.9') === false && isOlder('1.0.0', '1.0.0') === false, 'ordering');
