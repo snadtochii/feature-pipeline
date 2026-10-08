@@ -15,11 +15,13 @@ source directories that no longer exist. It regenerates each map's mechanical li
 with the same rules the map's writer uses, compares them with the file, and prints the
 differences. Regenerating the file itself is `/verify:setup --refresh`; this skill never does.
 
-One contract governs it; consume it as written and never restate it here:
+Two contracts govern it; consume them as written and never restate them here:
 
 - [../../references/feature-map.md](../../references/feature-map.md) — the map's grammar (§2),
   the read rules (§3), and how features, routes and test ids are extracted from the repository
   (§4–§6).
+- [../../references/entry-binding.md](../../references/entry-binding.md) — an entry's label and
+  root, the `test.repos` key rule, the `<map-path>` rule and the `<storage-state>` derivation.
 
 **This skill runs in the main conversation, standalone.** It spawns no subagents, calls no MCP
 tool and runs no shell command. Every run is unattended in effect: it asks nothing and ends
@@ -80,16 +82,11 @@ what this skill does.
 Collect every `feature_map` key: the flat `test:` block's first, then each `test.repos.<dir>`
 entry's in file order. For each one, bind:
 
-- `<entry-label>` — `test` for the flat block, `test.repos.<dir>` for an entry.
-- `<entry-root>` — `<project-root>` for the flat block, `<project-root>/<dir>` for an entry. A
-  `<dir>` key must match `^[A-Za-z0-9._-]+$`, be neither `.` nor `..`, and name an existing
-  directory under `<project-root>` (`Glob`).
-- `<map-path>` — the `feature_map` value. It must match `^[A-Za-z0-9._/-]+\.md$`, be relative,
-  carry no empty, `.` or `..` segment, and sit under neither `.git/` nor `claudedocs/`.
-- `<storage-state>` — when the entry declares `auth.storage_state`, its path relative to
-  `<entry-root>`: the value itself when it is relative with no `..` segment, or the part below
-  `<entry-root>` of an absolute value that lies under it; otherwise unbound, since every search
-  is scoped to `<entry-root>` and cannot reach it.
+- `<entry-label>` and `<entry-root>` (entry-binding.md §1). A `<dir>` key must be valid
+  (entry-binding.md §2).
+- `<map-path>` — the `feature_map` value. It must be valid (entry-binding.md §3).
+- `<storage-state>` (entry-binding.md §4). An unbound one needs no exclusion, since every
+  search is scoped to `<entry-root>` and cannot reach it.
 
 An entry failing its key rule or its `<map-path>` rule is skipped and named in the report with
 the rule it broke; it counts as a map that could not be checked. None left →

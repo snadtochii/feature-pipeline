@@ -23,10 +23,12 @@ each criterion, and leaves the screenshots and a machine-readable `report.json` 
 pipeline's close stage keeps its own browser evidence — so a person running this skill and the
 pipeline's browser pass leave artifacts of the same names in the same place.
 
-Two contracts govern it; consume them as written and never restate them here:
+Three contracts govern it; consume them as written and never restate them here:
 
 - [../../references/feature-map.md](../../references/feature-map.md) — the map's grammar and
   the repository read rules.
+- [../../references/entry-binding.md](../../references/entry-binding.md) — an entry's label and
+  root, the `test.repos` key rule, the `<map-path>` rule and the `<storage-state>` derivation.
 - [../../drivers/browser/CONTRACT.md](../../drivers/browser/CONTRACT.md) — the driver's verbs,
   flags, step file, documents, exit codes and screenshot-name grammar.
 
@@ -220,11 +222,10 @@ An entry is the flat `test:` block or one `test.repos.<dir>` entry. The flat blo
 when `test:` holds at least one of its own keys (`url`, `start`, `start_timeout`, `auth`).
 
 Source: `plugins/feature/skills/close-stage/references/test-preflight.md`, Entry selection —
-the key rule and the ticket form's rows. The criteria form's rows are this skill's own.
+the ticket form's rows. The criteria form's rows are this skill's own.
 
-**A `test.repos` key** is selectable only when it matches `^[A-Za-z0-9._-]+$`, is neither `.`
-nor `..`, and names an existing directory under `<project-root>` (`Glob`). A key failing any
-of these is never selected, and the summary names it with the rule it broke.
+**A `test.repos` key** is selectable only when it is valid (entry-binding.md §2). A key that
+is not is never selected, and the summary names it with the rule it broke.
 
 **Ticket form** — the first matching row wins. The inputs are the ticket's `repos` (fs-native
 only; a server-native ticket has none) and the `test:` block:
@@ -250,16 +251,11 @@ only; a server-native ticket has none) and the `test:` block:
 **Every selected entry** must hold `url` and `driver: browser-cli`; one that does not stops
 the run with `ERROR: <entry-label> has no browser driver — run /verify:setup`. For each, bind:
 
-- `<entry-label>` — `test` for the flat block, `test.repos.<dir>` for an entry.
-- `<entry-root>` — `<project-root>` for the flat block, `<project-root>/<dir>` for an entry. The
-  map, every repository search and the `start` launch directory resolve against it.
-- `<map-path>` — the entry's `feature_map` value, when it matches `^[A-Za-z0-9._/-]+\.md$`, is
-  relative, carries no empty, `.` or `..` segment, and sits under neither `.git/` nor
-  `claudedocs/`. Absent or failing → unbound, and §8 plans without a map.
-- `<storage-state>` — when the entry declares `auth.storage_state`, its path relative to
-  `<entry-root>`: the value itself when it is relative with no `..` segment, or the part below
-  `<entry-root>` of an absolute value that lies under it. Any other value leaves it unbound,
-  and that pass fails at `auth` (§9).
+- `<entry-label>` and `<entry-root>` (entry-binding.md §1).
+- `<map-path>` — the entry's `feature_map` value, when it is valid (entry-binding.md §3).
+  Absent or invalid → unbound, and §8 plans without a map.
+- `<storage-state>` (entry-binding.md §4). A declared value that leaves it unbound fails that
+  pass at `auth` (§9).
 - `url`, `start` and `start_timeout` as the entry declares them.
 
 One selected entry is one **pass**; two or more are sequential passes, each finishing its
