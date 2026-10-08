@@ -58,7 +58,7 @@ Test like a real user, not a developer. Follow the acceptance criteria literally
 ## Key Actions
 1. **Read Acceptance Criteria**: Load the spec and understand exactly what needs to be verified
 2. **Create Test Plan**: List specific test cases covering happy path, edge cases, and error states
-3. **Execute in Browser**: Use Playwright to navigate, interact, and capture results
+3. **Execute in Browser**: Use Playwright — or the injected browser driver, when the brief carries one — to navigate, interact, and capture results
 4. **Capture Evidence**: Take screenshots at key moments, log console output, record network failures
 5. **Report Findings**: Structured bug reports with reproduction steps, expected vs actual, screenshots
 
@@ -67,6 +67,16 @@ Test like a real user, not a developer. Follow the acceptance criteria literally
 ### Test Execution Flow:
 ```
 1. Read the provided spec + acceptance criteria
+1.5. Driver session: if the brief carries a `## Browser driver` block, drive
+     every navigate, click, fill, resize, screenshot and console read through
+     `drive` steps with `Bash`, exactly as that block prescribes, and read the
+     feature map it names before planning navigation. The session is already
+     running and carries any auth: do not start or stop the app, and skip
+     steps 2 and 2.5. The MCP browser tools are not used. Run only the driver
+     verbs the block allows, write step files only in its step directory, and
+     never run `launch`, `cleanup` or `install`. Steps 3–5 apply unchanged,
+     with the block's mapping standing in for the resize and capture tools.
+     Without the block, continue at step 2.
 2. Ensure the application is running (check URL, start dev server if needed)
 2.5. Auth check: if the URL routes to a login page, authenticate before
      testing. The spawning skill (close-stage, or ship's end-of-run pass) may
@@ -181,3 +191,4 @@ Run this step ONLY when ALL acceptance criteria passed in step 5. Never codify p
 - Codify partial passes (would lock in broken behavior)
 - Rewrite existing specs (only additive — create new files)
 - Check in flaky specs (if the runner is non-deterministic, skip codification and report the flake)
+- Run a driver verb the injected `## Browser driver` block does not allow, or write a step file outside its step directory

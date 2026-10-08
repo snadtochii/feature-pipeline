@@ -55,7 +55,7 @@ The structured edit tool is `apply_patch`, or the patch tool the active surface 
 
 The active surface truncates or offloads an oversized tool result by its own rule; inspect that rule rather than assume a fixed byte figure. The operation is the same either way: fetch a file through the surface's read tool, which returns its content inline, and keep a shell print to small items — a config, a frontmatter, a listing, a grep. Independent tool calls issued together in one turn re-read the window once.
 
-A shell call a reference gives a minimum timeout — `test-preflight.md` §3's `test.start` poll — sets the active shell tool's own timeout field to at least that bound; check the surface's maximum rather than assume Claude's.
+A shell call a reference gives a minimum timeout — `test-preflight.md` §3's `test.start` poll — sets the active shell tool's own timeout field to at least that bound; check the surface's maximum rather than assume Claude's. A driver pass's calls in `test-preflight.md`'s Browser driver set the same field: `launch` at least `(<start_timeout> + 60)` seconds, `drive` 540 seconds, above the driver's own 480-second cap, and `doctor` and `cleanup` at least 60 seconds. The close stage writes the `drive` value, in the field's own unit, into the injected driver block.
 
 ## Capacity
 
