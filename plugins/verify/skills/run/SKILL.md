@@ -90,7 +90,7 @@ claude -p '/verify:run WEB-12' | tail -n 1 | grep -q '^OK:'
 
 - The screenshots and `report.json` in each pass's evidence home (§6, §12).
 - Scratch step and entry files under `~/.feature-pipeline/verify-run/<run-key>/` (§9),
-  overwritten by the next run.
+  overwritten by the next run into the same evidence home.
 
 Nothing else: no code, no ticket or ticket artifact, no feature map, no config. The driver
 keeps its own session directory under `/tmp` and removes it at `cleanup`.
@@ -394,11 +394,17 @@ reason.
 
 ### 9. Run directory and files
 
-- `<run-key>` — `<project-root>`'s basename, then `-<ticket-id>` (ticket form) or `-criteria`
+- `<run-key>` — `<project-root>`'s basename, then `-<ticket-id>` (ticket form) or
+  `-criteria-` followed by the absolute `--evidence` directory with every `/` replaced by `-`
   (criteria form), then `-<dir>` for a `test.repos` pass, with every character outside
-  `[A-Za-z0-9._-]` replaced by `-`.
+  `[A-Za-z0-9._-]` replaced by `-`. A run directory therefore maps to one evidence home.
 - `<run-dir>` — `<home>/.feature-pipeline/verify-run/<run-key>/`, absolute. User-owned, outside
-  the repository, and overwritten by the next run.
+  the repository, and overwritten by the next run into the same evidence home.
+
+Runs into different evidence homes never share a file. Two runs into the same evidence home —
+the same ticket twice, or the same `--evidence` — would also overwrite each other's
+screenshots and `report.json`, so running them at the same time is not supported; a scheduled
+task or `/loop` keeps one run per ticket or evidence directory at a time.
 
 Files, each with `Write` (the first creates `<run-dir>`). One `Glob` of `<run-dir>/*.json`
 names the files a previous run left there; those this run replaces are `Read` in one parallel
