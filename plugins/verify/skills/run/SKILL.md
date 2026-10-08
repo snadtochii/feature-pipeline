@@ -508,10 +508,10 @@ on one line for reading; the key order is the rule:
         { "error": null, "index": 0, "screenshot": null, "status": "ok", "step": "viewport" },
         { "error": null, "index": 1, "screenshot": null, "status": "ok", "step": "goto" },
         { "error": null, "index": 2, "screenshot": null, "status": "ok", "step": "wait" },
-        { "error": null, "index": 3, "screenshot": "/abs/screenshots/AC-1-desktop.png", "status": "ok", "step": "screenshot" },
+        { "error": null, "index": 3, "screenshot": "AC-1-desktop.png", "status": "ok", "step": "screenshot" },
         { "error": null, "index": 4, "screenshot": null, "status": "ok", "step": "viewport" },
         { "error": null, "index": 5, "screenshot": null, "status": "ok", "step": "wait" },
-        { "error": null, "index": 6, "screenshot": "/abs/screenshots/AC-1-mobile.png", "status": "ok", "step": "screenshot" }
+        { "error": null, "index": 6, "screenshot": "AC-1-mobile.png", "status": "ok", "step": "screenshot" }
       ],
       "text": "The inbox lists unreviewed items newest first."
     },
@@ -548,9 +548,10 @@ on one line for reading; the key order is the rule:
 | `reason` | §11's one line; `null` on `pass`. |
 | `screenshots` | Basenames, relative to the `report.json` directory, of the captures that criterion's `drive` wrote, sorted in byte order. A state capture shared by two criteria is listed by both. |
 | `status` | `pass`, `fail` or `not-applicable`. |
-| `steps` | The driver's step results for that criterion's `drive`, indices local to it; `[]` when not driven. |
+| `steps` | The driver's step results for that criterion's `drive`, indices local to it, with each `screenshot` path reduced to its basename; `[]` when not driven. |
 
-Basenames keep the report valid when the ticket folder moves between state folders. Older
+Basenames — in `screenshots` and in each step's `screenshot` — keep the report valid when the
+ticket folder moves between state folders, since the report holds no absolute path. Older
 PNGs in the home are neither deleted nor listed: the report covers this run only.
 
 ### 13. Summary
