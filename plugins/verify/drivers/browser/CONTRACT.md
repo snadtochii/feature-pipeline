@@ -199,6 +199,12 @@ environment only, so a caller can run it before any `launch`:
 | `version_lag` | `true` when the installed version is older than the plugin version, `false` when not, `null` when either is unknown or not a `major.minor.patch` triple. |
 | `ok` | `!chrome_missing && node_ok && !install_missing && version_lag !== true`, and with a session also `url_reachable && cdp_reachable && auth` is `absent` or `valid`. |
 
+**Who can see a lagging install.** Only a `doctor` run from the plugin copy knows the plugin
+version, so a stale install is detectable only by `verify`'s own skills, which may run that
+copy (§1); `install` from the same copy clears it. A caller
+outside `verify` runs the installed copy, which reports `plugin_version` and `version_lag` as
+`null` — unknown, not healthy — and `ok` does not count that unknown against the install.
+
 With `--session <id>` the document adds:
 
 | Key | Meaning |

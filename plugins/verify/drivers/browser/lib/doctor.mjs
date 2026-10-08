@@ -4,7 +4,9 @@
 // environment only — Chrome, Node, the install and its version — so a caller can
 // run it before any launch. With a session it adds whether the app, the
 // session's Chrome and the declared auth state are usable. Whatever it finds is
-// an answer (exit 0); only an unknown session is exit 1.
+// an answer (exit 0); only an unknown session is exit 1. The plugin version is
+// known only to the plugin copy, so the installed copy reports version_lag as
+// null (unknown) rather than false.
 //
 // Private to the implementation: only cli.mjs is a command.
 
