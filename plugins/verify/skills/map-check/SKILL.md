@@ -42,9 +42,10 @@ A skill sets no process exit code, so the report's last line is the machine-read
 |---|---|---|
 | `OK: no drift (<n> maps)` | Every configured map was checked and matches the code. | `0` |
 | `DRIFT (<n>): <entry-label>, …` | `<n>` drift rows in total, naming every map that has one. | `1` |
-| `ERROR: <reason>` | Nothing could be checked, or a map could not be checked and no other map drifted. | non-zero |
+| `ERROR: <reason>` | Nothing could be checked, or a configured map could not be checked — skipped for a bad key or `feature_map` value, or unreadable — and no other map drifted. | non-zero |
 
-`DRIFT` outranks `ERROR`, and `ERROR` outranks `OK`. A headless run reads it as:
+`DRIFT` outranks `ERROR`, and `ERROR` outranks `OK`, so `OK:` always means every configured
+map was checked. A headless run reads it as:
 
 ```bash
 claude -p '/verify:map-check' | tail -n 1 | grep -q '^OK:'
@@ -91,7 +92,8 @@ entry's in file order. For each one, bind:
   is scoped to `<entry-root>` and cannot reach it.
 
 An entry failing its key rule or its `<map-path>` rule is skipped and named in the report with
-the rule it broke. None left → `ERROR: no feature map configured — run /verify:setup first`.
+the rule it broke; it counts as a map that could not be checked. None left →
+`ERROR: no feature map configured — run /verify:setup first`.
 
 ### 3. Read each map
 
@@ -195,6 +197,7 @@ DRIFT (3): test
   `ERROR: no feature map configured — run /verify:setup first`.
 - **`config.yaml` unparseable** → `ERROR: claudedocs/tickets/config.yaml is unparseable`.
 - **An entry failing its key or `<map-path>` rule** → skipped and named; the other maps run.
+  The last line is `ERROR: <entry-label> skipped — <rule broken>` when no other map drifted.
 - **A map file missing** → a `map` drift row; the other maps run.
 - **An unclosed manual block** → that map is reported `unreadable` and the other maps run;
   the last line is `ERROR: <entry-label> unreadable — unclosed manual block in <section>` only
