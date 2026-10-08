@@ -55,7 +55,7 @@ Screenshots go to the evidence home declared in [the close stage's `storage-serv
 
 **Target row.** The ticket's own ID — for an epic child, the child's ID, never the epic's. There is no epic-level tests artifact.
 
-**`05-tests.md` body.** A whole-body overwrite; nothing of the skip body the close stage wrote under `--no-ui-testing` is kept.
+**`05-tests.md` body.** A whole-body overwrite; nothing of the `05-tests.md` the ticket's close stage wrote is kept — its `--no-ui-testing` skip body, or a driver ticket's own browser record or driver skip.
 
 ```
 Source: ship end-of-run UI verification — branch <assembled-branch> @ <sha>
