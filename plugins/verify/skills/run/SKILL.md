@@ -355,9 +355,12 @@ scoped to `<entry-root>`, excluding the skipped trees, the secret patterns, and
    mobile gate is chosen separately by step 3's rule from what stays visible at 390 wide.
 7. `{"step": "screenshot", "name": "AC-<n>-mobile.png"}`.
 
-**Required states**, appended to the same step file after step 7, once the criterion's own
-captures are taken. They are part of every browser pass, on top of the criteria, so a criterion
-passes here only when the close stage's browser pass would also accept its states.
+**Required states**, in a second step file of their own, driven after the criterion's own
+captures are taken, so a long run of states never pushes the criterion's own steps toward the
+driver's per-`drive` time cap. The file opens with steps 1–3 above — desktop viewport, the
+criterion's route, the render gate — then holds each state. States are part of every browser
+pass, on top of the criteria, so a criterion passes here only when the close stage's browser
+pass would also accept its states.
 
 Source: `plugins/feature/skills/build/references/ui-checks.md` §1.
 
@@ -413,6 +416,8 @@ batch first, so the `Write`s may replace them; none holds a secret.
   Values are written as JSON strings and numbers — the `start` command is data in this file
   and never part of a command line.
 - `<run-dir>/steps-AC-<n>.json` — §8's step array, one file per applicable criterion.
+- `<run-dir>/steps-AC-<n>-states.json` — §8's required-states array, for a criterion that has
+  one.
 
 **Auth.** An entry declaring `auth.storage_state` with `<storage-state>` unbound fails the
 pass at `auth` — `path outside the entry root` — before `launch`. A bound `<storage-state>` is
@@ -439,16 +444,23 @@ Per pass, in pass order, with `<installed-driver>`:
 2. `node '<installed-driver>' doctor --session '<session>'` → `ok: false` makes every undecided
    criterion `fail` with `reason: "not run: doctor — <each false field, or auth: <value>>"`;
    exit `1` or `2` the same with the `error`. Either way, skip to step 5.
-3. For each applicable criterion with a step file, in `AC-<n>` order:
-   `node '<installed-driver>' drive --session '<session>' --steps '<run-dir>/steps-AC-<n>.json' --evidence '<evidence-home>'`,
-   with a Bash timeout of 540000 ms.
+3. For each applicable criterion with a step file, in `AC-<n>` order, drive its step file and
+   then, when it has one, its states file:
+   `node '<installed-driver>' drive --session '<session>' --steps '<run-dir>/<step-file>' --evidence '<evidence-home>'`,
+   each with a Bash timeout of 540000 ms.
    - Exit `0` → keep the document for that criterion, `ok: false` included; §11 judges it.
    - Exit `2` → that criterion is `fail` with the `error` verbatim, named in the summary as a
      defect in the step file this skill wrote; continue with the next criterion.
-   - Exit `1` → that criterion and every later undecided one are `fail` with
-     `reason: "not run: drive — <error>"`; go to step 4.
+   - Exit `1` → that criterion is `fail` with `reason: "not run: drive — <error>"`, and its
+     states file, if not yet driven, is not driven. Exit `1` covers both a lost session and
+     the driver's per-`drive` time cap (CONTRACT.md §3), so tell them apart with
+     `node '<installed-driver>' doctor --session '<session>'`:
+     - `ok: true` → the session is intact, as after a cap hit; continue with the next
+       criterion.
+     - `ok: false`, or exit `1` or `2` → the session is lost; every later undecided criterion is
+       `fail` with the same reason; go to step 4.
 4. `node '<installed-driver>' evidence --session '<session>'` → every screenshot a criterion's
-   `drive` reported must be listed with `missing: false`; one that is not makes that criterion
+   drives reported must be listed with `missing: false`; one that is not makes that criterion
    `fail` with `reason: "screenshot missing: <name>"`. An entry with `uploadable: false` is a
    summary warning. Exit `1` or `2` → a summary warning quoting the `error`; the drive
    documents still stand.
@@ -466,7 +478,7 @@ never touched.
 Each criterion ends with exactly one status:
 
 - **`not-applicable`** — classified so in §8. `reason` says why.
-- **`fail`** — any of: a step in its `drive` is `failed` or `skipped`; it was not run (§10);
+- **`fail`** — any of: a step in one of its drives is `failed` or `skipped`; it was not run (§10);
   a screenshot is missing; or a **finding** visible in its captures. `reason` is one line
   naming the cause and the viewport — `desktop`, `mobile` or `both`.
 - **`pass`** — applicable and none of the above. `reason` is `null`.
@@ -540,12 +552,12 @@ on one line for reading; the key order is the rule:
 | `url` | The pass's entry `url`. |
 | `version` | `installed_version` from §7. |
 | `viewports` | The `{height, width}` viewports the pass's drives set, in first-use order; `[]` when nothing was driven. |
-| `console_errors`, `failed_requests` | The driver's entries from that criterion's `drive`, as the driver reported them; `[]` when not driven. |
+| `console_errors`, `failed_requests` | The driver's entries from that criterion's drives, as the driver reported them, each `step` index offset as in `steps`; `[]` when not driven. |
 | `id`, `text` | `AC-<n>` and the criterion as written. |
 | `reason` | §11's one line; `null` on `pass`. |
-| `screenshots` | Basenames, relative to the `report.json` directory, of the captures that criterion's `drive` wrote, sorted in byte order. A state capture shared by two criteria is listed by both. |
+| `screenshots` | Basenames, relative to the `report.json` directory, of the captures that criterion's drives wrote, sorted in byte order. A state capture shared by two criteria is listed by both. |
 | `status` | `pass`, `fail` or `not-applicable`. |
-| `steps` | The driver's step results for that criterion's `drive`, indices local to it, with each `screenshot` path reduced to its basename; `[]` when not driven. |
+| `steps` | The driver's step results for that criterion's drives — its step file's, then its states file's — with each `screenshot` path reduced to its basename. Indices are local to the criterion: the states drive's are offset by the length of the first drive's `steps`, so they run unbroken. `[]` when not driven. |
 
 Basenames — in `screenshots` and in each step's `screenshot` — keep the report valid when the
 ticket folder moves between state folders, since the report holds no absolute path. Older
@@ -630,8 +642,9 @@ Every stop in §1–§7 writes nothing and ends with `ERROR: <reason>`.
   undecided criteria `fail` with `not run: <verb> — <reason>`; its `report.json` is written,
   and the next pass runs.
 - **`drive` exit `2`** → that criterion `fail`, named a step-file defect; the pass continues.
-- **`drive` exit `1`** → that criterion and every later undecided one `fail`; `evidence` and
-  `cleanup` still run.
+- **`drive` exit `1`** → that criterion `fail`; a `doctor --session` that still answers
+  `ok: true` lets the pass continue with the next criterion, any other answer fails every
+  later undecided one too. `evidence` and `cleanup` still run.
 - **A screenshot missing from `evidence`** → that criterion `fail`.
 - **`cleanup` failing** → a warning with the command to re-run.
 - **A write failing** → a summary warning naming the file not written; a missing
