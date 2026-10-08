@@ -266,7 +266,10 @@ is `Read` first, so the `Write` may replace it; neither holds a secret.
    proof at `evidence`; exit `1` or `2` fails it with the document's `error`.
 5. `node '<installed-driver>' cleanup --session '<session>'` — always, once `launch` returned
    a session, whatever happened in steps 2–4. `ok: false`, or exit `1`, fails the proof at
-   `cleanup`, and the report advises running `node '<installed-driver>' cleanup --all`.
+   `cleanup`, and the report advises re-running
+   `node '<installed-driver>' cleanup --session '<session>'`. `cleanup --all` is named only
+   as a last resort, with its cost: it also tears down every other session this user owns,
+   a concurrent pipeline run's included.
 
 **Result.** The proof passes when `launch` exited `0`, `doctor` was `ok`, `drive` was `ok`,
 the screenshot is listed and present, and `cleanup` was `ok`. Otherwise it fails at the first
