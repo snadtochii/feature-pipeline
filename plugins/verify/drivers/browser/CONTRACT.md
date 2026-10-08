@@ -202,9 +202,9 @@ environment only, so a caller can run it before any `launch`:
 
 **Who can see a lagging install.** Only a `doctor` run from the plugin copy knows the plugin
 version, so a stale install is detectable only by `verify`'s own skills, which may run that
-copy (§1); `install` from the same copy clears it. A caller
-outside `verify` runs the installed copy, which reports `plugin_version` and `version_lag` as
-`null` — unknown, not healthy — and `ok` does not count that unknown against the install.
+copy (§1); `install` from the same copy clears it. A caller outside `verify` runs the
+installed copy, which reports `plugin_version` and `version_lag` as `null` — unknown, not
+healthy — and `ok` does not count that unknown against the install.
 
 With `--session <id>` the document adds:
 
@@ -467,7 +467,7 @@ Exercises the pure rules without starting Chrome or the app: step-file parsing a
 schema rejection, the §11 name grammar, entry validation and `start_timeout` fallback,
 flag parsing, the exit-code mapping, the sorted-key document shape, and — against a
 stand-in for the browser connection — the step runner's protocol-error handling and its
-dialog replies. Prints
+dialog replies, and the capture write's handling of a symlink at the capture's name. Prints
 `{"cases": <n>, "ok": true}` and exits 0 when every case passes; otherwise prints
 `{"error": "self-test: <case>"}` and exits 1. It runs on every change in the repository's
 validation workflow.
