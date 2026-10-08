@@ -202,8 +202,12 @@ data-testid={"<value>"}    data-testid={'<value>'}    data-testid={`<value>`}
 "data-testid": "<value>"   'data-testid': '<value>'
 ```
 
-- A backtick value counts only when it contains no `${`.
-- A templated, variable or computed value is skipped and counted in the report.
+- A match whose attribute name is directly preceded by `:`, `v-bind:`, `[` or `[attr.` is
+  a binding — its value is an expression, not a test id (`:data-testid="item.id"`) — and is
+  skipped and counted as templated.
+- A value containing `{` or `}` is templated in every quoting form — `${id}`, Svelte and
+  Astro's `{id}`, Angular's `{{ id }}` — and is skipped and counted.
+- A variable or computed value is skipped and counted in the report.
 - A value containing `,` or a line break is skipped and counted: it cannot be listed (§2).
 - Test and story files — `*.test.*`, `*.spec.*`, `*.stories.*` and anything under
   `__tests__/` — are not searched: the map records what the feature renders.
