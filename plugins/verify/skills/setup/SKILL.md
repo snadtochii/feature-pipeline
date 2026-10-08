@@ -189,7 +189,9 @@ Write `driver: browser-cli` and `feature_map: <map-path>` into the selected entr
   therefore extended after its last present predecessor, and in the flat block both keys land
   before `repos:`. When both keys are absent they go in one `Edit` at that anchor, in key
   order. A `feature_map` added beside an existing `driver` goes directly after the `driver`
-  line. Flat-block keys are indented two spaces; a `test.repos` entry's keys six.
+  line. An inserted key takes the indentation of the anchor key's own line — the `auth:`
+  line itself when the anchor is `auth`, never its children's — so it lands beside the
+  entry's existing keys however the file is indented.
 - **Values** — written bare; `<map-path>` passed §2's pattern, so it needs no quoting.
 - **Unique match** — two entries can hold identical lines (`driver: browser-cli`, a shared
   `start`), so each `Edit`'s match text carries as many of the selected entry's own lines,
