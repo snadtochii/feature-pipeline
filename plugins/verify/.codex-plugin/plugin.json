@@ -1,0 +1,35 @@
+{
+  "name": "verify",
+  "displayName": "Verify",
+  "description": "Headless UI verification: a zero-dependency browser driver over the Chrome DevTools Protocol, a project feature map, and skills that drive and check them.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Serhii Nadtochii",
+    "url": "https://github.com/snadtochii"
+  },
+  "homepage": "https://github.com/snadtochii/feature-pipeline",
+  "repository": "https://github.com/snadtochii/feature-pipeline",
+  "license": "MIT",
+  "keywords": [
+    "verification",
+    "browser",
+    "cdp",
+    "ui-testing",
+    "headless"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Verify",
+    "shortDescription": "Drive the installed Chrome headlessly from a shell to check a running app and capture evidence.",
+    "longDescription": "Headless UI verification without browser MCP tools. A zero-dependency Node driver speaks the Chrome DevTools Protocol to the user's installed Chrome: it boots the app when needed, drives it by test ids or visible text, asserts, captures grammar-named screenshots at fixed viewports and cleans up only what it started. Skills pair the driver with a project feature map.",
+    "developerName": "Serhii Nadtochii",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Interactive"
+    ],
+    "websiteURL": "https://github.com/snadtochii/feature-pipeline",
+    "brandColor": "#2B5C8A"
+  }
+}
