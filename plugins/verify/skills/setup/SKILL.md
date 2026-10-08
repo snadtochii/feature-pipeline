@@ -321,9 +321,7 @@ Result: done | proof failed | stopped — <reason>
 Entry: <entry-label> — <url> (only candidate | chosen)
 Driver: <installed_version> at <installed_path> (replaced <replaced_version> | fresh install)
 Map: <map-path> — created | merged | unchanged
-  features: <n> (<a> new, <b> returned, <c> moved to Removed)
-  skipped: <d> candidates with no route or test id, <e> computed routes, <f> templated test ids
-  gaps: no router found | <root> without <package> — not routed | <section> has no source line | <name> folded into <name> | <route> linked to <name>, <name>
+  <one line per count group in feature-map.md §8, Report counts>
 Config: claudedocs/tickets/config.yaml — <n> keys added, <m> changed | unchanged
   <diff of the changed lines, - before / + after>
 Proof: pass | failed at <verb> — <field or error>
@@ -344,7 +342,12 @@ Warnings:
 Next: review and commit <map-path>, then fill its manual blocks
 ```
 
-- A line or sub-line with nothing to show is omitted: `gaps:` with no gap, `Warnings:` with
+- The `Map:` group's lines are the generation's counts bound in §4, every count
+  [feature-map.md](../../references/feature-map.md) §8, Report counts lists and no other —
+  the contract owns that list, so it is never re-enumerated here. A count that names items
+  (a folded, duplicate or unkeyed section, a route linked to two features, a router gap)
+  names each one.
+- A line or sub-line with nothing to show is omitted: a zero count, `Warnings:` with
   no warning, `notes:` with no note, `Proof:` and `Next:` on a run that stopped before §6.
 - `--refresh` prints `Result`, one `Map:` group per map (`<entry-label>: <map-path>`, with
   `skipped — <reason>` for a map not refreshed), `Config: untouched`, and the `Warnings:`
