@@ -65,7 +65,7 @@ path inside the evidence home.
 | Code | Meaning | Document |
 |---|---|---|
 | `0` | An answer was computed. This includes a **negative** answer: a failed `expect` step, a failed `drive` step, a `doctor` that finds Chrome missing. Each such document carries `"ok": false`. | The verb's document from §5–§10. |
-| `1` | The answer could not be computed: Chrome not found or exited early, the app unreachable and not bootable, the CDP connection lost, the session page gone, the session unknown, Node without `WebSocket`, the `drive` time cap reached, a filesystem write refused. | `{"error": "<reason>"}` |
+| `1` | The answer could not be computed: Chrome not found or exited early, the app unreachable and not bootable, the CDP connection lost, the session page gone or not responding, the session unknown, Node without `WebSocket`, the `drive` time cap reached, a filesystem write refused. | `{"error": "<reason>"}` |
 | `2` | The invocation was wrong: no verb or an unknown verb, an unknown or repeated flag, a missing required flag, a relative path, an unreadable or malformed `--entry` or `--steps` file, a step-schema violation, a malformed session id. | `{"error": "<reason>"}` |
 
 A caller distinguishes "the app says no" from "the driver is broken" by the exit code
@@ -255,6 +255,15 @@ the wrong type exits 2 naming the step's 0-based index (`step 3: …`) — befor
 - A failed `expect` is recorded `"status": "failed"` and the run continues. A failed `goto`,
   `click`, `fill`, `press`, `wait`, `viewport` or `screenshot` stops the run, and every later
   step is recorded `"status": "skipped"`. Both are exit 0 with `"ok": false`.
+- A protocol error inside a step — the browser answering a call with an error, or not
+  answering it within the call's bound — fails that step and stops the run the same way,
+  whatever the step. Only a lost connection is exit 1.
+- **Dialogs.** Every JavaScript dialog (`alert`, `confirm`, `prompt`, `beforeunload`) the
+  page opens during a `drive` is accepted as it opens, a `prompt` with its own default text,
+  and recorded in `dialogs`. Accepting is the default because a step that clicks a control
+  asking for confirmation means to perform that action. A dialog the page opens while no
+  `drive` is attached cannot be answered: it leaves the page blocked, and the next `drive`
+  exits 1 (`session page not responding`) — `cleanup` and `launch` a new session.
 - A whole `drive` is capped at 480 seconds, under a 600-second shell-call limit; reaching the
   cap exits 1.
 
@@ -264,6 +273,8 @@ the wrong type exits 2 naming the step's 0-based index (`step 3: …`) — befor
 {
   "console_errors": [{ "step": 0, "text": "Uncaught TypeError: x is undefined" }],
   "console_errors_dropped": 0,
+  "dialogs": [{ "accepted": true, "message": "Delete this item?", "step": 0, "type": "confirm" }],
+  "dialogs_dropped": 0,
   "evidence_dir": "/abs/evidence",
   "failed_requests": [{ "error_text": null, "status": 404, "step": 0, "url": "http://127.0.0.1:7727/favicon.ico" }],
   "failed_requests_dropped": 0,
@@ -282,7 +293,8 @@ the wrong type exits 2 naming the step's 0-based index (`step 3: …`) — befor
 | `steps` | One entry per step, in file order. `error` is a one-line reason on `"failed"`, else `null`; `screenshot` is the absolute path written, else `null`. |
 | `console_errors` | Console `error` calls, uncaught exceptions and browser log errors raised during this `drive`, attributed to the step running when they arrived, in arrival order. |
 | `failed_requests` | Requests that failed at the network layer (`error_text`, `status: null`) or completed with status ≥ 400 (`status`, `error_text: null`), attributed the same way, in arrival order. A request aborted by a navigation is not a failure. |
-| `console_errors_dropped`, `failed_requests_dropped` | Each list holds at most its first 50 entries; these count the entries past that cap that were not listed (`0` when nothing was dropped). |
+| `dialogs` | JavaScript dialogs the page opened during this `drive`, each with its `type`, `message` and whether it was `accepted`, attributed the same way, in arrival order. |
+| `console_errors_dropped`, `dialogs_dropped`, `failed_requests_dropped` | Each list holds at most its first 50 entries; these count the entries past that cap that were not listed (`0` when nothing was dropped). |
 
 ## §8 `evidence`
 
@@ -424,7 +436,9 @@ node cli.mjs --self-test
 
 Exercises the pure rules without starting Chrome or the app: step-file parsing and every
 schema rejection, the §11 name grammar, entry validation and `start_timeout` fallback,
-flag parsing, the exit-code mapping and the sorted-key document shape. Prints
+flag parsing, the exit-code mapping, the sorted-key document shape, and — against a
+stand-in for the browser connection — the step runner's protocol-error handling and its
+dialog replies. Prints
 `{"cases": <n>, "ok": true}` and exits 0 when every case passes; otherwise prints
 `{"error": "self-test: <case>"}` and exits 1. It runs on every change in the repository's
 validation workflow.

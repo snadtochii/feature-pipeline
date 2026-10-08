@@ -51,7 +51,7 @@ async function main(argv) {
     const parsed = parseArgv(argv);
     let doc;
     if (parsed.selfTest) {
-      doc = (await import('./lib/selftest.mjs')).runSelfTest();
+      doc = await (await import('./lib/selftest.mjs')).runSelfTest();
     } else {
       doc = await HANDLERS[parsed.verb](loadInputs(parsed.verb, parsed.flags));
     }

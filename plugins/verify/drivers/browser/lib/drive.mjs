@@ -2,9 +2,10 @@
 //
 // drive attaches to the session's persistent page, re-applies the stored
 // viewport, runs the validated steps in order and reports per-step results,
-// console errors and failed requests. Finding targets and polling live in
-// locate.mjs, input events in input.mjs, the capture write in evidence.mjs; a
-// lost socket is exit 1.
+// console errors, failed requests and JavaScript dialogs. Finding targets and
+// polling live in locate.mjs, input events in input.mjs, the capture write in
+// evidence.mjs. A protocol error inside a step fails that step and stops the
+// run; a lost socket is exit 1.
 //
 // Private to the implementation: only cli.mjs is a command.
 
@@ -21,6 +22,8 @@ import { SUFFIX_WIDTH, nameSuffix } from './steps.mjs';
 
 export const DRIVE_CAP_MS = 480000;
 const SETTLE_MS = 100;
+// A page that does not answer domain setup this fast is blocked, not busy.
+const SETUP_TIMEOUT_MS = 10000;
 const MAX_REPORTED = 50;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -217,6 +220,29 @@ function collect(ctx, startMs) {
   });
 }
 
+/**
+ * The reply to a JavaScript dialog. Every dialog is accepted — a step that
+ * clicks a control asking for confirmation means to perform that action — and a
+ * prompt is answered with its own default text.
+ */
+export function dialogReply(params) {
+  return params.type === 'prompt'
+    ? { accept: true, promptText: typeof params.defaultPrompt === 'string' ? params.defaultPrompt : '' }
+    : { accept: true };
+}
+
+// Answer every dialog as it opens, so input that raised one is not left waiting
+// on it, and record it against the running step. A dialog left open would block
+// the page for every later drive on the session.
+export function watchDialogs(ctx) {
+  const { cdp } = ctx;
+  cdp.on('Page.javascriptDialogOpening', (p) => {
+    const reply = dialogReply(p);
+    report(ctx.dialogs, { accepted: reply.accept, message: String(p.message || ''), step: ctx.current, type: p.type || 'alert' });
+    cdp.send('Page.handleJavaScriptDialog', reply).catch(() => {});
+  });
+}
+
 async function attach(state) {
   try {
     return await connect(state.page_ws);
@@ -228,7 +254,8 @@ async function attach(state) {
   }
 }
 
-async function run(ctx, steps) {
+/** Run the steps in order; returns one result per step (CONTRACT.md §7). */
+export async function run(ctx, steps) {
   const results = [];
   let stopped = false;
   for (let index = 0; index < steps.length; index += 1) {
@@ -242,11 +269,14 @@ async function run(ctx, steps) {
       const shot = await runStep(ctx, step);
       results.push({ error: null, index, screenshot: shot, status: 'ok', step: step.step });
     } catch (err) {
-      if (!(err instanceof StepFailure)) {
+      // A CdpError here is an error reply or an unanswered call outside a poll
+      // (input dispatch, viewport, layout metrics): the step failed, and the
+      // page may not answer the next one either, so the run stops.
+      if (!(err instanceof StepFailure) && !(err instanceof CdpError)) {
         throw err;
       }
       results.push({ error: err.message, index, screenshot: null, status: 'failed', step: step.step });
-      if (step.step !== 'expect') {
+      if (step.step !== 'expect' || err instanceof CdpError) {
         stopped = true;
       }
     }
@@ -271,6 +301,7 @@ export async function drive({ session, steps, evidence: evidenceDir }) {
     evidenceDir,
     current: 0,
     consoleErrors: { entries: [], dropped: 0 },
+    dialogs: { entries: [], dropped: 0 },
     failedRequests: { entries: [], dropped: 0 },
   };
   let capTimer;
@@ -283,11 +314,18 @@ export async function drive({ session, steps, evidence: evidenceDir }) {
   try {
     const work = (async () => {
       collect(ctx, startMs);
-      await cdp.send('Page.enable');
-      await cdp.send('Runtime.enable');
-      await cdp.send('Log.enable');
-      await cdp.send('Network.enable');
-      await applyViewport(cdp, state.viewport);
+      watchDialogs(ctx);
+      try {
+        for (const method of ['Page.enable', 'Runtime.enable', 'Log.enable', 'Network.enable']) {
+          await cdp.send(method, {}, { timeoutMs: SETUP_TIMEOUT_MS });
+        }
+        await applyViewport(cdp, state.viewport);
+      } catch (err) {
+        if (err instanceof CdpError) {
+          throw new ComputeError(`session page not responding (${err.message}); run cleanup and launch a new session`);
+        }
+        throw err;
+      }
       return run(ctx, steps);
     })();
     const results = await Promise.race([work, cap]);
@@ -296,6 +334,8 @@ export async function drive({ session, steps, evidence: evidenceDir }) {
     return {
       console_errors: ctx.consoleErrors.entries,
       console_errors_dropped: ctx.consoleErrors.dropped,
+      dialogs: ctx.dialogs.entries,
+      dialogs_dropped: ctx.dialogs.dropped,
       evidence_dir: evidenceDir,
       failed_requests: ctx.failedRequests.entries,
       failed_requests_dropped: ctx.failedRequests.dropped,

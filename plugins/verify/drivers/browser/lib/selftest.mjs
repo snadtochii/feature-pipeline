@@ -3,7 +3,8 @@
 // Exercises the pure rules without starting Chrome or the app: the step-file
 // schema, the evidence-name grammar, entry validation and start_timeout
 // fallback, flag parsing, the exit-code mapping and the sorted-key document
-// shape — plus a few end-to-end invocations of cli.mjs itself that must exit 2
+// shape, and the step runner's failure handling and dialog replies against a
+// stand-in connection — plus a few end-to-end invocations of cli.mjs itself that must exit 2
 // before anything runs. A failing case throws a ComputeError naming it.
 //
 // Private to the implementation: only cli.mjs is a command.
@@ -16,6 +17,8 @@ import { fileURLToPath } from 'node:url';
 
 import { parseArgv } from './args.mjs';
 import { authStatus } from './auth.mjs';
+import { CdpError } from './cdp.mjs';
+import { dialogReply, run, watchDialogs } from './drive.mjs';
 import { normaliseStartTimeout, validateEntry } from './entry.mjs';
 import { isOlder, parseSemver } from './install.mjs';
 import { ComputeError, UsageError, exitCodeFor, render } from './output.mjs';
@@ -72,6 +75,41 @@ const ALL_STEPS = [
   { step: 'viewport', width: 390, height: 844 },
   { step: 'screenshot', name: 'AC-1-mobile.png' },
 ];
+
+// A stand-in for a CDP connection: `reply(method)` returns a result or throws,
+// `emit` delivers an event to the subscribed listeners, `sent` records calls.
+function fakeCdp(reply) {
+  const listeners = new Map();
+  const sent = [];
+  return {
+    sent,
+    on(method, fn) {
+      listeners.set(method, fn);
+      return () => listeners.delete(method);
+    },
+    emit(method, params) {
+      listeners.get(method)(params);
+    },
+    async send(method, params = {}) {
+      sent.push({ method, params });
+      return reply(method, params);
+    },
+  };
+}
+
+function fakeCtx(cdp) {
+  return {
+    cdp,
+    state: { url: 'http://127.0.0.1:7727', viewport: { width: 1280, height: 800 } },
+    dir: '/nonexistent',
+    evidenceDir: '/nonexistent',
+    current: 0,
+    dialogs: { entries: [], dropped: 0 },
+  };
+}
+
+// Every element lookup finds one visible match.
+const FOUND = { result: { value: { count: 1, rect: { x: 0, y: 0, width: 10, height: 10 } } } };
 
 const CASES = [
   ['steps: every verb of the closed set is accepted', () => {
@@ -194,6 +232,48 @@ const CASES = [
     assert(isValidId(id), `generated ${id}`);
     assert(!isValidId('0123456789AB') && !isValidId('0123456789a') && !isValidId('../0123456789'), 'accepted a bad id');
   }],
+  ['drive: a protocol error fails the step and stops the run', async () => {
+    const cdp = fakeCdp((method) => {
+      if (method === 'Runtime.evaluate') {
+        return FOUND;
+      }
+      throw new CdpError(method, { message: 'no reply within 30000 ms' });
+    });
+    const steps = validateSteps([{ step: 'click', testid: 'save' }, { step: 'expect', testid: 'toast' }]);
+    const results = await run(fakeCtx(cdp), steps);
+    assert(results.length === 2, `got ${results.length} results`);
+    assert(results[0].status === 'failed' && results[0].error.includes('Input.dispatchMouseEvent'), `step 0: ${JSON.stringify(results[0])}`);
+    assert(results[1].status === 'skipped', `step 1: ${JSON.stringify(results[1])}`);
+  }],
+  ['drive: a lost connection is still exit 1', async () => {
+    const cdp = fakeCdp((method) => {
+      if (method === 'Runtime.evaluate') {
+        return FOUND;
+      }
+      throw new ComputeError(`CDP connection lost during ${method}`);
+    });
+    try {
+      await run(fakeCtx(cdp), validateSteps([{ step: 'click', testid: 'save' }]));
+    } catch (err) {
+      assert(err instanceof ComputeError, `expected a ComputeError, got ${err.constructor.name}`);
+      return;
+    }
+    throw new CaseFailure('the run returned instead of throwing');
+  }],
+  ['drive: every dialog is accepted and recorded', () => {
+    assert(dialogReply({ type: 'confirm' }).accept === true, 'confirm');
+    assert(dialogReply({ type: 'prompt', defaultPrompt: 'x' }).promptText === 'x', 'prompt default');
+    assert(dialogReply({ type: 'prompt' }).promptText === '', 'prompt without default');
+    const cdp = fakeCdp(() => ({}));
+    const ctx = fakeCtx(cdp);
+    ctx.current = 3;
+    watchDialogs(ctx);
+    cdp.emit('Page.javascriptDialogOpening', { type: 'confirm', message: 'Delete?' });
+    const entry = ctx.dialogs.entries[0];
+    assert(entry && entry.step === 3 && entry.type === 'confirm' && entry.accepted === true && entry.message === 'Delete?', `recorded ${JSON.stringify(entry)}`);
+    const answer = cdp.sent.find((c) => c.method === 'Page.handleJavaScriptDialog');
+    assert(answer && answer.params.accept === true, 'dialog not answered');
+  }],
   ['cli: invocation errors exit 2 with an error document', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fp-verify-selftest-'));
     try {
@@ -222,10 +302,10 @@ const CASES = [
 ];
 
 /** Run every case; return the document, or throw a ComputeError naming the first failure. */
-export function runSelfTest() {
+export async function runSelfTest() {
   for (const [name, fn] of CASES) {
     try {
-      fn();
+      await fn();
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       throw new ComputeError(`self-test: ${name} — ${detail}`);
