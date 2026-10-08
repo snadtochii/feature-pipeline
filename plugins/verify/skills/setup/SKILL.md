@@ -253,7 +253,8 @@ is `Read` first, so the `Write` may replace it; neither holds a secret.
      wrote, with the `error` verbatim.
 2. `node '<installed-driver>' doctor --session '<session>'` → bind `url_reachable`,
    `cdp_reachable` and `auth`. `ok: false` → the proof fails at `doctor`, naming each false
-   field, or `auth` with its value (`expired`, `unreadable`); skip to step 5.
+   field, or `auth` with its value (`expired`, `unreadable`); exit `1` or `2` fails it with
+   the document's `error`. Either way, skip to step 5.
 3. `node '<installed-driver>' drive --session '<session>' --steps '<run-dir>/steps.json' --evidence '<run-dir>/evidence'`,
    with a Bash timeout of 180000 ms (the `goto`'s 60 s plus the capture's own bound)
    → `ok: false` fails the proof at `drive` with the failed step's `error`; exit `1` or `2`
@@ -261,7 +262,8 @@ is `Read` first, so the `Write` may replace it; neither holds a secret.
    `console_errors`, `failed_requests` and `dialogs` go in the report's notes; they do not
    fail the proof.
 4. `node '<installed-driver>' evidence --session '<session>'` → the proof needs an entry
-   named `AC-1-desktop.png` with `missing: false`; bind its `path`.
+   named `AC-1-desktop.png` with `missing: false`; bind its `path`. No such entry fails the
+   proof at `evidence`; exit `1` or `2` fails it with the document's `error`.
 5. `node '<installed-driver>' cleanup --session '<session>'` — always, once `launch` returned
    a session, whatever happened in steps 2–4. `ok: false`, or exit `1`, fails the proof at
    `cleanup`, and the report advises running `node '<installed-driver>' cleanup --all`.
