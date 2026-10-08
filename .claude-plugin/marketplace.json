@@ -34,6 +34,12 @@
       "description": "A manually triggered loop, attended or unattended, that takes one deep-module refactor candidate to a draft pull request carrying a behavior-preservation evidence pack.",
       "source": "./plugins/deepen",
       "category": "development"
+    },
+    {
+      "name": "verify",
+      "description": "Headless UI verification: a zero-dependency browser driver over the Chrome DevTools Protocol, a project feature map, and skills that drive and check them.",
+      "source": "./plugins/verify",
+      "category": "development"
     }
   ]
 }

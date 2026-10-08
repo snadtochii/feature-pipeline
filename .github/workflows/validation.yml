@@ -1,11 +1,12 @@
 # The repository's validation scripts, on every pull request and on every push
 # to a long-lived branch.
 #
-# These are bash plus python3 or jq — and Node for the deepen contract's script
-# self-tests, which the runner image ships — and finish in seconds, so they carry no path
-# filter: a change anywhere can break a frontmatter budget, a mode-split rule,
-# or the runtime contract. Pushes to other branches are checked through their
-# pull request alone, so one commit runs the scripts once.
+# These are bash plus python3 or jq — and Node 22, pinned below, for the deepen
+# contract's script self-tests and the verify browser driver's self-test — and
+# finish in seconds, so they carry no path filter: a change anywhere can break a
+# frontmatter budget, a mode-split rule, or the runtime contract. Pushes to other
+# branches are checked through their pull request alone, so one commit runs the
+# scripts once.
 
 name: Validation
 
@@ -34,6 +35,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Tool parity
         run: bash scripts/check-tool-parity.sh
 
@@ -51,3 +57,6 @@ jobs:
 
       - name: Setup detection fixtures
         run: bash scripts/check-setup-detect.sh
+
+      - name: Verify driver self-test
+        run: node plugins/verify/drivers/browser/cli.mjs --self-test
