@@ -345,14 +345,18 @@ scoped to `<entry-root>`, excluding the skipped trees, the secret patterns, and
    No concrete route → the criterion is `fail` with `reason: "no reachable route for <route>"`
    and gets no step file. `goto` waits for the load event only, and a freshly booted dev
    server may still be compiling, hence the longest timeout.
-3. **Render gate** — the page must be rendered before anything is checked or captured:
-   `wait` on `text` the map, the criterion or a read source file shows is visible on that
-   screen; else `expect` on a literal mapped test id with `"timeout_ms": 10000`; else, as a
-   last resort, `wait` `ms: 1500`, noted in the summary.
+3. **Render gate** — the page must be rendered before anything is checked or captured, at
+   both widths, so the gate is chosen to hold at both: `wait` on `text` in the screen's main
+   content — a page heading or body text the map, the criterion or a read source file shows —
+   never navigation, sidebar or toolbar text, which a narrow layout often folds into a menu;
+   else `expect` on a literal mapped test id of a main-content element with
+   `"timeout_ms": 10000`; else, as a last resort, `wait` `ms: 1500`, noted in the summary.
 4. The criterion's own steps — `click`, `fill`, `press`, `wait` — and its expectations as
    `expect` steps.
 5. `{"step": "screenshot", "name": "AC-<n>-desktop.png"}`.
-6. `{"step": "viewport", "width": 390, "height": 844}`, then the render gate again.
+6. `{"step": "viewport", "width": 390, "height": 844}`, then the render gate again. When a
+   read source file shows the step-3 gate's text or element is hidden below a breakpoint, the
+   mobile gate is chosen separately by step 3's rule from what stays visible at 390 wide.
 7. `{"step": "screenshot", "name": "AC-<n>-mobile.png"}`.
 
 A criterion about error, empty or disabled states drives each state its words or the map's
