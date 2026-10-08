@@ -2,7 +2,7 @@
   "name": "verify",
   "displayName": "Verify",
   "description": "Headless UI verification: a zero-dependency browser driver over the Chrome DevTools Protocol, a project feature map, and skills that drive and check them.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Serhii Nadtochii",
     "url": "https://github.com/snadtochii"

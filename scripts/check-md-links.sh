@@ -35,6 +35,7 @@ roots=(
   "plugins/feature/skills"
   "plugins/tidy-loop"
   "plugins/deepen"
+  "plugins/verify"
 )
 
 for root in "${roots[@]}"; do

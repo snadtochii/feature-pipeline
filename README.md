@@ -13,8 +13,9 @@ Three stages turn a plan into shipped code, under `/flow` each from a fresh cont
 ### Claude Code
 
 ```bash
-/plugin marketplace add <github-user>/feature-pipeline   # add the repo as a marketplace (ships five plugins)
+/plugin marketplace add <github-user>/feature-pipeline   # add the repo as a marketplace (ships six plugins)
 /plugin install feature@<github-user>-feature            # install the pipeline plugin
+/plugin install verify@<github-user>-feature             # optional: the browser driver for headless UI checks
 /plugin install stack-first@<github-user>-feature        # optional: the dependency-guard plugin
 /plugin install tidy-loop@<github-user>-feature          # optional: the structure-only refactoring loops
 /plugin install deepen@<github-user>-feature             # optional: the deep-module refactor loop
@@ -22,11 +23,11 @@ Three stages turn a plan into shipped code, under `/flow` each from a fresh cont
 /reload-plugins                                          # activate
 ```
 
-The marketplace ships five independent plugins: `feature` (the pipeline), `stack-first` (a stack-agnostic dependency guard), `tidy-loop` (structure-only refactoring in two scheduled loops — a weekly survey proposes candidates into a human-approved queue, a daily run builds one approved line behind behavior-preservation gates and opens a draft pull request), `deepen` (a manually triggered loop, attended or unattended, that takes one deep-module refactor candidate to a draft pull request carrying a behavior-preservation evidence pack), and `server-native` (the MCP connector that turns on server-native ticket storage). Install whichever you need. `tidy-loop`, `deepen` and `server-native` are Claude Code only. `stack-first`, `tidy-loop` and `deepen` have their own READMEs ([stack-first](plugins/stack-first/README.md), [tidy-loop](plugins/tidy-loop/README.md), [deepen](plugins/deepen/README.md)).
+The marketplace ships six independent plugins: `feature` (the pipeline), `verify` (the browser driver and feature map for the close stage's browser pass, which then needs no browser MCP server), `stack-first` (a stack-agnostic dependency guard), `tidy-loop` (structure-only refactoring in two scheduled loops — a weekly survey proposes candidates into a human-approved queue, a daily run builds one approved line behind behavior-preservation gates and opens a draft pull request), `deepen` (a manually triggered loop, attended or unattended, that takes one deep-module refactor candidate to a draft pull request carrying a behavior-preservation evidence pack), and `server-native` (the MCP connector that turns on server-native ticket storage). Install whichever you need. `tidy-loop`, `deepen` and `server-native` are Claude Code only. `stack-first`, `tidy-loop` and `deepen` have their own READMEs ([stack-first](plugins/stack-first/README.md), [tidy-loop](plugins/tidy-loop/README.md), [deepen](plugins/deepen/README.md)).
 
 ### Codex
 
-Two plugins carry their own Codex manifests (`plugins/feature/.codex-plugin/plugin.json`, `plugins/stack-first/.codex-plugin/plugin.json`); the repo-root marketplace file (`.agents/plugins/marketplace.json`) indexes them with subdirectory-aware sources. `tidy-loop`, `deepen` and `server-native` are Claude-only: the write fences of `tidy-loop` and `deepen` are Claude Code `PreToolUse` hooks (declared in agent frontmatter for `tidy-loop`, in a plugin-level `hooks.json` dispatched on the calling subagent for `deepen`) and their runs delegate to Claude subagent types, and `server-native` declares its MCP server through install-time prompts — on Codex you bind the same server through `config.toml` (see the requirements bullet below).
+Three plugins carry their own Codex manifests (`plugins/feature/.codex-plugin/plugin.json`, `plugins/verify/.codex-plugin/plugin.json`, `plugins/stack-first/.codex-plugin/plugin.json`); the repo-root marketplace file (`.agents/plugins/marketplace.json`) indexes them with subdirectory-aware sources. `tidy-loop`, `deepen` and `server-native` are Claude-only: the write fences of `tidy-loop` and `deepen` are Claude Code `PreToolUse` hooks (declared in agent frontmatter for `tidy-loop`, in a plugin-level `hooks.json` dispatched on the calling subagent for `deepen`) and their runs delegate to Claude subagent types, and `server-native` declares its MCP server through install-time prompts — on Codex you bind the same server through `config.toml` (see the requirements bullet below).
 
 Install the stable plugin from GitHub:
 
@@ -34,6 +35,7 @@ Install the stable plugin from GitHub:
 codex plugin marketplace add snadtochii/feature-pipeline --ref main
 codex plugin list                           # verify feature@feature is available
 codex plugin add feature@feature
+codex plugin add verify@feature             # optional: the browser driver for headless UI checks
 codex plugin add stack-first@feature        # optional: the dependency-guard plugin
 codex plugin list                           # verify installed version and status
 ```
@@ -48,23 +50,25 @@ codex plugin add feature@feature            # reinstall from the refreshed snaps
 codex plugin list                           # verify the new version is active
 ```
 
-For local development, run the helper from your Feature Pipeline checkout. It stages tracked files plus non-ignored uncommitted files into a separate local marketplace and applies a local-only cachebuster before reinstalling. Gitignored files such as local credentials are not copied. It does not change the checkout's release manifest and does not silently substitute the stable GitHub copy. The helper requires Bash, Git, rsync, and the Codex CLI; on Windows, run it from WSL.
+For local development, run the helper from your Feature Pipeline checkout. It stages the `feature` and `verify` plugins' tracked files plus non-ignored uncommitted files into a separate local marketplace and applies a local-only cachebuster before reinstalling. Gitignored files such as local credentials are not copied. It does not change the checkout's release manifest and does not silently substitute the stable GitHub copy. The helper requires Bash, Git, rsync, and the Codex CLI; on Windows, run it from WSL.
 
 ```bash
 cd /path/to/feature-pipeline
 scripts/install-codex-local.sh
-codex plugin list                           # verify feature@feature-local is installed
+codex plugin list                           # verify feature@feature-local and verify@feature-local are installed
 ```
 
-Set `CODEX_HOME` to test against an isolated Codex home, or `FEATURE_CODEX_LOCAL_MARKETPLACE` to choose a different staging root. Both locations must be outside the checkout. Re-run the helper after local edits, then start a new Codex task to load the refreshed plugin.
+Set `CODEX_HOME` to test against an isolated Codex home, or `FEATURE_CODEX_LOCAL_MARKETPLACE` to choose a different staging root. Both locations must be outside the checkout. Re-run the helper after local edits, then start a new Codex task to load the refreshed plugins.
 
-Whichever platform you develop against, run the validation scripts from the checkout root before opening a pull request: `scripts/check-tool-parity.sh` checks that every server tool (`pipeline_*`, `inbox_*` and `ping`) a skill lists is dual-listed in its frontmatter (bare and Claude-scoped); `scripts/check-mode-split.sh` checks that no storage-mode reference file leaks the other mode and that every `-fs`/`-server` pair is complete; `scripts/check-md-links.sh` checks that every relative `.md` link in the repository's own markdown resolves under `plugins/feature/skills/`, `plugins/tidy-loop/` and `plugins/deepen/` (vendored and generated trees are pruned from the walk); `scripts/check-runtime-contract.sh` checks runtime dispatch, shared stage templates, and the independent reviewer roster; `scripts/check-deepen-contract.sh` checks that deepen's plugin-level fence hook is bound, that every deepen agent able to write is mapped to a fence set its fence contract defines, and that every unfenced agent can neither write nor delegate, that the reviewer rubric deepen's verify stage inlines still matches `feature`'s confidence scale, then runs the self-tests that pin the deepen run's hotspot measure, candidate id and touched-function coverage to their worked examples (the last needs Node); `scripts/check-setup-detect.sh` runs the setup detection script against its committed fixtures and diffs each JSON document against the expected one (it needs jq and Git); and `scripts/check-tidy-checks.mjs` drives the tidy-loop checks commands against their committed fixtures and diffs the JSON byte-for-byte (it needs Node, npm, and Git, and installs each fixture's pinned toolchain, so it is slower than the others). All seven must exit 0.
+Whichever platform you develop against, run the validation scripts from the checkout root before opening a pull request: `scripts/check-tool-parity.sh` checks that every server tool (`pipeline_*`, `inbox_*` and `ping`) a skill lists is dual-listed in its frontmatter (bare and Claude-scoped); `scripts/check-mode-split.sh` checks that no storage-mode reference file leaks the other mode and that every `-fs`/`-server` pair is complete; `scripts/check-md-links.sh` checks that every relative `.md` link in the repository's own markdown resolves under `plugins/feature/skills/`, `plugins/tidy-loop/`, `plugins/deepen/` and `plugins/verify/` (vendored and generated trees are pruned from the walk); `scripts/check-runtime-contract.sh` checks runtime dispatch, shared stage templates, the independent reviewer roster, and the seam between the browser-test stage and the browser driver; `node plugins/verify/drivers/browser/cli.mjs --self-test` exercises the browser driver's step, entry and evidence rules without starting a browser (it needs Node 22 or later); `scripts/check-deepen-contract.sh` checks that deepen's plugin-level fence hook is bound, that every deepen agent able to write is mapped to a fence set its fence contract defines, and that every unfenced agent can neither write nor delegate, that the reviewer rubric deepen's verify stage inlines still matches `feature`'s confidence scale, then runs the self-tests that pin the deepen run's hotspot measure, candidate id and touched-function coverage to their worked examples (the last needs Node); `scripts/check-setup-detect.sh` runs the setup detection script against its committed fixtures and diffs each JSON document against the expected one (it needs jq and Git); and `scripts/check-tidy-checks.mjs` drives the tidy-loop checks commands against their committed fixtures and diffs the JSON byte-for-byte (it needs Node, npm, and Git, and installs each fixture's pinned toolchain, so it is slower than the others). All eight must exit 0.
 
 Switch back to the stable GitHub installation:
 
 ```bash
 codex plugin remove feature@feature-local
+codex plugin remove verify@feature-local
 codex plugin add feature@feature
+codex plugin add verify@feature             # optional, as above
 codex plugin list                           # verify feature@feature is installed
 ```
 
@@ -195,7 +199,7 @@ The pipeline also reads your project's `CLAUDE.md` / `AGENTS.md` for conventions
 
 - Claude Code CLI or Codex CLI
 - Git — for the review stage's diff
-- Playwright MCP — for the close stage's UI test checkpoint and ship's end-of-run browser pass, including its `browser_resize` tool for the desktop and mobile checks (optional; skip either with `--no-ui-testing`)
+- Playwright MCP — for the close stage's UI test checkpoint and ship's end-of-run browser pass, including its `browser_resize` tool for the desktop and mobile checks (optional; skip either with `--no-ui-testing`). A `test:` entry that declares `driver: browser-cli` needs none of it: its pass runs through the `verify` plugin's browser driver, which needs Node 22 or later and Google Chrome
 - A personal MCP server — for `mode: server-native`, where it *is* the ticket store (optional; the default `fs-native` pipeline needs no server), and for `/feature:triage` in either mode, since the inbox lives only on the server. Its tool surface spans several domains; the pipeline skills use its `pipeline_*` tools and its `ping`, and `/feature:triage` its inbox triage tools plus `pipeline_*` ticket reads — see [Inbox triage](plugins/feature/docs/advanced.md#inbox-triage-featuretriage). On Claude Code install the separate `server-native` plugin alongside `feature` and it prompts for a URL and token; on Codex add the server to `config.toml`. See [plugins/feature/docs/advanced.md](plugins/feature/docs/advanced.md#storage-mode-and-the-personal-server)
 - GitHub CLI (`gh`), authenticated, with a GitHub `origin` — for `--pr` and the `ship`/`review`/`address-review`/`sync` helpers; the pipeline degrades to local commits without it, and the PR helpers fail closed (change nothing) without it. Attaching screenshots to PRs (opt-in) needs `gh` 2.99.0 or later; an older `gh` falls back to linking or listing them
 

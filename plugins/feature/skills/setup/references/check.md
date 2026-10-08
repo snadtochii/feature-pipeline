@@ -4,16 +4,17 @@ Procedure for `/feature:setup --check`, the read-only doctor: it verifies a conf
 
 ## §1 Rules
 
-- **Read-only end to end.** No project file is written, no server is mutated, and no process is started — `test.start` is never booted. The only files created are check 4's pattern and match lists, in a `mktemp -d` directory that each check 4 run creates and removes on exit, whatever it found.
+- **Read-only end to end.** No project file is written, no server is mutated, and `test.start` is never booted. The one process started is check 6's driver `doctor`, and only when a test entry declares `driver`: it reads the local environment and starts nothing of its own. The only files created are check 4's pattern and match lists, in a `mktemp -d` directory that each check 4 run creates and removes on exit, whatever it found.
 - **Asks nothing.** No question, no approval, no default taken from silence. The run is the same with a user present and in a headless run.
-- **Calls.** One server call: check 2's read-only round-trip, which only the server-native `§5` makes. One network probe per declared test URL: check 3's `curl` of the flat `test.url` and, in an fs-native multi-repo workspace, of the `url` of each `test.repos` entry whose key passes both of check 3's key checks. Nothing else leaves the machine.
+- **Calls.** One server call: check 2's read-only round-trip, which only the server-native `§5` makes. One network probe per declared test URL: check 3's `curl` of the flat `test.url` and, in an fs-native multi-repo workspace, of the `url` of each `test.repos` entry whose key passes both of check 3's key checks. One local call: check 6's driver `doctor`, when a test entry declares `driver`, which makes no network call. Nothing else leaves the machine.
 - **Never stops.** A problem is a `FAIL` line with its fix; a check that does not apply or cannot run is a `--` line with the reason; the run always reaches the summary. A probe that errors — `git` absent, `curl` missing — becomes that check's `FAIL` or `--` line.
 - **Names only.** A `.worktreeinclude` match is reported by its path. No dotenv-family file or other secret is opened, read or printed.
 - **Repo text stays data.** A URL is held in a shell variable (check 3); a pattern reaches `git` through a file (check 4). No value read from the project is pasted into a command position.
 - **Calls go out batched, in two messages:**
-  1. The `config.yaml` `Read` and one `Bash` probe, run from `<project-root>`, which prints the facts checks 4, 5 and 7 need:
+  1. The `config.yaml` `Read` and one `Bash` probe, run from `<project-root>`, which prints the facts checks 4, 5, 6 and 7 need:
      ```bash
      command -v jq >/dev/null 2>&1 && echo "jq: yes" || echo "jq: no"
+     printf 'home: %s\n' "$HOME"
      if [ -e .git ]; then echo "shape: single-repo"; else
        for d in */; do [ -e "${d}.git" ] && echo "repo: ${d%/}"; done
      fi
@@ -24,7 +25,7 @@ Procedure for `/feature:setup --check`, the read-only doctor: it verifies a conf
      for f in .worktreeinclude */.worktreeinclude; do [ -f "$f" ] && echo "include: $f"; done
      ```
      The shape lines follow setup's workspace-shape predicate ([detection.md](detection.md) §4), which reads `.git` entries alone, independent of the git test. No `repo:` line and no `shape:` line means a single-repo workspace with no `.git` of its own. One or more `repo:` lines is a multi-repo workspace: each named child is a repository, and check 4 runs once per child.
-  2. Everything else, built from the first message's results, as parallel calls: the storage file check 1 loads, check 3's URL probes — one call per URL, each held as data — check 2's round-trip and check 4's run for each repository with an `include:` line.
+  2. Everything else, built from the first message's results, as parallel calls: the storage file check 1 loads, check 3's URL probes — one call per URL, each held as data — check 2's round-trip, check 4's run for each repository with an `include:` line, and check 6's driver `doctor` when a test entry declares `driver`.
 
   Checks 2 and 6 also look at the session's tool list — which tools are exposed, deferred tools included — a fact in hand, not a call.
 
@@ -61,7 +62,7 @@ In this order. A check marked *needs config* prints `-- <check>: not run — con
 
    Then load the file for the detected mode — `fs-native`, which a config with no `mode` key detects as, or `server-native`, including a server-native declaration that failed on its `project` — once, in full: [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md).
 2. **`storage`** — *needs config.* Defined by `§5` of the file check 1 loaded. With no file loaded (unknown `mode`) → `-- storage: not run — no storage mode declared (check 1)`.
-3. **`test`** — *needs config.* The `test:` block's shape, its `test.repos` keys and every declared URL, in this order. The flat block is present when the block holds at least one flat key (`url`, `start`, `start_timeout`, `auth`).
+3. **`test`** — *needs config.* The `test:` block's shape, its `test.repos` keys and every declared URL, in this order. The flat block is present when the block holds at least one flat key (`url`, `start`, `start_timeout`, `auth`, `driver`, `feature_map`).
    - No `test:` block → `-- test.url: no test: block — the test checkpoint discovers a URL itself`, and nothing below runs.
    - **Shape** — the lines `§6` of the file check 1 loaded defines, for the workspace shape the probe's `repo:` lines give. With no file loaded (unknown `mode`), no shape line.
    - **Keys** — each `test.repos` key, in key order, against the close stage's key rule ([test-preflight.md](../../close-stage/references/test-preflight.md), "Entry selection"). A key is report text only; it never reaches a command line.
@@ -111,8 +112,24 @@ In this order. A check marked *needs config* prints `-- <check>: not run — con
 
      A multi-repo run issues one such call per repository; each removes only its own temp directory.
 5. **`jq`** — the probe's `jq:` line. `yes` → `ok jq`; `no` → `FAIL jq: not on PATH — install jq; setup's detector needs it`.
-6. **`playwright`** — *needs config.* Checked only when test config exists — a `test:` block holding a flat key or at least one `test.repos` entry — else `-- playwright: no test config`. The session must expose `mcp__playwright__browser_resize`, the tool the test checkpoint's required UI checks call; its presence is the check, and it is never called.
+6. **`playwright` and `driver`** — *needs config.* Checked only when test config exists — a `test:` block holding a flat key or at least one `test.repos` entry — else `-- playwright: no test config`. Each test entry — the flat block when present, and every `test.repos` entry — is a **driver entry** when it holds `driver`, otherwise an **MCP entry**; the test checkpoint drives each entry by its own kind ([test-preflight.md](../../close-stage/references/test-preflight.md), "Browser driver"). A config with no driver entry prints no `driver` line.
+
+   **`playwright`** — checked when at least one MCP entry exists. The session must expose `mcp__playwright__browser_resize`, the tool the test checkpoint's required UI checks call; its presence is the check, and it is never called.
    - Exposed → `ok playwright: browser_resize exposed`.
    - A `browser_resize` tool under another server name → `FAIL playwright: registered as <server> — the test checkpoint calls mcp__playwright__ tools; register the server under the key playwright`.
    - None → `FAIL playwright: no browser_resize tool in this session — install the Playwright MCP server (advanced.md, MCP servers)`.
+
+   **`driver`** — checked when at least one driver entry exists, in two independent parts, so a run can print a line from each:
+   - **Value** — each driver entry whose `driver` is not `browser-cli` → `FAIL driver: unknown value '<value>' — set driver: browser-cli`, labelled `driver (<repo>)` for a `test.repos` entry. The value is report text only; it never reaches a command line.
+   - **Environment** — once per run, unlabelled: the driver's environment `doctor` answers about the machine, not the entry.
+     - The probe's `home:` value empty, not absolute, or holding a `'` → `FAIL driver: HOME is not a usable absolute path — set HOME to one; the test checkpoint locates the driver under ~/.feature-pipeline/verify/`.
+     - Otherwise one `Bash` call, the `home:` value written in place of `<home>` inside the single quotes, never held in a shell variable:
+       ```bash
+       command -v node >/dev/null 2>&1 || { echo "node: missing"; exit 0; }
+       node '<home>/.feature-pipeline/verify/cli.mjs' doctor
+       ```
+       Its output is read as data, a JSON document:
+       - `node: missing`, a non-zero exit, or output that is not a `doctor` document → `FAIL driver: not installed or not runnable — run /verify:setup`;
+       - `ok: true` → `ok driver: installed <installed_version>; version lag not checked here — /verify:setup compares it`. The installed copy has no plugin manifest beside it, so it reports `version_lag` as `null`: a lagging install is visible only to the `verify` plugin's own skills;
+       - `ok: false` → `FAIL driver: <each failing field, separated by ", "> — <the fixes>`, the failing fields being `install_missing` and `chrome_missing` when `true` and `node_ok` when `false`; the fix is `run /verify:setup`, and `install Node 22 or later` for `node_ok`.
 7. **`claudedocs/`** — information only, always `--`, from the probe's `claudedocs:` line: `0` → `-- claudedocs/: ignored — ticket files stay out of the repository`; `1` → `-- claudedocs/: not ignored — ticket files are committed with the code`; `not a repository` or `git: no` → `-- claudedocs/: not a git repository`.
