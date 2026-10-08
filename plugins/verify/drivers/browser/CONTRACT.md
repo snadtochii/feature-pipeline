@@ -446,6 +446,17 @@ Chrome runs as `--headless=new --remote-debugging-port=0 --user-data-dir=<sessio
 --no-first-run --no-default-browser-check about:blank`, so its debugging port is chosen by
 the system and bound to the loopback interface, and two sessions never collide.
 
+**Who can reach the debugging port.** The port carries no authentication. A web page cannot
+open it — Chrome refuses DevTools connections carrying a browser origin it was not told to
+allow — but any local process can, under any local account, from `launch` until `cleanup`,
+and with it gets full control of the session's browser, including the cookies an imported
+`auth.storage_state` put there. Processes of the same user can already read the session
+directory, so the exposure that the port adds is to other accounts on the machine. A
+debugging pipe would close it, but a pipe lives only as long as the process that opened it,
+and `launch`, `drive` and `cleanup` are separate processes that each reconnect; the port is
+what lets them. On a machine other people log in to, do not import a storage state that
+holds real credentials, and `cleanup` as soon as the run ends.
+
 ## §13 `--self-test`
 
 ```text
