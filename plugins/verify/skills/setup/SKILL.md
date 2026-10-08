@@ -300,7 +300,7 @@ Driver: <installed_version> at <installed_path> (replaced <replaced_version> | f
 Map: <map-path> — created | merged | unchanged
   features: <n> (<a> new, <b> returned, <c> moved to Removed)
   skipped: <d> candidates with no route or test id, <e> computed routes, <f> templated test ids
-  gaps: no router found | <section> has no source line | <name> folded into <name> | <route> linked to <name>, <name>
+  gaps: no router found | <root> without <package> — not routed | <section> has no source line | <name> folded into <name> | <route> linked to <name>, <name>
 Config: claudedocs/tickets/config.yaml — <n> keys added, <m> changed | unchanged
   <diff of the changed lines, - before / + after>
 Proof: pass | failed at <verb> — <field or error>

@@ -106,7 +106,8 @@ Generation reads the repository and writes nothing but the map file.
 - **Instruction files.** `CLAUDE.md` and `AGENTS.md` at the entry's repo root, and at the
   project root when that differs, are read for auth hints only (§7).
 - **Search first.** Each signal is one search across the entry's repo root, its results
-  grouped by `source:` afterwards: one `Grep` for the §6 test-id forms, one for import
+  grouped by `source:` afterwards: one `Glob` for the `package.json` files that mark §5's
+  app roots, one `Grep` for the §6 test-id forms, one for import
   specifiers in route files (§4's link), one per §7 signal (navigation targets, guards,
   state branches, key bindings), each with the skipped trees excluded from the search
   itself. A file is `Read` only when a search matched it and the match needs its context.
@@ -146,15 +147,36 @@ Only literal paths are recorded. A path computed at runtime is skipped and count
 report. Several families in one repo root are unioned. No family found → every `route:` is
 empty and the report names the gap ("no router found").
 
+**App roots.** The entry's repo root, and every directory under it outside the skipped trees
+that holds a `package.json`, is an app root (`apps/web` in a monorepo). Each `package.json` is
+`Read`; it is not a secret file.
+
+**File-based families** are anchored and gated, so a directory convention alone never makes
+a router:
+
+- **Anchored.** A family's directories are searched only at the roots its row names, each
+  relative to an app root — `apps/web/src/app/`, never an `app/` at any other depth, such as
+  `src/features/x/app/`. A route's path is taken from below that root.
+- **Gated.** A family is searched at an app root only when that app root's `package.json`
+  lists one of the family's packages under `dependencies` or `devDependencies`. A family
+  root present without its package is not a router: its files are not routes, and the
+  report names it as a gap (`apps/web/src/pages without next — not routed`).
+
+| Family | Packages | Roots, under an app root | Path derived from |
+|---|---|---|---|
+| TanStack Router, file-based | `@tanstack/react-router`, `@tanstack/solid-router` | `src/routes/` — its files that call `createFileRoute(` | The string literal passed to `createFileRoute(` when present; otherwise the file path under the root, `.` and `/` both separating segments. `__root` is not a route. |
+| Next.js, App Router | `next` | `app/`, `src/app/` — `**/page.{js,jsx,ts,tsx,mdx}` | The directories between the root and `page.*`. `@slot` and `_private` directories are skipped. |
+| Next.js, Pages Router | `next` | `pages/`, `src/pages/` — `**/*.{js,jsx,ts,tsx,mdx}` | The file path under the root. `api/**`, `_app`, `_document` and `_error` are not routes. |
+| SvelteKit | `@sveltejs/kit` | `src/routes/` — `**/+page.svelte` | The directories between the root and `+page.svelte`. |
+| Astro | `astro` | `src/pages/` — `**/*.{astro,md,mdx,html}` | The file path under the root. `_`-prefixed files and directories are not routes. |
+| File routes under `app/routes/` (Remix, React Router framework mode) | any `@remix-run/` package, `@react-router/dev` | `app/routes/` — its files, or its folders holding `route.{js,jsx,ts,tsx}` | The file or folder name, `.` separating segments. `_index` is the parent path, a trailing `_` is stripped, and a segment in `[ ]` is an escaped literal. |
+| Nuxt | `nuxt` | `pages/`, `app/pages/` — `**/*.vue` | The file path under the root. |
+
+**Configuration families** are recognised by their call, wherever it appears outside the
+skipped trees:
+
 | Family | Signal | Path derived from |
 |---|---|---|
-| TanStack Router, file-based | A routes directory whose files call `createFileRoute(` | The string literal passed to `createFileRoute(` when present; otherwise the file path under the routes directory, `.` and `/` both separating segments. `__root` is not a route. |
-| Next.js, App Router | `app/**/page.{js,jsx,ts,tsx,mdx}` | The directories between `app/` and `page.*`. `@slot` and `_private` directories are skipped. |
-| Next.js, Pages Router | `pages/**/*.{js,jsx,ts,tsx,mdx}` | The file path under `pages/`. `pages/api/**`, `_app`, `_document` and `_error` are not routes. |
-| SvelteKit | `src/routes/**/+page.svelte` | The directories between `src/routes/` and `+page.svelte`. |
-| Astro | `src/pages/**/*.{astro,md,mdx,html}` | The file path under `src/pages/`. `_`-prefixed files and directories are not routes. |
-| File routes under `app/routes/` (Remix, React Router framework mode) | `app/routes/*` files, or folders holding `route.{js,jsx,ts,tsx}` | The file or folder name, `.` separating segments. `_index` is the parent path, a trailing `_` is stripped, and a segment in `[ ]` is an escaped literal. |
-| Nuxt | `pages/**/*.vue` | The file path under `pages/`. |
 | React Router, configuration | `createBrowserRouter(`, `createHashRouter(`, `createMemoryRouter(`, `createRoutesFromElements(`, `<Route path=` | Literal `path` values, joined with their parents' when nested in the same file. An `index` route is its parent's path. |
 | Angular | `Routes` arrays: `: Routes =`, `RouterModule.forRoot(`, `RouterModule.forChild(`, `provideRouter(` | Literal `path:` values joined with their parents'. `''` is the parent's path; `'**'` is skipped. |
 | Vue Router | `createRouter(` with `routes:` | Literal `path:` values joined through `children`. A catch-all (`/:pathMatch(.*)*`) is skipped. |
@@ -255,4 +277,4 @@ alone (a first write), or merges as above (an existing map, whose live sections 
 **Report counts.** Every generation reports: features written, new, returned from
 `## Removed`, moved to `## Removed`; candidates with neither a route nor a test id; computed
 routes and templated test ids skipped; folded, duplicate and unkeyed sections; links to two
-features; router gaps.
+features; router gaps, family roots skipped for a missing package (§5) among them.
