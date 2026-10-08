@@ -1,6 +1,6 @@
 ---
 name: run
-description: "Verify a ticket's acceptance criteria, or a criteria file, in a headless browser: boots the project's declared test app through the installed browser driver, drives each criterion at desktop and mobile widths, and writes the screenshots and a report.json into the evidence home. Never edits code, tickets, the feature map or config, and asks nothing; the last line is OK:, FAIL or ERROR:."
+description: "Verify a ticket's acceptance criteria, or a criteria file, in a headless browser: boots the project's declared test app through the installed browser driver, drives each criterion at desktop and mobile widths, and writes the screenshots and a report.json into the evidence home. Never edits code, tickets, the feature map or config, and asks nothing; the last line is OK:, UNVERIFIED:, FAIL or ERROR:."
 argument-hint: "<ticket-id> | --criteria <file> --evidence <dir> [--repo <dir>]"
 allowed-tools:
   - Read
@@ -78,7 +78,8 @@ A skill sets no process exit code, so the summary's last line is the machine-rea
 
 | Last line | Meaning |
 |---|---|
-| `OK: <p> passed, <n> not applicable` | No criterion failed. |
+| `OK: <p> passed, <n> not applicable` | No criterion failed, and at least one passed. |
+| `UNVERIFIED: 0 passed, <n> not applicable` | Every criterion was classified `not-applicable`, so nothing was verified in a browser. Not a success: an `OK:` gate does not match it. |
 | `FAIL (<k>): AC-2, AC-5` | `<k>` criteria failed, each named. |
 | `ERROR: <reason>` | The run stopped before driving anything (§1–§7). |
 
@@ -601,7 +602,8 @@ Note: report.json covers this run only; a later close-stage browser pass overwri
 - A line with nothing to show is omitted: a zero count, `dialogs:` or `observations:` with
   none, `Warnings:` with no warning.
 - **Last line** — from the merged statuses (the single pass's, with one pass), per
-  [Result line](#result-line): `FAIL (<k>): <ids>` when any criterion is `fail`, else
+  [Result line](#result-line): `FAIL (<k>): <ids>` when any criterion is `fail`; else
+  `UNVERIFIED: 0 passed, <n> not applicable` when every criterion is `not-applicable`; else
   `OK: <p> passed, <n> not applicable`.
 - A stop in §1–§7 prints `## Verify run — <argument>`, the reason with its fix,
   `nothing written`, and the `ERROR:` line.
