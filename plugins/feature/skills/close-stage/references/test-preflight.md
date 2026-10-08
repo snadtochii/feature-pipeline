@@ -18,6 +18,8 @@ test:
   auth:
     storage_state: .auth/admin.json   # Playwright saved session — gitignored, never committed
     attach_tab: true                  # fallback: attach to a running authenticated tab
+  driver: browser-cli                 # drive through the installed browser driver, not the browser MCP tools
+  feature_map: docs/verification/feature-map.md   # the project's feature map, read by the tester under a driver
 ```
 
 Absent block, or any absent key → that part of the gate degrades to today's behavior (URL discovery falls through to the CLAUDE.md → port-probe path; no `start` boot; the agent's own auth fallback applies). Backward compatibility is the absence of every key.
@@ -36,10 +38,12 @@ test:
     big-leaves-astro:
       url: http://localhost:4321
       start: "npm run dev"
+      driver: browser-cli
+      feature_map: docs/verification/feature-map.md
 ```
 
 - **Key** — the repository's exact on-disk directory name under the project root, the same string a ticket's `repos:` frontmatter carries.
-- **Entry** — holds the flat block's keys (`url`, `start`, `start_timeout`, `auth.storage_state`, `auth.attach_tab`), each with the flat key's meaning and limits; `start_timeout` keeps its 1–540 range per entry. An entry is self-contained: it inherits nothing from a flat block beside it or from another entry, and a key it leaves out degrades exactly as the same flat key does when absent.
+- **Entry** — holds the flat block's keys (`url`, `start`, `start_timeout`, `auth.storage_state`, `auth.attach_tab`, `driver`, `feature_map`), each with the flat key's meaning and limits; `start_timeout` keeps its 1–540 range per entry. An entry is self-contained: it inherits nothing from a flat block beside it or from another entry, and a key it leaves out degrades exactly as the same flat key does when absent.
 - **Coexistence** — both forms may appear in one `test:` block. A pass reads exactly one entry — the flat block or one `test.repos` entry — chosen per [Entry selection](#entry-selection); §1–§6 cover what a pass does with the entry it is given. In the sections below, `test.<key>` means that key of the entry the pass reads.
 
 ### Launch directory and path base
@@ -51,7 +55,7 @@ Two values in an entry are resolved against a root, never against the close stag
 
 ### Entry selection
 
-The test checkpoint selects its entries once, from two inputs: the ticket's `repos:` as the close stage binds it ([`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §2), or as ship's end-of-run pass binds it ([ship's `storage-fs.md`](../../ship/references/storage-fs.md) / [ship's `storage-server.md`](../../ship/references/storage-server.md) §1), and the `test:` block. The flat block is **present** when the `test:` block holds at least one flat key (`url`, `start`, `start_timeout`, `auth`). The first matching row wins:
+The test checkpoint selects its entries once, from two inputs: the ticket's `repos:` as the close stage binds it ([`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §2), or as ship's end-of-run pass binds it ([ship's `storage-fs.md`](../../ship/references/storage-fs.md) / [ship's `storage-server.md`](../../ship/references/storage-server.md) §1), and the `test:` block. The flat block is **present** when the `test:` block holds at least one flat key (`url`, `start`, `start_timeout`, `auth`, `driver`, `feature_map`). The first matching row wins:
 
 1. **`test.repos` declared and the ticket has `repos:`** — the selected entries are the ticket's `repos:` values that have a `test.repos` entry, in `repos:` order. Zero → the [no testable repo skip](#skip-artifact-no-testable-repo-in-ticket). One → one pass. Two or more → one pass per entry, run sequentially.
 2. **The ticket has no `repos:` and the flat block is present** → the flat block, one pass.
@@ -91,6 +95,102 @@ A run of two or more passes records every pass in one `05-tests.md`. The consume
 - **Per-pass record** — one `## Pass: <repo>` section per pass, in pass order: that pass's report minus the failed entries moved up, or the reason the pass ended without a report — its unreachable or duplicate-URL result, or another setup gap.
 
 With one pass, the artifact is the consumer's single-pass body.
+
+### Browser driver
+
+An entry that declares `driver` is a **driver pass**: the close stage's test checkpoint drives it through the installed browser driver instead of the browser MCP tools, and the rules below take the place of §3's boot, §4's teardown and §5's recipe for that pass. An entry without `driver` runs §1–§6 exactly as written. Each pass takes its path from its own entry, so driver and MCP passes can mix in one multi-pass run, and each pass's spawn prompt carries only its own block. Ship's end-of-run pass does not apply this subsection; it drives through the browser MCP tools per its own reference.
+
+- **Value** — `browser-cli` is the one recognized value. Any other value is the pass's [driver-unavailable result](#skip-artifact-browser-driver-unavailable), naming the value.
+- **Driver location** — read the home directory once per checkpoint with `printenv HOME`. The value must be an absolute path holding no `'`; an empty, relative or quoted value, or a failed call, is the driver-unavailable result. Then `<driver>` is `<home>/.feature-pipeline/verify/cli.mjs` and `<contract>` is `<home>/.feature-pipeline/verify/CONTRACT.md` — the copy the `verify` plugin installs at `~/.feature-pipeline/verify/`, the only driver location this pipeline names. Every shell line holds `<driver>` as data — `driver='<driver>'`, then `node "$driver" …` — and every session id and path is single-quoted, as §2 holds the URL.
+- **Feature map** — `feature_map` names the project's feature map, a path relative to the entry's base. It is valid when it matches `^[A-Za-z0-9._/-]+\.md$`, is relative, has no empty, `.` or `..` segment, and does not lie under `.git/` or `claudedocs/`. It resolves against the launch directory ([Launch directory and path base](#launch-directory-and-path-base)) — `<wt-path>/<feature_map>` with a worktree bound — because the map describes the code being served, where `auth.storage_state` deliberately stays on the main checkout. The resolved file is checked with `Glob`. An absent key, an invalid value or a missing file is never a skip: the driver block reads `Feature map: none (<reason>)`, and `05-tests.md` carries a `## Caveat` line naming the reason.
+- **Per-pass files** — fixed paths keyed by `<pass-key>`, as §3's are, so separate `Bash` calls reconstruct them literally:
+  - `/tmp/fp-test-preflight-<pass-key>.entry.json` — the entry file, written with `Write`.
+  - `/tmp/fp-test-preflight-<pass-key>.session` — the session id alone, written with `Write` and checked against `^[a-f0-9]{12}$` on every read.
+  - `/tmp/fp-test-preflight-<pass-key>-steps/` — the one directory the tester writes step files into; its own `Write` creates it.
+
+#### Driver lifecycle
+
+In order, for a driver pass:
+
+1. **Leftover session** — a session file for this `<pass-key>`, left by an interrupted run → run the [driver teardown](#driver-teardown) first.
+2. **§1 and §2 as written**, the duplicate-URL guard included. No URL resolved, or unreachable with no `test.start` → §6, and nothing is launched.
+3. **Environment check** — `node "$driver" doctor`, with no session. A non-zero exit, or `ok: false` → driver-unavailable, naming each failing field (`install_missing`, `chrome_missing`, `node_ok`) or the error.
+4. **Entry file** — `Write` one JSON object to the entry file, its values as JSON strings and numbers:
+   - `url` — the §1-resolved URL.
+   - `start` and `cwd` — `test.start` and the absolute launch directory, when `test.start` is set and the launch directory exists. A missing launch directory leaves both out, so the driver boots nothing — §3's "boots nothing" case.
+   - `start_timeout` — §3's validated integer, when `start` is written.
+   - `auth` — `{"storage_state": "<absolute path>"}`, the path resolved as §5 resolves it, when the key is declared and `Glob` finds the file. A declared file that is missing is left out: print one line saying the session runs unauthenticated, and `05-tests.md` carries the same line under `## Caveat`. `auth.attach_tab` is never written — the driver has no tab attach.
+
+   The `test.start` command reaches the driver only as content of this file, never as part of a command line.
+5. **Launch** — `node "$driver" launch --entry '<entry-file>'`, its shell call given a timeout of at least `(<start_timeout> + 60)` seconds — the runtime reference's Tool results section names the parameter:
+   - Exit 0 → check `session` against `^[a-f0-9]{12}$` and `Write` it to the session file. A non-empty `stale_sessions` → one printed line naming them; they are never touched.
+   - Exit 1 with an error beginning `app unreachable` → §6, its reason "No test.start declared." when no `start` was written, else "test.start was booted but did not respond within the <start_timeout>s poll ceiling."
+   - Any other exit → driver-unavailable, naming the error's first line; a quoted `server.log` or `chrome.log` tail stays out of `05-tests.md`. Exit 2 is a defect in the entry file the close stage wrote.
+   - A failed `launch` has already torn down whatever it started, so no session file is written.
+6. **Session check** — `node "$driver" doctor --session '<id>'`. A non-zero exit, or `cdp_reachable` or `url_reachable` false → the driver teardown, then driver-unavailable naming the field. `auth` `expired` or `unreadable` → the unauthenticated line under `## Caveat`, and the pass continues.
+7. **Worktree caveat** — with a worktree bound, the close stage's fixed-port caveat applies unchanged: a `launch` reporting `server: already-running` booted nothing, exactly as §2's `curl` answering does.
+
+A pass that clears step 6 composes the [driver block](#driver-block) and spawns `ui-tester`.
+
+**Fix-loop reuse.** The last (or only) pass keeps its session through the close stage's fix loop. Before each re-spawn, run `node "$driver" doctor --session '<id>'`: `cdp_reachable` and `url_reachable` both true → the session is reused, so an expired `auth` alone never relaunches. Otherwise run the driver teardown and this lifecycle again from step 1. An earlier pass of a multi-pass run has already been torn down, so re-verifying it always launches anew.
+
+#### Driver teardown
+
+Runs for a driver pass at the close stage's teardown step — **even if the checkpoint errored** — after a failed session check, and for a leftover session. One `Bash` call, with a timeout of at least 60 seconds, reconstructing the fixed paths literally:
+
+```bash
+driver='<driver>'                                         # literal data value — never pasted into a command position
+SESSIONFILE="/tmp/fp-test-preflight-<pass-key>.session"   # same literal path the lifecycle wrote
+if [ -f "$SESSIONFILE" ]; then
+  id=$(cat "$SESSIONFILE")
+  if printf '%s\n' "$id" | grep -Eq '^[a-f0-9]{12}$'; then
+    node "$driver" cleanup --session "$id"
+  fi
+fi
+rm -f "$SESSIONFILE" "/tmp/fp-test-preflight-<pass-key>.entry.json"
+rm -rf "/tmp/fp-test-preflight-<pass-key>-steps"
+```
+
+Best-effort: a `cleanup` that exits non-zero or reports `ok: false` gets one printed line advising `node '<driver>' cleanup --session '<id>'`. `cleanup --all` is never run — it also stops every other session this user owns, a concurrent run's included.
+
+#### Driver block
+
+What the close stage injects on a driver pass in place of §5's recipe, every placeholder resolved to a concrete value:
+
+```
+## Browser driver (use this instead of the browser MCP tools)
+
+- Driver: `node '<driver>'`. Read `<contract>` §7 (the step file) and §11 (screenshot names) before writing a step file.
+- Session: `<id>`, serving <url>, starting viewport 1280×800, <signed in from the declared storage state | unauthenticated>. The pre-flight owns this session: never launch, clean up or install.
+- Step files: write them in `<step-dir>/` and nowhere else.
+- Run: `node '<driver>' drive --session '<id>' --steps '<step-dir>/<file>.json' --evidence '<evidence-home>'`, with a shell timeout of <the runtime's drive timeout>. The only other verbs allowed are `node '<driver>' evidence --session '<id>'` and `node '<driver>' doctor --session '<id>'`.
+- Feature map: <`<absolute map path>` — read it first to plan navigation. Each `## <name>` section is one live feature: its `route:` line says where to navigate, its `testids:` line names targets, and the block between `<!-- manual -->` and `<!-- /manual -->` says how a person reaches the screen and what it needs. A `## Removed` heading and everything after it is not live. | none (<reason>).>
+- Required UI checks: ui-checks.md §2–§3 above name the MCP resize and capture tools. In this session a resize is a `viewport` step — 1280×800 desktop, 390×844 mobile — and a capture is a `screenshot` step whose `name` is the §3 file name, written into the evidence home by `--evidence`; captures are full-page. Confirm suspected clipping by reading the PNG and with `expect` steps; there is no snapshot verb.
+- Mechanics: after every `goto`, `wait` on text the page renders before asserting or capturing. The viewport persists across `drive` calls, so set 1280×800 before every desktop capture — the driver refuses a `-desktop` name at any other width and a `-mobile` name at any width but 390. Console errors, failed requests and auto-accepted dialogs come back in each `drive` result; use them for the console check. A `drive` exit 1 → run `doctor --session`; if the session is gone, report the remaining criteria as not verified.
+```
+
+#### Skip artifact (browser driver unavailable)
+
+When a driver pass cannot run, the close stage writes `<ticket-folder>/05-tests.md` and proceeds to the verdict **without** spawning `ui-tester`, **without** any prompt or hard-pause, and without falling back to the browser MCP tools — a project declares a driver because those tools do not reach its test runs. What the `skipped` label means for the verdict is defined at the close stage's `SKILL.md`, test checkpoint step c:
+
+```
+verdict: skipped (browser driver unavailable)
+
+## Reason
+The browser driver declared<" (repo <repo>)" — a test.repos pass only> could not run: <cause — the failing doctor fields, the launch error's first line, an unrecognized driver value, or an unusable home directory>.
+The ui-tester subagent was not spawned. Browser-level acceptance-criteria verification is deferred.
+
+## Manual steps to verify
+1. Run `/verify:setup` to install the driver and check its environment.
+2. Re-run `/feature:close-stage <ticket-id>`.
+
+## Acceptance Criteria
+- [ ] AC 1 — not-tested (browser driver unavailable)
+- [ ] AC 2 — not-tested (browser driver unavailable)
+...
+```
+
+A run of two or more passes writes this variant only when no pass spawned a tester and at least one ended driver-unavailable: one Reason line per repo, in pass order, each naming its own cause — an unreachable pass's line keeps §6's wording. When every pass ended unreachable, §6's variant applies. When at least one pass ran, a driver-unavailable pass is a per-repo result inside the `05-tests.md` the passes write, not this artifact.
 
 ## §1 Resolve a candidate URL
 
@@ -154,6 +254,8 @@ Reachable status set is `200 301 302 401 403` — this reference is its single s
   - Loop ceiling reached without a reachable response → §4 teardown, then fall through to §6 skip.
 - **No `test.start`** (or no URL resolved at all) → §6 skip. No prompt, no hard-pause.
 
+A driver pass launches through the driver instead — [Browser driver](#browser-driver).
+
 ## §4 Teardown contract
 
 A dev server **started by pre-flight** (a PID was captured in §3) is torn down after the test checkpoint, **even if the checkpoint errors** and **including the boot-then-timeout path** (the trigger is "pre-flight started a process," not "the app became reachable" — a half-booted, timed-out server must not leak). Because §3 and §4 run in **separate `Bash` calls**, reconstruct the **same fixed path** literally — do not rely on the `$PIDFILE` variable from §3, which does not persist:
@@ -173,6 +275,8 @@ The bounded wait (30s) lets a `test.start` that tears its own stack down on the 
 
 A server that was **already running** when pre-flight first probed (no PID captured) is **never** touched. Teardown is best-effort: `kill` of the captured PID may leave orphaned child processes (e.g. a launcher that forks a server) — that is acceptable per the spec's best-effort contract.
 
+A driver pass is torn down by the driver's `cleanup` — [Browser driver](#driver-teardown).
+
 ## §5 Compose the auth recipe + resolved URL into the spawn prompt
 
 The close stage composes the recipe into the `ui-tester` spawn prompt (mirrors how the review stage injects the confidence scale verbatim — single source of truth, the `ui-tester` body stays recipe-schema-free). Inject:
@@ -182,6 +286,8 @@ The close stage composes the recipe into the `ui-tester` spawn prompt (mirrors h
 - **`auth.storage_state`** (when present) — inject the path as an absolute path, resolved from its base ([Launch directory and path base](#launch-directory-and-path-base)) against the **main checkout** — the entry's repository root for a `test.repos` entry, the project root for the flat block — never against `<wt-path>`. The agent loads it with the Playwright MCP `browser_set_storage_state` tool (it restores cookies/localStorage from the file before navigating to the protected route). That tool is additive-optional: on a Playwright MCP version that exposes it, `storage_state` is the first-choice auth path; on older versions the agent falls back to `attach_tab`. The file must sit inside the project/workspace root (Playwright MCP restricts file access to the workspace root unless launched with `--allow-unrestricted-file-access`); the main checkout always does, and a session the agent saves there survives worktree teardown. Inject with it the root the path was resolved against, and instruct the agent to run its write-time gitignore check from that root — `git -C '<root>' check-ignore -q '<absolute path>'` — because its own working directory may be `<wt-path>` or a non-git project root, where the check exits 128 instead of answering; only exit 0 confirms the path is ignored. The commit backstop ([`commit.md`](../../build/references/commit.md) §1) resolves the same relative path inside the tree being committed instead — `<wt-path>` when one is bound — because that is where an un-ignored copy would be staged. The two bases differ on purpose. The `--storage-state` server-launch flag is a session-global alternative, not used here.
 
 The agent consumes this recipe with priority `storage_state → attach_tab → existing fallback (CLAUDE.md hint → ask)`; see `agents/ui-tester.md`.
+
+A driver pass injects the driver block instead of this recipe — [Browser driver](#driver-block).
 
 ## §6 Skip artifact (app unreachable)
 
@@ -210,6 +316,7 @@ A run of two or more passes writes this variant only when every pass ended unrea
 
 - **Cheap gate, always first** — a `curl` (and at most a `start` poll bounded by `test.start_timeout`) is always paid before the `ui-tester` spawn; the agent is never spawned against an unreachable, un-bootable app.
 - **Boots only what is declared** — the pre-flight starts the declared `test.start` and nothing else. It never builds images, starts compose projects, creates schemas, seeds data or picks a second port. A project that needs an isolated stack declares that stack as its `test.start`, and that `test.start` tears its own stack down when signalled (e.g. `trap 'docker compose -f <file> down' EXIT TERM` before a backgrounded `up` and `wait`) — §4 kills only the launcher PID, and a stack left running keeps answering `test.url`.
+- **Driver sessions** — a driver pass starts only what its `launch` starts and stops only its own session; `cleanup --all` is never run.
 - **No auth detection** — reachability only; the gate never interprets `401`/`403`/a `200` SPA shell as "auth-gated." Auth-gated-with-no-recipe still spawns the agent (it's reachable), which fails fast and is recorded as a non-blocking skip by the agent's own report.
 - **No literal secrets** — `config.yaml` is committed; in every entry, flat or `test.repos`, `auth.storage_state` is a path to a gitignored session file and `auth.attach_tab` is a bool. Credentials are never read from or written into `config.yaml`.
 - **Model-read** — the `test:` block, in either form, is consumed by the close stage (this reference + the injected spawn prompt), never by a script.
