@@ -20,10 +20,12 @@ project. It installs and checks the driver, writes the committed feature map, wr
 into the project's `test:` entry, and drives the app once to prove the loop: a generated map
 that was never driven is a draft, so the run reports done only after the proof.
 
-Two contracts govern it; consume them as written and never restate them here:
+Three contracts govern it; consume them as written and never restate them here:
 
 - [../../references/feature-map.md](../../references/feature-map.md) — the map's grammar, how a
   map is generated from the repository, and how an existing map is merged.
+- [../../references/entry-binding.md](../../references/entry-binding.md) — an entry's label and
+  root, the `test.repos` key rule, the `<map-path>` rule and the `<storage-state>` derivation.
 - [../../drivers/browser/CONTRACT.md](../../drivers/browser/CONTRACT.md) — the driver's verbs,
   flags, documents and exit codes.
 
@@ -101,10 +103,8 @@ driver only as a value inside `entry.json` (§6), which the driver runs from a f
   `.git` of its own while an immediate child directory does (`Glob` for `.git` and
   `*/.git`) — the flat block is not offered either: it is the single-repo form, and the
   report names it with that reason.
-- Each `test.repos.<dir>` entry whose key matches `^[A-Za-z0-9._-]+$` and is neither `.` nor
-  `..`, whose key names an existing directory under `<project-root>` (`Glob`), and which holds
-  `url`. An entry failing any of these is not offered, and the report names it with the
-  reason.
+- Each `test.repos.<dir>` entry whose key is valid (entry-binding.md §2) and which holds
+  `url`. An entry failing either is not offered, and the report names it with the reason.
 
 Zero candidates → the "no entry" stop above. One → it is selected. Two or more → ask once:
 
@@ -125,22 +125,18 @@ and stating that an interactive run picks one. An answer is never assumed.
 
 - It already holds `driver:` with a value other than `browser-cli` → stop, naming the value.
   It is never overwritten.
-- Bind `<entry-label>` — `test` for the flat block, `test.repos.<dir>` for an entry.
-- Bind `<entry-root>` — `<project-root>` for the flat block, `<project-root>/<dir>` for an
-  entry. The map's path, the repository interview (§4) and the `start` launch directory (§6)
-  all resolve against it.
+- Bind `<entry-label>` and `<entry-root>` (entry-binding.md §1). The map's path, the
+  repository interview (§4) and the `start` launch directory (§6) all resolve against
+  `<entry-root>`.
 - Bind `<map-path>` — the `--map` argument when given; else the entry's existing
-  `feature_map` value; else `docs/verification/feature-map.md`. The value bound must match
-  `^[A-Za-z0-9._/-]+\.md$`, be relative, carry no empty, `.` or `..` segment, and sit under
-  neither `.git/` nor `claudedocs/`. A `--map` argument that fails → the usage line plus the
+  `feature_map` value; else `docs/verification/feature-map.md`. The value bound must be valid
+  (entry-binding.md §3). A `--map` argument that fails → the usage line plus the
   rule it broke, and stop. An existing `feature_map` value that fails → stop, naming the key
   and the rule; it is never rewritten silently, and passing a valid `--map` replaces it.
-- Bind `<storage-state>` — when the entry declares `auth.storage_state`, its path relative
-  to `<entry-root>`: the value itself when it is relative with no `..` segment, or the part
-  below `<entry-root>` of an absolute value that lies under it. It is the declared path the
-  generation's searches exclude (§4, feature-map.md §3). Any other value lies outside
-  `<entry-root>`, which every search is scoped to, so it needs no exclusion and leaves
-  `<storage-state>` unbound; §6 decides what the proof does with it.
+- Bind `<storage-state>` (entry-binding.md §4). It is the declared path the generation's
+  searches exclude (§4, feature-map.md §3). A value outside `<entry-root>`, which every search
+  is scoped to, needs no exclusion and leaves `<storage-state>` unbound; §6 decides what the
+  proof does with it.
 
 ### 3. Driver gate
 
