@@ -386,9 +386,12 @@ node <plugin-root>/drivers/browser/cli.mjs install
 
 Copies the driver to the fixed location `~/.feature-pipeline/verify/` — `cli.mjs`, `lib/`,
 `CONTRACT.md` — and writes a `version` file holding the plugin manifest's version and a
-newline. The copy is staged in a sibling temporary directory and swapped into place by
-rename, so an interrupted install leaves the previous copy intact; a later `install`
-removes any stale staging directory. Callers outside `verify` run only the installed copy
+newline. The copy is staged in a sibling temporary directory and swapped into place by two
+renames: the current copy out to a retired sibling, the staged copy in. An `install` that
+fails between them renames the retired copy back, so a failed install leaves the previous
+copy in place. One killed between them leaves the previous copy under the retired name for
+that moment — `install_missing` reads `true` — and the next `install` restores it before
+anything else. A later `install` removes any stale staging or retired directory. Callers outside `verify` run only the installed copy
 and never name a plugin-cache path.
 
 ```json

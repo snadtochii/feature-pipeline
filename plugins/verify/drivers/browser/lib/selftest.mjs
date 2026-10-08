@@ -21,7 +21,7 @@ import { CdpError } from './cdp.mjs';
 import { dialogReply, run, watchDialogs } from './drive.mjs';
 import { writeCapture } from './evidence.mjs';
 import { normaliseStartTimeout, validateEntry } from './entry.mjs';
-import { isOlder, parseSemver } from './install.mjs';
+import { isOlder, parseSemver, swapInto } from './install.mjs';
 import { ComputeError, UsageError, exitCodeFor, render } from './output.mjs';
 import { isAlive, processStart, stopGroup, waitExit } from './proc.mjs';
 import { isValidId, newId } from './session.mjs';
@@ -218,6 +218,53 @@ const CASES = [
     assert(isOlder('0.1.0', '0.2.0') === true && isOlder('0.10.0', '0.9.9') === false && isOlder('1.0.0', '1.0.0') === false, 'ordering');
     assert(isOlder('0.1', '0.2.0') === null && isOlder('0.1.0', 'v0.2.0') === null, 'unparsable is null');
     assert(parseSemver('1.2.3').join('.') === '1.2.3' && parseSemver('1.2.3-rc.1') === null, 'parseSemver');
+  }],
+  ['install: a failed swap restores the previous copy', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fp-verify-selftest-'));
+    try {
+      const target = path.join(dir, 'verify');
+      const staging = path.join(dir, 'verify.tmp-1');
+      const retired = path.join(dir, 'verify.old-1');
+      fs.mkdirSync(target);
+      fs.writeFileSync(path.join(target, 'version'), '0.0.1\n');
+      fs.mkdirSync(staging);
+      let calls = 0;
+      const failSecond = (from, to) => {
+        calls += 1;
+        if (calls === 2) {
+          throw Object.assign(new Error('rename refused'), { code: 'EIO' });
+        }
+        fs.renameSync(from, to);
+      };
+      let threw = false;
+      try {
+        swapInto(staging, target, retired, failSecond);
+      } catch {
+        threw = true;
+      }
+      assert(threw, 'the failed swap did not throw');
+      assert(fs.readFileSync(path.join(target, 'version'), 'utf8') === '0.0.1\n', 'the previous copy is not back in place');
+      assert(!fs.existsSync(retired), 'the retired copy is still under its retired name');
+      swapInto(staging, target, retired);
+      assert(fs.readdirSync(dir).join(',') === 'verify' && !fs.existsSync(path.join(target, 'version')), 'the swap did not replace the copy');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }],
+  ['install: a copy a killed install left retired is restored, not swept', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'fp-verify-selftest-'));
+    try {
+      const root = path.join(home, '.feature-pipeline');
+      fs.mkdirSync(path.join(root, 'verify.old-0badc0de'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'verify.old-0badc0de', 'version'), '0.0.1\n');
+      const res = spawnSync(process.execPath, [CLI, 'install'], { encoding: 'utf8', timeout: 20000, env: { ...process.env, HOME: home } });
+      assert(res.status === 0, `install exit ${res.status}: ${res.stdout}`);
+      const doc = JSON.parse(res.stdout);
+      assert(doc.replaced_version === '0.0.1', `replaced_version ${JSON.stringify(doc.replaced_version)}`);
+      assert(fs.readdirSync(root).join(',') === 'verify', `left in ${root}: ${fs.readdirSync(root).join(',')}`);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   }],
   ['auth: storage-state status', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fp-verify-selftest-'));

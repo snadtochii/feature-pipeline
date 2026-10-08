@@ -3,7 +3,9 @@
 // The driver is installed to the fixed location ~/.feature-pipeline/verify/ —
 // cli.mjs, lib/ and CONTRACT.md plus a `version` file holding the plugin
 // manifest's version. The copy is staged in a sibling directory and swapped in
-// by rename, so an interrupted install leaves the previous copy intact. Only the
+// by two renames — the current copy out to a retired name, the staged copy in.
+// A failure between them renames the retired copy back; a kill between them
+// leaves it retired, and the next install restores it before sweeping. Only the
 // plugin copy can install: the installed copy has no manifest beside it.
 //
 // Private to the implementation: only cli.mjs is a command.
@@ -78,11 +80,57 @@ export function isOlder(a, b) {
   return false;
 }
 
+function prefixed(root, prefix) {
+  return fs.readdirSync(root).filter((name) => name.startsWith(prefix)).map((name) => path.join(root, name));
+}
+
 function removePrefixed(root, prefix) {
-  for (const name of fs.readdirSync(root)) {
-    if (name.startsWith(prefix)) {
-      fs.rmSync(path.join(root, name), { recursive: true, force: true });
-    }
+  for (const entry of prefixed(root, prefix)) {
+    fs.rmSync(entry, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Put back a previous copy an install killed between its two renames left
+ * retired, so the sweep that follows never deletes the only copy. The most
+ * recently retired one wins.
+ */
+function restoreRetired(root, target) {
+  if (fs.existsSync(target)) {
+    return;
+  }
+  const retired = prefixed(root, RETIRED_PREFIX)
+    .map((entry) => ({ entry, ctime: fs.statSync(entry).ctimeMs }))
+    .sort((a, b) => b.ctime - a.ctime);
+  if (retired.length > 0) {
+    fs.renameSync(retired[0].entry, target);
+  }
+}
+
+/**
+ * Swap `staging` into `target`, retiring the current copy to `retired` first.
+ * When the second rename fails, the retired copy is renamed back before the
+ * error propagates, so `target` is never left empty by a failure. `rename` is
+ * injectable for the self-test.
+ */
+export function swapInto(staging, target, retired, rename = fs.renameSync) {
+  if (!fs.existsSync(target)) {
+    rename(staging, target);
+    return;
+  }
+  rename(target, retired);
+  try {
+    rename(staging, target);
+  } catch (err) {
+    rename(retired, target);
+    throw err;
+  }
+  // The new copy is in place; a retired copy that cannot be removed now is
+  // swept by the next install.
+  try {
+    fs.rmSync(retired, { recursive: true, force: true });
+  } catch {
+    // left for the next install's sweep
   }
 }
 
@@ -100,6 +148,7 @@ export async function install() {
   const staging = path.join(root, `${STAGING_PREFIX}${rand}`);
   try {
     fs.mkdirSync(root, { recursive: true });
+    restoreRetired(root, target);
     removePrefixed(root, STAGING_PREFIX);
     removePrefixed(root, RETIRED_PREFIX);
     fs.mkdirSync(staging);
@@ -109,14 +158,7 @@ export async function install() {
     fs.cpSync(path.join(DRIVER_DIR, 'lib'), path.join(staging, 'lib'), { recursive: true });
     fs.writeFileSync(path.join(staging, 'version'), `${version}\n`);
     const replaced = fs.existsSync(target) ? installedVersion(target) : null;
-    if (fs.existsSync(target)) {
-      const retired = path.join(root, `${RETIRED_PREFIX}${rand}`);
-      fs.renameSync(target, retired);
-      fs.renameSync(staging, target);
-      fs.rmSync(retired, { recursive: true, force: true });
-    } else {
-      fs.renameSync(staging, target);
-    }
+    swapInto(staging, target, path.join(root, `${RETIRED_PREFIX}${rand}`));
     return { installed_path: target, ok: true, replaced_version: replaced, version };
   } catch (err) {
     fs.rmSync(staging, { recursive: true, force: true });
