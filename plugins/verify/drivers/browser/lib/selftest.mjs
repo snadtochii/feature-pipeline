@@ -19,6 +19,7 @@ import { parseArgv } from './args.mjs';
 import { authStatus } from './auth.mjs';
 import { CdpError } from './cdp.mjs';
 import { dialogReply, run, watchDialogs } from './drive.mjs';
+import { writeCapture } from './evidence.mjs';
 import { normaliseStartTimeout, validateEntry } from './entry.mjs';
 import { isOlder, parseSemver } from './install.mjs';
 import { ComputeError, UsageError, exitCodeFor, render } from './output.mjs';
@@ -273,6 +274,22 @@ const CASES = [
     assert(entry && entry.step === 3 && entry.type === 'confirm' && entry.accepted === true && entry.message === 'Delete?', `recorded ${JSON.stringify(entry)}`);
     const answer = cdp.sent.find((c) => c.method === 'Page.handleJavaScriptDialog');
     assert(answer && answer.params.accept === true, 'dialog not answered');
+  }],
+  ['evidence: a capture replaces a symlink at its name, never writes through it', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fp-verify-selftest-'));
+    try {
+      const target = path.join(dir, 'target.txt');
+      fs.writeFileSync(target, 'untouched');
+      const evidenceDir = path.join(dir, 'evidence');
+      fs.mkdirSync(evidenceDir);
+      fs.symlinkSync(target, path.join(evidenceDir, 'AC-1-desktop.png'));
+      const file = writeCapture(dir, evidenceDir, 'AC-1-desktop.png', Buffer.from('png'), { width: 1280, height: 800 });
+      assert(fs.readFileSync(target, 'utf8') === 'untouched', 'the symlink target was written');
+      assert(fs.lstatSync(file).isFile() && fs.readFileSync(file, 'utf8') === 'png', 'the capture is not a regular file holding the bytes');
+      assert(fs.readdirSync(evidenceDir).join(',') === 'AC-1-desktop.png', `left behind: ${fs.readdirSync(evidenceDir).join(',')}`);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }],
   ['cli: invocation errors exit 2 with an error document', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fp-verify-selftest-'));

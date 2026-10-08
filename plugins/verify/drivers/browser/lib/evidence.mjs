@@ -20,12 +20,37 @@ const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 /**
  * Write one capture to `<evidenceDir>/<name>` and record it in the session's
  * ledger. Returns the absolute path written; a write error propagates.
+ *
+ * The bytes go to a fresh temporary file created exclusively (it never opens
+ * an existing path, so never follows a symlink planted there) and are renamed
+ * over the name, which replaces whatever entry held it instead of writing
+ * through it.
  */
 export function writeCapture(sessionDirPath, evidenceDir, name, data, viewport) {
   const file = path.join(evidenceDir, name);
-  fs.writeFileSync(file, data);
+  const tmp = path.join(evidenceDir, `.${name}.tmp-${crypto.randomBytes(4).toString('hex')}`);
+  try {
+    fs.writeFileSync(tmp, data, { flag: 'wx', mode: 0o644 });
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    throw err;
+  }
   appendLedger(sessionDirPath, { name, path: file, viewport: { ...viewport } });
   return file;
+}
+
+// The bytes of a recorded capture, or null when it is missing or is not a
+// regular file — a symlink in its place is never followed.
+function readCapture(file) {
+  try {
+    if (!fs.lstatSync(file).isFile()) {
+      return null;
+    }
+    return fs.readFileSync(file);
+  } catch {
+    return null;
+  }
 }
 
 export async function evidence({ session }) {
@@ -38,12 +63,7 @@ export async function evidence({ session }) {
   }
   const entries = [...latest.keys()].sort().map((file) => {
     const entry = latest.get(file);
-    let data = null;
-    try {
-      data = fs.readFileSync(file);
-    } catch {
-      data = null;
-    }
+    const data = readCapture(file);
     const bytes = data === null ? null : data.length;
     return {
       bytes,

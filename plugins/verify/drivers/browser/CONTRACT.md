@@ -87,7 +87,8 @@ paths; a relative one exits 2. There is no working-directory resolution to reaso
 before any path is built from one; anything else exits 2.
 
 **What the driver writes, and where.** The session directory (§12); the `--evidence`
-directory passed to `drive`, and nothing else in it but the named screenshots;
+directory passed to `drive`, and nothing else in it but the named screenshots, each written
+through a temporary file beside it (§11);
 `~/.feature-pipeline/` for `install` (§10). It never writes into the project, never into
 the user's Chrome profile, and never deletes an evidence file.
 
@@ -331,8 +332,9 @@ Lists every screenshot the session's `drive` calls wrote, re-reading each file f
 }
 ```
 
-`evidence` is sorted by `path`, one entry per path (the latest capture wins). A deleted file
-reads `"missing": true` with `bytes` and `sha256` `null`. `uploadable` is true when the file
+`evidence` is sorted by `path`, one entry per path (the latest capture wins). A deleted file,
+or anything but a regular file in its place (a symlink is never followed), reads
+`"missing": true` with `bytes` and `sha256` `null`. `uploadable` is true when the file
 exists, its size is 1 byte to 5 MiB, and its name matches `^[A-Za-z0-9-]+\.png$`. An
 oversized full-page capture is still written and reported, never resized.
 
@@ -418,7 +420,9 @@ and none can contain `/` or `..`. A name outside the grammar exits 2 at parse ti
 The suffix is checked against the live viewport at capture time: `-desktop` requires a
 viewport width of 1280 and `-mobile` a width of 390. A mismatch fails the step (it depends
 on runtime state, so it is not an invocation error). The same name captured again
-overwrites the earlier file.
+replaces the earlier file. A capture is written to a new temporary file in the evidence
+directory and renamed onto its name, so an existing entry under that name — a symlink
+included — is replaced, never written through.
 
 ## §12 Session layout
 
