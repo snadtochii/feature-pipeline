@@ -185,7 +185,9 @@ Write `driver: browser-cli` and `feature_map: <map-path>` into the selected entr
   selected and inherit nothing: the flat block and each `test.repos` entry carry their own,
   exactly as the entry's other keys do.
 - **Already equal** → no edit; reported `unchanged`.
-- **A different `feature_map` value** → `Edit` replaces only that line.
+- **A different `feature_map` value** → `Edit` replaces only that line, and the report warns
+  that the previous map, when a file is there, is no longer configured: that file stays on disk with its manual
+  blocks, and no later run reads it.
 - **Absent** → inserted after whichever of the entry's `url`, `start`, `start_timeout` and
   `auth` comes last in the file — for `auth`, after the last line of its sub-block, never
   between `auth:` and its children. An entry whose keys are out of documented order is
@@ -329,6 +331,7 @@ Defaults:
 Warnings:
   <map-path> is git-ignored — the map must be committed to be shared
   <storage_state> is not git-ignored — the session file could be committed
+  <previous map-path> is no longer configured — move its manual blocks into <map-path>, then delete it
   <entry-label> — not offered: <reason>
 Next: review and commit <map-path>, then fill its manual blocks
 ```
