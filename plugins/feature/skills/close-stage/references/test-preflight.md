@@ -103,10 +103,11 @@ An entry that declares `driver` is a **driver pass**: the close stage's test che
 - **Value** — `browser-cli` is the one recognized value. Any other value is the pass's [driver-unavailable result](#skip-artifact-browser-driver-unavailable), naming the value.
 - **Driver location** — read the home directory once per checkpoint with `printenv HOME`. The value must be an absolute path holding no `'`; an empty, relative or quoted value, or a failed call, is the driver-unavailable result. Then `<driver>` is `<home>/.feature-pipeline/verify/cli.mjs` and `<contract>` is `<home>/.feature-pipeline/verify/CONTRACT.md` — the copy the `verify` plugin installs at `~/.feature-pipeline/verify/`, the only driver location this pipeline names. Every shell line holds `<driver>` as data — `driver='<driver>'`, then `node "$driver" …` — and every session id and path is single-quoted, as §2 holds the URL.
 - **Feature map** — `feature_map` names the project's feature map, a path relative to the entry's base. It is valid when it matches `^[A-Za-z0-9._/-]+\.md$`, is relative, has no empty, `.` or `..` segment, and does not lie under `.git/` or `claudedocs/`. It resolves against the launch directory ([Launch directory and path base](#launch-directory-and-path-base)) — `<wt-path>/<feature_map>` with a worktree bound — because the map describes the code being served, where `auth.storage_state` deliberately stays on the main checkout. The resolved file is checked with `Glob`. An absent key, an invalid value or a missing file is never a skip: the driver block reads `Feature map: none (<reason>)`, and `05-tests.md` carries a `## Caveat` line naming the reason.
-- **Per-pass files** — fixed paths keyed by `<pass-key>`, as §3's are, so separate `Bash` calls reconstruct them literally:
-  - `/tmp/fp-test-preflight-<pass-key>.entry.json` — the entry file, written with `Write`.
-  - `/tmp/fp-test-preflight-<pass-key>.session` — the session id alone, written with `Write` and checked against `^[a-f0-9]{12}$` on every read.
-  - `/tmp/fp-test-preflight-<pass-key>-steps/` — the one directory the tester writes step files into; its own `Write` creates it.
+- **Per-pass files** — fixed paths keyed by `<pass-key>`, as §3's are, so separate `Bash` calls reconstruct them literally. They live in `<pass-dir>`, which is `<home>/.feature-pipeline/close-stage/<pass-key>/`: a user-owned directory with mode 0700, kept out of the shared `/tmp` because its files carry a command the driver runs and steps it executes in a possibly authenticated session. `<home>/.feature-pipeline/close-stage/` is the close stage's own scratch directory, not a driver location. Lifecycle step 4 creates `<pass-dir>` and the driver teardown removes it.
+  - `<pass-dir>/entry.json` — the entry file, written with `Write`.
+  - `<pass-dir>/session` — the session id alone, written with `Write` and checked against `^[a-f0-9]{12}$` on every read.
+  - `<pass-dir>/steps/` — `<step-dir>`, the one directory the tester writes step files into; its own `Write` creates it.
+- **Quoted paths** — every path a driver shell line or the driver block single-quotes is built from the home directory, `<pass-key>`, or the pass's evidence home. The evidence home is checked as the home directory is, before lifecycle step 3: it must be an absolute path holding no `'`, and one that does not is the driver-unavailable result, naming it.
 
 #### Driver lifecycle
 
@@ -115,14 +116,22 @@ In order, for a driver pass:
 1. **Leftover session** — a session file for this `<pass-key>`, left by an interrupted run → run the [driver teardown](#driver-teardown) first.
 2. **§1 and §2 as written**, the duplicate-URL guard included. No URL resolved, or unreachable with no `test.start` → §6, and nothing is launched.
 3. **Environment check** — `node "$driver" doctor`, with no session. A non-zero exit, or `ok: false` → driver-unavailable, naming each failing field (`install_missing`, `chrome_missing`, `node_ok`) or the error.
-4. **Entry file** — `Write` one JSON object to the entry file, its values as JSON strings and numbers:
+4. **Pass directory and entry file** — create `<pass-dir>` fresh in one `Bash` call, holding it as data:
+
+   ```bash
+   d='<pass-dir>'                                   # literal data value — never pasted into a command position
+   rm -rf "$d" && mkdir -p "${d%/*}" && mkdir -m 700 "$d" \
+     && [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ] && echo ok
+   ```
+
+   No `ok` → driver-unavailable, naming the pass directory. Then `Write` one JSON object to the entry file, its values as JSON strings and numbers:
    - `url` — the §1-resolved URL.
    - `start` and `cwd` — `test.start` and the absolute launch directory, when `test.start` is set and the launch directory exists. A missing launch directory leaves both out, so the driver boots nothing — §3's "boots nothing" case.
    - `start_timeout` — §3's validated integer, when `start` is written.
    - `auth` — `{"storage_state": "<absolute path>"}`, the path resolved as §5 resolves it, when the key is declared and `Glob` finds the file. A declared file that is missing is left out: print one line saying the session runs unauthenticated, and `05-tests.md` carries the same line under `## Caveat`. `auth.attach_tab` is never written — the driver has no tab attach.
 
    The `test.start` command reaches the driver only as content of this file, never as part of a command line.
-5. **Launch** — `node "$driver" launch --entry '<entry-file>'`, its shell call given a timeout of at least `(<start_timeout> + 60)` seconds — the runtime reference's Tool results section names the parameter:
+5. **Launch** — `node "$driver" launch --entry '<pass-dir>/entry.json'`, its shell call given a timeout of at least `(<start_timeout> + 60)` seconds — the runtime reference's Tool results section names the parameter:
    - Exit 0 → check `session` against `^[a-f0-9]{12}$` and `Write` it to the session file. A non-empty `stale_sessions` → one printed line naming them; they are never touched.
    - Exit 1 with an error beginning `app unreachable` → §6, its reason "No test.start declared." when no `start` was written, else "test.start was booted but did not respond within the <start_timeout>s poll ceiling."
    - Any other exit → driver-unavailable, naming the error's first line; a quoted `server.log` or `chrome.log` tail stays out of `05-tests.md`. Exit 2 is a defect in the entry file the close stage wrote.
@@ -140,15 +149,14 @@ Runs for a driver pass at the close stage's teardown step — **even if the chec
 
 ```bash
 driver='<driver>'                                         # literal data value — never pasted into a command position
-SESSIONFILE="/tmp/fp-test-preflight-<pass-key>.session"   # same literal path the lifecycle wrote
-if [ -f "$SESSIONFILE" ]; then
-  id=$(cat "$SESSIONFILE")
+d='<pass-dir>'                                            # same literal path the lifecycle created
+if [ -f "$d/session" ]; then
+  id=$(cat "$d/session")
   if printf '%s\n' "$id" | grep -Eq '^[a-f0-9]{12}$'; then
     node "$driver" cleanup --session "$id"
   fi
 fi
-rm -f "$SESSIONFILE" "/tmp/fp-test-preflight-<pass-key>.entry.json"
-rm -rf "/tmp/fp-test-preflight-<pass-key>-steps"
+rm -rf "$d"
 ```
 
 Best-effort: a `cleanup` that exits non-zero or reports `ok: false` gets one printed line advising `node '<driver>' cleanup --session '<id>'`. `cleanup --all` is never run — it also stops every other session this user owns, a concurrent run's included.
