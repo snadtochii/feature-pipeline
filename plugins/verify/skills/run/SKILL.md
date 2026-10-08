@@ -30,14 +30,12 @@ Two contracts govern it; consume them as written and never restate them here:
 - [../../drivers/browser/CONTRACT.md](../../drivers/browser/CONTRACT.md) — the driver's verbs,
   flags, step file, documents, exit codes and screenshot-name grammar.
 
-A few rules belong to the `feature` plugin, whose files this plugin cannot load at run time;
-each is restated where it is used, naming its source file so the two can be compared:
-storage-mode detection (`plugins/feature/skills/flow/references/storage.md`), ticket resolution
-(`plugins/feature/skills/flow/references/ticket-resolution-fs.md` and
-`ticket-resolution-server.md`), entry selection
-(`plugins/feature/skills/close-stage/references/test-preflight.md`), the evidence homes
-(`plugins/feature/skills/close-stage/references/storage-fs.md` and `storage-server.md`, §8) and
-the capture rules (`plugins/feature/skills/build/references/ui-checks.md`).
+A few rules belong to the `feature` plugin, whose files this plugin cannot load at run time —
+a plugin reads only below its own root — so they are restated here. Each restated block opens
+with a `Source:` line naming the file and section it copies, so a change on either side is
+compared against the other by hand: storage-mode detection (§2), ticket resolution (§3),
+entry selection (§5), the evidence homes and capture names (§6), and the required UI states
+(§8). Where a source asks the user, this skill stops instead, since it never asks.
 
 **This skill runs in the main conversation, standalone.** It spawns no subagents, calls no
 browser MCP tool, and commits nothing. Every run is unattended in effect: it asks nothing and
@@ -137,7 +135,10 @@ values only as JSON inside a step file.
 - Not a YAML mapping → `ERROR: claudedocs/tickets/config.yaml is unparseable`.
 
 **Storage mode** — the ticket form only; the criteria form reads no ticket store. Detected
-once, from the same file:
+once, from the same file.
+
+Source: `plugins/feature/skills/flow/references/storage.md`, Mode detection.
+
 
 - `mode: server-native` and `project: <uuid>` (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`) →
   server-native.
@@ -153,6 +154,9 @@ The mode holds for the whole run. An fs-native run makes no server call of any k
 
 The ticket form only. A ticket that cannot be resolved stops the run — this skill never asks
 for the right one.
+
+Source: `plugins/feature/skills/flow/references/ticket-resolution-fs.md` and
+`ticket-resolution-server.md`, Steps 1, 2 and 4.
 
 **fs-native.**
 
@@ -212,6 +216,9 @@ Each criterion gets the id `AC-<n>` — its 1-based ordinal — and its text.
 An entry is the flat `test:` block or one `test.repos.<dir>` entry. The flat block is present
 when `test:` holds at least one of its own keys (`url`, `start`, `start_timeout`, `auth`).
 
+Source: `plugins/feature/skills/close-stage/references/test-preflight.md`, Entry selection —
+the key rule and the ticket form's rows. The criteria form's rows are this skill's own.
+
 **A `test.repos` key** is selectable only when it matches `^[A-Za-z0-9._-]+$`, is neither `.`
 nor `..`, and names an existing directory under `<project-root>` (`Glob`). A key failing any
 of these is never selected, and the summary names it with the rule it broke.
@@ -257,7 +264,10 @@ One selected entry is one **pass**; two or more are sequential passes, each fini
 
 ### 6. Evidence homes
 
-Each pass writes into one directory, its evidence home, held as an absolute path:
+Each pass writes into one directory, its evidence home, held as an absolute path.
+
+Source: `plugins/feature/skills/close-stage/references/storage-fs.md` and `storage-server.md`
+§8 for the homes; `plugins/feature/skills/build/references/ui-checks.md` §3 for the names.
 
 | Form | One pass | Two or more passes |
 |---|---|---|
