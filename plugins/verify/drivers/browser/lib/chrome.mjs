@@ -49,10 +49,11 @@ export function chromeArgs(dir) {
 }
 
 /**
- * Start Chrome for a session and wait for its debugging endpoint.
+ * Start Chrome for a session and wait for its debugging endpoint. `onSpawn`
+ * receives the process id as soon as Chrome is spawned, before the wait.
  * Returns `{ pid, port, browserWs }`.
  */
-export async function startChrome(chromePath, dir, { timeoutMs = 15000 } = {}) {
+export async function startChrome(chromePath, dir, { timeoutMs = 15000, onSpawn = () => {} } = {}) {
   const profile = path.join(dir, 'profile');
   fs.mkdirSync(profile, { recursive: true, mode: 0o700 });
   const logFile = path.join(dir, 'chrome.log');
@@ -72,6 +73,9 @@ export async function startChrome(chromePath, dir, { timeoutMs = 15000 } = {}) {
     exited = true;
   });
   child.unref();
+  if (Number.isInteger(child.pid)) {
+    onSpawn(child.pid);
+  }
   const portFile = path.join(profile, 'DevToolsActivePort');
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -89,11 +93,11 @@ export async function startChrome(chromePath, dir, { timeoutMs = 15000 } = {}) {
       return { pid: child.pid, port, browserWs: `ws://127.0.0.1:${port}${lines[1].trim()}` };
     }
     if (exited) {
-      throw Object.assign(new ComputeError(`Chrome exited before opening its debugging port; chrome.log: ${logTail(logFile)}`), { chromePid: child.pid });
+      throw new ComputeError(`Chrome exited before opening its debugging port; chrome.log: ${logTail(logFile)}`);
     }
     await sleep(100);
   }
-  throw Object.assign(new ComputeError(`Chrome did not open its debugging port within ${timeoutMs} ms; chrome.log: ${logTail(logFile)}`), { chromePid: child.pid });
+  throw new ComputeError(`Chrome did not open its debugging port within ${timeoutMs} ms; chrome.log: ${logTail(logFile)}`);
 }
 
 /** Create the session's page target; returns its target id. */

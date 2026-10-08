@@ -244,6 +244,9 @@ export function watchDialogs(ctx) {
 }
 
 async function attach(state) {
+  if (typeof state.page_ws !== 'string') {
+    throw new ComputeError('session launch did not finish; run cleanup and launch a new session');
+  }
   try {
     return await connect(state.page_ws);
   } catch (err) {

@@ -120,7 +120,10 @@ An unknown key, a relative path, `start` without `cwd`, or a missing `url` exits
 
 **Order of work.** Validate the entry → check `WebSocket` → resolve Chrome (missing → exit 1
 before anything starts) → create the session directory → probe `url` → boot when needed →
-start Chrome → create the session page → import `auth` → write `state.json` → print.
+start Chrome → create the session page → import `auth` → print. `state.json` is written
+as each process starts — after the boot, at Chrome's spawn, once its debugging port is
+known, and with the session page — so a `launch` killed partway leaves a record `cleanup`
+can stop it from. A `drive` on a session whose `launch` did not finish exits 1.
 
 **Reachability.** `url` answers when an HTTP request to it, not following redirects,
 returns `200`, `301`, `302`, `401` or `403` within 3 seconds. `401`/`403` mean auth-gated

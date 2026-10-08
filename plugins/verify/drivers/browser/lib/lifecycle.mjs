@@ -2,8 +2,10 @@
 //
 // launch: resolve Chrome → create the session → probe the app → boot it when
 // down and a `start` is declared → start a scratch Chrome → create the session
-// page → import auth → record state.json. Any failure after something started
-// tears it down and removes the session directory before exiting 1.
+// page → import auth. state.json is rewritten as each process starts, so a
+// launch killed partway leaves a record cleanup can act on. Any failure after
+// something started tears it down and removes the session directory before
+// exiting 1.
 //
 // cleanup: stop only what launch recorded for the session, then remove the
 // session directory. Evidence is never touched.
@@ -43,6 +45,31 @@ export async function launch({ entry }) {
   }
   const { id, dir } = createSession();
   const started = { dir, server: 'already-running', server_pid: null, server_started: null, chrome_pid: null, browser_ws: null };
+  // The session record, rewritten as each process starts, so a launch killed
+  // partway still leaves cleanup what it needs to stop what was started.
+  const state = {
+    browser_ws: null,
+    cdp_port: null,
+    chrome_pid: null,
+    entry: {
+      cwd: entry.cwd,
+      start: entry.start,
+      start_timeout: entry.start_timeout,
+      storage_state: entry.storage_state,
+      url: entry.url,
+    },
+    page_ws: null,
+    server: started.server,
+    server_pid: null,
+    server_started: null,
+    target_id: null,
+    url: entry.url,
+    viewport: { ...DEFAULT_VIEWPORT },
+  };
+  const record = (fields) => {
+    Object.assign(state, fields);
+    writeState(dir, state);
+  };
   try {
     if (!(await probe(entry.url))) {
       if (entry.start === null) {
@@ -51,44 +78,25 @@ export async function launch({ entry }) {
       started.server_pid = bootServer(entry, dir);
       started.server_started = processStart(started.server_pid);
       started.server = 'booted';
+      record({ server: started.server, server_pid: started.server_pid, server_started: started.server_started });
       if (!(await waitReachable(entry.url, entry.start_timeout))) {
         throw new ComputeError(`app unreachable at ${entry.url} after ${entry.start_timeout} s of start; server.log: ${logTail(`${dir}/server.log`)}`);
       }
     }
-    let browser;
-    try {
-      browser = await startChrome(chrome.path, dir);
-    } catch (err) {
-      started.chrome_pid = err.chromePid || null;
-      throw err;
-    }
-    started.chrome_pid = browser.pid;
+    const browser = await startChrome(chrome.path, dir, {
+      onSpawn: (pid) => {
+        started.chrome_pid = pid;
+        record({ chrome_pid: pid });
+      },
+    });
     started.browser_ws = browser.browserWs;
+    record({ browser_ws: browser.browserWs, cdp_port: browser.port });
     const targetId = await createPage(browser.browserWs);
     const page = pageWs(browser.port, targetId);
     if (entry.storage_state !== null) {
       await importAuth(page, entry.storage_state);
     }
-    const state = {
-      browser_ws: browser.browserWs,
-      cdp_port: browser.port,
-      chrome_pid: browser.pid,
-      entry: {
-        cwd: entry.cwd,
-        start: entry.start,
-        start_timeout: entry.start_timeout,
-        storage_state: entry.storage_state,
-        url: entry.url,
-      },
-      page_ws: page,
-      server: started.server,
-      server_pid: started.server_pid,
-      server_started: started.server_started,
-      target_id: targetId,
-      url: entry.url,
-      viewport: { ...DEFAULT_VIEWPORT },
-    };
-    writeState(dir, state);
+    record({ page_ws: page, target_id: targetId });
     return {
       cdp_port: browser.port,
       chrome_pid: browser.pid,
