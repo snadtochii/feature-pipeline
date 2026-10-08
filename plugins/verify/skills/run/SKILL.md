@@ -359,15 +359,30 @@ scoped to `<entry-root>`, excluding the skipped trees, the secret patterns, and
    mobile gate is chosen separately by step 3's rule from what stays visible at 390 wide.
 7. `{"step": "screenshot", "name": "AC-<n>-mobile.png"}`.
 
-A criterion about error, empty or disabled states drives each state its words or the map's
-`states:` name, after step 7, once the criterion's own captures are taken. Each state starts
-with `{"step": "viewport", "width": 1280, "height": 800}`, then: reach the state, gate on it,
-capture `<screen-slug>-<state>-desktop.png`, switch to 390×844, gate, capture
-`<screen-slug>-<state>-mobile.png`. A `-desktop` capture at any other width fails (CONTRACT.md
-§11), which is why every state opens at 1280×800. Loading
-states are not captured. A state the criterion requires that the steps cannot reach is a
-`fail` with its reason, never a silent skip. Every-form state checks beyond what the criteria
-ask are not added.
+**Required states**, appended to the same step file after step 7, once the criterion's own
+captures are taken. They are part of every browser pass, on top of the criteria, so a criterion
+passes here only when the close stage's browser pass would also accept its states.
+
+Source: `plugins/feature/skills/build/references/ui-checks.md` §1.
+
+For every form and dialog the criterion's steps exercise, and for every state its words or
+the map's `states:` name:
+
+- `error` — submit empty, then submit with invalid input, each followed by an `expect` on the
+  validation message; the capture follows the second submit.
+- `disabled` — a control disabled until its input is valid, checked with an `expect` before
+  any input. A submit's in-flight state is not stepped; one that completes too fast to capture
+  is an observation.
+- `empty` — where the screen has one: a list, table or panel with no data.
+
+Each state starts with `{"step": "viewport", "width": 1280, "height": 800}`, then: reach the
+state, gate on it, capture `<screen-slug>-<state>-desktop.png`, switch to 390×844, gate,
+capture `<screen-slug>-<state>-mobile.png`. A `-desktop` capture at any other width fails
+(CONTRACT.md §11), which is why every state opens at 1280×800. Two criteria exercising the same
+screen each drive its states; the fixed names make the second capture replace the first.
+Loading states are not captured. A state the screen has that the steps cannot reach — a dialog
+that will not open, a submit that cannot be made to fail — is a `fail` of that criterion with
+its reason, never a silent skip.
 
 **Step values.** Targets are literal test ids — from the map's `testids:`, or a literal
 `data-testid` read in source per feature-map.md §6, never a templated value or a binding — or
