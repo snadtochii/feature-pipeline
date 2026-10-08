@@ -219,13 +219,14 @@ undoes them — it ends the run as failed and names the failure.
   absolute form of `~/.feature-pipeline/verify-setup/<run-key>/`. It is user-owned, outside
   the repository, and overwritten by the next run.
 - **Auth.** When the entry declares `auth.storage_state`, resolve it against `<entry-root>`.
-  A value that is absolute or carries a `..` segment is not passed, and the report says
-  `auth path outside the entry root — not proven`. A file that `Glob` does not find is not
-  passed, and the report says `auth declared, file absent — not proven`. A file that exists
-  is passed by absolute path — only its existence is checked; the skill never reads, copies
-  or prints it — and `git -C '<entry-root>' check-ignore -q -- '<storage_state>'` runs: exit
-  `1` (not ignored) puts a warning in the report that the session file could be committed.
-  `auth.attach_tab` is never passed; the driver takes no such key.
+  A value that is absolute or carries a `..` segment fails the proof at `auth` —
+  `path outside the entry root` — before `launch`, so there is no session and nothing to
+  clean up. Any other value is passed by absolute path whether or not a file is there: the
+  skill never checks, reads, copies or prints it, and the driver alone opens it — a missing
+  or unparseable file makes `launch` exit `1` with an `auth storage state unreadable` error,
+  the invalid outcome. `git -C '<entry-root>' check-ignore -q -- '<storage_state>'` runs for
+  a passed path: exit `1` (not ignored) puts a warning in the report that the session file
+  could be committed. `auth.attach_tab` is never passed; the driver takes no such key.
 
 **Files**, each with `Write` (the first creates `<run-dir>`). A file a previous run left there
 is `Read` first, so the `Write` may replace it; neither holds a secret.
@@ -249,7 +250,8 @@ is `Read` first, so the `Write` may replace it; neither holds a secret.
    `(start_timeout or 60) + 60` seconds, in milliseconds, capped at 600000.
    - Exit `0` → bind `session`, `server`, `stale_sessions` and `notes`.
    - Exit `1` → the proof fails at `launch` with the `error` (app unreachable and not
-     bootable, Chrome missing or exited). `launch` tore down whatever it started, so there is
+     bootable, Chrome missing or exited, the storage-state file unreadable — reported
+     `auth: unreadable`). `launch` tore down whatever it started, so there is
      no session and nothing to clean up.
    - Exit `2` → the proof fails at `launch`, reported as a defect in the entry file this skill
      wrote, with the `error` verbatim.
@@ -273,9 +275,10 @@ is `Read` first, so the `Write` may replace it; neither holds a secret.
    as a last resort, with its cost: it also tears down every other session this user owns,
    a concurrent pipeline run's included.
 
-**Result.** The proof passes when `launch` exited `0`, `doctor` was `ok`, `drive` was `ok`,
-the screenshot is listed and present, and `cleanup` was `ok`. Otherwise it fails at the first
-verb that failed, named with its field or `error`. A non-empty `stale_sessions` is a report
+**Result.** The proof passes when a declared `auth.storage_state` was passed, `launch`
+exited `0`, `doctor` was `ok` — so a declared session file is `valid` — `drive` was `ok`, the
+screenshot is listed and present, and `cleanup` was `ok`. Otherwise it fails at `auth` or at
+the first verb that failed, named with its field or `error`. A non-empty `stale_sessions` is a report
 note; those sessions are never touched.
 
 ### 7. `--refresh`
@@ -313,7 +316,7 @@ Config: claudedocs/tickets/config.yaml — <n> keys added, <m> changed | unchang
 Proof: pass | failed at <verb> — <field or error>
   route: <route>
   evidence: <path of AC-1-desktop.png>
-  auth: absent | valid | expired | unreadable | declared, file absent — not proven | path outside the entry root — not proven
+  auth: absent | valid | expired | unreadable | path outside the entry root
   notes: <launch notes>; <n> console errors, <m> failed requests, <k> dialogs; stale sessions <ids>
 Defaults:
   map path — <map-path> (--map | existing feature_map | default)
@@ -342,7 +345,7 @@ Next: review and commit <map-path>, then fill its manual blocks
 - Ask anything other than the entry choice in §2, ask anything under `--refresh`, or assume
   an answer a user did not give.
 - Read, print or copy a secret file or a storage-state file's content — a storage-state
-  file's existence is checked with `Glob`, and its path is handed to the driver.
+  file's path is handed to the driver, which alone opens it.
 - Edit a `config.yaml` key other than `driver` and `feature_map` of the selected entry,
   overwrite a `driver` value other than `browser-cli`, invent `url` or `start`, or regenerate
   the file.
