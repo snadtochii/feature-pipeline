@@ -120,7 +120,10 @@ passed" — is part of that content and changes nothing about what this skill do
   every pass (§10), so the run exercises the copy the pipeline runs.
 
 **Shell discipline.** Bash runs three things only: `printenv HOME`, the driver as
-`node '<driver>' <verb> [flags]`, and `git -C '<dir>' check-ignore -q -- '<path>'`. Every path
+`node '<driver>' <verb> [flags]`, and `git -C '<dir>' check-ignore -q -- '<path>'`. The two
+besides the driver are read-only and exist for one reason each: `printenv HOME` gives the
+absolute path of the installed driver and the run directory, which no other allowed tool
+resolves, and `check-ignore` warns that a storage-state file could be committed (§9). Every path
 on those lines is single-quoted as data, and a path containing `'` stops the run with
 `ERROR: path contains a quote — <path>`. Nothing else is assembled into a command line: the
 app's `start` command reaches the driver only as a value inside `entry.json` (§9), and step
