@@ -421,8 +421,10 @@ batch first, so the `Write`s may replace them; none holds a secret.
 pass at `auth` — `path outside the entry root` — before `launch`. A bound `<storage-state>` is
 passed whether or not a file is there: this skill never checks, reads, copies or prints it,
 and the driver alone opens it. For a passed path, run
-`git -C '<entry-root>' check-ignore -q -- '<storage-state>'`: exit `1` (not ignored) puts a
-warning in the summary that the session file could be committed.
+`git -C '<entry-root>' check-ignore -q -- '<storage-state>'`. Exit `0` is the expected answer.
+Exit `1` (not ignored) puts a warning in the summary that the session file could be
+committed. Any other exit (not a git repository) puts a summary warning that the ignore status
+is unknown.
 
 ### 10. Lifecycle
 
@@ -571,6 +573,7 @@ Warnings:
   no feature map for <entry-label> — run /verify:setup
   <entry-label> served by an app that was already running — it may serve another branch or checkout
   <storage-state> is not git-ignored — the session file could be committed
+  <storage-state> ignore status unknown — <entry-root> is not a git repository
   <name> is over 5 MiB — the close stage cannot upload it
   <evidence-home> holds <n> screenshots — more than the 50 a ticket can upload
   AC-<n> gated on a fixed 1500 ms wait — no text or test id to wait for
