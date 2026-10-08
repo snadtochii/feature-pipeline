@@ -110,8 +110,9 @@ Generation reads the repository and writes nothing but the map file.
   app roots, one `Grep` for the §6 test-id forms, one for import
   specifiers in route files (§4's link), one per §7 signal (navigation targets, guards,
   state branches, key bindings), each with the skipped trees, the secret patterns above and
-  any declared `auth.storage_state` path passed to the search itself as exclusion globs, so a search never prints a line of a file
-  this section never reads. A file is `Read` only when a search matched it and the match
+  the declared `auth.storage_state` path — relative to the entry's repo root, supplied by
+  the writer, and needed only when it lies under that root — passed to the search itself as
+  exclusion globs, so a search never prints a line of a file this section never reads. A file is `Read` only when a search matched it and the match
   needs its context.
 
 ## §4 Feature discovery

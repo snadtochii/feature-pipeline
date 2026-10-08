@@ -135,6 +135,12 @@ and stating that an interactive run picks one. An answer is never assumed.
   neither `.git/` nor `claudedocs/`. A `--map` argument that fails → the usage line plus the
   rule it broke, and stop. An existing `feature_map` value that fails → stop, naming the key
   and the rule; it is never rewritten silently, and passing a valid `--map` replaces it.
+- Bind `<storage-state>` — when the entry declares `auth.storage_state`, its path relative
+  to `<entry-root>`: the value itself when it is relative with no `..` segment, or the part
+  below `<entry-root>` of an absolute value that lies under it. It is the declared path the
+  generation's searches exclude (§4, feature-map.md §3). Any other value lies outside
+  `<entry-root>`, which every search is scoped to, so it needs no exclusion and leaves
+  `<storage-state>` unbound; §6 decides what the proof does with it.
 
 ### 3. Driver gate
 
@@ -160,8 +166,9 @@ Nothing is written to the project before this gate passes. Run, one after the ot
 ### 4. Feature map
 
 Generate the map for the selected entry per
-[feature-map.md](../../references/feature-map.md) §3–§7, every read scoped to `<entry-root>`,
-and write it to `<entry-root>/<map-path>`:
+[feature-map.md](../../references/feature-map.md) §3–§7, every read scoped to `<entry-root>`
+and every search excluding `<storage-state>` when it is bound (§2), and write it to
+`<entry-root>/<map-path>`:
 
 - **No file there** → `Write` a new map in the §2 grammar. Missing parent directories are
   created by the write.
@@ -223,15 +230,15 @@ undoes them — it ends the run as failed and names the failure.
 - `<run-dir>` — `<run-key>` under `verify-setup/` in the parent of `installed_path`: the
   absolute form of `~/.feature-pipeline/verify-setup/<run-key>/`. It is user-owned, outside
   the repository, and overwritten by the next run.
-- **Auth.** When the entry declares `auth.storage_state`, resolve it against `<entry-root>`.
-  A value that is absolute or carries a `..` segment fails the proof at `auth` —
-  `path outside the entry root` — before `launch`, so there is no session and nothing to
-  clean up. Any other value is passed by absolute path whether or not a file is there: the
-  skill never checks, reads, copies or prints it, and the driver alone opens it — a missing
-  or unparseable file makes `launch` exit `1` with an `auth storage state unreadable` error,
-  the invalid outcome. `git -C '<entry-root>' check-ignore -q -- '<storage_state>'` runs for
-  a passed path: exit `1` (not ignored) puts a warning in the report that the session file
-  could be committed. `auth.attach_tab` is never passed; the driver takes no such key.
+- **Auth.** When the entry declares `auth.storage_state` and `<storage-state>` is unbound
+  (§2), the proof fails at `auth` — `path outside the entry root` — before `launch`, so there
+  is no session and nothing to clean up. A bound `<storage-state>` is passed as the absolute
+  `<entry-root>/<storage-state>` whether or not a file is there: the skill never checks,
+  reads, copies or prints it, and the driver alone opens it — a missing or unparseable file
+  makes `launch` exit `1` with an `auth storage state unreadable` error, the invalid outcome.
+  `git -C '<entry-root>' check-ignore -q -- '<storage-state>'` runs for a passed path: exit
+  `1` (not ignored) puts a warning in the report that the session file could be committed.
+  `auth.attach_tab` is never passed; the driver takes no such key.
 
 **Files**, each with `Write` (the first creates `<run-dir>`). A file a previous run left there
 is `Read` first, so the `Write` may replace it; neither holds a secret.
@@ -297,7 +304,8 @@ call, writes no config key and runs no proof.
    file order. An entry whose key fails §2's key rule or names no directory, or a value that
    fails §2's `<map-path>` rule, is skipped and named in the report. None left → stop with
    `No feature map configured — run /verify:setup first.`
-3. For each map, with `<entry-root>` bound as in §2: an existing file is merged per
+3. For each map, with `<entry-root>` and `<storage-state>` bound as in §2, and every search
+   excluding `<storage-state>` when it is bound (§4): an existing file is merged per
    [feature-map.md](../../references/feature-map.md) §8 and written back; a missing file is
    generated and written as a first map. A map whose merge stops (an unclosed manual block)
    is left untouched and named in the report, and the next map still runs. Run §4's ignore
@@ -330,7 +338,7 @@ Defaults:
   manual blocks — drafted only where code or CLAUDE.md / AGENTS.md shows a value; the rest left empty
 Warnings:
   <map-path> is git-ignored — the map must be committed to be shared
-  <storage_state> is not git-ignored — the session file could be committed
+  <storage-state> is not git-ignored — the session file could be committed
   <previous map-path> is no longer configured — move its manual blocks into <map-path>, then delete it
   <entry-label> — not offered: <reason>
 Next: review and commit <map-path>, then fill its manual blocks
