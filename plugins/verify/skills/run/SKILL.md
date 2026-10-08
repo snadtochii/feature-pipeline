@@ -370,9 +370,10 @@ the map's `states:` name:
 
 - `error` — submit empty, then submit with invalid input, each followed by an `expect` on the
   validation message; the capture follows the second submit.
-- `disabled` — a control disabled until its input is valid, checked with an `expect` before
-  any input. A submit's in-flight state is not stepped; one that completes too fast to capture
-  is an observation.
+- `disabled` — a control disabled until its input is valid, captured before any input after
+  an `expect` that it is visible; `expect` asserts visibility only, so §11 judges the disabled
+  look from the capture. A submit's in-flight state is not stepped; one that completes too
+  fast to capture is an observation.
 - `empty` — where the screen has one: a list, table or panel with no data.
 
 Each state starts with `{"step": "viewport", "width": 1280, "height": 800}`, then: reach the
