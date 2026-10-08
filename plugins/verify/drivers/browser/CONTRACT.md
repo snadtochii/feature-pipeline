@@ -92,8 +92,9 @@ directory passed to `drive`, and nothing else in it but the named screenshots;
 the user's Chrome profile, and never deletes an evidence file.
 
 **What it executes.** The entry's `start` command, written to a file and run as
-`bash <file>` (§5) — never interpolated into a command line — and the Chrome executable,
-with an argument vector. Nothing else.
+`bash <file>` (§5) — never interpolated into a command line — the Chrome executable, with
+an argument vector, and `ps`, to read a recorded process's command line or start time
+before signalling it (§9). Nothing else.
 
 ## §5 `launch`
 
@@ -341,6 +342,10 @@ removes the session directory. Evidence is never touched.
 2. When the session's `server` is `"booted"`, signal the boot process group with `SIGTERM`
    and wait up to 30 seconds for it to exit, so a `start` that tears its own stack down on
    the signal finishes first. An app that was `"already-running"` is never signalled.
+
+Each process is signalled only while it is still the one `launch` started: Chrome while its
+command line names the session's profile, the boot process while its start time equals the
+one recorded at boot. A process id that now belongs to another process counts as exited.
 3. Remove the session directory.
 
 `SIGKILL` is never sent. A process that already exited is not an error.
@@ -417,7 +422,7 @@ session — never read, signalled or removed, and never listed in `stale_session
 
 | Entry | Content |
 |---|---|
-| `state.json` | Mode 0600. The session record: `url`, `server`, `server_pid`, `chrome_pid`, `cdp_port`, `browser_ws`, `target_id`, `viewport`, `entry`. Rewritten by temp-file-and-rename. |
+| `state.json` | Mode 0600. The session record: `url`, `server`, `server_pid`, `server_started` (the boot process's start time), `chrome_pid`, `cdp_port`, `browser_ws`, `target_id`, `viewport`, `entry`. Rewritten by temp-file-and-rename. |
 | `profile/` | Chrome's scratch `--user-data-dir`. |
 | `start.sh` | The entry's `start`, verbatim, mode 0700. Present only when the app was booted. |
 | `server.log` | Output of `start.sh`. |

@@ -14,7 +14,7 @@ import { importAuth } from './auth.mjs';
 import { requireWebSocket } from './cdp.mjs';
 import { chromeStatus, closeChrome, createPage, pageWs, startChrome } from './chrome.mjs';
 import { ComputeError, logTail } from './output.mjs';
-import { bootServer, probe, stopGroup, waitReachable } from './server.mjs';
+import { bootServer, processStart, probe, stopGroup, waitReachable } from './server.mjs';
 import { createSession, isOwnSessionDir, listSessions, removeSession, sessionDir, tryReadState, writeState } from './session.mjs';
 
 export const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
@@ -27,7 +27,10 @@ async function teardown(started) {
   }
   let serverExited = null;
   if (started.server === 'booted' && started.server_pid) {
-    serverExited = await stopGroup(started.server_pid, SERVER_STOP_WAIT_MS);
+    const sameProcess = started.server_started !== null && processStart(started.server_pid) === started.server_started;
+    // A boot process that is gone, or whose id now belongs to another process,
+    // is never signalled.
+    serverExited = sameProcess ? await stopGroup(started.server_pid, SERVER_STOP_WAIT_MS) : true;
   }
   return { chromeExited, serverExited };
 }
@@ -39,13 +42,14 @@ export async function launch({ entry }) {
     throw new ComputeError(`Chrome not found at ${chrome.path} (set CHROME_PATH to its executable)`);
   }
   const { id, dir } = createSession();
-  const started = { dir, server: 'already-running', server_pid: null, chrome_pid: null, browser_ws: null };
+  const started = { dir, server: 'already-running', server_pid: null, server_started: null, chrome_pid: null, browser_ws: null };
   try {
     if (!(await probe(entry.url))) {
       if (entry.start === null) {
         throw new ComputeError(`app unreachable at ${entry.url} and the entry declares no start`);
       }
       started.server_pid = bootServer(entry, dir);
+      started.server_started = processStart(started.server_pid);
       started.server = 'booted';
       if (!(await waitReachable(entry.url, entry.start_timeout))) {
         throw new ComputeError(`app unreachable at ${entry.url} after ${entry.start_timeout} s of start; server.log: ${logTail(`${dir}/server.log`)}`);
@@ -79,6 +83,7 @@ export async function launch({ entry }) {
       page_ws: page,
       server: started.server,
       server_pid: started.server_pid,
+      server_started: started.server_started,
       target_id: targetId,
       url: entry.url,
       viewport: { ...DEFAULT_VIEWPORT },
@@ -114,6 +119,7 @@ async function cleanupOne(id) {
     dir,
     server: state ? state.server : null,
     server_pid: state ? state.server_pid : null,
+    server_started: state && typeof state.server_started === 'string' ? state.server_started : null,
     chrome_pid: state ? state.chrome_pid : null,
     browser_ws: state ? state.browser_ws : null,
   };
