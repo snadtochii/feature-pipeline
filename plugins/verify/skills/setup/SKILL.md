@@ -187,27 +187,23 @@ Bind the generation's report counts (feature-map.md §8, Report counts) for §8.
 Write `driver: browser-cli` and `feature_map: <map-path>` into the selected entry, editing
 `config.yaml` in place.
 
-- **Order** — inside an entry: `url`, `start`, `start_timeout`, `auth`, `driver`,
-  `feature_map`, and, in the flat block only, `repos`. The two keys belong to the one entry
-  selected and inherit nothing: the flat block and each `test.repos` entry carry their own,
-  exactly as the entry's other keys do.
+- **Scope** — the two keys belong to the one entry selected and inherit nothing: the flat
+  block and each `test.repos` entry carry their own, exactly as the entry's other keys do.
 - **Already equal** → no edit; reported `unchanged`.
 - **A different `feature_map` value** → `Edit` replaces only that line, and the report warns
   that the previous map, when a file is there, is no longer configured: that file stays on disk with its manual
   blocks, and no later run reads it.
-- **Absent** → inserted after whichever of the entry's `url`, `start`, `start_timeout` and
-  `auth` comes last in the file — for `auth`, after the last line of its sub-block, never
-  between `auth:` and its children. An entry whose keys are out of documented order is
-  therefore extended after its last present predecessor, and in the flat block both keys land
-  before `repos:`. When both keys are absent they go in one `Edit` at that anchor, in key
-  order. A `feature_map` added beside an existing `driver` goes directly after the `driver`
-  line. An inserted key takes the indentation of the anchor key's own line — the `auth:`
-  line itself when the anchor is `auth`, never its children's — so it lands beside the
-  entry's existing keys however the file is indented.
+- **Absent** → appended after the entry's last own line: the last line of its last key,
+  that key's sub-block (such as `auth`'s children) included, and before any trailing blank
+  or comment line. The flat block's own keys are `test:`'s children other than `repos`, so
+  `repos:` and its entries are never its own lines and the keys never land inside them. Both
+  keys absent → one `Edit`, `driver` then `feature_map`. An appended key takes the
+  indentation of the entry's own key lines, so it lands beside them however the file is
+  indented.
 - **Values** — written bare; `<map-path>` passed §2's pattern, so it needs no quoting.
-- **Unique match** — two entries can hold identical lines (`driver: browser-cli`, a shared
-  `start`), so each `Edit`'s match text carries as many of the selected entry's own lines,
-  back to its `<dir>:` key line when needed, as make it unique in the file.
+- **Unique match** — two entries can hold identical lines (a shared `start`, the same
+  `feature_map`), so each `Edit`'s match text carries as many of the selected entry's own
+  lines, back to its `<dir>:` key line when needed, as make it unique in the file.
 - **Everything else stays** — comments, blank lines and keys this skill does not know stay
   byte-for-byte; no key is ever deleted; the file is never regenerated.
 - **Stale match** — an `Edit` whose match text has changed since §2's read → re-read the file
