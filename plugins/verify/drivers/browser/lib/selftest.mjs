@@ -23,6 +23,7 @@ import { writeCapture } from './evidence.mjs';
 import { normaliseStartTimeout, validateEntry } from './entry.mjs';
 import { isOlder, parseSemver } from './install.mjs';
 import { ComputeError, UsageError, exitCodeFor, render } from './output.mjs';
+import { isAlive, processStart, stopGroup, waitExit } from './proc.mjs';
 import { isValidId, newId } from './session.mjs';
 import { DEFAULT_TIMEOUT_MS, isValidName, validateSteps } from './steps.mjs';
 
@@ -290,6 +291,16 @@ const CASES = [
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  }],
+  ['proc: liveness, start-time identity and teardown of a gone process', async () => {
+    assert(isAlive(process.pid) === true, 'this process is not alive');
+    assert(isAlive(0) === false && isAlive(-1) === false && isAlive(1.5) === false, 'a non-pid is alive');
+    const start = processStart(process.pid);
+    assert(typeof start === 'string' && start === processStart(process.pid), `unstable start time ${JSON.stringify(start)}`);
+    const gone = spawnSync(process.execPath, ['-e', '']).pid;
+    assert(processStart(gone) === null, 'an exited process has a start time');
+    assert(await waitExit(gone, 1000) === true, 'waitExit on an exited process');
+    assert(await stopGroup(gone, 1000) === true, 'stopGroup on an exited process');
   }],
   ['cli: invocation errors exit 2 with an error document', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fp-verify-selftest-'));

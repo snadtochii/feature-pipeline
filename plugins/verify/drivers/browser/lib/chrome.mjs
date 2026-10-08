@@ -15,11 +15,9 @@ import path from 'node:path';
 
 import { connect } from './cdp.mjs';
 import { ComputeError, logTail } from './output.mjs';
-import { isAlive, stopGroup, waitExit } from './server.mjs';
+import { isAlive, sleep, stopGroup, waitExit } from './proc.mjs';
 
 export const DEFAULT_CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** `{ path, missing }` for the Chrome executable this environment selects. */
 export function chromeStatus() {

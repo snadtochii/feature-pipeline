@@ -7,10 +7,9 @@
 // Private to the implementation: only cli.mjs is a command.
 
 import { CdpError } from './cdp.mjs';
+import { sleep } from './proc.mjs';
 
 const POLL_MS = 100;
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A step did not succeed; the run records it and does not exit non-zero. */
 export class StepFailure extends Error {}

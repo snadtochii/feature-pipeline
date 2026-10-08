@@ -16,7 +16,7 @@ import { writeCapture } from './evidence.mjs';
 import { clickAt, insertText, pressKey } from './input.mjs';
 import { StepFailure, locate, waitUrl } from './locate.mjs';
 import { ComputeError } from './output.mjs';
-import { isAlive } from './server.mjs';
+import { isAlive, sleep } from './proc.mjs';
 import { readState, writeState } from './session.mjs';
 import { SUFFIX_WIDTH, nameSuffix } from './steps.mjs';
 
@@ -25,8 +25,6 @@ const SETTLE_MS = 100;
 // A page that does not answer domain setup this fast is blocked, not busy.
 const SETUP_TIMEOUT_MS = 10000;
 const MAX_REPORTED = 50;
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function applyViewport(cdp, viewport) {
   await cdp.send('Emulation.setDeviceMetricsOverride', {

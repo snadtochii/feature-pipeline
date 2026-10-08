@@ -16,7 +16,8 @@ import { importAuth } from './auth.mjs';
 import { requireWebSocket } from './cdp.mjs';
 import { chromeStatus, closeChrome, createPage, pageWs, startChrome } from './chrome.mjs';
 import { ComputeError, logTail } from './output.mjs';
-import { bootServer, processStart, probe, stopGroup, waitReachable } from './server.mjs';
+import { processStart, stopGroup } from './proc.mjs';
+import { bootServer, probe, waitReachable } from './server.mjs';
 import { createSession, isOwnSessionDir, listSessions, removeSession, sessionDir, tryReadState, writeState } from './session.mjs';
 
 export const DEFAULT_VIEWPORT = { width: 1280, height: 800 };

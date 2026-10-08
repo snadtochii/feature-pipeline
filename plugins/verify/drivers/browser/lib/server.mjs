@@ -1,24 +1,21 @@
-// App reachability, boot and teardown (CONTRACT.md §5, §9).
+// App reachability and boot (CONTRACT.md §5).
 //
 // Reachable means an HTTP request, not following redirects, answers 200, 301,
 // 302, 401 or 403 — the feature pipeline's reachable set. A boot writes the
 // entry's `start` verbatim to start.sh and runs `bash start.sh` in a new
-// process group; its process id is the group id teardown signals, and only
-// while that id still has the start time recorded at boot. Teardown sends
-// SIGTERM only, then waits a bounded time, so a `start` that stops its own
-// stack on the signal can finish. SIGKILL is never sent.
+// process group; its process id is the group id teardown signals (proc.mjs),
+// and only while that id still has the start time recorded at boot.
 //
 // Private to the implementation: only cli.mjs is a command.
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { ComputeError } from './output.mjs';
+import { sleep } from './proc.mjs';
 
 export const REACHABLE = new Set([200, 301, 302, 401, 403]);
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** True when `url` answers with a status in the reachable set. */
 export async function probe(url, timeoutMs = 3000) {
@@ -31,65 +28,6 @@ export async function probe(url, timeoutMs = 3000) {
   } catch {
     return false;
   }
-}
-
-/** True when a process with this id exists (EPERM counts as alive). */
-export function isAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) {
-    return false;
-  }
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return err.code === 'EPERM';
-  }
-}
-
-/** Wait until `pid` is gone or `waitMs` passes; true when it is gone. */
-export async function waitExit(pid, waitMs) {
-  const deadline = Date.now() + waitMs;
-  while (isAlive(pid)) {
-    if (Date.now() >= deadline) {
-      return false;
-    }
-    await sleep(200);
-  }
-  return true;
-}
-
-/**
- * The start time `ps` reports for `pid`, as an opaque string, or null when the
- * process does not exist. A recorded process id is signalled only while its
- * start time still matches, so a recycled id is never mistaken for it.
- */
-export function processStart(pid) {
-  if (!isAlive(pid)) {
-    return null;
-  }
-  // A fixed locale, so launch and cleanup format the same time identically.
-  const res = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
-  const text = res.status === 0 ? res.stdout.trim() : '';
-  return text === '' ? null : text;
-}
-
-/** SIGTERM a process group led by `pid`, then wait up to `waitMs` for the leader. */
-export async function stopGroup(pid, waitMs) {
-  if (!isAlive(pid)) {
-    return true;
-  }
-  try {
-    process.kill(-pid, 'SIGTERM');
-  } catch (err) {
-    if (err.code !== 'ESRCH') {
-      try {
-        process.kill(pid, 'SIGTERM');
-      } catch {
-        // already gone
-      }
-    }
-  }
-  return waitExit(pid, waitMs);
 }
 
 /**
