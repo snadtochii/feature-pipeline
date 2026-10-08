@@ -248,11 +248,15 @@ for a first `verify:setup` over an existing map and for `--refresh`.
      file (first in the live list when nothing did), and the report names it. A second
      section with an already-seen key is kept verbatim the same way and reported as a
      duplicate.
+   - A keyed section with no `<!-- manual -->` line is merged like any other (steps 3–4) and
+     gains no manual block: a block is drafted only by the write that creates its section
+     (§7).
 2. **Regenerate** the feature set from the tree per §3–§6.
 3. **Match each generated feature** by `source:`:
    - **A live section** → replace only its `source:`, `route:` and `testids:` lines, in
-     place. A missing one is inserted in grammar order before `<!-- manual -->`. The heading,
-     the manual block and any other line are untouched.
+     place. A missing `route:` is inserted directly after `source:`; a missing `testids:`
+     directly after `route:`. The heading, the manual block and any other line are
+     untouched.
    - **A removed section** → it returns to the live list: its `### ` heading becomes `## `,
      and its mechanical lines are replaced as above.
    - **No section** → a new section: `## <name>`, the three lines, and a drafted manual block
