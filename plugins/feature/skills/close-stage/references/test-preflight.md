@@ -115,7 +115,7 @@ In order, for a driver pass:
 
 1. **Leftover session** — a session file for this `<pass-key>`, left by an interrupted run → run the [driver teardown](#driver-teardown) first.
 2. **§1 and §2 as written**, the duplicate-URL guard included. No URL resolved, or unreachable with no `test.start` → §6, and nothing is launched.
-3. **Environment check** — `node "$driver" doctor`, with no session. A non-zero exit, or `ok: false` → driver-unavailable, naming each failing field (`install_missing`, `chrome_missing`, `node_ok`) or the error.
+3. **Environment check** — `node "$driver" doctor`, with no session. A non-zero exit, or `ok: false` → driver-unavailable, naming each failing field (`install_missing` or `chrome_missing` true, `node_ok` false, `version_lag` true) or the error.
 4. **Pass directory and entry file** — create `<pass-dir>` fresh in one `Bash` call, holding it as data:
 
    ```bash
