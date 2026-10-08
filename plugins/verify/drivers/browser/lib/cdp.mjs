@@ -8,8 +8,8 @@
 // which callers may retry.
 //
 // Private to the implementation: only cli.mjs is a command. This module, with
-// chrome.mjs, drive.mjs, auth.mjs's importAuth and doctor.mjs's debugging-port
-// probe, is the transport the contract's switch rule would replace — every
+// chrome.mjs, drive.mjs, locate.mjs, input.mjs, auth.mjs's importAuth and
+// doctor.mjs's debugging-port probe, is the transport the contract's switch rule would replace — every
 // module that speaks to Chrome's debugging interface.
 
 import { ComputeError } from './output.mjs';

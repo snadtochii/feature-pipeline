@@ -28,7 +28,7 @@ const HANDLERS = {
   launch: async (input) => (await import('./lib/lifecycle.mjs')).launch(input),
   cleanup: async (input) => (await import('./lib/lifecycle.mjs')).cleanup(input),
   drive: async (input) => (await import('./lib/drive.mjs')).drive(input),
-  evidence: async (input) => (await import('./lib/drive.mjs')).evidence(input),
+  evidence: async (input) => (await import('./lib/evidence.mjs')).evidence(input),
   doctor: async (input) => (await import('./lib/doctor.mjs')).doctor(input),
   install: async (input) => (await import('./lib/install.mjs')).install(input),
 };

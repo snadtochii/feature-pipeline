@@ -1,188 +1,29 @@
-// `drive` and `evidence` (CONTRACT.md §7, §8, §11).
+// `drive` (CONTRACT.md §7).
 //
 // drive attaches to the session's persistent page, re-applies the stored
 // viewport, runs the validated steps in order and reports per-step results,
-// console errors and failed requests. Targets reach the page only as
-// JSON-encoded literals. Conditions are polled every 100 ms up to the step's
-// timeout; a protocol error during a poll (a navigation destroying the
-// context) is retried, a lost socket is exit 1.
+// console errors and failed requests. Finding targets and polling live in
+// locate.mjs, input events in input.mjs, the capture write in evidence.mjs; a
+// lost socket is exit 1.
 //
 // Private to the implementation: only cli.mjs is a command.
 
-import crypto from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
 
 import { CdpError, connect, requireWebSocket } from './cdp.mjs';
+import { writeCapture } from './evidence.mjs';
+import { clickAt, insertText, pressKey } from './input.mjs';
+import { StepFailure, locate, waitUrl } from './locate.mjs';
 import { ComputeError } from './output.mjs';
 import { isAlive } from './server.mjs';
-import { appendLedger, readLedger, readState, writeState } from './session.mjs';
-import { SUFFIX_WIDTH, UPLOAD_NAME_RE, nameSuffix } from './steps.mjs';
+import { readState, writeState } from './session.mjs';
+import { SUFFIX_WIDTH, nameSuffix } from './steps.mjs';
 
 export const DRIVE_CAP_MS = 480000;
-const POLL_MS = 100;
-const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+const SETTLE_MS = 100;
 const MAX_REPORTED = 50;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** A step did not succeed; the run records it and does not exit non-zero. */
-class StepFailure extends Error {}
-
-// Runs in the page. `kind` is 'testid' or 'text'; `action` is 'locate',
-// 'scroll' (locate after scrolling into view) or 'focus'. Returns
-// { count, rect } where count is the number of visible matches.
-const PAGE_FIND = `function (kind, value, action) {
-  const visible = (el) => {
-    const r = el.getBoundingClientRect();
-    if (r.width <= 0 || r.height <= 0) { return false; }
-    const cs = getComputedStyle(el);
-    return cs.visibility !== 'hidden' && cs.display !== 'none';
-  };
-  const norm = (s) => String(s || '').replace(/\\s+/g, ' ').trim();
-  let matches = [];
-  if (kind === 'testid') {
-    matches = Array.from(document.querySelectorAll('[data-testid="' + CSS.escape(value) + '"]')).filter(visible);
-  } else {
-    const want = norm(value);
-    // The pre-filter ignores case and whitespace: rendered text (innerText)
-    // carries CSS text-transform and block separators that the DOM text
-    // (textContent) lacks, so a stricter filter could drop a real match.
-    const key = (s) => String(s || '').replace(/\\s+/g, '').toLowerCase();
-    const wantKey = key(want);
-    const candidates = Array.from(document.querySelectorAll('body, body *'))
-      .filter((el) => key(el.textContent).includes(wantKey));
-    // Innermost first: descendants follow their ancestors in document order,
-    // so walking backwards visits them first and every ancestor of a match is
-    // skipped without measuring its text.
-    for (let i = candidates.length - 1; i >= 0; i -= 1) {
-      const el = candidates[i];
-      if (matches.some((m) => el.contains(m))) { continue; }
-      if (visible(el) && (norm(el.innerText) === want || norm(el.textContent) === want)) {
-        matches.push(el);
-      }
-    }
-    matches.reverse();
-  }
-  const count = matches.length;
-  if (count === 0) { return { count: 0, rect: null }; }
-  const el = matches[0];
-  if (action === 'scroll' || action === 'focus') {
-    el.scrollIntoView({ block: 'center', inline: 'center' });
-  }
-  if (action === 'focus') {
-    el.focus();
-    if (typeof el.select === 'function') {
-      el.select();
-    } else if (el.isContentEditable) {
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-  }
-  const r = el.getBoundingClientRect();
-  return { count, rect: { x: r.x, y: r.y, width: r.width, height: r.height } };
-}`;
-
-const KEY_DEFS = {
-  Enter: { key: 'Enter', code: 'Enter', keyCode: 13, text: '\r' },
-  Tab: { key: 'Tab', code: 'Tab', keyCode: 9 },
-  Escape: { key: 'Escape', code: 'Escape', keyCode: 27 },
-  Backspace: { key: 'Backspace', code: 'Backspace', keyCode: 8 },
-  Delete: { key: 'Delete', code: 'Delete', keyCode: 46 },
-  Space: { key: ' ', code: 'Space', keyCode: 32, text: ' ' },
-  ArrowUp: { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38 },
-  ArrowDown: { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40 },
-  ArrowLeft: { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37 },
-  ArrowRight: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 },
-  Home: { key: 'Home', code: 'Home', keyCode: 36 },
-  End: { key: 'End', code: 'End', keyCode: 35 },
-  PageUp: { key: 'PageUp', code: 'PageUp', keyCode: 33 },
-  PageDown: { key: 'PageDown', code: 'PageDown', keyCode: 34 },
-};
-
-function keyDef(key) {
-  if (Object.hasOwn(KEY_DEFS, key)) {
-    return KEY_DEFS[key];
-  }
-  const upper = key.toUpperCase();
-  const keyCode = /^[A-Z0-9]$/.test(upper) ? upper.charCodeAt(0) : 0;
-  return { key, keyCode, text: key };
-}
-
-async function evaluate(cdp, expression, timeoutMs) {
-  const res = await cdp.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: false }, { timeoutMs });
-  if (res.exceptionDetails) {
-    const text = res.exceptionDetails.exception && res.exceptionDetails.exception.description
-      ? res.exceptionDetails.exception.description
-      : res.exceptionDetails.text;
-    throw new CdpError('Runtime.evaluate', { message: text });
-  }
-  return res.result ? res.result.value : undefined;
-}
-
-function find(cdp, kind, value, action) {
-  const expression = `(${PAGE_FIND})(${JSON.stringify(kind)}, ${JSON.stringify(value)}, ${JSON.stringify(action)})`;
-  return evaluate(cdp, expression, 5000);
-}
-
-/**
- * Poll `check` until it returns { done: true, value } or the timeout passes.
- * A CdpError counts as "not yet"; anything else propagates.
- */
-async function poll(timeoutMs, check) {
-  const deadline = Date.now() + timeoutMs;
-  let reason = 'condition not met';
-  for (;;) {
-    try {
-      const out = await check();
-      if (out.done) {
-        return out.value;
-      }
-      reason = out.reason;
-    } catch (err) {
-      if (!(err instanceof CdpError)) {
-        throw err;
-      }
-      reason = err.message;
-    }
-    if (Date.now() >= deadline) {
-      throw new StepFailure(`${reason} after ${timeoutMs} ms`);
-    }
-    await sleep(POLL_MS);
-  }
-}
-
-function describe(kind, value) {
-  return `${kind} ${JSON.stringify(value)}`;
-}
-
-/** Wait for exactly one visible testid match, or the first visible text match. */
-function locate(cdp, kind, value, action, timeoutMs) {
-  return poll(timeoutMs, async () => {
-    const found = await find(cdp, kind, value, action);
-    if (!found || found.count === 0) {
-      return { done: false, reason: `no visible element for ${describe(kind, value)}` };
-    }
-    if (kind === 'testid' && found.count > 1) {
-      return { done: false, reason: `${found.count} visible elements for ${describe(kind, value)}` };
-    }
-    return { done: true, value: found.rect };
-  });
-}
-
-async function currentUrl(cdp) {
-  return evaluate(cdp, 'location.href', 5000);
-}
-
-function waitUrl(cdp, want, timeoutMs) {
-  return poll(timeoutMs, async () => {
-    const href = await currentUrl(cdp);
-    return href === want ? { done: true } : { done: false, reason: `page URL is ${href}, not ${want}` };
-  });
-}
 
 async function applyViewport(cdp, viewport) {
   await cdp.send('Emulation.setDeviceMetricsOverride', {
@@ -221,18 +62,7 @@ async function goto(cdp, url, timeoutMs) {
 async function click(cdp, step) {
   const kind = step.testid !== undefined ? 'testid' : 'text';
   const rect = await locate(cdp, kind, step[kind], 'scroll', step.timeout_ms);
-  const x = rect.x + rect.width / 2;
-  const y = rect.y + rect.height / 2;
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
-}
-
-async function pressKey(cdp, key) {
-  const def = keyDef(key);
-  const base = { key: def.key, code: def.code, windowsVirtualKeyCode: def.keyCode, nativeVirtualKeyCode: def.keyCode };
-  await cdp.send('Input.dispatchKeyEvent', { type: def.text ? 'keyDown' : 'rawKeyDown', ...base, text: def.text, unmodifiedText: def.text });
-  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+  await clickAt(cdp, rect.x + rect.width / 2, rect.y + rect.height / 2);
 }
 
 async function fill(cdp, step) {
@@ -241,7 +71,7 @@ async function fill(cdp, step) {
     await pressKey(cdp, 'Backspace');
     return;
   }
-  await cdp.send('Input.insertText', { text: step.value });
+  await insertText(cdp, step.value);
 }
 
 async function press(cdp, step) {
@@ -275,14 +105,11 @@ async function screenshot(ctx, step) {
     }
     throw err;
   }
-  const file = path.join(ctx.evidenceDir, step.name);
   try {
-    fs.writeFileSync(file, Buffer.from(shot.data, 'base64'));
+    return writeCapture(ctx.dir, ctx.evidenceDir, step.name, Buffer.from(shot.data, 'base64'), state.viewport);
   } catch (err) {
-    throw new StepFailure(`cannot write ${file}: ${err.code || err.message}`);
+    throw new StepFailure(`cannot write ${step.name} into ${ctx.evidenceDir}: ${err.code || err.message}`);
   }
-  appendLedger(ctx.dir, { name: step.name, path: file, viewport: { ...state.viewport } });
-  return file;
 }
 
 async function runStep(ctx, step) {
@@ -465,7 +292,7 @@ export async function drive({ session, steps, evidence: evidenceDir }) {
     })();
     const results = await Promise.race([work, cap]);
     // Let events already in flight for the last step arrive.
-    await sleep(POLL_MS);
+    await sleep(SETTLE_MS);
     return {
       console_errors: ctx.consoleErrors.entries,
       console_errors_dropped: ctx.consoleErrors.dropped,
@@ -480,34 +307,4 @@ export async function drive({ session, steps, evidence: evidenceDir }) {
     clearTimeout(capTimer);
     cdp.close();
   }
-}
-
-export async function evidence({ session }) {
-  const { dir } = readState(session);
-  const latest = new Map();
-  for (const entry of readLedger(dir)) {
-    if (entry && typeof entry.path === 'string') {
-      latest.set(entry.path, entry);
-    }
-  }
-  const entries = [...latest.keys()].sort().map((file) => {
-    const entry = latest.get(file);
-    let data = null;
-    try {
-      data = fs.readFileSync(file);
-    } catch {
-      data = null;
-    }
-    const bytes = data === null ? null : data.length;
-    return {
-      bytes,
-      missing: data === null,
-      name: entry.name,
-      path: file,
-      sha256: data === null ? null : crypto.createHash('sha256').update(data).digest('hex'),
-      uploadable: data !== null && bytes >= 1 && bytes <= MAX_UPLOAD_BYTES && UPLOAD_NAME_RE.test(entry.name),
-      viewport: entry.viewport,
-    };
-  });
-  return { evidence: entries, session };
 }
