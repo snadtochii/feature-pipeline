@@ -141,11 +141,11 @@ In order, for a driver pass:
 
 A pass that clears step 6 composes the [driver block](#driver-block) and spawns `ui-tester`.
 
-**Fix-loop reuse.** The last (or only) pass keeps its session through the close stage's fix loop. Before each re-spawn, run `node "$driver" doctor --session '<id>'`: `cdp_reachable` and `url_reachable` both true → the session is reused, so an expired `auth` alone never relaunches. Otherwise run the driver teardown and this lifecycle again from step 1. An earlier pass of a multi-pass run has already been torn down, so re-verifying it always launches anew.
+**Fix-loop reuse.** The pass that ran last keeps its session into the close stage's fix loop for as long as the next pass the loop re-verifies is that same pass. Before any other pass's pre-flight starts, the kept session's driver teardown runs, so that pre-flight never finds this pass's app ([Entry selection](#entry-selection), Sequential passes). Before each re-spawn of the pass whose session is kept, run `node "$driver" doctor --session '<id>'`: `cdp_reachable` and `url_reachable` both true → the session is reused, so an expired `auth` alone never relaunches, and `rm -rf '<step-dir>'` runs before the spawn, so the fresh tester's `Write` never meets a step file it has not read. Otherwise run the driver teardown and this lifecycle again from step 1. A pass whose session was torn down launches anew, and the session still kept when the fix loop ends is torn down then.
 
 #### Driver teardown
 
-Runs for a driver pass at the close stage's teardown step — **even if the checkpoint errored** — after a failed session check, and for a leftover session. One `Bash` call, with a timeout of at least 60 seconds, reconstructing the fixed paths literally:
+Runs for a driver pass at the close stage's teardown step — **even if the checkpoint errored** — after a failed session check, for a leftover session, and for a kept session before another pass's pre-flight ([Fix-loop reuse](#driver-lifecycle)). One `Bash` call, with a timeout of at least 60 seconds, reconstructing the fixed paths literally:
 
 ```bash
 driver='<driver>'                                         # literal data value — never pasted into a command position
