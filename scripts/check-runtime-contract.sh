@@ -157,8 +157,10 @@ if ("a resize is a `viewport` step — 1280×800 desktop, 390×844 mobile" not i
     errors.append("test-preflight.md driver block: missing the ui-checks driver equivalents")
 ui_checks_path = plugin / "skills/build/references/ui-checks.md"
 ui_checks = ui_checks_path.read_text(encoding="utf-8") if ui_checks_path.is_file() else ""
-if "driver" in ui_checks.lower():
-    errors.append("ui-checks.md: carries driver text — it is injected into every ui-tester prompt; the driver equivalents belong in test-preflight.md's driver block")
+driver_markers = ("browser driver", "browser-cli", "cli.mjs", "`viewport` step", "`screenshot` step")
+leaked = [marker for marker in driver_markers if marker in ui_checks.lower()]
+if leaked:
+    errors.append(f"ui-checks.md: carries driver text ({', '.join(leaked)}) — it is injected into every ui-tester prompt; the driver equivalents belong in test-preflight.md's driver block")
 
 if errors:
     print("\n".join(f"FAIL: {error}" for error in errors), file=sys.stderr)
