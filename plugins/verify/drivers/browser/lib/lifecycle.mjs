@@ -4,11 +4,12 @@
 // down and a `start` is declared → start a scratch Chrome → create the session
 // page → import auth. state.json is rewritten as each process starts, so a
 // launch killed partway leaves a record cleanup can act on. Any failure after
-// something started tears it down and removes the session directory before
-// exiting 1.
+// something started tears it down before exiting 1, removing the session
+// directory once every process is confirmed stopped.
 //
 // cleanup: stop only what launch recorded for the session, then remove the
-// session directory. Evidence is never touched.
+// session directory once every process is confirmed stopped. Evidence is
+// never touched.
 //
 // Private to the implementation: only cli.mjs is a command.
 
@@ -16,7 +17,7 @@ import { importAuth } from './auth.mjs';
 import { requireWebSocket } from './cdp.mjs';
 import { chromeStatus, closeChrome, createPage, pageWs, startChrome } from './chrome.mjs';
 import { ComputeError, logTail } from './output.mjs';
-import { processStart, stopGroup } from './proc.mjs';
+import { isAlive, processStart, stopGroup } from './proc.mjs';
 import { bootServer, probe, waitReachable } from './server.mjs';
 import { createSession, isOwnSessionDir, listSessions, removeSession, sessionDir, tryReadState, writeState } from './session.mjs';
 
@@ -30,10 +31,17 @@ async function teardown(started) {
   }
   let serverExited = null;
   if (started.server === 'booted' && started.server_pid) {
-    const sameProcess = started.server_started !== null && processStart(started.server_pid) === started.server_started;
-    // A boot process that is gone, or whose id now belongs to another process,
-    // is never signalled.
-    serverExited = sameProcess ? await stopGroup(started.server_pid, SERVER_STOP_WAIT_MS) : true;
+    const current = processStart(started.server_pid);
+    if (current === null && isAlive(started.server_pid)) {
+      // Alive, but `ps` cannot read its start time: never signalled, and not
+      // reported as exited.
+      serverExited = false;
+    } else {
+      const sameProcess = started.server_started !== null && current === started.server_started;
+      // A boot process that is gone, or whose id now belongs to another process,
+      // is never signalled.
+      serverExited = sameProcess ? await stopGroup(started.server_pid, SERVER_STOP_WAIT_MS) : true;
+    }
   }
   return { chromeExited, serverExited };
 }
@@ -112,8 +120,11 @@ export async function launch({ entry }) {
       viewport: { ...DEFAULT_VIEWPORT },
     };
   } catch (err) {
-    await teardown(started);
-    removeSession(dir);
+    const { chromeExited, serverExited } = await teardown(started);
+    // A process that may still run keeps its record, so cleanup can retry.
+    if (chromeExited && serverExited !== false) {
+      removeSession(dir);
+    }
     throw err;
   }
 }
@@ -133,10 +144,14 @@ async function cleanupOne(id) {
     browser_ws: state ? state.browser_ws : null,
   };
   const { chromeExited, serverExited } = await teardown(started);
-  removeSession(dir);
+  const ok = chromeExited && serverExited !== false;
+  // A process that may still run keeps its record, so a later cleanup can retry.
+  if (ok) {
+    removeSession(dir);
+  }
   return {
     chrome_exited: chromeExited,
-    ok: chromeExited && serverExited !== false,
+    ok,
     server: started.server,
     server_exited: serverExited,
     session: id,

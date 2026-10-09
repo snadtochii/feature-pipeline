@@ -140,7 +140,8 @@ already answers is recorded `"server": "already-running"` and is never signalled
 verb.
 
 **Failure after something started.** Any exit 1 inside `launch` after the app or Chrome was
-started first runs the same teardown as `cleanup` (§9) and removes the session directory.
+started first runs the same teardown as `cleanup` (§9) and, as `cleanup` does, removes the
+session directory only when every process is confirmed stopped.
 
 **Document:**
 
@@ -346,7 +347,8 @@ node cli.mjs cleanup --all
 ```
 
 Exactly one of the two flags. Stops only what `launch` started for that session, then
-removes the session directory. Evidence is never touched.
+removes the session directory once every process is confirmed stopped. Evidence is never
+touched.
 
 1. Close Chrome over CDP, then signal Chrome's process group with `SIGTERM` if it is still
    alive, waiting up to 10 seconds.
@@ -357,7 +359,11 @@ removes the session directory. Evidence is never touched.
 Each process is signalled only while it is still the one `launch` started: Chrome while its
 command line names the session's profile, the boot process while its start time equals the
 one recorded at boot. A process id that now belongs to another process counts as exited.
-3. Remove the session directory.
+   A live process whose identity `ps` cannot read is never signalled and does not count as
+   exited.
+3. Remove the session directory — only when `ok` is true. A session with a process that may
+   still run keeps its directory, so a later `cleanup` can retry; `launch` lists it under
+   `stale_sessions`.
 
 `SIGKILL` is never sent. A process that already exited is not an error.
 

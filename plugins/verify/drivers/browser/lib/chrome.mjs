@@ -114,26 +114,36 @@ export function pageWs(port, targetId) {
   return `ws://127.0.0.1:${port}/devtools/page/${targetId}`;
 }
 
-/** True when `pid`'s command line names this session's scratch profile. */
-export function isSessionChrome(pid, dir) {
+/**
+ * Who `pid` is now: 'gone' when no process has the id, 'session' when its
+ * command line names this session's scratch profile, 'other' when it names
+ * something else, and 'unknown' when `ps` cannot read its command line.
+ */
+export function sessionChromeState(pid, dir, run = spawnSync) {
   if (!isAlive(pid)) {
-    return false;
+    return 'gone';
   }
-  const res = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
-  return res.status === 0 && res.stdout.includes(`--user-data-dir=${path.join(dir, 'profile')}`);
+  const res = run('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
+  if (res.status !== 0 || typeof res.stdout !== 'string' || res.stdout.trim() === '') {
+    return isAlive(pid) ? 'unknown' : 'gone';
+  }
+  return res.stdout.includes(`--user-data-dir=${path.join(dir, 'profile')}`) ? 'session' : 'other';
 }
 
 /**
  * Close a session's Chrome: Browser.close over CDP, then SIGTERM to its process
- * group if still alive. Returns true when the process is gone.
+ * group if still alive. Returns true when the process is gone, or when its id
+ * now belongs to another process; false when it is still running, or alive
+ * with an identity `ps` cannot confirm (never signalled).
  */
-export async function closeChrome(pid, browserWs, dir) {
-  if (!isAlive(pid)) {
+export async function closeChrome(pid, browserWs, dir, { run = spawnSync } = {}) {
+  const state = sessionChromeState(pid, dir, run);
+  if (state === 'gone' || state === 'other') {
+    // An id that now belongs to another process is never signalled.
     return true;
   }
-  if (!isSessionChrome(pid, dir)) {
-    // The recorded id now belongs to another process: never signal it.
-    return true;
+  if (state === 'unknown') {
+    return false;
   }
   if (browserWs) {
     try {

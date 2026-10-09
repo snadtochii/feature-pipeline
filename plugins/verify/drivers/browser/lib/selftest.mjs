@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgv } from './args.mjs';
 import { authStatus } from './auth.mjs';
 import { CdpError } from './cdp.mjs';
+import { closeChrome, sessionChromeState } from './chrome.mjs';
 import { dialogReply, run, watchDialogs } from './drive.mjs';
 import { writeCapture } from './evidence.mjs';
 import { normaliseStartTimeout, validateEntry } from './entry.mjs';
@@ -360,6 +361,20 @@ const CASES = [
     assert(processStart(gone) === null, 'an exited process has a start time');
     assert(await waitExit(gone, 1000) === true, 'waitExit on an exited process');
     assert(await stopGroup(gone, 1000) === true, 'stopGroup on an exited process');
+  }],
+  ['chrome: an unreadable identity is never signalled and never counts as exited', async () => {
+    const dir = path.join(os.tmpdir(), 'fp-verify-selftest-identity');
+    const psFails = () => ({ status: 1, stdout: '' });
+    const psOther = () => ({ status: 0, stdout: 'node something-else\n' });
+    const psSession = () => ({ status: 0, stdout: `chrome --user-data-dir=${path.join(dir, 'profile')}\n` });
+    const gone = spawnSync(process.execPath, ['-e', '']).pid;
+    assert(sessionChromeState(gone, dir, psFails) === 'gone', 'an exited process is not gone');
+    assert(sessionChromeState(process.pid, dir, psFails) === 'unknown', 'a failed ps is not unknown');
+    assert(sessionChromeState(process.pid, dir, psOther) === 'other', 'another command line is not other');
+    assert(sessionChromeState(process.pid, dir, psSession) === 'session', 'the session profile is not session');
+    assert(await closeChrome(process.pid, null, dir, { run: psFails }) === false, 'an unreadable identity counts as exited');
+    assert(await closeChrome(process.pid, null, dir, { run: psOther }) === true, 'a recycled id does not count as exited');
+    assert(isAlive(process.pid), 'this process was signalled');
   }],
   ['cli: invocation errors exit 2 with an error document', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fp-verify-selftest-'));
