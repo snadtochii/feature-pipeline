@@ -139,8 +139,31 @@ for resize_tool in ("mcp__playwright__browser_resize", "mcp__chrome-devtools__re
     if not re.search(rf"^  - {re.escape(resize_tool)}$", tester_frontmatter, re.M):
         errors.append(f"ui-tester: tool budget must list {resize_tool}")
 
+# The browser-driver seam: a pass whose entry declares `driver` gets the driver
+# block in place of the MCP recipe. The tester must keep its branch for that
+# block, and the pre-flight must keep both the §5 hand-off line and the driver
+# equivalents of the required UI checks. ui-checks.md is injected verbatim into
+# every ui-tester prompt, so it stays free of driver text — the equivalents
+# live in the pre-flight's driver block instead.
+tester_text = tester.read_text(encoding="utf-8") if tester.is_file() else ""
+if "1.5. Driver session" not in tester_text or "never run `launch`, `cleanup` or `install`" not in tester_text:
+    errors.append("ui-tester.md: missing the browser-driver branch")
+preflight_path = plugin / "skills/close-stage/references/test-preflight.md"
+preflight = preflight_path.read_text(encoding="utf-8") if preflight_path.is_file() else ""
+if "A driver pass injects the driver block instead of this recipe" not in preflight:
+    errors.append("test-preflight.md §5: missing the driver line")
+if ("a resize is a `viewport` step — 1280×800 desktop, 390×844 mobile" not in preflight
+        or "a capture is a `screenshot` step" not in preflight):
+    errors.append("test-preflight.md driver block: missing the ui-checks driver equivalents")
+ui_checks_path = plugin / "skills/build/references/ui-checks.md"
+ui_checks = ui_checks_path.read_text(encoding="utf-8") if ui_checks_path.is_file() else ""
+driver_markers = ("browser driver", "browser-cli", "cli.mjs", "`viewport` step", "`screenshot` step")
+leaked = [marker for marker in driver_markers if marker in ui_checks.lower()]
+if leaked:
+    errors.append(f"ui-checks.md: carries driver text ({', '.join(leaked)}) — it is injected into every ui-tester prompt; the driver equivalents belong in test-preflight.md's driver block")
+
 if errors:
     print("\n".join(f"FAIL: {error}" for error in errors), file=sys.stderr)
     sys.exit(1)
-print("OK: 6 runtime consumers, 2 runtime implementations, 4 neutral stage templates, 1 stage chain, 4 read-only reviewer roles, 1 confidence-scale injection site, 1 mutating finalizer role, 2 ui-checks injection sites")
+print("OK: 6 runtime consumers, 2 runtime implementations, 4 neutral stage templates, 1 stage chain, 4 read-only reviewer roles, 1 confidence-scale injection site, 1 mutating finalizer role, 2 ui-checks injection sites, 1 browser-driver seam (ui-tester branch, preflight §5 line, driver-block equivalents)")
 PY
