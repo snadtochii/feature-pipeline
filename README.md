@@ -50,12 +50,12 @@ codex plugin add feature@feature            # reinstall from the refreshed snaps
 codex plugin list                           # verify the new version is active
 ```
 
-For local development, run the helper from your Feature Pipeline checkout. It stages the `feature` and `verify` plugins' tracked files plus non-ignored uncommitted files into a separate local marketplace and applies a local-only cachebuster before reinstalling. Gitignored files such as local credentials are not copied. It does not change the checkout's release manifest and does not silently substitute the stable GitHub copy. The helper requires Bash, Git, rsync, and the Codex CLI; on Windows, run it from WSL.
+For local development, run the helper from your Feature Pipeline checkout. It stages the `feature` and `verify` plugins' tracked files plus non-ignored uncommitted files into a separate local marketplace and applies a local-only cachebuster before reinstalling. It always reinstalls `feature`; it reinstalls `verify` only when `verify` is already installed from either marketplace, or when you pass `--with verify`. Each plugin installs on its own, so a failed `verify` install restores `verify` alone and leaves the refreshed `feature` in place. Gitignored files such as local credentials are not copied. It does not change the checkout's release manifest and does not silently substitute the stable GitHub copy. The helper requires Bash, Git, rsync, and the Codex CLI; on Windows, run it from WSL.
 
 ```bash
 cd /path/to/feature-pipeline
-scripts/install-codex-local.sh
-codex plugin list                           # verify feature@feature-local and verify@feature-local are installed
+scripts/install-codex-local.sh              # add --with verify to install verify too
+codex plugin list                           # verify feature@feature-local is installed
 ```
 
 Set `CODEX_HOME` to test against an isolated Codex home, or `FEATURE_CODEX_LOCAL_MARKETPLACE` to choose a different staging root. Both locations must be outside the checkout. Re-run the helper after local edits, then start a new Codex task to load the refreshed plugins.
