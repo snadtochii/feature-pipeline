@@ -228,7 +228,10 @@ swap_in_plugin() {
 # A plugin nothing installs from this run is staged without a transaction.
 for name in $plugin_names; do
   if ! is_selected "$name"; then
-    swap_in_plugin "$name"
+    if ! swap_in_plugin "$name"; then
+      echo "Could not move the staged $name into the local marketplace; its previous local sources were left in place." >&2
+      exit 1
+    fi
     rm -rf -- "$marketplace_root/plugins/.$name.previous"
   fi
 done
