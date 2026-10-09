@@ -54,7 +54,7 @@ Whether they are hostable is ship's decision, made only with attaching enabled �
 
 **Target folder.** Re-resolve the ticket folder immediately before writing — never reuse the path SETUP resolved for §3, because the run's own transitions moved the folder since. A solo or multi-solo ticket resolves by the search order in [`../../flow/references/ticket-resolution-fs.md`](../../flow/references/ticket-resolution-fs.md); an epic child by `Glob` `claudedocs/tickets/*/<EPIC>/tasks/<ID>/`, since the epic subtree moves as a unit and the child never leaves `tasks/`. The result is an absolute path. No match, or more than one → write nothing for that ticket and report it.
 
-**`05-tests.md` body.** A whole-file overwrite; nothing of the skip body the close stage wrote under `--no-ui-testing` is kept.
+**`05-tests.md` body.** A whole-file overwrite; nothing of the `05-tests.md` the ticket's close stage wrote is kept — its `--no-ui-testing` skip body, or a driver ticket's own browser record or driver skip.
 
 ```
 Source: ship end-of-run UI verification — branch <assembled-branch> @ <sha>
