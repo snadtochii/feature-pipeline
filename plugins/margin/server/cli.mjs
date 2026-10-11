@@ -19,11 +19,10 @@
 
 import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { listFiles, readSource, revision } from './lib/files.mjs';
 import { startServer } from './lib/server.mjs';
-import { RunError, finishRun, readStored, restoreSession, scopePath } from './lib/session.mjs';
+import { RunError, createSession, finishRun, readStored, saveSession, scopePath } from './lib/session.mjs';
 
 const USAGE = 'usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--port <n>] [--token <hex>] [--no-open]';
 
@@ -92,15 +91,8 @@ async function annotate(argv) {
   }
 
   const out = resolve(values.out ?? join(root, 'claudedocs', 'margin', `${stamp()}.json`));
-  const now = new Date().toISOString();
-  const session = stored ? restoreSession(stored, out) : { version: 1, createdAt: now, overall: '', annotations: [] };
-  Object.assign(session, { status: 'draft', root, scope, out, revision: revision(root), updatedAt: now });
-
-  const save = () => {
-    session.updatedAt = new Date().toISOString();
-    mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, `${JSON.stringify(session, null, 2)}\n`);
-  };
+  const session = createSession({ stored, out, root, scope, revision: revision(root) });
+  const save = () => saveSession(session);
 
   const finish = (status) => {
     writeDoc(finishRun({ session, status, out, root, scope, save }));

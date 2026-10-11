@@ -1,10 +1,11 @@
 // Session rules for the margin command: where a scope path may point, how a notes file is
-// resumed, and what the end of a run does with the notes file. Each rule throws a
-// `RunError` carrying the exit code instead of exiting, so `cli.mjs` stays the only place
-// that writes the error document and exits, and the self-test can call every rule in-process.
+// resumed, how a run's session is built and saved, and what the end of a run does with the
+// notes file. Each rule throws a `RunError` carrying the exit code instead of exiting, so
+// `cli.mjs` stays the only place that writes the error document and exits, and the self-test
+// can call every rule in-process.
 
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { cleanAnnotation } from './server.mjs';
 
 export class RunError extends Error {
@@ -59,6 +60,21 @@ export function restoreSession(stored, out) {
     overall: typeof stored.overall === 'string' ? stored.overall : '',
     annotations,
   };
+}
+
+// The session a run serves: the resumed notes, or a fresh record, as a `draft` over `root` and
+// `scope` that saves to `out`.
+export function createSession({ stored, out, root, scope, revision }) {
+  const now = new Date().toISOString();
+  const session = stored ? restoreSession(stored, out) : { version: 1, createdAt: now, overall: '', annotations: [] };
+  return Object.assign(session, { status: 'draft', root, scope, out, revision, updatedAt: now });
+}
+
+// Writes the session to its notes file, stamping `updatedAt` first.
+export function saveSession(session) {
+  session.updatedAt = new Date().toISOString();
+  mkdirSync(dirname(session.out), { recursive: true });
+  writeFileSync(session.out, `${JSON.stringify(session, null, 2)}\n`);
 }
 
 // The end of a run. A cancel with no notes and a blank overall comment deletes the notes

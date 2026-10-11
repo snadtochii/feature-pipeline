@@ -23,7 +23,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { highlightLines } from '../../ui/highlight.js';
 import { listFiles, readSource } from './files.mjs';
 import { applyEdits, cleanAnnotation, startServer } from './server.mjs';
-import { RunError, finishRun, readStored, restoreSession, scopePath } from './session.mjs';
+import { RunError, createSession, finishRun, readStored, restoreSession, saveSession, scopePath } from './session.mjs';
 
 const CLI = fileURLToPath(new URL('../cli.mjs', import.meta.url));
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -147,21 +147,16 @@ function request(port, { method = 'GET', target = '/api/session', headers = {}, 
   });
 }
 
-// A server on port 0 over a temp root holding `a.txt`, wired the way `cli.mjs annotate` wires
-// it: `finished` settles with the result document the run would print.
+// A server on port 0 over a temp root holding `a.txt`, with the session and save that
+// `cli.mjs annotate` builds: `finished` settles with the result document the run would print.
 function withServer(fn) {
   return withTemp(async (root) => {
     write(root, 'a.txt', 'a\n');
     const files = listFiles(root, []);
     assertEqual(files, ['a.txt'], 'fixture listing');
     const out = path.join(root, 'claudedocs', 'margin', 'notes.json');
-    const now = new Date().toISOString();
-    const session = { version: 1, createdAt: now, overall: '', annotations: [], status: 'draft', root, scope: [], out, revision: null, updatedAt: now };
-    const save = () => {
-      session.updatedAt = new Date().toISOString();
-      fs.mkdirSync(path.dirname(out), { recursive: true });
-      fs.writeFileSync(out, `${JSON.stringify(session, null, 2)}\n`);
-    };
+    const session = createSession({ stored: null, out, root, scope: [], revision: null });
+    const save = () => saveSession(session);
     let settle;
     const finished = new Promise((resolve) => {
       settle = resolve;
