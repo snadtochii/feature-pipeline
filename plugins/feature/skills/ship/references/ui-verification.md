@@ -35,7 +35,7 @@ The assembled branch is the first point the whole UI story is testable, and the 
 
    **Serves the PR head or not verified.** The resolved URL counts as serving the checked-out assembled branch only when §3 booted the entry's `start` during this pass, after this pass's checkout. When §2 finds the URL already reachable on its first probe, nothing establishes that it serves the PR head — [`test-preflight.md`](../../close-stage/references/test-preflight.md) §3's fixed-port hazard — so that URL is a setup gap: go to step 5 before any spawn. Never boot a second instance and never switch ports to work around it. The rule applies per pass, so a later pass whose URL is still answered by an earlier pass's server degrades too, and Entry selection's duplicate-URL guard applies across all of the run's passes. Each pass's §4 teardown finishes before the next pass's checkout.
 
-   **Driver pass.** A pass whose entry declares `driver` runs [`test-preflight.md` Browser driver](../../close-stage/references/test-preflight.md#browser-driver) — its driver lifecycle and driver teardown — in place of §3's boot, §4's teardown and §5's recipe, after this step's checkout. Ship's substitutions:
+   **Driver pass.** A pass whose entry declares `driver` reads [`driver-pass.md`](../../close-stage/references/driver-pass.md) and runs its driver lifecycle and driver teardown in place of §3's boot, §4's teardown and §5's recipe, after this step's checkout. Ship's substitutions:
    - **Pass directory** — `<pass-dir>` keeps the pre-flight's path, keyed by this pass's pass key.
    - **Entry file** — `<pass-dir>/entry.json` is materialized with a single-quoted heredoc whose delimiter is a verified-unique nonce, confirmed absent from every line of the JSON body. Values are JSON-escaped in the body, so the `test.start` value reaches the driver as file content only.
    - **Session file** — written with `printf '%s\n' '<id>' > '<pass-dir>/session'`, and only after the id matches `^[a-f0-9]{12}$`.
@@ -51,7 +51,7 @@ The assembled branch is the first point the whole UI story is testable, and the 
 
    > **Auth — the driver session carries it.** The pre-flight imported any declared auth.storage_state into the session at launch; do not load or save a storage state, and do not attach to a tab. If the app shows a login wall, report the criteria behind it as not verified (unauthenticated session) — never script credential entry.
 
-   and then the composed [driver block](../../close-stage/references/test-preflight.md#driver-block), every placeholder concrete and absolute, its `drive` timeout written in the runtime's own form ([`runtime-claude.md`](../../flow/references/runtime-claude.md) / [`runtime-codex.md`](../../flow/references/runtime-codex.md) §Tool results). The `ui-checks.md` injection is the same as on any other pass.
+   and then the composed [driver block](../../close-stage/references/driver-pass.md#driver-block), every placeholder concrete and absolute, its `drive` timeout written in the runtime's own form ([`runtime-claude.md`](../../flow/references/runtime-claude.md) / [`runtime-codex.md`](../../flow/references/runtime-codex.md) §Tool results). The `ui-checks.md` injection is the same as on any other pass.
 
    How the brief labels the criteria depends on the run shape, so the report maps back to each ticket for step 4:
    - **Solo or multi-solo pass** — plain `AC <n>`, numbered as the ticket's spec numbers them; a pass covers one ticket.

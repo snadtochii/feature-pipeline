@@ -23,7 +23,7 @@ The ticket is a driver ticket when at least one entry is selected and every sele
 
 When at least one ticket is a driver ticket, probe the driver once for the run. This one check replaces a failing pre-flight in every driver ticket's close stage.
 
-1. Resolve `<driver>` per [Browser driver](../../close-stage/references/test-preflight.md#browser-driver)'s Driver location.
+1. Resolve `<driver>` per [`driver-pass.md`](../../close-stage/references/driver-pass.md)'s Driver location.
 2. Run `node '<driver>' doctor` in exactly that form, with no session. Give its shell call the `doctor` timeout from the runtime reference's Tool results section.
 
 Exit 0 with `ok: true` passes. Anything else fails: a denied call, an unusable home directory, a non-zero exit, unparseable output, or `ok: false`. On a failure no ticket is a driver ticket, and the run prints:
