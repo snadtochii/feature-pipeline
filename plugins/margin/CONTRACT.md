@@ -294,7 +294,8 @@ longer exists answers 500.
 3. **Read the URL.** It waits, bounded, for the stderr block's first line (§2), `margin:
    http://127.0.0.1:<port>/#<token>`. A process that exits before writing it has its error
    document on stdout (§2, §3), which the skill reports; a port that cannot be bound is not
-   retried.
+   retried. A process still running when the wait ends has not bound yet — it lists the files
+   before it listens — so the skill waits once more before it stops the process.
 4. **Announce.** Once that line has appeared, it tells the user the URL exactly as printed,
    and the notes file the block names.
 5. **Read after exit.** It waits for the process to exit, without polling and without reading

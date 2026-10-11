@@ -66,10 +66,11 @@ turns it into work. Nothing is edited before the confirmation in §3.
    root only when `--root` is absent, so the recorded tree reopens from any working directory
    or worktree. Pass `--port` only when the user gave one. Pass no `--token`: the server mints
    it and prints it in the URL.
-5. **Wait for the URL** in one foreground command with a `timeout` of 60000 ms:
+5. **Wait for the URL**, up to 60 s — 300 polls of 0.2 s — in one foreground command with a
+   `timeout` of 90000 ms, so the command outlasts the loop:
 
    ```bash
-   for i in $(seq 1 150); do grep -q '^margin: http://127.0.0.1:' "<stderr-file>" && { cat "<stderr-file>"; break; }; sleep 0.2; done
+   for i in $(seq 1 300); do grep -q '^margin: http://127.0.0.1:' "<stderr-file>" && { cat "<stderr-file>"; break; }; sleep 0.2; done
    ```
 
    The server writes its stderr block only after it has bound the port and saved the first
@@ -81,16 +82,20 @@ turns it into work. Nothing is edited before the confirmation in §3.
    the block's `notes:` line as printed, naming the file that saves as the human goes; Send
    hands the notes over. Then stop talking until the command exits — do not poll, do not read the notes
    file early.
-7. **No block** within the wait means the server stopped before binding the port. Check the
-   stderr file once more; still empty → wait for the background command to exit and report its
-   stdout error document verbatim, with its cause in one line:
-   - `could not listen on port <n>: EADDRINUSE` — that port is taken; running without `--port`
-     lets the server pick a free one. Nothing is retried.
-   - `no files under …` on a resume — the recorded root or scope lists no file; name the
-     recorded root.
-   - any other error — as printed.
+7. **No block** within the wait → check whether the background command has exited.
+   - **Still running** → the server is still listing the scope or reading the resumed file,
+     which it does before binding. Run step 5's wait once more; the block appears → step 6.
+     Still none → stop the background command, report that the server did not bind within
+     two minutes and suggest a narrower scope, delete the stderr file and stop.
+   - **Exited** → the server stopped before binding the port. Report its stdout error document
+     verbatim, with its cause in one line:
+     - `could not listen on port <n>: EADDRINUSE` — that port is taken; running without
+       `--port` lets the server pick a free one. Nothing is retried.
+     - `no files under …` on a resume — the recorded root or scope lists no file; name the
+       recorded root.
+     - any other error — as printed.
 
-   Then delete the stderr file and stop.
+     Then delete the stderr file and stop.
 8. **Exit.** When the command exits, its stdout is one JSON document: `{ status, out,
    annotations, root, scope }`. Delete the stderr file (`rm -f "<stderr-file>"`) and go on to
    §2.
@@ -133,18 +138,45 @@ on them.
   `interrupted` with a file: ask whether to use the draft.
 - Read `overall` first; it is the human's framing for every note below it.
 - **Drift check**, before planning anything. The `excerpt` is what the human saw; the file is
-  what is true now. For every `range` anchor, read lines `start` to `end` of the current file
-  and compare them with `excerpt`, after dropping a trailing `\r` from every line on both
-  sides — the excerpt keeps the file's line endings — and joining each side with `\n`:
-  - equal → the anchor holds;
-  - an excerpt of exactly 4000 characters was truncated by the server's cap, so it holds when
-    the current text starts with it;
-  - an empty excerpt cannot be compared → the anchor is unchecked;
-  - anything else — different text, an `end` past the file's last line, or a missing file —
-    has drifted.
+  what is true now. Run this once, with the notes file's absolute path (`out`), rather than
+  comparing through `Read`, which truncates long lines and prefixes line numbers:
 
-  A `file` or `folder` anchor whose path is missing has drifted too. Drifted and
-  unchecked anchors go into §3's Reading list; never guess which version the note meant.
+  ```bash
+  node -e '
+  const fs = require("fs"), { join } = require("path");
+  const notes = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const split = (text) => text.split("\n").map((line) => line.replace(/\r$/, ""));
+  const show = (line, none) => (line === undefined ? none : JSON.stringify(line));
+  let drifted = 0;
+  notes.annotations.forEach(({ anchor: { kind, path, start, end, excerpt } }, i) => {
+    if (kind === "scope") { return; }
+    const span = kind === "range" ? `${path}:${start}-${end}` : path;
+    const report = (why) => { drifted += 1; console.log(`note ${i + 1}, ${kind} ${span}: ${why}`); };
+    const stat = fs.statSync(join(notes.root, path), { throwIfNoEntry: false });
+    if (!stat || (kind === "range" && !stat.isFile())) { report("missing"); return; }
+    if (kind !== "range") { return; }
+    const raw = typeof excerpt === "string" ? excerpt : "";
+    const want = split(raw);
+    const now = split(fs.readFileSync(join(notes.root, path), "utf8")).slice(start - 1, end);
+    const same = raw.length === 4000 ? now.join("\n").startsWith(want.join("\n")) : now.join("\n") === want.join("\n");
+    if (now.length === end - start + 1 && same) { return; }
+    let k = 0;
+    while (k < want.length && k < now.length && want[k] === now[k]) { k += 1; }
+    report(`line ${start + k}: excerpt ${show(want[k], "(excerpt ends)")}, now ${show(now[k], "(past the end of the file)")}`);
+  });
+  console.log(drifted ? `${drifted} drifted` : "no drift");
+  ' "<absolute-notes-file>"
+  ```
+
+  It compares lines `start` to `end` of each `range` anchor's current file with `excerpt`,
+  after dropping a trailing `\r` from every line on both sides — the excerpt keeps the file's
+  line endings. Equal text holds, an empty excerpt included; an excerpt of exactly 4000
+  characters was truncated by the server's cap, so it holds when the current text starts with
+  it. Different text, an `end` past the file's last line, or a missing file has drifted, and so
+  has a `file` or `folder` anchor whose path is missing. It prints one line per drifted
+  anchor — the note's position in `annotations`, its span, and the first line that differs,
+  quoted from the excerpt and from the current file — then `<n> drifted` or `no drift`.
+  Drifted anchors go into §3's Reading list; never guess which version the note meant.
 - A `folder` note is about the folder's shape (what lives in it, how it is split), not about
   any one file. A `file` note is about the file as a unit. A `scope` note is about everything.
 
@@ -153,7 +185,10 @@ on them.
 Open with the count: "N notes read" — the same N as the file's `annotations` length, so the
 human can see nothing was dropped. Then one table, **one row per note**, sorted as the viewer
 lists them: scope notes first, then by path, then folder before file before range on the same
-path, then by start line; notes that tie keep the file's order.
+path, then by start line; notes that tie keep the file's order. Paths compare as the viewer
+compares them, with JavaScript's `localeCompare`, not by code point: case only breaks ties
+and punctuation sorts before digits and letters, so `a.ts` precedes `B.ts`. When two paths
+differ in case or punctuation, settle their order with `node -p '"<a>".localeCompare("<b>")'`.
 
 | # | anchor | intent | note | action | kind | risk |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -162,8 +197,8 @@ path, then by start line; notes that tie keep the file's order.
 - `action` names what will be done. Notes that describe one change share one named action
   (three "move this type out" notes on one file → each row says `A: split types out of a.ts`).
   Grouping lives in the action column; it never collapses rows.
-- A row whose anchor drifted or is unchecked has its action prefixed `held:`. It is planned
-  like any other row and done only when the user's answer names it.
+- A row whose anchor drifted has its action prefixed `held:`. It is planned like any other
+  row and done only when the user's answer names it.
 
 `kind` is one of:
 
@@ -179,10 +214,10 @@ Below the table, a **Reading** list: one bullet for every place the plan is not 
 note — two notes merged into one action, a name the note did not use (`utils` asked for,
 `*-copy.ts` proposed because that is the repo's convention), a wider or narrower range than
 the anchor. Each bullet says what was read into the note and why. No bullet means the action
-is the note, taken literally. Every drifted or unchecked anchor from §2 gets a bullet too: its
-span as `path:start-end` and the first line that differs, quoted once from the excerpt and
-once from the current file — or `file missing`, or `excerpt empty, unchecked`; the full text
-of both on request. Omit the list only when it would be empty.
+is the note, taken literally. Every drifted anchor from §2 gets a bullet too: the drift
+check's line for it — its span and the first line that differs, quoted once from the excerpt
+and once from the current file, or `missing`; the full text of both on request. Omit the list
+only when it would be empty.
 
 Then ask one question: do the structural rows here, hand everything to `/feature:discover`,
 or adjust the table? A `held:` row is done in §4 only when the answer names it; otherwise it is
