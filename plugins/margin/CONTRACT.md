@@ -78,7 +78,7 @@ The block is for the human. It is not a parsing surface.
 |---|---|---|
 | `0` | The review ended: Send (`submitted`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). | Result |
 | `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), or the port cannot be bound (`could not listen on port <n>: <code>`). | Error |
-| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, a `--port` that is not an integer from 0 to 65535, a `--token` outside its class (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. | Error |
+| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. | Error |
 
 Checks run in this order, and the first failure is the one reported: arguments and verb, then
 `--port`, then `--token`, then the resumed file's JSON and its `annotations` array (§5), then
@@ -95,7 +95,7 @@ value. A flag other than `--scope` given twice keeps its last value.
 | `--root <dir>` | see meaning | The directory the scope is resolved against and served from. The flag applies when given, else the resumed file's `root` when it is a string (§5), else the working directory. A relative value resolves against the working directory; the result is absolute. |
 | `--scope <path>` | none | Repeatable. A file or folder, relative to the root (an absolute path inside the root is accepted). Each is normalised to a root-relative path, and the root itself becomes `.`. A path outside the root exits 2; the check compares path text and resolves no symbolic link (§10). With no `--scope`, a resumed file's `scope` applies when it is an array; otherwise the scope is empty and the whole root is listed. |
 | `--out <file>` | `<root>/claudedocs/margin/<stamp>.json` | The notes file. `<stamp>` is the start time in UTC as `YYYY-MM-DDTHH-MM-SS`. A relative value resolves against the working directory. When the file exists, the run is a resume (§5). Missing parent directories are created on the first save. |
-| `--port <n>` | `0` | An integer from 0 to 65535. `0` lets the operating system assign a free port; the bound port is the one in the stderr URL. |
+| `--port <n>` | `0` | An integer from 0 to 65535 after the value is converted with JavaScript's `Number()`: an empty or all-whitespace value becomes `0`, and `1e3` and `0x10` are accepted as `1000` and `16` (§12). `0` lets the operating system assign a free port; the bound port is the one in the stderr URL. |
 | `--token <token>` | minted | 16 to 128 characters from `[A-Za-z0-9_-]`. When absent, the server mints 32 lowercase hexadecimal characters (16 random bytes). Setting it lets a caller know the viewer URL before the server prints it (§11). |
 | `--no-open` | off | Do not open the viewer. Without it, the server opens the URL with the platform opener (`open` on macOS, `start` on Windows, `xdg-open` elsewhere). An opener that starts and fails is ignored, since the URL is on stderr; an opener command that is not installed ends the run with exit 1 and no stdout document, after the draft is saved and the stderr block is printed (§12). |
 
@@ -156,7 +156,7 @@ Each note has exactly these fields; any other field on a note or on its anchor i
 
 | Field | Value |
 |---|---|
-| `id` | A string. A note that arrives without one gets a fresh UUID when the server accepts it; the viewer mints UUIDs for the notes it creates. It is the identity a later write revises the note by. |
+| `id` | A string. A note that arrives without one gets a fresh UUID when the server accepts it; the viewer mints UUIDs for the notes it creates. It is the identity a later write revises the note by. Ids are not checked for uniqueness: a write or a resumed file may hold two notes with one id, and both are kept; a later write then revises each note carrying that id from the last stored note with it (§12). |
 | `anchor` | Where the note sits, by kind (below). |
 | `intent` | `change` or `question`. Any other value becomes `change`. |
 | `body` | The human's text. Required: a note without a string `body` is rejected. The server accepts an empty string; the viewer does not create empty notes. |
@@ -228,7 +228,9 @@ Three guards apply to every request, in this order; the first that fails answers
 
 1. **Host.** `http://<Host header>` must equal the server origin `http://127.0.0.1:<port>`.
    Anything else — `localhost:<port>`, another hostname that resolves to loopback, a missing
-   `Host` — is refused with 421 `{"error": "wrong host"}`. This defeats DNS rebinding: a
+   `Host` on an HTTP/1.0 request — is refused with 421 `{"error": "wrong host"}`. An HTTP/1.1
+   request with no `Host` header never reaches this guard: Node's HTTP server refuses it with
+   400 first. This defeats DNS rebinding: a
    foreign page whose hostname resolves to `127.0.0.1` still sends its own hostname.
 2. **Origin.** A request carrying an `Origin` header other than `http://127.0.0.1:<port>` is
    refused with 403. A request without an `Origin` header passes.
@@ -306,6 +308,12 @@ What this contract leaves undecided, each as a question.
 - **Silently dropped notes.** A new note that fails §7's checks is left out of the list while
   the viewer receives `{"ok": true}` and keeps showing the note. Should the server refuse the
   write or report the drop?
+- **Duplicate note ids.** Two notes may share an id, and a later write then revises both
+  from one stored note (§7). Should the server refuse a write or a resumed file that repeats
+  an id, or give the repeat a fresh one?
+- **Loose `--port` parsing.** `Number()` turns an empty `--port` into `0`, so the run binds a
+  random port instead of exiting 2, and accepts exponent and hexadecimal forms (§4). Should
+  `--port` accept decimal digits only?
 - **Exits without a document.** An unhandled exception — a non-string entry in a resumed
   file's `scope`, or a platform opener command that is not installed (§4) — exits 1 with a
   stack trace on stderr and nothing on stdout, and a signal before the port is bound exits
