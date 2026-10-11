@@ -129,7 +129,13 @@ function request(port, { method = 'GET', target = '/api/session', headers = {}, 
         const text = Buffer.concat(chunks).toString('utf8');
         let json = null;
         if ((res.headers['content-type'] ?? '').startsWith('application/json')) {
-          json = JSON.parse(text);
+          // A throw in this listener would escape the promise and the case wrapper with it.
+          try {
+            json = JSON.parse(text);
+          } catch (err) {
+            reject(new CaseFailure(`${method} ${target}: a JSON reply that does not parse (${err.message})`));
+            return;
+          }
         }
         resolve({ status: res.statusCode, json, text });
       });
