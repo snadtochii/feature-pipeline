@@ -318,7 +318,8 @@ for byte as it was.
 It opens no browser, sends requests to `127.0.0.1` only, and binds no fixed port. It prints
 `{"cases": <n>, "ok": true}` and exits 0 when every case passes; otherwise it prints
 `{"status": "error", "error": "self-test: <case> — <detail>"}` for the first failing case and
-exits 1. It runs on every change in the repository's validation workflow.
+exits 1. Unlike a review, it needs `git` on `PATH`: one listing case builds a repository. It
+runs on every change in the repository's validation workflow.
 
 ## §13 Open questions
 
