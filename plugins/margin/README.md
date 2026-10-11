@@ -1,7 +1,7 @@
 # margin
 
 Notes in the margin of code the agent wrote. A read-only viewer in the browser — file tree,
-line numbers, nothing else — where you pin remarks to a line range, a file, a folder or the
+line numbers, light syntax colouring from an owned tokenizer, nothing else — where you pin remarks to a line range, a file, a folder or the
 whole scope, then press Send. The batch lands in a JSON file in the repository and the
 `annotate` skill reads it, plans, and does the structural work or hands the rest to the
 feature pipeline.
@@ -59,7 +59,6 @@ detect drift when the code has changed since the note was written.
 
 ## Not yet
 
-- Syntax highlighting (plain monospace for now, by choice: no runtime dependency).
 - Diff view against a base revision.
 - A generated overview (module diagram, file roles) as a second surface to annotate.
 - Codex support.

@@ -1,5 +1,5 @@
 // margin viewer. One page, no build step. Talks to ../server/lib/server.mjs over
-// its five routes and keeps the notes file current through PUT /api/session.
+// its six routes and keeps the notes file current through PUT /api/session.
 
 import { highlightLines } from './highlight.js';
 

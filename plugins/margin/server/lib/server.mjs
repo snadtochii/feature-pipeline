@@ -4,7 +4,7 @@
 // rebinding (a hostname resolving to 127.0.0.1 so a foreign page becomes same-origin and
 // reads source through /api/file). Every request must carry the Host of this server, and
 // every /api route must carry the per-run token that only the URL the server printed knows.
-// Five routes:
+// Six routes:
 //   GET  /                 the viewer
 //   GET  /api/session      { session, files }
 //   GET  /api/file?path=   { path, text } | { path, binary, reason }
