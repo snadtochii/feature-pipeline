@@ -125,7 +125,7 @@ function reviseAnnotation(stored, raw) {
   };
 }
 
-function applyEdits(session, body, allowed) {
+export function applyEdits(session, body, allowed) {
   if (typeof body.overall === 'string') {
     session.overall = body.overall;
   }
@@ -189,7 +189,12 @@ export function startServer({ port, token: givenToken, session, files, readSourc
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => {
       origin = `http://127.0.0.1:${server.address().port}`;
-      resolve(`${origin}/#${token}`);
+      const close = () =>
+        new Promise((done) => {
+          server.close(() => done());
+          server.closeAllConnections();
+        });
+      resolve({ url: `${origin}/#${token}`, close });
     });
   });
 }

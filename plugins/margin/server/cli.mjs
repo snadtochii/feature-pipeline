@@ -3,6 +3,7 @@
 //
 // Usage:
 //   cli.mjs annotate --root <abs-dir> [--scope <path>]... [--out <abs-file>] [--port <n>] [--token <hex>] [--no-open]
+//   cli.mjs --self-test
 //
 // Serves a read-only code viewer for the files under the scope paths and collects
 // the human's annotations. The notes file named by --out is rewritten on every
@@ -18,10 +19,11 @@
 
 import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { listFiles, readSource, revision } from './lib/files.mjs';
-import { cleanAnnotation, startServer } from './lib/server.mjs';
+import { startServer } from './lib/server.mjs';
+import { RunError, finishRun, readStored, restoreSession, scopePath } from './lib/session.mjs';
 
 const USAGE = 'usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--port <n>] [--token <hex>] [--no-open]';
 
@@ -38,52 +40,6 @@ function stamp() {
   return new Date().toISOString().replace(/\.\d+Z$/, '').replaceAll(':', '-');
 }
 
-function scopePath(root, raw) {
-  const abs = resolve(root, raw);
-  const rel = relative(root, abs);
-  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-    fail(`scope ${raw} is outside ${root}`, 2);
-  }
-  return rel === '' ? '.' : rel;
-}
-
-// The notes file being resumed, parsed but not yet trusted. Null only when there is no file:
-// a file that exists and is not a notes file stops the run, because the first save would
-// otherwise overwrite whatever the human had there.
-function readStored(out) {
-  if (!existsSync(out)) {
-    return null;
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(readFileSync(out, 'utf8'));
-  } catch (err) {
-    fail(`${out} exists but is not valid JSON (${err.message}); fix it or pass another --out`, 1);
-  }
-  if (!parsed || !Array.isArray(parsed.annotations)) {
-    fail(`${out} exists but is not a margin notes file (no annotations array); move it aside or pass another --out`, 1);
-  }
-  return parsed;
-}
-
-// A resumed file may have been edited by hand; it comes back in the shape the rest of this
-// file assumes. Anchors are checked for shape only here: where a note may point is decided
-// once, at creation, by the server (see `lib/server.mjs`), and a stored note keeps its anchor.
-// A note the cleaner rejects stops the run rather than vanishing on the first save.
-function restoreSession(stored, out) {
-  const annotations = stored.annotations.map((raw) => cleanAnnotation(raw, null));
-  const rejected = annotations.flatMap((a, i) => (a === null ? [i] : []));
-  if (rejected.length > 0) {
-    fail(`${out}: ${rejected.length} of ${annotations.length} notes are malformed (indices ${rejected.join(', ')}); fix them or pass another --out`, 1);
-  }
-  return {
-    version: 1,
-    createdAt: typeof stored.createdAt === 'string' ? stored.createdAt : new Date().toISOString(),
-    overall: typeof stored.overall === 'string' ? stored.overall : '',
-    annotations,
-  };
-}
-
 function openInBrowser(url) {
   const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
@@ -94,7 +50,7 @@ function openInBrowser(url) {
   }
 }
 
-async function main(argv) {
+async function annotate(argv) {
   let parsed;
   try {
     parsed = parseArgs({
@@ -147,22 +103,13 @@ async function main(argv) {
   };
 
   const finish = (status) => {
-    session.status = status;
-    const empty = session.annotations.length === 0 && session.overall.trim() === '';
-    if (status === 'cancelled' && empty) {
-      if (existsSync(out)) {
-        unlinkSync(out);
-      }
-    } else {
-      save();
-    }
-    writeDoc({ status, out: empty && status === 'cancelled' ? null : out, annotations: session.annotations.length, root, scope });
+    writeDoc(finishRun({ session, status, out, root, scope, save }));
     process.exit(0);
   };
 
   let url;
   try {
-    url = await startServer({
+    ({ url } = await startServer({
       port,
       token: values.token,
       session,
@@ -170,7 +117,7 @@ async function main(argv) {
       readSource: (path) => readSource(root, path),
       onSave: save,
       onFinish: finish,
-    });
+    }));
   } catch (err) {
     fail(`could not listen on port ${port}: ${err.code ?? err.message}`, 1);
   }
@@ -184,6 +131,24 @@ async function main(argv) {
   }
   process.on('SIGINT', () => finish('interrupted'));
   process.on('SIGTERM', () => finish('interrupted'));
+}
+
+// `--self-test` is recognised only on its own; with any other argument it falls through to
+// the argument parser and is a bad invocation. A rule that refuses throws a RunError, and
+// this is the one place that turns it into the error document and the exit code.
+async function main(argv) {
+  try {
+    if (argv.length === 1 && argv[0] === '--self-test') {
+      writeDoc(await (await import('./lib/selftest.mjs')).runSelfTest());
+      process.exit(0);
+    }
+    await annotate(argv);
+  } catch (err) {
+    if (err instanceof RunError) {
+      fail(err.message, err.exitCode);
+    }
+    throw err;
+  }
 }
 
 await main(process.argv.slice(2));
