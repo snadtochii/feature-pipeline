@@ -20,7 +20,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { listFiles, readSource, revision } from './lib/files.mjs';
-import { startServer } from './lib/server.mjs';
+import { cleanAnnotation, startServer } from './lib/server.mjs';
 
 const USAGE = 'usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--port <n>] [--token <hex>] [--no-open]';
 
@@ -46,13 +46,23 @@ function scopePath(root, raw) {
   return rel === '' ? '.' : rel;
 }
 
-function loadSession(out) {
+// A resumed file may have been edited by hand; it comes back in the shape the rest of this
+// file assumes, with every annotation passed through the same cleaner the server applies.
+function loadSession(out, allowed) {
   if (!existsSync(out)) {
     return null;
   }
   try {
     const parsed = JSON.parse(readFileSync(out, 'utf8'));
-    return Array.isArray(parsed.annotations) ? parsed : null;
+    if (!Array.isArray(parsed.annotations)) {
+      return null;
+    }
+    return {
+      version: 1,
+      createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : new Date().toISOString(),
+      overall: typeof parsed.overall === 'string' ? parsed.overall : '',
+      annotations: parsed.annotations.map((raw) => cleanAnnotation(raw, allowed)).filter(Boolean),
+    };
   } catch {
     return null;
   }
@@ -107,7 +117,7 @@ async function main(argv) {
 
   const out = resolve(values.out ?? join(root, 'claudedocs', 'margin', `${stamp()}.json`));
   const now = new Date().toISOString();
-  const session = loadSession(out) ?? { version: 1, createdAt: now, overall: '', annotations: [] };
+  const session = loadSession(out, new Set(files)) ?? { version: 1, createdAt: now, overall: '', annotations: [] };
   Object.assign(session, { status: 'draft', root, scope, out, revision: revision(root), updatedAt: now });
 
   const save = () => {
@@ -130,7 +140,6 @@ async function main(argv) {
     process.exit(0);
   };
 
-  save();
   let url;
   try {
     url = await startServer({
@@ -145,6 +154,9 @@ async function main(argv) {
   } catch (err) {
     fail(`could not listen on port ${port}: ${err.code ?? err.message}`, 1);
   }
+  // The first draft is written only once the port is bound, so a failed start (a busy port,
+  // retried on another) leaves nothing behind.
+  save();
 
   process.stderr.write(`margin: ${url}\n  root:  ${root}\n  scope: ${scope.join(', ') || '.'} (${files.length} files)\n  notes: ${out}\n`);
   if (!values['no-open']) {

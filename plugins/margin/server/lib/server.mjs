@@ -12,7 +12,7 @@
 //   POST /api/submit       same body, then the process finishes as `submitted`
 //   POST /api/cancel       same body, then the process finishes as `cancelled`
 
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -63,15 +63,15 @@ function readJson(req) {
   });
 }
 
-// Keeps only the fields the notes file defines, so a stray client never
-// writes shapes the reading skill does not expect.
-function cleanAnnotation(raw, allowed) {
+// Keeps only the fields the notes file defines, so neither a stray client nor a
+// hand-edited notes file can give the reading skill a shape it does not expect.
+export function cleanAnnotation(raw, allowed) {
   const anchor = raw?.anchor ?? {};
   if (!ANCHOR_KINDS.has(anchor.kind) || typeof raw.body !== 'string') {
     return null;
   }
   const clean = {
-    id: typeof raw.id === 'string' ? raw.id : crypto.randomUUID(),
+    id: typeof raw.id === 'string' ? raw.id : randomUUID(),
     anchor: { kind: anchor.kind },
     intent: INTENTS.has(raw.intent) ? raw.intent : 'change',
     body: raw.body,

@@ -7,6 +7,9 @@ allowed-tools:
   - Read
   - Glob
   - Grep
+  - Edit
+  - Write
+  - Skill
 ---
 
 # Annotate
