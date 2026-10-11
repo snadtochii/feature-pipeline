@@ -150,7 +150,17 @@ function toggleDir(path) {
 // ---- code view -----------------------------------------------------------
 
 async function openFile(path, scrollTo) {
-  const data = await api('GET', `/api/file?path=${encodeURIComponent(path)}`);
+  let data;
+  try {
+    data = await api('GET', `/api/file?path=${encodeURIComponent(path)}`);
+  } catch {
+    // A resumed note can point at a file that moved or sits outside this run's scope.
+    const note = document.createElement('div');
+    note.className = 'empty';
+    note.textContent = `${path} is not in this scope (moved, deleted, or outside the paths this review was opened with). Its notes are kept.`;
+    el.code.replaceChildren(note);
+    return;
+  }
   state.selection = null;
   if (data.binary) {
     state.current = { path, lines: null };
@@ -480,8 +490,16 @@ el.cancel.addEventListener('click', async () => {
   if (!window.confirm('Cancel this review? The server stops; a non-empty draft stays on disk.')) {
     return;
   }
-  await api('POST', '/api/cancel', payload());
-  finish('cancelled');
+  el.send.disabled = true;
+  el.cancel.disabled = true;
+  try {
+    await api('POST', '/api/cancel', payload());
+    finish('cancelled');
+  } catch (err) {
+    el.send.disabled = false;
+    el.cancel.disabled = false;
+    el.saveState.textContent = `cancel failed: ${err.message}`;
+  }
 });
 
 el.addScope.addEventListener('click', () => openComposer({ kind: 'scope' }));

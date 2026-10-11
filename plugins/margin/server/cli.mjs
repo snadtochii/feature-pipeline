@@ -8,7 +8,8 @@
 // the human's annotations. The notes file named by --out is rewritten on every
 // change (status `draft`); when the human presses Send it is marked `submitted`,
 // one JSON summary document is printed on stdout, and the process exits.
-// If --out already exists, its annotations are loaded so a review can resume.
+// If --out already exists, its annotations are loaded so a review can resume, and its root
+// and scope apply unless --root / --scope are given.
 // Every /api call must carry the per-run token; it is random unless --token sets it, which
 // lets a caller know the viewer URL before this process prints it.
 //
@@ -46,26 +47,30 @@ function scopePath(root, raw) {
   return rel === '' ? '.' : rel;
 }
 
-// A resumed file may have been edited by hand; it comes back in the shape the rest of this
-// file assumes, with every annotation passed through the same cleaner the server applies.
-function loadSession(out, allowed) {
+// The notes file being resumed, parsed but not yet trusted. Null when there is none.
+function readStored(out) {
   if (!existsSync(out)) {
     return null;
   }
   try {
     const parsed = JSON.parse(readFileSync(out, 'utf8'));
-    if (!Array.isArray(parsed.annotations)) {
-      return null;
-    }
-    return {
-      version: 1,
-      createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : new Date().toISOString(),
-      overall: typeof parsed.overall === 'string' ? parsed.overall : '',
-      annotations: parsed.annotations.map((raw) => cleanAnnotation(raw, allowed)).filter(Boolean),
-    };
+    return Array.isArray(parsed.annotations) ? parsed : null;
   } catch {
     return null;
   }
+}
+
+// A resumed file may have been edited by hand; it comes back in the shape the rest of this
+// file assumes. Every annotation passes the server's cleaner for shape only: a note on a file
+// that has since moved, or that sits outside this run's scope, is kept rather than dropped,
+// because losing it silently would defeat the point of resuming.
+function restoreSession(stored) {
+  return {
+    version: 1,
+    createdAt: typeof stored.createdAt === 'string' ? stored.createdAt : new Date().toISOString(),
+    overall: typeof stored.overall === 'string' ? stored.overall : '',
+    annotations: stored.annotations.map((raw) => cleanAnnotation(raw, null)).filter(Boolean),
+  };
 }
 
 function openInBrowser(url) {
@@ -108,8 +113,12 @@ async function main(argv) {
     fail('bad --token: 16-128 characters of [A-Za-z0-9_-]', 2);
   }
 
-  const root = resolve(values.root ?? process.cwd());
-  const scope = values.scope.map((raw) => scopePath(root, raw));
+  // On a resume the notes file is the record of what was being reviewed: its root and scope
+  // apply unless the caller names them explicitly.
+  const stored = values.out ? readStored(resolve(values.out)) : null;
+  const root = resolve(values.root ?? (typeof stored?.root === 'string' ? stored.root : process.cwd()));
+  const scopeArgs = values.scope.length > 0 ? values.scope : Array.isArray(stored?.scope) ? stored.scope : [];
+  const scope = scopeArgs.map((raw) => scopePath(root, raw));
   const files = listFiles(root, scope);
   if (files.length === 0) {
     fail(`no files under ${scope.join(', ') || root}`, 1);
@@ -117,7 +126,7 @@ async function main(argv) {
 
   const out = resolve(values.out ?? join(root, 'claudedocs', 'margin', `${stamp()}.json`));
   const now = new Date().toISOString();
-  const session = loadSession(out, new Set(files)) ?? { version: 1, createdAt: now, overall: '', annotations: [] };
+  const session = stored ? restoreSession(stored) : { version: 1, createdAt: now, overall: '', annotations: [] };
   Object.assign(session, { status: 'draft', root, scope, out, revision: revision(root), updatedAt: now });
 
   const save = () => {

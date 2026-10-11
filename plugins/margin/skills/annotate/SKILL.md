@@ -27,8 +27,9 @@ turns it into work. Nothing is edited before the confirmation in §3.
 
 - `path ...` — repo-relative files or folders that make up the scope. None means the whole
   repository; for anything but a small repo, ask for a folder instead.
-- `--resume <notes-file>` — reopen an earlier notes file. Its annotations load into the viewer
-  and it is written back in place.
+- `--resume <notes-file>` — reopen an earlier notes file. Its annotations load into the viewer,
+  its recorded root and scope apply (paths given alongside override them), and it is written
+  back in place.
 - `--port <n>` — default `7331`.
 
 ## §1 Open the viewer and wait
@@ -49,7 +50,8 @@ turns it into work. Nothing is edited before the confirmation in §3.
    node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" annotate --root "<root>" --scope <path> [--scope <path> ...] --port 7331 --token <token> [--out <notes-file>]
    ```
 
-   Pass `--out` only for `--resume`. One `--scope` per path; omit it for the whole repository.
+   One `--scope` per path; omit it for the whole repository. For `--resume`, pass `--out
+   <notes-file>` and no `--scope`: the file's own root and scope apply.
 4. Tell the user right away, in two lines: the viewer is at `http://127.0.0.1:7331/#<token>`
    (the server also opens it; the fragment is required, without it every Send fails), and
    notes save as they go under `<root>/claudedocs/margin/`; Send hands them over. Then stop

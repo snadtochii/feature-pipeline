@@ -26,7 +26,7 @@ Node 22+ built-ins.
 /margin:annotate src/features/orders            # one folder
 /margin:annotate src/a.ts src/b.ts              # named files
 /margin:annotate                                # whole repository (small repos)
-/margin:annotate --resume claudedocs/margin/2026-10-11T14-05-33.json
+/margin:annotate --resume claudedocs/margin/2026-10-11T14-05-33.json   # same root and scope as before
 ```
 
 The viewer opens at `http://127.0.0.1:7331/#<token>`. Click a line number to annotate it, shift-click

@@ -22,11 +22,7 @@ export function listFiles(root, scope) {
   } catch {
     paths = walk(root, targets);
   }
-  const seen = new Set();
-  return paths
-    .filter((p) => p !== '' && !seen.has(p) && (seen.add(p), true))
-    .filter((p) => isRegularFile(join(root, p)))
-    .sort();
+  return [...new Set(paths)].filter((p) => p !== '' && isRegularFile(join(root, p))).sort();
 }
 
 // A symlink is never listed or read: a link pointing outside the root would otherwise
