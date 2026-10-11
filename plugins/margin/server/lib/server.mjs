@@ -1,4 +1,10 @@
-// HTTP surface for the margin viewer. Loopback only. Five routes:
+// HTTP surface for the margin viewer. Loopback only, and guarded against the two ways a
+// loopback server still reaches the wider web: a page on another origin posting to it (CSRF,
+// which here would mean planting notes the agent later reads as instructions) and DNS
+// rebinding (a hostname resolving to 127.0.0.1 so a foreign page becomes same-origin and
+// reads source through /api/file). Every request must carry the Host of this server, and
+// every /api route must carry the per-run token that only the URL the server printed knows.
+// Five routes:
 //   GET  /                 the viewer
 //   GET  /api/session      { session, files }
 //   GET  /api/file?path=   { path, text } | { path, binary, reason }
@@ -6,6 +12,7 @@
 //   POST /api/submit       same body, then the process finishes as `submitted`
 //   POST /api/cancel       same body, then the process finishes as `cancelled`
 
+import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -103,13 +110,24 @@ function applyEdits(session, body, allowed) {
   }
 }
 
-export function startServer({ port, session, files, readSource, onSave, onFinish }) {
+export function startServer({ port, token: givenToken, session, files, readSource, onSave, onFinish }) {
   const allowed = new Set(files);
+  const token = givenToken ?? randomBytes(16).toString('hex');
+  let origin = null; // set once the port is known
   const server = createServer(async (req, res) => {
     try {
-      const url = new URL(req.url, 'http://127.0.0.1');
+      const url = new URL(req.url, origin);
+      if (`http://${req.headers.host}` !== origin) {
+        return sendJson(res, { error: 'wrong host' }, 421);
+      }
+      if (req.headers.origin && req.headers.origin !== origin) {
+        return sendJson(res, { error: 'cross-origin request refused' }, 403);
+      }
       if (req.method === 'GET' && STATIC[url.pathname]) {
         return await sendStatic(res, STATIC[url.pathname]);
+      }
+      if (url.pathname.startsWith('/api/') && req.headers['x-margin-token'] !== token) {
+        return sendJson(res, { error: 'missing or wrong token' }, 403);
       }
       if (req.method === 'GET' && url.pathname === '/api/session') {
         return sendJson(res, { session, files });
@@ -139,6 +157,9 @@ export function startServer({ port, session, files, readSource, onSave, onFinish
   });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}/`));
+    server.listen(port, '127.0.0.1', () => {
+      origin = `http://127.0.0.1:${server.address().port}`;
+      resolve(`${origin}/#${token}`);
+    });
   });
 }

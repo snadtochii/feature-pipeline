@@ -2,13 +2,15 @@
 // margin annotation server: `cli.mjs`.
 //
 // Usage:
-//   cli.mjs annotate --root <abs-dir> [--scope <path>]... [--out <abs-file>] [--port <n>] [--no-open]
+//   cli.mjs annotate --root <abs-dir> [--scope <path>]... [--out <abs-file>] [--port <n>] [--token <hex>] [--no-open]
 //
 // Serves a read-only code viewer for the files under the scope paths and collects
 // the human's annotations. The notes file named by --out is rewritten on every
 // change (status `draft`); when the human presses Send it is marked `submitted`,
 // one JSON summary document is printed on stdout, and the process exits.
 // If --out already exists, its annotations are loaded so a review can resume.
+// Every /api call must carry the per-run token; it is random unless --token sets it, which
+// lets a caller know the viewer URL before this process prints it.
 //
 // Exit: 0 finished (submitted, cancelled, or interrupted), 1 could not run, 2 bad invocation.
 // Zero dependencies: Node 22+ built-ins only. Everything under lib/ is private.
@@ -20,7 +22,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { listFiles, readSource, revision } from './lib/files.mjs';
 import { startServer } from './lib/server.mjs';
 
-const USAGE = 'usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--port <n>] [--no-open]';
+const USAGE = 'usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--port <n>] [--token <hex>] [--no-open]';
 
 function writeDoc(doc) {
   process.stdout.write(`${JSON.stringify(doc, null, 2)}\n`);
@@ -77,6 +79,7 @@ async function main(argv) {
         scope: { type: 'string', multiple: true, default: [] },
         out: { type: 'string' },
         port: { type: 'string', default: '0' },
+        token: { type: 'string' },
         'no-open': { type: 'boolean', default: false },
       },
     });
@@ -90,6 +93,9 @@ async function main(argv) {
   const port = Number(values.port);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     fail(`bad --port ${values.port}`, 2);
+  }
+  if (values.token !== undefined && !/^[A-Za-z0-9_-]{16,128}$/.test(values.token)) {
+    fail('bad --token: 16-128 characters of [A-Za-z0-9_-]', 2);
   }
 
   const root = resolve(values.root ?? process.cwd());
@@ -129,6 +135,7 @@ async function main(argv) {
   try {
     url = await startServer({
       port,
+      token: values.token,
       session,
       files,
       readSource: (path) => readSource(root, path),

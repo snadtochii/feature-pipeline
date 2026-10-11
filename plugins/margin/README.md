@@ -29,7 +29,7 @@ Node 22+ built-ins.
 /margin:annotate --resume claudedocs/margin/2026-10-11T14-05-33.json
 ```
 
-The viewer opens at `http://127.0.0.1:7331/`. Click a line number to annotate it, shift-click
+The viewer opens at `http://127.0.0.1:7331/#<token>`. Click a line number to annotate it, shift-click
 to extend the range; the `+` on a tree row annotates that file or folder; *+ general note* is
 for the scope as a whole; *Overall direction* is the framing the agent reads first. Each note
 is a `change` or a `question`. Notes save as you go to `claudedocs/margin/<timestamp>.json`;
@@ -46,7 +46,10 @@ Behavioural ones go to `/feature:discover` with the anchors attached.
 node plugins/margin/server/cli.mjs annotate --root /path/to/repo --scope src/features/orders --port 7331
 ```
 
-Exits when Send or Cancel is pressed, printing one JSON document with the notes file path.
+Prints the viewer URL on stderr — open that exact URL: its `#fragment` is the per-run token
+every API call must carry, so a page on another origin cannot plant notes or read source
+(`--token <hex>` fixes it in advance). Exits when Send or Cancel is pressed, printing one JSON
+document with the notes file path.
 
 ## Notes file
 

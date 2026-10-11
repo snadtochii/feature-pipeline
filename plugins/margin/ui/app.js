@@ -29,10 +29,13 @@ const el = {
   count: $('#count'),
 };
 
+// The per-run token rides in the URL fragment the server printed; every API call carries it.
+const TOKEN = window.location.hash.slice(1);
+
 async function api(method, url, body) {
   const res = await fetch(url, {
     method,
-    headers: body ? { 'content-type': 'application/json' } : {},
+    headers: { 'x-margin-token': TOKEN, ...(body ? { 'content-type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {

@@ -4,7 +4,7 @@
 // skips the usual generated directories.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.turbo', 'target']);
@@ -25,14 +25,27 @@ export function listFiles(root, scope) {
   const seen = new Set();
   return paths
     .filter((p) => p !== '' && !seen.has(p) && (seen.add(p), true))
-    .filter((p) => existsSync(join(root, p)) && statSync(join(root, p)).isFile())
+    .filter((p) => isRegularFile(join(root, p)))
     .sort();
+}
+
+// A symlink is never listed or read: a link pointing outside the root would otherwise
+// serve files the scope never named.
+function isRegularFile(abs) {
+  try {
+    return lstatSync(abs).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function walk(root, targets) {
   const found = [];
   const visit = (abs) => {
-    const stat = statSync(abs);
+    const stat = lstatSync(abs);
+    if (stat.isSymbolicLink()) {
+      return;
+    }
     if (stat.isFile()) {
       found.push(relative(root, abs).split(sep).join('/'));
       return;
@@ -55,7 +68,11 @@ function walk(root, targets) {
 
 export function readSource(root, path) {
   const abs = join(root, path);
-  const size = statSync(abs).size;
+  const real = realpathSync(abs);
+  if (!isRegularFile(abs) || !real.startsWith(`${realpathSync(root)}${sep}`)) {
+    return { path, binary: true, reason: 'not a regular file inside the root' };
+  }
+  const size = statSync(real).size;
   if (size > MAX_BYTES) {
     return { path, binary: true, reason: `${(size / 1024 / 1024).toFixed(1)} MB is above the ${MAX_BYTES / 1024 / 1024} MB viewer limit` };
   }

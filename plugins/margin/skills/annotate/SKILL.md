@@ -32,19 +32,26 @@ turns it into work. Nothing is edited before the confirmation in §3.
 
 1. Root: `git rev-parse --show-toplevel` from the working directory; the working directory
    itself when that fails.
-2. Start the server **in the background with the maximum timeout** — a review takes as long
+2. Mint the per-run token the viewer's API requires, so the URL is known before the server
+   prints it:
+
+   ```bash
+   node -e "console.log(require('node:crypto').randomBytes(16).toString('hex'))"
+   ```
+
+3. Start the server **in the background with the maximum timeout** — a review takes as long
    as the human needs, and the command returns only when they press Send or Cancel:
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" annotate --root "<root>" --scope <path> [--scope <path> ...] --port 7331 [--out <notes-file>]
+   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" annotate --root "<root>" --scope <path> [--scope <path> ...] --port 7331 --token <token> [--out <notes-file>]
    ```
 
    Pass `--out` only for `--resume`. One `--scope` per path; omit it for the whole repository.
-3. Tell the user right away, in two lines: the viewer is at `http://127.0.0.1:7331/` (the
-   server also opens it), and notes save as they go under `<root>/claudedocs/margin/`; Send
-   hands them over. Then stop talking until the command exits — do not poll, do not read the
-   notes file early.
-4. When the command exits, its stdout is one JSON document: `{ status, out, annotations, root,
+4. Tell the user right away, in two lines: the viewer is at `http://127.0.0.1:7331/#<token>`
+   (the server also opens it; the fragment is required, without it every Send fails), and
+   notes save as they go under `<root>/claudedocs/margin/`; Send hands them over. Then stop
+   talking until the command exits — do not poll, do not read the notes file early.
+5. When the command exits, its stdout is one JSON document: `{ status, out, annotations, root,
    scope }`. On `status: "error"` containing `EADDRINUSE`, rerun with `--port 7332`.
 
 ## §2 Read the notes
