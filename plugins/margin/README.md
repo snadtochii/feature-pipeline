@@ -37,7 +37,8 @@ Send marks the file `submitted` and returns control to the session.
 
 The skill then presents one table — note, action, kind (`answer` / `structural` /
 `behavioural`), risk — and asks once. Structural actions run in the session behind the
-project's own checks, run before and after, with test edits limited to moved imports.
+project's own checks, run before and after, with test edits limited to moved imports and
+the test list unchanged.
 Behavioural ones go to `/feature:discover` with the anchors attached.
 
 ## Standalone

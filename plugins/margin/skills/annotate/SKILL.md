@@ -120,12 +120,13 @@ or adjust the table? Wait for the answer. That is the only gate.
 
 Order: answers first, then structural actions, file by file in table order.
 
-Verification is the same oracle the structure-only loops use — the project's own checks,
-unchanged. Before the first edit, run the project's typecheck, lint and test commands (from
-`package.json` scripts, a Makefile, or CLAUDE.md) and record the result. After the last edit,
-run the same commands. Test files may change only where an import path moved. A check that
-passed before and fails after is fixed in the source or reverted; it is never fixed in the
-test.
+Verification is the project's own checks, unchanged. Collect the typecheck, lint, test and
+build commands from the project's `CLAUDE.md` / `AGENTS.md` first, then from `package.json`
+scripts or a Makefile. Run them before the first edit and record the result, including the
+list of test names. Run the same commands after the last edit. A command the project does not
+declare is reported as skipped, never as passed. Test files may change only where an import
+path moved, and the list of test names after must equal the list before. A check that passed
+before and fails after is fixed in the source or reverted; it is never fixed in the test.
 
 Report per action: files touched, and the before/after check results side by side. Note any
 anchor whose code had drifted from its excerpt and how that was resolved.
@@ -136,10 +137,3 @@ Behavioural rows, or a batch too large for one sitting, go to the pipeline: run
 `/feature:discover` with the idea text built from the notes — the `overall` text, then each
 remaining row as `path:start-end — body`. The anchors travel into the ticket so the
 implementer finds the places the human meant.
-
-## §6 Conventions, only when asked for or clearly earned
-
-If the same kind of remark appears on two or more anchors (for example "types in their own
-file" on three files), offer — do not write — one rule for `CLAUDE.md` or `.claude/rules/`,
-quoted beside the notes that produced it. Write only the rules the user approves. A remark
-that appears once is a preference for that place, not a convention; do not propose it.
