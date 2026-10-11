@@ -47,28 +47,40 @@ function scopePath(root, raw) {
   return rel === '' ? '.' : rel;
 }
 
-// The notes file being resumed, parsed but not yet trusted. Null when there is none.
+// The notes file being resumed, parsed but not yet trusted. Null only when there is no file:
+// a file that exists and is not a notes file stops the run, because the first save would
+// otherwise overwrite whatever the human had there.
 function readStored(out) {
   if (!existsSync(out)) {
     return null;
   }
+  let parsed;
   try {
-    const parsed = JSON.parse(readFileSync(out, 'utf8'));
-    return Array.isArray(parsed.annotations) ? parsed : null;
-  } catch {
-    return null;
+    parsed = JSON.parse(readFileSync(out, 'utf8'));
+  } catch (err) {
+    fail(`${out} exists but is not valid JSON (${err.message}); fix it or pass another --out`, 1);
   }
+  if (!parsed || !Array.isArray(parsed.annotations)) {
+    fail(`${out} exists but is not a margin notes file (no annotations array); move it aside or pass another --out`, 1);
+  }
+  return parsed;
 }
 
 // A resumed file may have been edited by hand; it comes back in the shape the rest of this
 // file assumes. Anchors are checked for shape only here: where a note may point is decided
 // once, at creation, by the server (see `lib/server.mjs`), and a stored note keeps its anchor.
-function restoreSession(stored) {
+// A note the cleaner rejects stops the run rather than vanishing on the first save.
+function restoreSession(stored, out) {
+  const annotations = stored.annotations.map((raw) => cleanAnnotation(raw, null));
+  const rejected = annotations.flatMap((a, i) => (a === null ? [i] : []));
+  if (rejected.length > 0) {
+    fail(`${out}: ${rejected.length} of ${annotations.length} notes are malformed (indices ${rejected.join(', ')}); fix them or pass another --out`, 1);
+  }
   return {
     version: 1,
     createdAt: typeof stored.createdAt === 'string' ? stored.createdAt : new Date().toISOString(),
     overall: typeof stored.overall === 'string' ? stored.overall : '',
-    annotations: stored.annotations.map((raw) => cleanAnnotation(raw, null)).filter(Boolean),
+    annotations,
   };
 }
 
@@ -125,7 +137,7 @@ async function main(argv) {
 
   const out = resolve(values.out ?? join(root, 'claudedocs', 'margin', `${stamp()}.json`));
   const now = new Date().toISOString();
-  const session = stored ? restoreSession(stored) : { version: 1, createdAt: now, overall: '', annotations: [] };
+  const session = stored ? restoreSession(stored, out) : { version: 1, createdAt: now, overall: '', annotations: [] };
   Object.assign(session, { status: 'draft', root, scope, out, revision: revision(root), updatedAt: now });
 
   const save = () => {
