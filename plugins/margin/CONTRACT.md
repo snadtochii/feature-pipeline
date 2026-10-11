@@ -3,8 +3,8 @@
 Authoritative surface between `server/cli.mjs`, the `annotate` skill and the human who
 reviews code in the viewer. The contract fixes the verb, its flags, the stdout and stderr
 output, the exit codes, resume, the notes-file schema, the anchor rule, the HTTP routes and
-their guards, the file-listing and reading rules, and the seam between the skill and the
-server. The implementation under `server/` and `ui/` is private and may change without
+their guards, the file-listing and reading rules, the seam between the skill and the
+server, and the self-test. The implementation under `server/` and `ui/` is private and may change without
 changing this file. Header comments in `server/` and `ui/` explain mechanics only; where one
 restates a fact this file fixes and disagrees with it, this file governs.
 
@@ -19,6 +19,7 @@ reads the notes file while the server runs.
 
 ```text
 node <plugin-root>/server/cli.mjs annotate [--root <dir>] [--scope <path>]... [--out <file>] [--port <n>] [--token <token>] [--no-open]
+node <plugin-root>/server/cli.mjs --self-test
 ```
 
 | Part | Meaning |
@@ -26,6 +27,7 @@ node <plugin-root>/server/cli.mjs annotate [--root <dir>] [--scope <path>]... [-
 | `<plugin-root>` | The installed `margin` plugin directory. The skill runs it as `${CLAUDE_PLUGIN_ROOT}`. |
 | `annotate` | The only verb. The first positional argument must be `annotate`; further positional arguments are ignored. |
 | flags | §4. |
+| `--self-test` | Runs the self-test (§12) instead of a review. It takes no verb and no other argument; given with anything else it is a bad invocation (§3). |
 
 Only `cli.mjs` is a command. Everything under `server/lib/` is private to the implementation
 and may change shape without changing this contract.
@@ -42,9 +44,9 @@ runs until the human presses Send or Cancel in the viewer, or the process receiv
 ## §2 Output rules
 
 **stdout** carries exactly one JSON document on every handled exit, with two-space
-indentation and one trailing newline, and nothing else. It has one of two shapes.
+indentation and one trailing newline, and nothing else. It has one of three shapes.
 
-The result document, on exit 0, with its keys in this order:
+The result document, on exit 0 from `annotate`, with its keys in this order:
 
 | Key | Value |
 |---|---|
@@ -58,6 +60,9 @@ The error document, on exit 1 or 2: `{"status": "error", "error": "<reason>"}`. 
 for humans and may span lines: an argument-parse failure appends the usage line after a
 newline.
 
+The self-test document, on exit 0 from `--self-test` (§12): `{"cases": <n>, "ok": true}`, where
+`<n>` is the number of cases run. A failing self-test prints the error document.
+
 The notes themselves never appear on stdout; the reader opens `out` (§11).
 
 **stderr** carries one block, written once, after the port is bound and the first draft is
@@ -70,15 +75,15 @@ margin: http://127.0.0.1:<port>/#<token>
   notes: <out>
 ```
 
-The block is for the human. It is not a parsing surface.
+The block is for the human. It is not a parsing surface. `--self-test` prints no stderr block.
 
 ## §3 Exit codes
 
 | Code | Meaning | Document |
 |---|---|---|
-| `0` | The review ended: Send (`submitted`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). | Result |
-| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), or the port cannot be bound (`could not listen on port <n>: <code>`). | Error |
-| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. | Error |
+| `0` | The review ended: Send (`submitted`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). Or every self-test case passed (§12). | Result, or self-test |
+| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), or the port cannot be bound (`could not listen on port <n>: <code>`). Or a self-test case failed (§12). | Error |
+| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. | Error |
 
 Checks run in this order, and the first failure is the one reported: arguments and verb, then
 `--port`, then `--token`, then the resumed file's JSON and its `annotations` array (§5), then
@@ -95,9 +100,9 @@ value. A flag other than `--scope` given twice keeps its last value.
 | `--root <dir>` | see meaning | The directory the scope is resolved against and served from. The flag applies when given, else the resumed file's `root` when it is a string (§5), else the working directory. A relative value resolves against the working directory; the result is absolute. |
 | `--scope <path>` | none | Repeatable. A file or folder, relative to the root (an absolute path inside the root is accepted). Each is normalised to a root-relative path, and the root itself becomes `.`. A path outside the root exits 2; the check compares path text and resolves no symbolic link (§10). With no `--scope`, a resumed file's `scope` applies when it is an array; otherwise the scope is empty and the whole root is listed. |
 | `--out <file>` | `<root>/claudedocs/margin/<stamp>.json` | The notes file. `<stamp>` is the start time in UTC as `YYYY-MM-DDTHH-MM-SS`. A relative value resolves against the working directory. When the file exists, the run is a resume (§5). Missing parent directories are created on the first save. |
-| `--port <n>` | `0` | An integer from 0 to 65535 after the value is converted with JavaScript's `Number()`: an empty or all-whitespace value becomes `0`, and `1e3` and `0x10` are accepted as `1000` and `16` (§12). `0` lets the operating system assign a free port; the bound port is the one in the stderr URL. |
+| `--port <n>` | `0` | An integer from 0 to 65535 after the value is converted with JavaScript's `Number()`: an empty or all-whitespace value becomes `0`, and `1e3` and `0x10` are accepted as `1000` and `16` (§13). `0` lets the operating system assign a free port; the bound port is the one in the stderr URL. |
 | `--token <token>` | minted | 16 to 128 characters from `[A-Za-z0-9_-]`. When absent, the server mints 32 lowercase hexadecimal characters (16 random bytes). Setting it lets a caller know the viewer URL before the server prints it (§11). |
-| `--no-open` | off | Do not open the viewer. Without it, the server opens the URL with the platform opener (`open` on macOS, `start` on Windows, `xdg-open` elsewhere). An opener that starts and fails is ignored, since the URL is on stderr; an opener command that is not installed ends the run with exit 1 and no stdout document, after the draft is saved and the stderr block is printed (§12). |
+| `--no-open` | off | Do not open the viewer. Without it, the server opens the URL with the platform opener (`open` on macOS, `start` on Windows, `xdg-open` elsewhere). An opener that starts and fails is ignored, since the URL is on stderr; an opener command that is not installed ends the run with exit 1 and no stdout document, after the draft is saved and the stderr block is printed (§13). |
 
 ## §5 Resume
 
@@ -156,7 +161,7 @@ Each note has exactly these fields; any other field on a note or on its anchor i
 
 | Field | Value |
 |---|---|
-| `id` | A string. A note that arrives without one gets a fresh UUID when the server accepts it; the viewer mints UUIDs for the notes it creates. It is the identity a later write revises the note by. Ids are not checked for uniqueness: a write or a resumed file may hold two notes with one id, and both are kept; a later write then revises each note carrying that id from the last stored note with it (§12). |
+| `id` | A string. A note that arrives without one gets a fresh UUID when the server accepts it; the viewer mints UUIDs for the notes it creates. It is the identity a later write revises the note by. Ids are not checked for uniqueness: a write or a resumed file may hold two notes with one id, and both are kept; a later write then revises each note carrying that id from the last stored note with it (§13). |
 | `anchor` | Where the note sits, by kind (below). |
 | `intent` | `change` or `question`. Any other value becomes `change`. |
 | `body` | The human's text. Required: a note without a string `body` is rejected. The server accepts an empty string; the viewer does not create empty notes. |
@@ -195,7 +200,7 @@ now to detect drift.
 **Saves carry the whole list.** A write that includes `annotations` replaces the list: a
 stored note whose `id` is absent from the write is deleted, and a note whose `id` matches no
 stored note is a new note and goes through the checks above. A new note that fails them is
-left out of the list, and the write still answers `{"ok": true}` (§12).
+left out of the list, and the write still answers `{"ok": true}` (§13).
 
 ## §8 HTTP routes
 
@@ -257,7 +262,7 @@ file created later is neither listed nor served.
 - Either way, only regular files present on disk are listed. A symbolic link is never listed,
   and so never read, and the walk never descends into one. A scope path whose leading part is
   a linked directory is not resolved: git lists nothing beneath it, while the walk lists the
-  files beneath it even when they lie outside the root (§12). Reading still refuses them.
+  files beneath it even when they lie outside the root (§13). Reading still refuses them.
 - Paths are root-relative with `/` separators, without duplicates, sorted by code unit. An
   empty scope lists the whole root. A listing with no files exits 1 (§3).
 
@@ -291,7 +296,32 @@ The server never reads the skill's state: its whole input is its argument vector
 under the root and the viewer's requests. The skill's whole input from the server is the
 stdout document and, after exit, the notes file; the stderr block is for the human.
 
-## §12 Open questions
+## §12 `--self-test`
+
+```text
+node <plugin-root>/server/cli.mjs --self-test
+```
+
+Exercises the rules a browser session does not, without a browser: the viewer's tokenizer on
+fixed JavaScript, TSX, Markdown and Python samples (block comments, template literals, fences
+and triple-quoted strings carried across lines; JSX tag mode, where `>` outside a tag is not a
+tag, attribute names are not keywords and a generic's `<` does not open a tag); the anchor
+rule of §7 for every kind, range validity and the excerpt cap; resume (§5) — a stored note
+keeps its anchor through a write, a new note outside the listing is dropped, an absent `--out`
+starts fresh, and each refusal; the scope check (§4); a listing that never lists a symbolic
+link, on both the git and the walk path (§10); the reading refusals and limits (§10); and,
+against a server on port 0 inside the process, the three guards of §9 and the deletion rule of
+§6 on an empty cancel. A few cases run `cli.mjs annotate` itself and check that each refusal of
+§5 and the scope check exit with the error document and leave an existing `--out` file byte
+for byte as it was.
+
+It opens no browser, sends requests to `127.0.0.1` only, and binds no fixed port. It prints
+`{"cases": <n>, "ok": true}` and exits 0 when every case passes; otherwise it prints
+`{"status": "error", "error": "self-test: <case> — <detail>"}` for the first failing case and
+exits 1. Unlike a review, it needs `git` on `PATH`: one listing case builds a repository. It
+runs on every change in the repository's validation workflow.
+
+## §13 Open questions
 
 What this contract leaves undecided, each as a question.
 
