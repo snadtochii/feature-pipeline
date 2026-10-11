@@ -40,6 +40,12 @@
       "description": "Headless UI verification: a zero-dependency browser driver over the Chrome DevTools Protocol, a project feature map, and skills that drive and check them.",
       "source": "./plugins/verify",
       "category": "development"
+    },
+    {
+      "name": "margin",
+      "description": "Read code in a local browser viewer, leave notes on lines, files, folders and the scope as a whole, and hand the batch to the agent to act on.",
+      "source": "./plugins/margin",
+      "category": "development"
     }
   ]
 }
