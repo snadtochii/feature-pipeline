@@ -1,6 +1,6 @@
 # Driver Pass
 
-Canonical logic for a test pass whose `test:` entry declares `driver`. Read when a selected entry declares `driver` — a pass without it runs [`test-preflight.md`](test-preflight.md) §1–§6 as written and never needs this file. Referenced by the close stage's test checkpoint, ship's end-of-run pass ([`ui-verification.md`](../../ship/references/ui-verification.md)) and ship's driver decision ([`driver-decision.md`](../../ship/references/driver-decision.md)). Every §N in this file is a section of [`test-preflight.md`](test-preflight.md).
+Canonical logic for a test pass whose `test:` entry declares `driver`. Read when a selected entry declares `driver` — a pass without it runs [`test-preflight.md`](test-preflight.md) §1–§6 as written and never needs this file. Referenced by the close stage's test checkpoint, ship's end-of-run pass ([`ui-verification.md`](../../ship/references/ui-verification.md)) and ship's driver decision ([`driver-decision.md`](../../ship/references/driver-decision.md)). A bare §N in this file is a section of [`test-preflight.md`](test-preflight.md); a section of any other document is always cited with that document's name.
 
 An entry that declares `driver` is a **driver pass**: the close stage's test checkpoint drives it through the installed browser driver instead of the browser MCP tools, and the rules below take the place of the pre-flight's §3 boot, §4 teardown and §5 recipe for that pass, while §1, §2 and §6 apply as written. An entry without `driver` runs §1–§6 exactly as written. Each pass takes its path from its own entry, so driver and MCP passes can mix in one multi-pass run, and each pass's spawn prompt carries only its own block. Ship's end-of-run pass applies this reference per pass, with the substitutions its own reference states.
 
@@ -71,7 +71,7 @@ What the close stage injects on a driver pass in place of §5's recipe, every pl
 ```
 ## Browser driver (use this instead of the browser MCP tools)
 
-- Driver: `node '<driver>'`. Read `<contract>` §7 (the step file) and §11 (screenshot names) before writing a step file.
+- Driver: `node '<driver>'`. Read `<contract>` §7 (the step file) and `<contract>` §11 (screenshot names) before writing a step file.
 - Session: `<id>`, serving <url>, starting viewport 1280×800, <signed in from the declared storage state | unauthenticated>. The pre-flight owns this session: never launch, clean up or install.
 - Step files: write them in `<step-dir>/` and nowhere else.
 - Run: `node '<driver>' drive --session '<id>' --steps '<step-dir>/<file>.json' --evidence '<evidence-home>'`, with a shell timeout of <the runtime's drive timeout>. The only other verbs allowed are `node '<driver>' evidence --session '<id>'` and `node '<driver>' doctor --session '<id>'`.

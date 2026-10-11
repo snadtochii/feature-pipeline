@@ -96,10 +96,6 @@ A run of two or more passes records every pass in one `05-tests.md`. The consume
 
 With one pass, the artifact is the consumer's single-pass body.
 
-### Browser driver
-
-An entry that declares `driver` is a **driver pass**: [`driver-pass.md`](driver-pass.md) takes the place of §3's boot, §4's teardown and §5's recipe for that pass, and is read only when a selected entry declares `driver`. An entry without `driver` runs §1–§6 exactly as written.
-
 ## §1 Resolve a candidate URL
 
 In order, first hit wins:
