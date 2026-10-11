@@ -14,9 +14,8 @@ const state = {
   current: null, // { path, lines } or { path, lines: null } for a binary file
   selection: null, // { start, end } line numbers in the current file
   editing: null, // annotation id while the composer edits instead of adds
-  collapsed: new Set(), // folder paths shown closed; the filter never changes it
+  collapsed: new Set(), // folder paths shown closed; not consulted while the filter is on
   filter: '', // lower-cased tree filter text, '' when off
-  openBeforeFilter: null, // path of the file open when the filter turned on
   saveTimer: null,
   // Code-view nodes and what they currently show, so note and selection changes patch
   // only the lines whose state differs instead of re-rendering the file.
@@ -103,19 +102,20 @@ function buildTree(paths) {
   return root;
 }
 
-function folderPaths(node, out = []) {
-  for (const dir of node.dirs.values()) {
-    out.push(dir.path);
-    folderPaths(dir, out);
+// The folders above `path`, outermost first.
+function ancestors(path) {
+  const parts = path.split('/');
+  const dirs = [];
+  for (let i = 1; i < parts.length; i += 1) {
+    dirs.push(parts.slice(0, i).join('/'));
   }
-  return out;
+  return dirs;
 }
 
 // Opens every folder above `path`, and `path` itself when `self` is set.
 function expandTo(path, { self = false } = {}) {
-  const parts = path.split('/');
-  for (let i = 1; i < parts.length; i += 1) {
-    state.collapsed.delete(parts.slice(0, i).join('/'));
+  for (const dir of ancestors(path)) {
+    state.collapsed.delete(dir);
   }
   if (self) {
     state.collapsed.delete(path);
@@ -128,8 +128,10 @@ function applyDefaultCollapse() {
   if (state.files.length <= COLLAPSE_THRESHOLD) {
     return;
   }
-  for (const path of folderPaths(buildTree(state.files))) {
-    state.collapsed.add(path);
+  for (const path of state.files) {
+    for (const dir of ancestors(path)) {
+      state.collapsed.add(dir);
+    }
   }
   for (const entry of state.session.scope) {
     expandTo(entry, { self: true });
@@ -153,11 +155,14 @@ function noteCounts() {
   return counts;
 }
 
+const matchesFilter = (path) => path.toLowerCase().includes(state.filter);
+
 // While the filter is on, the tree holds only the matching files and the folders above
-// them, all shown open; `state.collapsed` is left alone so clearing the filter restores it.
+// them, all shown open without consulting `state.collapsed`, so clearing the filter brings
+// back the expansion as it was plus the folders of any file opened while filtering.
 function renderTree() {
   const filtering = state.filter !== '';
-  const paths = filtering ? state.files.filter((path) => path.toLowerCase().includes(state.filter)) : state.files;
+  const paths = filtering ? state.files.filter(matchesFilter) : state.files;
   if (filtering && paths.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'tree-empty';
@@ -225,16 +230,8 @@ function toggleDir(path) {
   renderTree();
 }
 
-// Clearing the filter restores `state.collapsed` as it was, except that a file opened
-// while filtering gets its folders opened so its row stays visible.
 function setFilter(text) {
-  const next = text.trim().toLowerCase();
-  if (state.filter === '' && next !== '') {
-    state.openBeforeFilter = state.current?.path ?? null;
-  } else if (state.filter !== '' && next === '' && state.current && state.current.path !== state.openBeforeFilter) {
-    expandTo(state.current.path);
-  }
-  state.filter = next;
+  state.filter = text.trim().toLowerCase();
   renderTree();
 }
 
@@ -272,6 +269,10 @@ async function openFile(path, scrollTo) {
     if (scrollTo) {
       state.lineNodes[scrollTo - 1]?.scrollIntoView({ block: 'center' });
     }
+  }
+  // A file opened while filtering keeps a visible row once the filter is cleared.
+  if (state.filter) {
+    expandTo(path);
   }
   renderTree();
 }
@@ -569,7 +570,12 @@ function noteItem(a) {
   return item;
 }
 
+// Shows a note's anchor in the tree, clearing first a filter that would hide it.
 function revealAnchor(anchor) {
+  if (anchor.path && !matchesFilter(anchor.path)) {
+    el.filter.value = '';
+    setFilter('');
+  }
   if (anchor.kind === 'range' || anchor.kind === 'file') {
     expandTo(anchor.path);
     openFile(anchor.path, anchor.start);
