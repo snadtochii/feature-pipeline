@@ -75,7 +75,9 @@ margin: http://127.0.0.1:<port>/#<token>
   notes: <out>
 ```
 
-The block is for the human. It is not a parsing surface. `--self-test` prints no stderr block.
+The first line is written once the port is bound, so the URL it names is live, and it is the
+one line a caller may parse (§11). The rest of the block is for the human; a caller may show
+it but does not parse it. `--self-test` prints no stderr block.
 
 ## §3 Exit codes
 
@@ -101,7 +103,7 @@ value. A flag other than `--scope` given twice keeps its last value.
 | `--scope <path>` | none | Repeatable. A file or folder, relative to the root (an absolute path inside the root is accepted). Each is normalised to a root-relative path, and the root itself becomes `.`. A path outside the root exits 2; the check compares path text and resolves no symbolic link (§10). With no `--scope`, a resumed file's `scope` applies when it is an array; otherwise the scope is empty and the whole root is listed. |
 | `--out <file>` | `<root>/claudedocs/margin/<stamp>.json` | The notes file. `<stamp>` is the start time in UTC as `YYYY-MM-DDTHH-MM-SS`. A relative value resolves against the working directory. When the file exists, the run is a resume (§5). Missing parent directories are created on the first save. |
 | `--port <n>` | `0` | An integer from 0 to 65535 after the value is converted with JavaScript's `Number()`: an empty or all-whitespace value becomes `0`, and `1e3` and `0x10` are accepted as `1000` and `16` (§13). `0` lets the operating system assign a free port; the bound port is the one in the stderr URL. |
-| `--token <token>` | minted | 16 to 128 characters from `[A-Za-z0-9_-]`. When absent, the server mints 32 lowercase hexadecimal characters (16 random bytes). Setting it lets a caller know the viewer URL before the server prints it (§11). |
+| `--token <token>` | minted | 16 to 128 characters from `[A-Za-z0-9_-]`. When absent, the server mints 32 lowercase hexadecimal characters (16 random bytes). Setting it lets a caller know the viewer URL's fragment before the server prints it. |
 | `--no-open` | off | Do not open the viewer. Without it, the server opens the URL with the platform opener (`open` on macOS, `start` on Windows, `xdg-open` elsewhere). An opener that starts and fails is ignored, since the URL is on stderr; an opener command that is not installed ends the run with exit 1 and no stdout document, after the draft is saved and the stderr block is printed (§13). |
 
 ## §5 Resume
@@ -243,8 +245,8 @@ Three guards apply to every request, in this order; the first that fails answers
    run's token (§4); missing or different, it is refused with 403. The viewer page and its
    assets need no token.
 
-The token is in the URL the server printed (§2), with the caller that set it (§11) and, when
-`--token` sets it, on the process command line, where other local processes can read it. It
+The token is in the URL the server printed (§2) and, when `--token` sets it, with the caller
+that set it and on the process command line, where other local processes can read it. It
 guards against pages on other origins, not against local processes. The viewer reads it from the URL fragment (`#<token>`) and sends it on every API call.
 Opened without the fragment, the viewer cannot load the session.
 
@@ -279,22 +281,31 @@ longer exists answers 500.
 
 ## §11 Skill–server seam
 
-1. **Token.** The skill resolves the root (`git rev-parse --show-toplevel`, else the working
-   directory) and mints the token: 16 random bytes as 32 lowercase hexadecimal characters,
-   inside the class of §4.
+1. **Root.** On a fresh run the skill resolves the root (`git rev-parse --show-toplevel`, else
+   the working directory). A resume takes the root recorded in the notes file.
 2. **Start.** It starts `cli.mjs annotate` as a background command with the maximum timeout,
-   since the command returns only when the review ends. It passes `--root <root>`, one
-   `--scope` per path, `--port 7331`, `--token <token>` and, when resuming, `--out
-   <notes-file>` — the skill's `--resume <notes-file>` argument is its name for `--out`.
-3. **Announce.** It tells the user `http://127.0.0.1:<port>/#<token>` straight away. It knows
-   the URL before the server prints it because it set both the port and the token.
-4. **Read after exit.** It waits for the process to exit, without polling and without reading
+   since the command returns only when the review ends, with stderr redirected to a file. A
+   fresh run passes `--root <root>` and one `--scope` per path. A resume passes `--out
+   <notes-file>` — the skill's `--resume <notes-file>` argument, as an absolute path — and no
+   `--root`, so the recorded root applies (§4, §5); it passes `--scope` only for paths the
+   user gave, which then resolve under the recorded root. It passes `--port` only when the
+   user gave one, so the server otherwise binds a free port, and no `--token`, so the server
+   mints the token.
+3. **Read the URL.** It waits, bounded, for the stderr block's first line (§2), `margin:
+   http://127.0.0.1:<port>/#<token>`. A process that exits before writing it has its error
+   document on stdout (§2, §3), which the skill reports; a port that cannot be bound is not
+   retried. A process still running when the wait ends has not bound yet — it lists the files
+   before it listens — so the skill waits once more before it stops the process.
+4. **Announce.** Once that line has appeared, it tells the user the URL exactly as printed,
+   and the notes file the block names.
+5. **Read after exit.** It waits for the process to exit, without polling and without reading
    the notes file. It then parses the one stdout document (§2) and, unless `status` is
    `error` or `out` is `null`, reads the notes file at `out`.
 
 The server never reads the skill's state: its whole input is its argument vector, the files
 under the root and the viewer's requests. The skill's whole input from the server is the
-stdout document and, after exit, the notes file; the stderr block is for the human.
+stdout document, the URL on the stderr block's first line and, after exit, the notes file;
+the rest of the stderr block is for the human.
 
 ## §12 `--self-test`
 
@@ -330,11 +341,7 @@ What this contract leaves undecided, each as a question.
   refused rather than passing because a listed file lies beneath it?
 - **A resume under another root.** When `--out` names an existing file whose `root` differs
   from `--root`, should the run refuse, warn, or re-resolve the stored scope under the new
-  root? And since the skill always passes `--root`, should a stored `root` ever apply on a
-  resume the skill starts?
-- **The busy-port fallback.** When port 7331 is taken, the skill reruns once on 7332 after it
-  has already announced a URL naming 7331. What should the user be shown, and is one retry on
-  one fixed port the right fallback?
+  root?
 - **Silently dropped notes.** A new note that fails §7's checks is left out of the list while
   the viewer receives `{"ok": true}` and keeps showing the note. Should the server refuse the
   write or report the drop?
@@ -361,10 +368,3 @@ What this contract leaves undecided, each as a question.
 - **Usage text and code headers.** `cli.mjs`'s usage line and header comment show `--root` as
   required, the token as `<hex>` and the paths as absolute. Should they match §4, and should
   the header comments point at this file instead of restating it?
-- **Note order in the skill.** The skill's plan table lists the notes "in file order", while
-  the file holds them in creation order (§6). Which order does the skill mean?
-- **The skill's wording.** The skill tells the user notes save under
-  `<root>/claudedocs/margin/`, which is not where a resumed file saves, and that without the
-  fragment every Send fails, while without it the viewer cannot load at all; and its
-  notes-file shape omits `version`, `out`, `createdAt`, `updatedAt` and each note's `id` and
-  `createdAt`. Should the skill's text follow §6, §7 and §9?

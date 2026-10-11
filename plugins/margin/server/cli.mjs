@@ -113,8 +113,8 @@ async function annotate(argv) {
   } catch (err) {
     fail(`could not listen on port ${port}: ${err.code ?? err.message}`, 1);
   }
-  // The first draft is written only once the port is bound, so a failed start (a busy port,
-  // retried on another) leaves nothing behind.
+  // The first draft is written only once the port is bound, so a failed bind leaves nothing
+  // behind.
   save();
 
   process.stderr.write(`margin: ${url}\n  root:  ${root}\n  scope: ${scope.join(', ') || '.'} (${files.length} files)\n  notes: ${out}\n`);
