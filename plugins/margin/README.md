@@ -49,13 +49,14 @@ node plugins/margin/server/cli.mjs annotate --root /path/to/repo --scope src/fea
 
 Prints the viewer URL on stderr — open that exact URL: its `#fragment` is the per-run token
 every API call must carry, so a page on another origin cannot plant notes or read source
-(`--token <hex>` fixes it in advance). Exits when Send or Cancel is pressed, printing one JSON
-document with the notes file path.
+(`--token` fixes it in advance). Exits when Send or Cancel is pressed, printing one JSON
+document with the notes file path. [CONTRACT.md](CONTRACT.md) specifies the flags, the output
+document and the exit codes.
 
 ## Notes file
 
-See `skills/annotate/SKILL.md` §2 for the shape. Anchors are `range` (path, start, end,
-excerpt of the lines as seen), `file`, `folder`, or `scope`. The excerpt lets the reader
+[CONTRACT.md](CONTRACT.md) specifies the notes-file schema and the anchor rule. Anchors are
+`range` (path, start, end, excerpt of the lines as seen), `file`, `folder`, or `scope`. The excerpt lets the reader
 detect drift when the code has changed since the note was written.
 
 ## Not yet
