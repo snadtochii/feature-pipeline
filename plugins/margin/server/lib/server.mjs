@@ -63,12 +63,12 @@ function readJson(req) {
   });
 }
 
-// Keeps only the fields the notes file defines, so neither a stray client nor a
-// hand-edited notes file can give the reading skill a shape it does not expect.
-// `allowed` is the set of listed paths. One rule per kind, no fallthrough: a scope note
-// names nothing, a folder note names an ancestor of a listed file, a file or range note
-// names a listed file. Null skips the check (a resumed note may point at a file that has
-// since moved).
+// The one rule for where a note may point: an anchor is checked against the listed paths
+// when the note is created, and never changes afterwards. A later write from the viewer
+// may revise what the human typed (`intent`, `body`), not where the note sits, so a note
+// resumed from an earlier run keeps its anchor even when that file has since moved or
+// fallen outside this run's scope. `allowed` is the set of listed paths; one rule per
+// kind, no fallthrough; null skips the check for notes read back from the file.
 const IN_SCOPE = {
   scope: () => true,
   folder: (anchor, allowed) => [...allowed].some((path) => path.startsWith(`${anchor.path}/`)),
@@ -80,6 +80,8 @@ function inScope(anchor, allowed) {
   return IN_SCOPE[anchor.kind](anchor, allowed);
 }
 
+// Keeps only the fields the notes file defines, so neither a stray client nor a
+// hand-edited notes file can give the reading skill a shape it does not expect.
 export function cleanAnnotation(raw, allowed) {
   const anchor = raw?.anchor ?? {};
   if (!ANCHOR_KINDS.has(anchor.kind) || typeof raw.body !== 'string') {
@@ -114,12 +116,27 @@ export function cleanAnnotation(raw, allowed) {
   return clean;
 }
 
+// A write may change a stored note's text, never its anchor.
+function reviseAnnotation(stored, raw) {
+  return {
+    ...stored,
+    intent: INTENTS.has(raw.intent) ? raw.intent : stored.intent,
+    body: typeof raw.body === 'string' ? raw.body : stored.body,
+  };
+}
+
 function applyEdits(session, body, allowed) {
   if (typeof body.overall === 'string') {
     session.overall = body.overall;
   }
   if (Array.isArray(body.annotations)) {
-    session.annotations = body.annotations.map((raw) => cleanAnnotation(raw, allowed)).filter(Boolean);
+    const stored = new Map(session.annotations.map((a) => [a.id, a]));
+    session.annotations = body.annotations
+      .map((raw) => {
+        const known = typeof raw?.id === 'string' ? stored.get(raw.id) : undefined;
+        return known ? reviseAnnotation(known, raw) : cleanAnnotation(raw, allowed);
+      })
+      .filter(Boolean);
   }
 }
 

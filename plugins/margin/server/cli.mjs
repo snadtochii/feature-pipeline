@@ -61,9 +61,8 @@ function readStored(out) {
 }
 
 // A resumed file may have been edited by hand; it comes back in the shape the rest of this
-// file assumes. Every annotation passes the server's cleaner for shape only: a note on a file
-// that has since moved, or that sits outside this run's scope, is kept rather than dropped,
-// because losing it silently would defeat the point of resuming.
+// file assumes. Anchors are checked for shape only here: where a note may point is decided
+// once, at creation, by the server (see `lib/server.mjs`), and a stored note keeps its anchor.
 function restoreSession(stored) {
   return {
     version: 1,
