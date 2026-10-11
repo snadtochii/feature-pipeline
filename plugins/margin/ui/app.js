@@ -5,18 +5,30 @@ import { highlightLines } from './highlight.js';
 
 const $ = (selector) => document.querySelector(selector);
 
+// A scope with more files than this opens with every folder below the scope collapsed.
+const COLLAPSE_THRESHOLD = 200;
+
 const state = {
   session: null, // { root, scope, out, overall, annotations }
   files: [], // repo-relative paths in scope, sorted
   current: null, // { path, lines } or { path, lines: null } for a binary file
   selection: null, // { start, end } line numbers in the current file
   editing: null, // annotation id while the composer edits instead of adds
-  collapsed: new Set(),
+  collapsed: new Set(), // folder paths shown closed; the filter never changes it
+  filter: '', // lower-cased tree filter text, '' when off
+  openBeforeFilter: null, // path of the file open when the filter turned on
   saveTimer: null,
+  // Code-view nodes and what they currently show, so note and selection changes patch
+  // only the lines whose state differs instead of re-rendering the file.
+  lineNodes: [], // index n-1 → the .line node for line n of the current file
+  shownMarks: new Set(), // line numbers painted .marked
+  shownSelection: null, // { start, end } painted .selected
+  selBtn: null, // the floating "Annotate L…" button of the current render
 };
 
 const el = {
-  tree: $('#tree'),
+  treeRows: $('#tree-rows'),
+  filter: $('#filter'),
   code: $('#code'),
   list: $('#list'),
   overall: $('#overall'),
@@ -68,6 +80,7 @@ async function load() {
   state.files = data.files;
   el.scope.textContent = `${data.session.root} · ${data.session.scope.join(', ') || '.'}`;
   el.overall.value = data.session.overall || '';
+  applyDefaultCollapse();
   renderTree();
   renderList();
 }
@@ -90,29 +103,87 @@ function buildTree(paths) {
   return root;
 }
 
-function countFor(kind, path) {
-  return annotations().filter((a) => a.anchor.path === path && (kind === 'folder' ? a.anchor.kind === 'folder' : a.anchor.kind !== 'folder')).length;
+function folderPaths(node, out = []) {
+  for (const dir of node.dirs.values()) {
+    out.push(dir.path);
+    folderPaths(dir, out);
+  }
+  return out;
 }
 
+// Opens every folder above `path`, and `path` itself when `self` is set.
+function expandTo(path, { self = false } = {}) {
+  const parts = path.split('/');
+  for (let i = 1; i < parts.length; i += 1) {
+    state.collapsed.delete(parts.slice(0, i).join('/'));
+  }
+  if (self) {
+    state.collapsed.delete(path);
+  }
+}
+
+// Large scopes open collapsed below each scope entry, with the folders holding notes open,
+// so a resumed review shows its noted rows without a click.
+function applyDefaultCollapse() {
+  if (state.files.length <= COLLAPSE_THRESHOLD) {
+    return;
+  }
+  for (const path of folderPaths(buildTree(state.files))) {
+    state.collapsed.add(path);
+  }
+  for (const entry of state.session.scope) {
+    expandTo(entry, { self: true });
+  }
+  for (const a of annotations()) {
+    if (a.anchor.path) {
+      expandTo(a.anchor.path);
+    }
+  }
+}
+
+// Note counts per tree row: `folder:<path>` counts folder notes, `file:<path>` file and range notes.
+function noteCounts() {
+  const counts = new Map();
+  for (const a of annotations()) {
+    if (a.anchor.path) {
+      const key = `${a.anchor.kind === 'folder' ? 'folder' : 'file'}:${a.anchor.path}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+// While the filter is on, the tree holds only the matching files and the folders above
+// them, all shown open; `state.collapsed` is left alone so clearing the filter restores it.
 function renderTree() {
-  el.tree.replaceChildren(renderDir(buildTree(state.files), 0));
+  const filtering = state.filter !== '';
+  const paths = filtering ? state.files.filter((path) => path.toLowerCase().includes(state.filter)) : state.files;
+  if (filtering && paths.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'tree-empty';
+    empty.textContent = 'No files match';
+    el.treeRows.replaceChildren(empty);
+    return;
+  }
+  const view = { counts: noteCounts(), filtering };
+  el.treeRows.replaceChildren(renderDir(buildTree(paths), 0, view));
 }
 
-function renderDir(node, depth) {
+function renderDir(node, depth, view) {
   const frag = document.createDocumentFragment();
   for (const dir of [...node.dirs.values()].sort(byName)) {
-    frag.append(treeRow('folder', dir, depth));
-    if (!state.collapsed.has(dir.path)) {
-      frag.append(renderDir(dir, depth + 1));
+    frag.append(treeRow('folder', dir, depth, view));
+    if (view.filtering || !state.collapsed.has(dir.path)) {
+      frag.append(renderDir(dir, depth + 1, view));
     }
   }
   for (const file of node.files.sort(byName)) {
-    frag.append(treeRow('file', file, depth));
+    frag.append(treeRow('file', file, depth, view));
   }
   return frag;
 }
 
-function treeRow(kind, node, depth) {
+function treeRow(kind, node, depth, view) {
   const row = document.createElement('div');
   row.className = `row ${kind}`;
   row.style.paddingLeft = `${8 + depth * 14}px`;
@@ -121,11 +192,18 @@ function treeRow(kind, node, depth) {
   }
   const name = document.createElement('span');
   name.className = 'name';
-  name.textContent = kind === 'folder' ? `${state.collapsed.has(node.path) ? '▸' : '▾'} ${node.name}` : node.name;
+  const open = view.filtering || !state.collapsed.has(node.path);
+  name.textContent = kind === 'folder' ? `${open ? '▾' : '▸'} ${node.name}` : node.name;
   name.title = node.path;
-  name.addEventListener('click', () => (kind === 'folder' ? toggleDir(node.path) : openFile(node.path)));
+  name.addEventListener('click', () => {
+    if (kind === 'file') {
+      openFile(node.path);
+    } else if (!view.filtering) {
+      toggleDir(node.path);
+    }
+  });
 
-  const count = countFor(kind, node.path);
+  const count = view.counts.get(`${kind}:${node.path}`) ?? 0;
   const btn = document.createElement('button');
   btn.className = `note-btn${count ? ' has' : ''}`;
   btn.title = `Annotate this ${kind}`;
@@ -147,6 +225,19 @@ function toggleDir(path) {
   renderTree();
 }
 
+// Clearing the filter restores `state.collapsed` as it was, except that a file opened
+// while filtering gets its folders opened so its row stays visible.
+function setFilter(text) {
+  const next = text.trim().toLowerCase();
+  if (state.filter === '' && next !== '') {
+    state.openBeforeFilter = state.current?.path ?? null;
+  } else if (state.filter !== '' && next === '' && state.current && state.current.path !== state.openBeforeFilter) {
+    expandTo(state.current.path);
+  }
+  state.filter = next;
+  renderTree();
+}
+
 // ---- code view -----------------------------------------------------------
 
 async function openFile(path, scrollTo) {
@@ -159,6 +250,8 @@ async function openFile(path, scrollTo) {
     note.className = 'empty';
     note.textContent = `${path} is not in this scope (moved, deleted, or outside the paths this review was opened with). Its notes are kept.`;
     el.code.replaceChildren(note);
+    state.selection = null;
+    resetCodeView();
     return;
   }
   state.selection = null;
@@ -168,6 +261,7 @@ async function openFile(path, scrollTo) {
     note.className = 'empty';
     note.textContent = `${path}: ${data.reason}. Annotate it as a file from the tree.`;
     el.code.replaceChildren(note);
+    resetCodeView();
   } else {
     const lines = data.text.split('\n');
     if (lines.at(-1) === '') {
@@ -176,7 +270,7 @@ async function openFile(path, scrollTo) {
     state.current = { path, lines };
     renderCode();
     if (scrollTo) {
-      el.code.querySelector(`.line[data-n="${scrollTo}"]`)?.scrollIntoView({ block: 'center' });
+      state.lineNodes[scrollTo - 1]?.scrollIntoView({ block: 'center' });
     }
   }
   renderTree();
@@ -194,6 +288,13 @@ function markedLines(path) {
   return marked;
 }
 
+function resetCodeView() {
+  state.lineNodes = [];
+  state.shownMarks = new Set();
+  state.shownSelection = null;
+  state.selBtn = null;
+}
+
 function renderCode() {
   const { path, lines } = state.current;
   const marked = markedLines(path);
@@ -202,16 +303,24 @@ function renderCode() {
   head.textContent = `${path} · ${lines.length} lines`;
   const box = document.createElement('div');
   box.className = 'lines';
+  // One delegated listener for every gutter, however long the file.
+  box.addEventListener('click', (event) => {
+    const gutter = event.target.closest('.gutter');
+    if (gutter) {
+      selectLine(Number(gutter.parentElement.dataset.n), event.shiftKey);
+    }
+  });
+  const nodes = [];
   const tokens = highlightLines(lines, path);
   lines.forEach((text, i) => {
     const n = i + 1;
     const line = document.createElement('div');
     line.className = `line${marked.has(n) ? ' marked' : ''}`;
     line.dataset.n = String(n);
+    nodes.push(line);
     const gutter = document.createElement('span');
     gutter.className = 'gutter';
     gutter.textContent = String(n);
-    gutter.addEventListener('click', (event) => selectLine(n, event.shiftKey));
     const src = document.createElement('span');
     src.className = 'src';
     if (text === '') {
@@ -230,8 +339,39 @@ function renderCode() {
     line.append(gutter, src);
     box.append(line);
   });
-  el.code.replaceChildren(head, box);
+  // One "Annotate L…" button per render, moved and hidden rather than re-inserted: adding or
+  // removing a node in the pane re-lays out every line, moving a positioned one does not.
+  const selBtn = document.createElement('button');
+  selBtn.className = 'sel-btn off';
+  selBtn.addEventListener('click', () => {
+    const sel = state.selection;
+    if (sel) {
+      const excerpt = state.current.lines.slice(sel.start - 1, sel.end).join('\n');
+      openComposer({ kind: 'range', path: state.current.path, start: sel.start, end: sel.end, excerpt });
+    }
+  });
+  el.code.replaceChildren(head, box, selBtn);
+  resetCodeView();
+  state.lineNodes = nodes;
+  state.shownMarks = marked;
+  state.selBtn = selBtn;
   applySelection();
+}
+
+// Toggles .marked on the lines whose marked state changed since the last paint.
+function refreshMarks() {
+  const next = markedLines(state.current.path);
+  for (const n of state.shownMarks) {
+    if (!next.has(n)) {
+      state.lineNodes[n - 1]?.classList.remove('marked');
+    }
+  }
+  for (const n of next) {
+    if (!state.shownMarks.has(n)) {
+      state.lineNodes[n - 1]?.classList.add('marked');
+    }
+  }
+  state.shownMarks = next;
 }
 
 function selectLine(n, extend) {
@@ -245,26 +385,36 @@ function selectLine(n, extend) {
   applySelection();
 }
 
+// Paints state.selection, toggling .selected only on the lines whose state changed.
 function applySelection() {
   const sel = state.selection;
-  for (const line of el.code.querySelectorAll('.line')) {
-    const n = Number(line.dataset.n);
-    line.classList.toggle('selected', Boolean(sel) && n >= sel.start && n <= sel.end);
+  const shown = state.shownSelection;
+  const within = (range, n) => Boolean(range) && n >= range.start && n <= range.end;
+  if (shown) {
+    for (let n = shown.start; n <= shown.end; n += 1) {
+      if (!within(sel, n)) {
+        state.lineNodes[n - 1]?.classList.remove('selected');
+      }
+    }
   }
-  el.code.querySelector('.sel-btn')?.remove();
-  if (!sel) {
+  if (sel) {
+    for (let n = sel.start; n <= sel.end; n += 1) {
+      if (!within(shown, n)) {
+        state.lineNodes[n - 1]?.classList.add('selected');
+      }
+    }
+  }
+  state.shownSelection = sel ? { start: sel.start, end: sel.end } : null;
+  const btn = state.selBtn;
+  const anchorLine = sel ? state.lineNodes[sel.start - 1] : null;
+  if (!btn) {
     return;
   }
-  const anchorLine = el.code.querySelector(`.line[data-n="${sel.start}"]`);
-  const btn = document.createElement('button');
-  btn.className = 'sel-btn';
-  btn.textContent = sel.start === sel.end ? `Annotate L${sel.start}` : `Annotate L${sel.start}–${sel.end}`;
-  btn.style.top = `${anchorLine.offsetTop}px`;
-  btn.addEventListener('click', () => {
-    const excerpt = state.current.lines.slice(sel.start - 1, sel.end).join('\n');
-    openComposer({ kind: 'range', path: state.current.path, start: sel.start, end: sel.end, excerpt });
-  });
-  el.code.append(btn);
+  btn.classList.toggle('off', !anchorLine);
+  if (anchorLine) {
+    btn.textContent = sel.start === sel.end ? `Annotate L${sel.start}` : `Annotate L${sel.start}–${sel.end}`;
+    btn.style.top = `${anchorLine.offsetTop}px`;
+  }
 }
 
 // ---- composer ------------------------------------------------------------
@@ -353,8 +503,10 @@ function afterChange() {
   scheduleSave();
   renderList();
   renderTree();
-  if (state.current?.lines) {
-    renderCode();
+  // Patch the open file in place; commit clears the selection, so repaint it too.
+  if (state.current?.lines && state.lineNodes.length) {
+    refreshMarks();
+    applySelection();
   }
 }
 
@@ -419,9 +571,10 @@ function noteItem(a) {
 
 function revealAnchor(anchor) {
   if (anchor.kind === 'range' || anchor.kind === 'file') {
+    expandTo(anchor.path);
     openFile(anchor.path, anchor.start);
   } else if (anchor.kind === 'folder') {
-    state.collapsed.delete(anchor.path);
+    expandTo(anchor.path, { self: true });
     renderTree();
   } else {
     el.overall.focus();
@@ -493,6 +646,8 @@ el.cancel.addEventListener('click', () => {
     end('/api/cancel', 'cancelled');
   }
 });
+
+el.filter.addEventListener('input', () => setFilter(el.filter.value));
 
 el.addScope.addEventListener('click', () => openComposer({ kind: 'scope' }));
 el.overall.addEventListener('input', scheduleSave);

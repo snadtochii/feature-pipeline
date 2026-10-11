@@ -62,8 +62,13 @@ kbd { font: 11px var(--mono); opacity: .7; margin-left: 4px; }
 #scope { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50vw; }
 
 .layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 280px minmax(0, 1fr) 380px; }
-.tree, .code, .notes { min-height: 0; overflow: auto; }
-.tree { border-right: 1px solid var(--line); padding: 8px 0; font-family: var(--mono); font-size: 12px; }
+/* Each pane lays out on its own, so re-rendering the tree or the notes list never re-lays out a long file. */
+.tree, .code, .notes { min-height: 0; overflow: auto; contain: strict; }
+.tree { border-right: 1px solid var(--line); padding: 0 0 8px; font-family: var(--mono); font-size: 12px; }
+.filter-box { position: sticky; top: 0; z-index: 1; padding: 8px 8px 6px; background: var(--bg); }
+.filter-box input { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; width: 100%; }
+.filter-box input:focus { outline: none; border-color: var(--accent); }
+.tree-empty { padding: 4px 12px; color: var(--muted); font-family: var(--sans); }
 .notes { border-left: 1px solid var(--line); padding: 12px; background: var(--panel); }
 
 .row { display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 0; white-space: nowrap; }
@@ -94,6 +99,7 @@ kbd { font: 11px var(--mono); opacity: .7; margin-left: 4px; }
 .tok-decorator { color: var(--tok-decorator); }
 .empty { padding: 40px; color: var(--muted); font-family: var(--sans); max-width: 48em; }
 .sel-btn { position: absolute; left: 5.5em; transform: translateY(-110%); z-index: 2; background: var(--accent); color: #fff; border-color: var(--accent); font-family: var(--sans); font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.sel-btn.off { visibility: hidden; }
 
 .field span { display: block; font-weight: 600; margin-bottom: 4px; }
 .notes-head { display: flex; align-items: center; justify-content: space-between; margin: 14px 0 8px; }

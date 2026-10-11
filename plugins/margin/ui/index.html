@@ -16,7 +16,12 @@
     <button id="send" class="primary" title="Save and hand the notes to the agent">Send</button>
   </header>
   <main class="layout">
-    <nav id="tree" class="tree" aria-label="Files in scope"></nav>
+    <nav id="tree" class="tree" aria-label="Files in scope">
+      <div class="filter-box">
+        <input id="filter" type="search" placeholder="Filter files" aria-label="Filter files by path" autocomplete="off" spellcheck="false">
+      </div>
+      <div id="tree-rows"></div>
+    </nav>
     <section id="code" class="code">
       <div class="empty">Pick a file. Click a line number to annotate it; shift-click to extend the range. The <b>+</b> on a tree row annotates that file or folder.</div>
     </section>
