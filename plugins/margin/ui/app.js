@@ -17,12 +17,11 @@ const state = {
   collapsed: new Set(), // folder paths shown closed; not consulted while the filter is on
   filter: '', // lower-cased tree filter text, '' when off
   saveTimer: null,
-  // Code-view nodes and what they currently show, so note and selection changes patch
-  // only the lines whose state differs instead of re-rendering the file.
-  lineNodes: [], // index n-1 → the .line node for line n of the current file
-  shownMarks: new Set(), // line numbers painted .marked
-  shownSelection: null, // { start, end } painted .selected
-  selBtn: null, // the floating "Annotate L…" button of the current render
+  // The rendered code view, null when no text file is shown. It records what the line nodes
+  // currently show, so note and selection changes patch only the lines whose state differs:
+  // { nodes: index n-1 → the .line node for line n, marks: line numbers painted .marked,
+  //   selection: { start, end } painted .selected or null, btn: the "Annotate L…" button }
+  view: null,
 };
 
 const el = {
@@ -247,8 +246,10 @@ async function openFile(path, scrollTo) {
     note.className = 'empty';
     note.textContent = `${path} is not in this scope (moved, deleted, or outside the paths this review was opened with). Its notes are kept.`;
     el.code.replaceChildren(note);
+    state.current = null;
     state.selection = null;
-    resetCodeView();
+    state.view = null;
+    renderTree();
     return;
   }
   state.selection = null;
@@ -258,7 +259,7 @@ async function openFile(path, scrollTo) {
     note.className = 'empty';
     note.textContent = `${path}: ${data.reason}. Annotate it as a file from the tree.`;
     el.code.replaceChildren(note);
-    resetCodeView();
+    state.view = null;
   } else {
     const lines = data.text.split('\n');
     if (lines.at(-1) === '') {
@@ -267,7 +268,7 @@ async function openFile(path, scrollTo) {
     state.current = { path, lines };
     renderCode();
     if (scrollTo) {
-      state.lineNodes[scrollTo - 1]?.scrollIntoView({ block: 'center' });
+      state.view.nodes[scrollTo - 1]?.scrollIntoView({ block: 'center' });
     }
   }
   // A file opened while filtering keeps a visible row once the filter is cleared.
@@ -287,13 +288,6 @@ function markedLines(path) {
     }
   }
   return marked;
-}
-
-function resetCodeView() {
-  state.lineNodes = [];
-  state.shownMarks = new Set();
-  state.shownSelection = null;
-  state.selBtn = null;
 }
 
 function renderCode() {
@@ -352,27 +346,25 @@ function renderCode() {
     }
   });
   el.code.replaceChildren(head, box, selBtn);
-  resetCodeView();
-  state.lineNodes = nodes;
-  state.shownMarks = marked;
-  state.selBtn = selBtn;
+  state.view = { nodes, marks: marked, selection: null, btn: selBtn };
   applySelection();
 }
 
 // Toggles .marked on the lines whose marked state changed since the last paint.
 function refreshMarks() {
+  const view = state.view;
   const next = markedLines(state.current.path);
-  for (const n of state.shownMarks) {
+  for (const n of view.marks) {
     if (!next.has(n)) {
-      state.lineNodes[n - 1]?.classList.remove('marked');
+      view.nodes[n - 1]?.classList.remove('marked');
     }
   }
   for (const n of next) {
-    if (!state.shownMarks.has(n)) {
-      state.lineNodes[n - 1]?.classList.add('marked');
+    if (!view.marks.has(n)) {
+      view.nodes[n - 1]?.classList.add('marked');
     }
   }
-  state.shownMarks = next;
+  view.marks = next;
 }
 
 function selectLine(n, extend) {
@@ -388,29 +380,30 @@ function selectLine(n, extend) {
 
 // Paints state.selection, toggling .selected only on the lines whose state changed.
 function applySelection() {
+  const view = state.view;
+  if (!view) {
+    return;
+  }
   const sel = state.selection;
-  const shown = state.shownSelection;
+  const shown = view.selection;
   const within = (range, n) => Boolean(range) && n >= range.start && n <= range.end;
   if (shown) {
     for (let n = shown.start; n <= shown.end; n += 1) {
       if (!within(sel, n)) {
-        state.lineNodes[n - 1]?.classList.remove('selected');
+        view.nodes[n - 1]?.classList.remove('selected');
       }
     }
   }
   if (sel) {
     for (let n = sel.start; n <= sel.end; n += 1) {
       if (!within(shown, n)) {
-        state.lineNodes[n - 1]?.classList.add('selected');
+        view.nodes[n - 1]?.classList.add('selected');
       }
     }
   }
-  state.shownSelection = sel ? { start: sel.start, end: sel.end } : null;
-  const btn = state.selBtn;
-  const anchorLine = sel ? state.lineNodes[sel.start - 1] : null;
-  if (!btn) {
-    return;
-  }
+  view.selection = sel ? { start: sel.start, end: sel.end } : null;
+  const btn = view.btn;
+  const anchorLine = sel ? view.nodes[sel.start - 1] : null;
   btn.classList.toggle('off', !anchorLine);
   if (anchorLine) {
     btn.textContent = sel.start === sel.end ? `Annotate L${sel.start}` : `Annotate L${sel.start}–${sel.end}`;
@@ -505,7 +498,7 @@ function afterChange() {
   renderList();
   renderTree();
   // Patch the open file in place; commit clears the selection, so repaint it too.
-  if (state.current?.lines && state.lineNodes.length) {
+  if (state.view) {
     refreshMarks();
     applySelection();
   }
