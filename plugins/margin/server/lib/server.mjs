@@ -65,8 +65,17 @@ function readJson(req) {
 
 // Keeps only the fields the notes file defines, so neither a stray client nor a
 // hand-edited notes file can give the reading skill a shape it does not expect.
-// `allowed` is the set of listed paths a file or range note must name; null skips
-// that check (a resumed note may point at a file that has since moved).
+// `allowed` is the set of listed paths: a file or range note must name one, a folder
+// note must name an ancestor of one. Null skips that check (a resumed note may point
+// at a file that has since moved).
+function inScope(anchor, allowed) {
+  if (anchor.kind === 'folder') {
+    const prefix = `${anchor.path}/`;
+    return [...allowed].some((path) => path.startsWith(prefix));
+  }
+  return allowed.has(anchor.path);
+}
+
 export function cleanAnnotation(raw, allowed) {
   const anchor = raw?.anchor ?? {};
   if (!ANCHOR_KINDS.has(anchor.kind) || typeof raw.body !== 'string') {
@@ -85,7 +94,7 @@ export function cleanAnnotation(raw, allowed) {
     }
     clean.anchor.path = anchor.path;
   }
-  if ((anchor.kind === 'file' || anchor.kind === 'range') && allowed && !allowed.has(anchor.path)) {
+  if (allowed && !inScope(anchor, allowed)) {
     return null;
   }
   if (anchor.kind === 'range') {

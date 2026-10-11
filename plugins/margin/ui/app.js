@@ -473,32 +473,24 @@ function finish(status) {
   document.body.append(overlay);
 }
 
-el.send.addEventListener('click', async () => {
+// Ends the review through one of the two terminal routes; the server exits after answering.
+async function end(route, status) {
   el.send.disabled = true;
   el.cancel.disabled = true;
   try {
-    await api('POST', '/api/submit', payload());
-    finish('submitted');
+    await api('POST', route, payload());
+    finish(status);
   } catch (err) {
     el.send.disabled = false;
     el.cancel.disabled = false;
-    el.saveState.textContent = `send failed: ${err.message}`;
+    el.saveState.textContent = `${status === 'submitted' ? 'send' : 'cancel'} failed: ${err.message}`;
   }
-});
+}
 
-el.cancel.addEventListener('click', async () => {
-  if (!window.confirm('Cancel this review? The server stops; a non-empty draft stays on disk.')) {
-    return;
-  }
-  el.send.disabled = true;
-  el.cancel.disabled = true;
-  try {
-    await api('POST', '/api/cancel', payload());
-    finish('cancelled');
-  } catch (err) {
-    el.send.disabled = false;
-    el.cancel.disabled = false;
-    el.saveState.textContent = `cancel failed: ${err.message}`;
+el.send.addEventListener('click', () => end('/api/submit', 'submitted'));
+el.cancel.addEventListener('click', () => {
+  if (window.confirm('Cancel this review? The server stops; a non-empty draft stays on disk.')) {
+    end('/api/cancel', 'cancelled');
   }
 });
 

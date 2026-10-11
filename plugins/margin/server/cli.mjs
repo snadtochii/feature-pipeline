@@ -19,7 +19,7 @@
 import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { listFiles, readSource, revision } from './lib/files.mjs';
 import { cleanAnnotation, startServer } from './lib/server.mjs';
 
@@ -41,7 +41,7 @@ function stamp() {
 function scopePath(root, raw) {
   const abs = resolve(root, raw);
   const rel = relative(root, abs);
-  if (rel.startsWith('..')) {
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     fail(`scope ${raw} is outside ${root}`, 2);
   }
   return rel === '' ? '.' : rel;
