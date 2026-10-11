@@ -489,6 +489,10 @@ const CASES = [
       assertErrorDoc(runCli(args), 1, fragment, `--out holding ${content.slice(0, 24)}`);
       assert(fs.readFileSync(out).equals(Buffer.from(content)), `--out holding ${content.slice(0, 24)} was rewritten`);
     }
+    const resumedScope = '{"annotations": [], "scope": ["../outside"]}';
+    fs.writeFileSync(out, resumedScope);
+    assertErrorDoc(runCli(args), 2, 'is outside', 'a resumed scope outside the root');
+    assert(fs.readFileSync(out).equals(Buffer.from(resumedScope)), 'a resumed scope outside the root rewrote --out');
     fs.rmSync(out);
     assertErrorDoc(runCli(['annotate', '--root', root, '--scope', '../outside', '--port', '0', '--no-open']), 2, 'is outside', 'a scope outside the root');
     assertEqual(fs.readdirSync(root), ['a.txt'], 'files under the root after the refusals');
