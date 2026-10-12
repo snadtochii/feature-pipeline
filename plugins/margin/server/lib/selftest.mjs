@@ -1,11 +1,12 @@
 // `cli.mjs --self-test` (CONTRACT.md §12).
 //
-// Exercises what no browser session proves, without a browser: the viewer's colouring seam over
-// the vendored highlight.js on a fixed TSX sample, and the routes that serve both, the note rules (the anchor rule per kind, range validity, the excerpt cap),
-// resuming a notes file (a stored note keeps its anchor; the refusals), the scope rule, file
-// listing that never lists a symlink, and the reading refusals and limits — then the three
-// request guards and cancel-on-empty against a server on port 0 inside this process, and the
-// command's own refusals through `cli.mjs annotate` children that must exit before serving.
+// Exercises what no browser session proves, without a browser. It checks the viewer's colouring
+// seam over the vendored highlight.js on a fixed TSX sample, and the routes that serve both. It
+// checks the note rules (the anchor rule per kind, range validity, the excerpt cap), resuming a
+// notes file (a stored note keeps its anchor; the refusals), the scope rule, file listing that
+// never lists a symlink, and the reading refusals and limits — then the three request guards
+// and cancel-on-empty against a server on port 0 inside this process, and the command's own
+// refusals through `cli.mjs annotate` children that must exit before serving.
 // Every fixture is a real file in a temp directory, and every expectation is written by hand,
 // never computed by the code under test. Requests go to 127.0.0.1 only. A failing case throws
 // a RunError naming it.
