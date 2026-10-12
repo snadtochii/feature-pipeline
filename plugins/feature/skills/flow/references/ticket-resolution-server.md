@@ -76,14 +76,20 @@ Check the row's `blocked_by` field. If it's missing or empty, skip this step. Ot
 1. **Locate the blocker**: `pipeline_get_ticket` on the blocker ID.
 2. **Determine completion**: a blocker is "done" if its row `status` is `done` or `cancelled`.
 
-   **`in-review` is NOT done.** A blocker whose PR is open has `status: in-review` — the lookup in step 1 finds it, but the completion test above deliberately *excludes* it: an open, unmerged PR does not unblock dependents. Do not add `in-review` to the done clause — the found-but-not-done-equivalent asymmetry is intentional. Step 3 is the one exception, and it tests the PR and the checkout, never the status.
+   **`in-review` is NOT done.** A blocker whose PR is open has `status: in-review` — the lookup in step 1 finds it, but the completion test above deliberately *excludes* it: an open, unmerged PR does not unblock dependents. Do not add `in-review` to the done clause — the found-but-not-done-equivalent asymmetry is intentional. The merged-sibling clause (item 3) is the one exception, and it tests the PR and the checkout, never the status.
 3. **Merged-sibling clause (`build` only)**: an `in-review` blocker whose `parent_id` equals this ticket's `parent_id` is **merged-in** when its PR is merged and its merge commit is already in the checkout build starts from. This is how an epic chain advances under `ship`: each child's PR squash-merges into `integration/<epic-id>`, the child stays `in-review` until that branch reaches `<base>` ([`state-transitions-server.md`](state-transitions-server.md) Transition 6), and the next sibling builds on a checkout that already carries the merge.
 
-   Test only a `pr_url` of the exact shape `https://github.com/<owner>/<repo>/pull/<digits>`, with `<owner>` and `<repo>` drawn from `[A-Za-z0-9._-]` — any other value leaves the blocker unmet, so nothing but that shape reaches the command line. Run from the build's working directory:
+   The PR URL is the blocker row's `pr_url`. It is never pasted into a command: write it with the Write tool to a temp file whose absolute path a prior Bash call printed, then load it as data and check it before use. Run from the build's working directory:
 
    ```bash
-   PR_URL='<blocker pr_url>'
-   read -r PR_STATE MERGE_SHA <<<"$(gh pr view "$PR_URL" --json state,mergeCommit --jq '.state + " " + (.mergeCommit.oid // "")')"
+   PR_URL=$(head -1 "<pr_url temp file>")
+   case "$PR_URL" in
+     *[!A-Za-z0-9:/._-]*) PR_URL= ;;                    # not a plain URL → unmet
+     https://github.com/*/*/pull/*[!0-9]*) PR_URL= ;;   # PR number not all digits → unmet
+     https://github.com/*/*/pull/[0-9]*) ;;
+     *) PR_URL= ;;
+   esac
+   read -r PR_STATE MERGE_SHA <<<"$([ -n "$PR_URL" ] && gh pr view "$PR_URL" --json state,mergeCommit --jq '.state + " " + (.mergeCommit.oid // "")')"
    case "$MERGE_SHA" in
      ''|*[!0-9a-f]*) false ;;   # no merge commit, or not a plain SHA → unmet
      *) [ "$PR_STATE" = MERGED ] && git merge-base --is-ancestor "$MERGE_SHA" HEAD ;;
@@ -108,7 +114,7 @@ The stage's behavior depends on which stage is running:
   Factor this into your <analysis|plan> — assume the blocker will deliver what its plan/spec describes; do NOT flag as gaps things the blocker is already designed to provide.
   ```
 
-- **`build`** (and `flow`'s SETUP pre-check, which applies the same test) — REFUSE if any blocker is neither done (or cancelled) nor merged-in (step 3). Abort with this message:
+- **`build`** (and `flow`'s SETUP pre-check, which applies the same test) — REFUSE if any blocker is neither done (or cancelled) nor merged-in under the merged-sibling clause. Abort with this message:
   ```
   Cannot run build on <ticket-id>. Blockers not yet done:
   - <blocker-id> (status: <status>)

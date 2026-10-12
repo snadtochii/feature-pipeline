@@ -120,7 +120,7 @@ A missing [`worktree:` config block](#worktree-setup) is **not** a degrade: the 
 When `/feature:discover` produces an epic, sibling child tickets can declare `blocked_by: [<sibling-id>]` in their frontmatter. The pipeline enforces this asymmetrically:
 
 - `plan` runs against blocked tickets normally — its Phase 1 synthesis auto-loads the blocker's spec/plan as context, so you can plan against unfinished foundations.
-- `build` refuses to run until every blocker is `done` (or `cancelled`), or is an `in-review` sibling whose PR is merged and whose merge commit the current checkout contains — how `ship` advances an epic chain on its integration branch while each merged child stays `in-review` until the integration PR lands. An open PR still blocks. If a `blocked_by` entry is wrong, edit the ticket's `blocked_by` frontmatter.
+- `build` refuses to run until every blocker is `done` (or `cancelled`), or is an `in-review` sibling whose merged PR is already in the current checkout (the merged-sibling clause in ticket-resolution Step 6) — how `ship` advances an epic chain on its integration branch. An open PR still blocks. If a `blocked_by` entry is wrong, edit the ticket's `blocked_by` frontmatter.
 
 This lets you plan ahead while preventing builds on top of unfinished foundations.
 
