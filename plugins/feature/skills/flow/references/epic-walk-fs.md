@@ -70,7 +70,7 @@ c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind:
 d. **Re-read the child's `01-spec.md` frontmatter** after the recursive flow returns. The close stage's verdict gate (inside the child's flow run) already applied the state transition per `state-transitions-fs.md` (folder move + `status`). The new status determines the walker's next move:
 
    - `done` or `partial-completion` → child completed cleanly (close verdict `pass` — with or without a commit, per the gate's commit-mode dispatch — or verdict `partial`/`stuck` + user choice `accept-as-partial`). Continue walker silently.
-   - `in-review` → child's PR was opened (the close stage ran with `--pr`); the PR is open, awaiting merge. Non-terminal but an expected outcome — the child is "advanced enough." Continue the walker; the child finalizes to `done/` on a future walk once its PR merges (the close stage's `review/` pass-through fires Transition 6).
+   - `in-review` → child's PR was opened (the close stage ran with `--pr`); the PR is open, awaiting merge. Non-terminal but an expected outcome — the child is "advanced enough." Continue the walker; the child finalizes to `done/` on a future walk once its PR merges (the close stage's `review/` pass-through fires Transition 6). A dependent sibling's build accepts this child only once its PR is merged and the checkout contains the merge commit ([`ticket-resolution-fs.md`](ticket-resolution-fs.md) Step 6's merged-sibling clause); while the PR is open, that dependent's build refuses.
    - `backlog` → user chose `abort` at the child's verdict gate. The child has been reverted. Stop the walker. Print:
      ```
      Child <CHILD-ID> aborted (reverted to backlog/). Stopping epic walk.

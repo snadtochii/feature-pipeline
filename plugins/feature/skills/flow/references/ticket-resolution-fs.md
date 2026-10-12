@@ -134,7 +134,26 @@ Check the `blocked_by` frontmatter field. If it's missing or empty, skip this st
 1. **Locate the blocker** using the same Step 1 logic (search `backlog/`, `in-progress/`, `review/`, `done/`, including nested children under `tasks/`).
 2. **Determine completion**: a blocker is "done" if its `status` is `done` or `cancelled` — read from frontmatter (authoritative; folder under `claudedocs/tickets/done/` is the fallback when frontmatter is missing).
 
-   **`review/` / `in-review` is NOT done.** A blocker whose PR is open lives in `review/` with `status: in-review` — the search in step 1 *includes* `review/` so the blocker is findable, but the completion test above deliberately *excludes* it: an open, unmerged PR does not unblock dependents. Do not add `review/` or `in-review` to the done clause — the searched-but-not-done-equivalent asymmetry is intentional.
+   **`review/` / `in-review` is NOT done.** A blocker whose PR is open lives in `review/` with `status: in-review` — the search in step 1 *includes* `review/` so the blocker is findable, but the completion test above deliberately *excludes* it: an open, unmerged PR does not unblock dependents. Do not add `review/` or `in-review` to the done clause — the searched-but-not-done-equivalent asymmetry is intentional. Step 3 is the one exception, and it tests the PR and the checkout, never the status or the folder.
+3. **Merged-sibling clause (`build` only)**: an `in-review` blocker whose `parent` equals this ticket's `parent` is **merged-in** when its PR is merged and its merge commit is already in the checkout build starts from. This is how an epic chain advances under `ship`: each child's PR squash-merges into `integration/<epic-id>`, the child stays `in-review` until that branch reaches `<base>` ([`state-transitions-fs.md`](state-transitions-fs.md) Transition 6), and the next sibling builds on a checkout that already carries the merge.
+
+   The PR URL is the `pr:` line the close stage's finalizer appends to the blocker's `06-summary.md`. That body is model-written and PR-editable, so the value is loaded by command substitution and checked before use, never pasted into a command. Run from the build's working directory:
+
+   ```bash
+   PR_URL=$(sed -n 's/^pr: *//p' "<blocker 06-summary.md path>" | tail -1)
+   case "$PR_URL" in
+     *[!A-Za-z0-9:/._-]*) PR_URL= ;;      # not a plain URL → unmet
+     https://github.com/*/*/pull/*) ;;
+     *) PR_URL= ;;
+   esac
+   read -r PR_STATE MERGE_SHA <<<"$([ -n "$PR_URL" ] && gh pr view "$PR_URL" --json state,mergeCommit --jq '.state + " " + (.mergeCommit.oid // "")')"
+   case "$MERGE_SHA" in
+     ''|*[!0-9a-f]*) false ;;   # no merge commit, or not a plain SHA → unmet
+     *) [ "$PR_STATE" = MERGED ] && git merge-base --is-ancestor "$MERGE_SHA" HEAD ;;
+   esac
+   ```
+
+   Exit 0 → merged-in; record `MERGE_SHA` per blocker, which build's worktree eligibility reads. Anything else fails closed and leaves the blocker unmet: the PR open or closed unmerged, `gh` missing or failing, no `pr:` line, or a merge commit `HEAD` does not contain (the PR merged into a branch this checkout has not pulled). The test reads `HEAD` rather than a named base because build takes no base argument, and the question is whether the tree it builds on holds the blocker's code — on ship's walk, the integration head pulled after the merge or a feature branch cut from it.
 
 The stage's behavior depends on which stage is running:
 
@@ -152,7 +171,7 @@ The stage's behavior depends on which stage is running:
   Factor this into your <analysis|plan> — assume the blocker will deliver what its plan/spec describes; do NOT flag as gaps things the blocker is already designed to provide.
   ```
 
-- **`build`** — REFUSE if any blocker is not done (or cancelled). Abort with this message:
+- **`build`** (and `flow`'s SETUP pre-check, which applies the same test) — REFUSE if any blocker is neither done (or cancelled) nor merged-in (step 3). Abort with this message:
   ```
   Cannot run build on <ticket-id>. Blockers not yet done:
   - <blocker-id> (status: <status>, location: claudedocs/tickets/<state>/.../<blocker-id>/)
@@ -160,6 +179,7 @@ The stage's behavior depends on which stage is running:
 
   Either complete the blockers first, or edit this ticket's blocked_by frontmatter if the dependency is wrong.
   ```
+  When a listed blocker is an `in-review` sibling, append one line: `An in-review sibling counts once its PR is merged and this checkout contains the merge commit — pull the branch it merged into and re-run.`
 
 - **`review-stage`** — does NOT refuse on unfinished blockers. It locates each blocker to compose the reviewers' blocker context from the blocker's artifacts.
 

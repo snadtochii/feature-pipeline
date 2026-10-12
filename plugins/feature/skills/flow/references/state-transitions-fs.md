@@ -274,7 +274,7 @@ Used by future tooling (notably the epic-mode flow walker) to inspect aggregate 
 Read the ticket's `status` from `<ticket-folder>/01-spec.md` frontmatter. Possible values:
 - `backlog` — not yet started.
 - `in-progress` — currently in the pipeline.
-- `in-review` — the verdict was `pass` with `--pr`; PR open, awaiting merge. A **solo** ticket lives in `review/`; an **epic child** can be `in-review` while its subtree is still in `in-progress/` (a sibling is mid-build, so the precedence rule keeps the epic out of `review/`). So `in-review` is found by frontmatter `status`, not by folder location alone. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking), but included in every folder search and resumption path.
+- `in-review` — the verdict was `pass` with `--pr`; PR open, awaiting merge. A **solo** ticket lives in `review/`; an **epic child** can be `in-review` while its subtree is still in `in-progress/` (a sibling is mid-build, so the precedence rule keeps the epic out of `review/`). So `in-review` is found by frontmatter `status`, not by folder location alone. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking — build's merged-sibling clause in ticket-resolution Step 6 tests the child's PR and the checkout, not this status), but included in every folder search and resumption path.
 - `done` — completed cleanly.
 - `partial-completion` — finalized but with un-fixable failures (treated as terminal for aggregate calculations).
 - `cancelled` — abandoned (lives in `done/` per the discover convention; treated as terminal).
