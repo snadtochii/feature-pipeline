@@ -79,7 +79,8 @@ export function saveSession(session) {
 
 // The end of a run. A cancel with no notes and a blank overall comment deletes the notes
 // file; every other ending saves it with its final status. Returns the result document.
-export function finishRun({ session, status, out, root, scope, save }) {
+export function finishRun(session, status) {
+  const { out, root, scope } = session;
   session.status = status;
   const discard = status === 'cancelled' && session.annotations.length === 0 && session.overall.trim() === '';
   if (discard) {
@@ -87,7 +88,7 @@ export function finishRun({ session, status, out, root, scope, save }) {
       unlinkSync(out);
     }
   } else {
-    save();
+    saveSession(session);
   }
   return { status, out: discard ? null : out, annotations: session.annotations.length, root, scope };
 }

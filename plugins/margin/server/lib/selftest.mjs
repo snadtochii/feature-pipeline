@@ -169,7 +169,7 @@ function withServer(fn) {
       files,
       readSource: (p) => readSource(root, p),
       onSave: save,
-      onFinish: (status) => settle(finishRun({ session, status, out, root, scope: [], save })),
+      onFinish: (status) => settle(finishRun(session, status)),
     });
     try {
       const parsed = new URL(url);

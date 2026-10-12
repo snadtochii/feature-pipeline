@@ -95,7 +95,7 @@ async function annotate(argv) {
   const save = () => saveSession(session);
 
   const finish = (status) => {
-    writeDoc(finishRun({ session, status, out, root, scope, save }));
+    writeDoc(finishRun(session, status));
     process.exit(0);
   };
 
