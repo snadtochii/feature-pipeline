@@ -570,6 +570,10 @@ function noteItem(a) {
   del.textContent = 'delete';
   del.addEventListener('click', () => {
     state.session.annotations = annotations().filter((x) => x.id !== a.id);
+    // A composer editing this note has nothing left to update.
+    if (state.editing === a.id) {
+      closeComposer();
+    }
     afterChange();
   });
   ops.append(edit, del);
