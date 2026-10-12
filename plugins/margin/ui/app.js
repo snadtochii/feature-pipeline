@@ -17,6 +17,11 @@ const state = {
   collapsed: new Set(), // folder paths shown closed; not consulted while the filter is on
   filter: '', // lower-cased tree filter text, '' when off
   saveTimer: null,
+  // The last write sent to the server. Writes run one after another, so an older snapshot can
+  // never land after a newer one; each sends the session as it stands when its turn comes.
+  writes: Promise.resolve(),
+  // The open composer's { dirty, commit } while a note is being written, null otherwise.
+  composer: null,
   // The rendered code view, null when no text file is shown. It records what the line nodes
   // currently show, so note and selection changes patch only the lines whose state differs:
   // { nodes: index n-1 → the .line node for line n, marks: line numbers painted .marked,
@@ -471,6 +476,15 @@ function openComposer(anchor, existing = null) {
     afterChange();
   };
 
+  // Text that differs from what is stored: a new note with any text, or an edit that changed
+  // the body or the intent.
+  const dirty = () => {
+    const text = body.value.trim();
+    const chosen = intents.querySelector('input:checked').value;
+    return text !== '' && (text !== (existing?.body ?? '') || chosen !== intent);
+  };
+  state.composer = { dirty, commit };
+
   add.addEventListener('click', commit);
   cancel.addEventListener('click', closeComposer);
   body.addEventListener('keydown', (event) => {
@@ -489,6 +503,7 @@ function openComposer(anchor, existing = null) {
 
 function closeComposer() {
   state.editing = null;
+  state.composer = null;
   el.composer.classList.add('hidden');
   el.composer.replaceChildren();
 }
@@ -592,14 +607,24 @@ function scheduleSave() {
   state.saveTimer = setTimeout(save, 400);
 }
 
-async function save() {
+// Queues one write behind the previous one; the payload is read when the write starts, not
+// when it is queued, so a queued write always carries the newest session.
+function enqueue(write) {
+  const run = state.writes.then(write);
+  state.writes = run.catch(() => {});
+  return run;
+}
+
+function save() {
   clearTimeout(state.saveTimer);
-  try {
-    const res = await api('PUT', '/api/session', payload());
-    el.saveState.textContent = `saved ${new Date(res.updatedAt).toLocaleTimeString()}`;
-  } catch (err) {
-    el.saveState.textContent = `save failed: ${err.message}`;
-  }
+  return enqueue(async () => {
+    try {
+      const res = await api('PUT', '/api/session', payload());
+      el.saveState.textContent = `saved ${new Date(res.updatedAt).toLocaleTimeString()}`;
+    } catch (err) {
+      el.saveState.textContent = `save failed: ${err.message}`;
+    }
+  });
 }
 
 function finish(status) {
@@ -626,11 +651,14 @@ function finish(status) {
 }
 
 // Ends the review through one of the two terminal routes; the server exits after answering.
+// A pending autosave is dropped and the terminal write queues behind any write in flight, so
+// the final body is the newest session and nothing lands after it.
 async function end(route, status) {
+  clearTimeout(state.saveTimer);
   el.send.disabled = true;
   el.cancel.disabled = true;
   try {
-    await api('POST', route, payload());
+    await enqueue(() => api('POST', route, payload()));
     finish(status);
   } catch (err) {
     el.send.disabled = false;
@@ -639,9 +667,18 @@ async function end(route, status) {
   }
 }
 
-el.send.addEventListener('click', () => end('/api/submit', 'submitted'));
+// Send keeps a note still open in the composer: it is added (or its update applied) first.
+el.send.addEventListener('click', () => {
+  if (state.composer?.dirty()) {
+    state.composer.commit();
+  }
+  end('/api/submit', 'submitted');
+});
+// Cancel discards a note still open in the composer, and says so before stopping.
 el.cancel.addEventListener('click', () => {
-  if (window.confirm('Cancel this review? The server stops; a non-empty draft stays on disk.')) {
+  const unsaved = state.composer?.dirty() ? ' The note you are writing is discarded.' : '';
+  if (window.confirm(`Cancel this review?${unsaved} The server stops; a non-empty draft stays on disk.`)) {
+    closeComposer();
     end('/api/cancel', 'cancelled');
   }
 });
