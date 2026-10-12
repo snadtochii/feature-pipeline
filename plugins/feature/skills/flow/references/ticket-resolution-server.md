@@ -79,9 +79,11 @@ Check the row's `blocked_by` field. If it's missing or empty, skip this step. Ot
    **`in-review` is NOT done.** A blocker whose PR is open has `status: in-review` — the lookup in step 1 finds it, but the completion test above deliberately *excludes* it: an open, unmerged PR does not unblock dependents. Do not add `in-review` to the done clause — the found-but-not-done-equivalent asymmetry is intentional. The merged-sibling clause (item 3) is the one exception, and it tests the PR and the checkout, never the status.
 3. **Merged-sibling clause (`build` only)**: an `in-review` blocker whose `parent_id` equals this ticket's `parent_id` is **merged-in** when its PR is merged and its merge commit is already in the checkout build starts from. This is how an epic chain advances under `ship`: each child's PR squash-merges into `integration/<epic-id>`, the child stays `in-review` until that branch reaches `<base>` ([`state-transitions-server.md`](state-transitions-server.md) Transition 6), and the next sibling builds on a checkout that already carries the merge.
 
-   **The checkout under test** is named explicitly, never taken from the working directory: Step 6 runs before build binds its repository or re-binds a recorded worktree, and a multi-repo workspace root is not a git repository at all. `<build checkout>` is the first match of:
+   **The checkout under test** is named explicitly, never taken from the working directory: Step 6 runs before build re-binds a recorded worktree. `<build checkout>` is the first match of:
    - the `<wt-path>` recorded in the ticket's `03-implementation.md` `## Worktree` section, when that path still exists on disk — a resumed build works there;
    - otherwise the project root (Step 3).
+
+   A ticket row carries no `repos` field, so nothing names a child repository: when the project root is not itself a git repository (a multi-repo workspace), the test fails and every sibling blocker stays unmet.
 
    The PR URL is the blocker row's `pr_url`. It is never pasted into a command: write it with the Write tool to a temp file whose absolute path a prior Bash call printed, then load it as data and check it before use. With `<build checkout>` bound:
 
@@ -128,7 +130,7 @@ The stage's behavior depends on which stage is running:
   ```
   When a listed blocker is an `in-review` sibling, append one line: `An in-review sibling counts once its PR is merged and this checkout contains the merge commit — pull the branch it merged into and re-run.`
 
-- **`flow`** (SETUP pre-check) — REFUSE, with the same message, on a blocker that is neither done (or cancelled) nor an `in-review` sibling. An `in-review` sibling passes the pre-check unevaluated: the merged-sibling clause runs shell commands flow has no tool for, so `build` decides it.
+- **`flow`** (SETUP pre-check) — REFUSE, with the same message, on a blocker that is neither done (or cancelled) nor an `in-review` sibling. An `in-review` sibling passes the pre-check unevaluated: the merged-sibling clause runs shell commands flow has no tool for, so `build` decides it. A sibling whose PR is still open is therefore refused by `build`, after the plan stage has run, not by this pre-check.
 
 - **`review-stage`** — does NOT refuse on unfinished blockers. It locates each blocker to compose the reviewers' blocker context from the blocker's artifacts.
 

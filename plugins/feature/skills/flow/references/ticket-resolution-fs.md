@@ -188,7 +188,7 @@ The stage's behavior depends on which stage is running:
   ```
   When a listed blocker is an `in-review` sibling, append one line: `An in-review sibling counts once its PR is merged and this checkout contains the merge commit — pull the branch it merged into and re-run.`
 
-- **`flow`** (SETUP pre-check) — REFUSE, with the same message, on a blocker that is neither done (or cancelled) nor an `in-review` sibling. An `in-review` sibling passes the pre-check unevaluated: the merged-sibling clause runs shell commands flow has no tool for, so `build` decides it.
+- **`flow`** (SETUP pre-check) — REFUSE, with the same message, on a blocker that is neither done (or cancelled) nor an `in-review` sibling. An `in-review` sibling passes the pre-check unevaluated: the merged-sibling clause runs shell commands flow has no tool for, so `build` decides it. A sibling whose PR is still open is therefore refused by `build`, after the plan stage has run, not by this pre-check.
 
 - **`review-stage`** — does NOT refuse on unfinished blockers. It locates each blocker to compose the reviewers' blocker context from the blocker's artifacts.
 
