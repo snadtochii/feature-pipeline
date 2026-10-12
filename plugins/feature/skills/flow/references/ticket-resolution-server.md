@@ -76,7 +76,33 @@ Check the row's `blocked_by` field. If it's missing or empty, skip this step. Ot
 1. **Locate the blocker**: `pipeline_get_ticket` on the blocker ID.
 2. **Determine completion**: a blocker is "done" if its row `status` is `done` or `cancelled`.
 
-   **`in-review` is NOT done.** A blocker whose PR is open has `status: in-review` — the lookup in step 1 finds it, but the completion test above deliberately *excludes* it: an open, unmerged PR does not unblock dependents. Do not add `in-review` to the done clause — the found-but-not-done-equivalent asymmetry is intentional.
+   **`in-review` is NOT done.** A blocker whose PR is open has `status: in-review` — the lookup in step 1 finds it, but the completion test above deliberately *excludes* it: an open, unmerged PR does not unblock dependents. Do not add `in-review` to the done clause — the found-but-not-done-equivalent asymmetry is intentional. The merged-sibling clause (item 3) is the one exception, and it tests the PR and the checkout, never the status.
+3. **Merged-sibling clause (`build` only)**: an `in-review` blocker whose `parent_id` equals this ticket's `parent_id` is **merged-in** when its PR is merged and its merge commit is already in the checkout build starts from. This is how an epic chain advances under `ship`: each child's PR squash-merges into `integration/<epic-id>`, the child stays `in-review` until that branch reaches `<base>` ([`state-transitions-server.md`](state-transitions-server.md) Transition 6), and the next sibling builds on a checkout that already carries the merge.
+
+   **The checkout under test** is named explicitly, never taken from the working directory: Step 6 runs before build re-binds a recorded worktree. `<build checkout>` is the first match of:
+   - the `<wt-path>` recorded in the ticket's `03-implementation.md` `## Worktree` section, when that path still exists on disk — a resumed build works there;
+   - otherwise the project root (Step 3).
+
+   A ticket row carries no `repos` field, so nothing names a child repository: when the project root is not itself a git repository (a multi-repo workspace), the test fails and every sibling blocker stays unmet.
+
+   The PR URL is the blocker row's `pr_url`. It is never pasted into a command: write it with the Write tool to a temp file whose absolute path a prior Bash call printed, then load it as data and check it before use. With `<build checkout>` bound:
+
+   ```bash
+   PR_URL=$(head -1 "<pr_url temp file>")
+   case "$PR_URL" in
+     *[!A-Za-z0-9:/._-]*) PR_URL= ;;                    # not a plain URL → unmet
+     https://github.com/*/*/pull/*[!0-9]*) PR_URL= ;;   # PR number not all digits → unmet
+     https://github.com/*/*/pull/[0-9]*) ;;
+     *) PR_URL= ;;
+   esac
+   read -r PR_STATE MERGE_SHA <<<"$([ -n "$PR_URL" ] && gh pr view "$PR_URL" --json state,mergeCommit --jq '.state + " " + (.mergeCommit.oid // "")')"
+   case "$MERGE_SHA" in
+     ''|*[!0-9a-f]*) false ;;   # no merge commit, or not a plain SHA → unmet
+     *) [ "$PR_STATE" = MERGED ] && git -C "<build checkout>" merge-base --is-ancestor "$MERGE_SHA" HEAD ;;
+   esac
+   ```
+
+   Exit 0 → merged-in. Record one `<blocker-id> <MERGE_SHA>` pair per merged-in blocker in the run's working state: the shell variable does not survive into the next Bash call, and build's worktree eligibility needs each blocker's own SHA. The SHA has passed the hex check above, so it is carried as a literal. Anything else fails closed and leaves the blocker unmet: the PR open or closed unmerged, `gh` missing or failing, no `pr_url`, or a merge commit that `<build checkout>`'s `HEAD` does not contain (the PR merged into a branch this checkout has not pulled). The test reads `HEAD` rather than a named base because build takes no base argument, and the question is whether the tree it builds on holds the blocker's code — on ship's walk, the integration head pulled after the merge or a feature branch cut from it.
 
 The stage's behavior depends on which stage is running:
 
@@ -94,7 +120,7 @@ The stage's behavior depends on which stage is running:
   Factor this into your <analysis|plan> — assume the blocker will deliver what its plan/spec describes; do NOT flag as gaps things the blocker is already designed to provide.
   ```
 
-- **`build`** — REFUSE if any blocker is not done (or cancelled). Abort with this message:
+- **`build`** — REFUSE if any blocker is neither done (or cancelled) nor merged-in under the merged-sibling clause. Abort with this message:
   ```
   Cannot run build on <ticket-id>. Blockers not yet done:
   - <blocker-id> (status: <status>)
@@ -102,6 +128,9 @@ The stage's behavior depends on which stage is running:
 
   Either complete the blockers first, or edit this ticket's blocked_by field if the dependency is wrong.
   ```
+  When a listed blocker is an `in-review` sibling, append one line: `An in-review sibling counts once its PR is merged and this checkout contains the merge commit — pull the branch it merged into and re-run.`
+
+- **`flow`** (SETUP pre-check) — REFUSE, with the same message, on a blocker that is neither done (or cancelled) nor an `in-review` sibling. An `in-review` sibling passes the pre-check unevaluated: the merged-sibling clause runs shell commands flow has no tool for, so `build` decides it. A sibling whose PR is still open is therefore refused by `build`, after the plan stage has run, not by this pre-check.
 
 - **`review-stage`** — does NOT refuse on unfinished blockers. It locates each blocker to compose the reviewers' blocker context from the blocker's artifacts.
 

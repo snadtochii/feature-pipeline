@@ -200,7 +200,7 @@ Used by future tooling (notably the epic-mode flow walker) to inspect aggregate 
 Read the ticket's `status` — the row field via `pipeline_get_ticket`. Possible values:
 - `backlog` — not yet started.
 - `in-progress` — currently in the pipeline.
-- `in-review` — the verdict was `pass` with `--pr`; PR open, awaiting merge. An **epic child** can be `in-review` while its epic row is still `in-progress` (a sibling is mid-build, so the precedence rule keeps the epic row at `in-progress`) — the child row's status is the signal. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking), but included in every resolution and resumption path.
+- `in-review` — the verdict was `pass` with `--pr`; PR open, awaiting merge. An **epic child** can be `in-review` while its epic row is still `in-progress` (a sibling is mid-build, so the precedence rule keeps the epic row at `in-progress`) — the child row's status is the signal. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking — build's merged-sibling clause in ticket-resolution Step 6 tests the child's PR and the checkout, not this status), but included in every resolution and resumption path.
 - `done` — completed cleanly.
 - `partial-completion` — finalized but with un-fixable failures (treated as terminal for aggregate calculations).
 - `cancelled` — abandoned (treated as terminal).

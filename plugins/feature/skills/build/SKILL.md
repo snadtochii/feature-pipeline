@@ -84,7 +84,7 @@ Without a bound hint (Required Input), a ticket whose gate decision was already 
 
 ## Blocker validation
 
-Validate blockers per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) Step 6. If any entry in `blocked_by` is not yet done (status `done` or `cancelled` per Step 6's completion test), abort with the message in Step 6 listing the unblocked blockers. If a `blocked_by` entry is wrong, edit this ticket's `blocked_by` frontmatter.
+Validate blockers per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) Step 6. If any entry in `blocked_by` is neither done (status `done` or `cancelled`) nor merged-in under Step 6's merged-sibling clause, abort with the message in Step 6 listing the unblocked blockers. If a `blocked_by` entry is wrong, edit this ticket's `blocked_by` frontmatter.
 
 ## Flag validation
 
