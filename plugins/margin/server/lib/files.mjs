@@ -72,7 +72,7 @@ export function readSource(root, path) {
   if (size > MAX_BYTES) {
     return { path, binary: true, reason: `${(size / 1024 / 1024).toFixed(1)} MB is above the ${MAX_BYTES / 1024 / 1024} MB viewer limit` };
   }
-  const buffer = readFileSync(abs);
+  const buffer = readFileSync(real);
   if (buffer.subarray(0, 8000).includes(0)) {
     return { path, binary: true, reason: 'binary file' };
   }
