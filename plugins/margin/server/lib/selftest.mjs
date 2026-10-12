@@ -22,7 +22,8 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { highlightLines } from '../../ui/highlight.js';
 import { listFiles, readSource } from './files.mjs';
-import { applyEdits, cleanAnnotation, startServer } from './server.mjs';
+import { applyEdits, cleanAnnotation } from './annotations.mjs';
+import { startServer } from './server.mjs';
 import { RunError, createSession, finishRun, readStored, restoreSession, saveSession, scopePath } from './session.mjs';
 
 const CLI = fileURLToPath(new URL('../cli.mjs', import.meta.url));

@@ -6,7 +6,7 @@
 
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
-import { cleanAnnotation } from './server.mjs';
+import { cleanAnnotation } from './annotations.mjs';
 
 export class RunError extends Error {
   constructor(message, exitCode) {
@@ -46,7 +46,7 @@ export function readStored(out) {
 
 // A resumed file may have been edited by hand; it comes back in the shape the rest of the
 // server assumes. Anchors are checked for shape only here: where a note may point is decided
-// once, at creation, by the server (see `server.mjs`), and a stored note keeps its anchor.
+// once, at creation (see `annotations.mjs`), and a stored note keeps its anchor.
 // A note the cleaner rejects stops the run rather than vanishing on the first save.
 export function restoreSession(stored, out) {
   const annotations = stored.annotations.map((raw) => cleanAnnotation(raw, null));
