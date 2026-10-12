@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>margin</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="bar">
+    <span class="brand">margin</span>
+    <span id="scope" class="muted"></span>
+    <span class="spacer"></span>
+    <span id="save-state" class="muted"></span>
+    <button id="cancel" class="ghost" title="Discard this review and close the server">Cancel</button>
+    <button id="send" class="primary" title="Save and hand the notes to the agent">Send</button>
+  </header>
+  <main class="layout">
+    <nav id="tree" class="tree" aria-label="Files in scope">
+      <div class="filter-box">
+        <input id="filter" type="search" placeholder="Filter files" aria-label="Filter files by path" autocomplete="off" spellcheck="false">
+      </div>
+      <div id="tree-rows"></div>
+    </nav>
+    <section id="code" class="code">
+      <div class="empty">Pick a file. Click a line number to annotate it; shift-click to extend the range. The <b>+</b> on a tree row annotates that file or folder.</div>
+    </section>
+    <aside class="notes">
+      <label class="field">
+        <span>Overall direction</span>
+        <textarea id="overall" rows="4" placeholder="What this whole scope should become, in a few lines. Read by the agent first."></textarea>
+      </label>
+      <div class="notes-head">
+        <span id="count" class="muted">0 notes</span>
+        <button id="add-scope" class="ghost small" title="A note about the scope as a whole">+ general note</button>
+      </div>
+      <div id="composer" class="composer hidden"></div>
+      <ol id="list" class="list"></ol>
+    </aside>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

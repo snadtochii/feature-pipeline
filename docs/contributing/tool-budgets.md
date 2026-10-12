@@ -1,6 +1,6 @@
 # Tool budgets
 
-Per-skill `allowed-tools` and per-agent `tools` budgets for the `feature` plugin, and the skill budgets for the `verify` plugin, with the rationale for each entry. Read before touching either frontmatter field. Unqualified `skills/` and `agents/` paths follow the root guidance file's path convention (`plugins/feature/…`); the `verify` section names its paths in full.
+Per-skill `allowed-tools` and per-agent `tools` budgets for the `feature` plugin, and the skill budgets for the `verify` and `margin` plugins, with the rationale for each entry. Read before touching either frontmatter field. Unqualified `skills/` and `agents/` paths follow the root guidance file's path convention (`plugins/feature/…`); the `verify` and `margin` sections name their paths in full.
 
 ## Skills
 
@@ -54,3 +54,11 @@ The `verify` plugin ships three skills and no agents, under `plugins/verify/skil
 | `setup` (user-only, `disable-model-invocation: true`) | Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion — `Bash` installs and checks the browser driver and drives the two-step proof run, and runs `git check-ignore`; `Write`/`Edit` write the feature map and the `driver` and `feature_map` keys into the project's `test:` entry; `Read`/`Glob`/`Grep` read the repository the map is generated from; `AskUserQuestion` asks what the repository leaves open (on Codex, the same question is asked in plain text) |
 | `run` (headless acceptance-criteria verification) | Read, Write, Glob, Grep, Bash + pipeline MCP tools (`pipeline_get_ticket`, `pipeline_get_artifact`, for a server-native ticket's criteria) — `Bash` runs `printenv HOME`, the installed driver and `git check-ignore` and nothing else; `Write` writes the run directory's entry and step files and each evidence home's `report.json`; no `Edit` — it never changes code, tickets, the feature map or config. The pipeline tools are dual-listed by hand: `scripts/check-tool-parity.sh` walks only `plugins/feature` |
 | `map-check` (feature-map drift report) | Read, Glob, Grep — read-only: it writes nothing, runs no command and asks nothing |
+
+## margin plugin
+
+The `margin` plugin ships one skill and no agents, under `plugins/margin/skills/`.
+
+| Skill | Typical budget |
+|---|---|
+| `annotate` (user-started review session) | Bash, Read, Glob, Grep, Edit, Write, Skill — `Bash` resolves the root with `git rev-parse --show-toplevel`, creates the stderr file with `mktemp`, starts the viewer (`server/cli.mjs annotate`) in the background, waits for the URL line in that file, and runs the project's checks before the first and after the last of §4's edits; `Read` reads the notes file and the anchored source; `Glob`/`Grep` find the files a structural action touches, the check commands the project declares and the tickets' `project:` value §5 passes on; `Edit`/`Write` make §4's structural changes; `Skill` hands behavioural notes to `/feature:discover` in §5 |
