@@ -34,8 +34,9 @@ and may change shape without changing this contract.
 
 **Runtime.** Node 22 or newer; the server uses the standard library only. The viewer carries
 one vendored library, highlight.js 11.12.0 (BSD-3-Clause), under `ui/vendor/`, loaded only
-through `ui/syntax.js`; nothing is installed, downloaded or built at runtime. `git` is
-optional: it makes the listing git-aware and fills `revision` (§6, §10).
+through `ui/syntax.js`; nothing is installed, downloaded or built at runtime. Update
+procedure: `README.md`, "Vendored highlight.js". `git` is optional: it makes the listing
+git-aware and fills `revision` (§6, §10).
 
 **Lifecycle.** The process validates its arguments, reads the notes file when resuming (§5),
 resolves the root and scope, lists the files (§10), binds the port, writes the notes file as
