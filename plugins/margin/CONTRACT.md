@@ -32,8 +32,10 @@ node <plugin-root>/server/cli.mjs --self-test
 Only `cli.mjs` is a command. Everything under `server/lib/` is private to the implementation
 and may change shape without changing this contract.
 
-**Runtime.** Node 22 or newer, standard library only. `git` is optional: it makes the listing
-git-aware and fills `revision` (§6, §10).
+**Runtime.** Node 22 or newer; the server uses the standard library only. The viewer carries
+one vendored library, highlight.js 11.12.0 (BSD-3-Clause), under `ui/vendor/`, loaded only
+through `ui/syntax.js`; nothing is installed, downloaded or built at runtime. `git` is
+optional: it makes the listing git-aware and fills `revision` (§6, §10).
 
 **Lifecycle.** The process validates its arguments, reads the notes file when resuming (§5),
 resolves the root and scope, lists the files (§10), binds the port, writes the notes file as
@@ -212,12 +214,17 @@ request passes the guards of §9 first. Six routes:
 
 | Route | Token | Request | Response |
 |---|---|---|---|
-| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/highlight.js` and `/style.css`, are served the same way and belong to this route. |
+| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
 | `GET /api/session` | yes | — | 200 `{"session": <the notes file object, §6>, "files": [<listed paths, §10>]}`. |
 | `GET /api/file?path=<p>` | yes | — | `<p>` not a listed path: 404 `{"error"}`. Otherwise 200 with `{"path", "text"}` or a refusal `{"path", "binary": true, "reason"}` (§10). |
 | `PUT /api/session` | yes | `{"overall"?, "annotations"?}` | Applies the edits (§7), saves the file, 200 `{"ok": true, "updatedAt"}`. |
 | `POST /api/submit` | yes | as `PUT` | Applies the edits, answers 200 `{"ok": true, "status": "submitted"}`, then ends the run as `submitted`: saves, prints the result document (§2), exits 0. |
 | `POST /api/cancel` | yes | as `PUT` | As submit, with `status: "cancelled"` and the deletion rule of §6. |
+
+**Syntax colouring.** The viewer colours a file in the language its extension names, or its
+whole file name when it has no extension (`Dockerfile`, `Makefile`), resolved through
+highlight.js's own language names and aliases — never by auto-detection. A file with no match
+renders plain.
 
 **Request bodies.** `overall` is applied only when it is a string and `annotations` only when
 it is an array; other keys are ignored. An empty body counts as `{}`, so a `PUT` without one
@@ -313,10 +320,10 @@ the rest of the stderr block is for the human.
 node <plugin-root>/server/cli.mjs --self-test
 ```
 
-Exercises the rules a browser session does not, without a browser: the viewer's tokenizer on
-fixed JavaScript, TSX, Markdown and Python samples (block comments, template literals, fences
-and triple-quoted strings carried across lines; JSX tag mode, where `>` outside a tag is not a
-tag, attribute names are not keywords and a generic's `<` does not open a tag); the anchor
+Exercises the rules a browser session does not, without a browser: the vendored highlight.js
+loading in Node and the viewer's colouring seam on a fixed TSX sample (a block comment and a
+template literal coloured on every line they span, a file with no matching language rendered
+plain, a `Dockerfile` coloured by its name), and the viewer's static routes of §8; the anchor
 rule of §7 for every kind, range validity and the excerpt cap; resume (§5) — a stored note
 keeps its anchor through a write, a new note outside the listing is dropped, an absent `--out`
 starts fresh, and each refusal; the scope check (§4); a listing that never lists a symbolic
