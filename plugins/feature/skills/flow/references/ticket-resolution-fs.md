@@ -178,7 +178,7 @@ The stage's behavior depends on which stage is running:
   Factor this into your <analysis|plan> — assume the blocker will deliver what its plan/spec describes; do NOT flag as gaps things the blocker is already designed to provide.
   ```
 
-- **`build`** (and `flow`'s SETUP pre-check, which applies the same test) — REFUSE if any blocker is neither done (or cancelled) nor merged-in under the merged-sibling clause. Abort with this message:
+- **`build`** — REFUSE if any blocker is neither done (or cancelled) nor merged-in under the merged-sibling clause. Abort with this message:
   ```
   Cannot run build on <ticket-id>. Blockers not yet done:
   - <blocker-id> (status: <status>, location: claudedocs/tickets/<state>/.../<blocker-id>/)
@@ -187,6 +187,8 @@ The stage's behavior depends on which stage is running:
   Either complete the blockers first, or edit this ticket's blocked_by frontmatter if the dependency is wrong.
   ```
   When a listed blocker is an `in-review` sibling, append one line: `An in-review sibling counts once its PR is merged and this checkout contains the merge commit — pull the branch it merged into and re-run.`
+
+- **`flow`** (SETUP pre-check) — REFUSE, with the same message, on a blocker that is neither done (or cancelled) nor an `in-review` sibling. An `in-review` sibling passes the pre-check unevaluated: the merged-sibling clause runs shell commands flow has no tool for, so `build` decides it.
 
 - **`review-stage`** — does NOT refuse on unfinished blockers. It locates each blocker to compose the reviewers' blocker context from the blocker's artifacts.
 
