@@ -81,13 +81,13 @@ export function saveSession(session) {
 // file; every other ending saves it with its final status. Returns the result document.
 export function finishRun({ session, status, out, root, scope, save }) {
   session.status = status;
-  const empty = session.annotations.length === 0 && session.overall.trim() === '';
-  if (status === 'cancelled' && empty) {
+  const discard = status === 'cancelled' && session.annotations.length === 0 && session.overall.trim() === '';
+  if (discard) {
     if (existsSync(out)) {
       unlinkSync(out);
     }
   } else {
     save();
   }
-  return { status, out: empty && status === 'cancelled' ? null : out, annotations: session.annotations.length, root, scope };
+  return { status, out: discard ? null : out, annotations: session.annotations.length, root, scope };
 }
