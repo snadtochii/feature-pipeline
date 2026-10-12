@@ -94,6 +94,11 @@ from the `@highlightjs/cdn-assets` 11.12.0 npm package:
 The package tarball's `dist.integrity` is
 `sha512-KvOKXODaiFmId9xaq3xc5xCL66wVLUuOngDbO9B/kewbFTqdGbn2nJxNhN3H5R1cgDTVj6R8vH0zgiNDEGjpDw==`.
 
+The library is two files on purpose. The release's prebuilt bundle carries the common language
+set, which has no Dockerfile grammar, and a single file with a chosen language set exists only
+as the output of highlight.js's own build tool. Nothing downloaded is run here, that tool
+included, so the Dockerfile grammar comes as its own unmodified file from the same release.
+
 Languages: bash, c, cpp, csharp, css, diff, go, graphql, ini, java, javascript, json, kotlin,
 less, lua, makefile, markdown, objectivec, perl, php, php-template, plaintext, python,
 python-repl, r, ruby, rust, scss, shell, sql, swift, typescript, vbnet, wasm, xml, yaml, and
