@@ -306,7 +306,8 @@ Never edit a file.
 
 When `run` exits, report in this order:
 
-1. `plan`'s admitted items, one line each, or "nothing admitted" with `caps.reason`.
+1. `plan`'s admitted items, one line each, or "nothing admitted" with `caps.reason`; if `plan`
+   exited 1, its exit code and `error` instead.
 2. `run`'s exit code and `outcome`, or its `error`.
 3. Each item: its id, outcome and pull request URL; for a stuck item, its reason and
    `claude --resume <session_id>`.
