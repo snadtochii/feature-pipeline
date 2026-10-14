@@ -26,6 +26,8 @@ import { renderReport } from './report.mjs';
 import { admit, compareIds, selectCandidates } from './select.mjs';
 import { listTickets, parseCredentialFile, resolveServerAccess } from './server.mjs';
 import { RUN_ID_RE, newRunId, projectNameFor, stateDirFor } from './state.mjs';
+import { shipArgv, syncArgv } from './dispatch.mjs';
+import { sessionCases } from './selftest-sessions.mjs';
 import { addTeardown, runTeardown } from './teardown.mjs';
 
 const ENTRY = fileURLToPath(new URL('../dispatch.mjs', import.meta.url));
@@ -92,18 +94,78 @@ function writeConfig(repo, text) {
   fs.writeFileSync(path.join(dir, 'config.yaml'), text);
 }
 
+/**
+ * Commit everything in `repo` and point `origin/HEAD` at the checked-out
+ * branch, so the tree is clean and on its base branch.
+ */
+function commitAll(repo) {
+  const git = (...args) => {
+    const res = spawnSync('git', ['-C', repo, '-c', 'user.name=selftest', '-c', 'user.email=selftest@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' });
+    assert(res.status === 0, `git ${args[0]} failed: ${res.stderr}`);
+  };
+  git('add', '-A');
+  git('commit', '-q', '-m', 'fixture');
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+}
+
+/** The stand-in `gh`: `auth status`, `pr view` and `pr list`, each from its own variable. */
+const FAKE_GH = `#!/bin/sh
+case "$1 $2" in
+  "auth status") exit "\${FAKE_GH_AUTH_STATUS:-\${FAKE_GH_STATUS:-0}}" ;;
+  "pr view") cat "\${FAKE_GH_VIEW_OUT:-/dev/null}"; exit "\${FAKE_GH_STATUS:-0}" ;;
+esac
+cat "$FAKE_GH_OUT"
+exit "\${FAKE_GH_STATUS:-0}"
+`;
+
+/**
+ * The stand-in `claude`: logs its working directory and arguments, then
+ * prints a scripted `sync` document or `ship` stream; a `ship` can leave the
+ * checkout on a new branch. Hang mode waits until interrupted, its trap set
+ * before it prints, so a cap that fires mid-print still ends it; stubborn
+ * mode ignores SIGINT and SIGTERM; orphan mode closes its stdout, starts a
+ * grandchild that outlives it, and waits until interrupted.
+ */
+const FAKE_CLAUDE = `#!/bin/sh
+if [ -n "$FAKE_CLAUDE_ARGS" ]; then
+  { pwd; for arg in "$@"; do printf '%s\\n' "$arg"; done; echo '--'; } >> "$FAKE_CLAUDE_ARGS"
+fi
+if [ "$2" = "/feature:sync" ]; then
+  if [ -n "$FAKE_CLAUDE_SYNC_OUT" ]; then cat "$FAKE_CLAUDE_SYNC_OUT"; fi
+  exit "\${FAKE_CLAUDE_SYNC_STATUS:-0}"
+fi
+if [ "$FAKE_CLAUDE_HANG" = "1" ] || [ "$FAKE_CLAUDE_HANG" = "orphan" ]; then trap 'exit 130' INT; fi
+if [ -n "$FAKE_CLAUDE_PID" ]; then echo "$$" > "$FAKE_CLAUDE_PID"; fi
+if [ -n "$FAKE_CLAUDE_SHIP_OUT" ]; then cat "$FAKE_CLAUDE_SHIP_OUT"; fi
+if [ -n "$FAKE_CLAUDE_SHIP_BRANCH" ]; then git checkout -q -b "$FAKE_CLAUDE_SHIP_BRANCH"; fi
+if [ "$FAKE_CLAUDE_HANG" = "1" ]; then sleep 30 & wait; fi
+if [ "$FAKE_CLAUDE_HANG" = "orphan" ]; then
+  exec >/dev/null
+  sleep 30 &
+  echo "$!" > "$FAKE_CLAUDE_PID.child"
+  sleep 30 & wait
+fi
+if [ "$FAKE_CLAUDE_HANG" = "stubborn" ]; then trap '' INT TERM; sleep 30; fi
+exit "\${FAKE_CLAUDE_SHIP_STATUS:-0}"
+`;
+
 /** A temporary bin directory holding stand-in `gh` and `claude` scripts. */
 function fakeBin(dir) {
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin);
-  const gh = path.join(bin, 'gh');
-  fs.writeFileSync(gh, '#!/bin/sh\ncat "$FAKE_GH_OUT"\nexit "${FAKE_GH_STATUS:-0}"\n');
-  fs.chmodSync(gh, 0o755);
-  const claude = path.join(bin, 'claude');
-  fs.writeFileSync(claude, '#!/bin/sh\nexit 0\n');
-  fs.chmodSync(claude, 0o755);
+  for (const [name, script] of [['gh', FAKE_GH], ['claude', FAKE_CLAUDE]]) {
+    fs.writeFileSync(path.join(bin, name), script);
+    fs.chmodSync(path.join(bin, name), 0o755);
+  }
   return bin;
 }
+
+/** Stream-json lines as the stand-in prints them. */
+const jsonl = (...events) => `${events.map((event) => JSON.stringify(event)).join('\n')}\n`;
+const initEvent = (sessionId) => ({ type: 'system', subtype: 'init', session_id: sessionId, tools: ['Bash'] });
+const resultEvent = (sessionId, fields = {}) => ({ type: 'result', subtype: 'success', is_error: false, session_id: sessionId, total_cost_usd: 1.25, permission_denials: [], ...fields });
+const rateLimitEvent = (sessionId) => ({ type: 'system', subtype: 'api_retry', attempt: 1, max_retries: 10, retry_delay_ms: 1000, error_status: 429, error: 'rate_limit', session_id: sessionId });
 
 function childEnv({ bin, home, url, token, extra = {} }) {
   const git = onPath('git', process.env);
@@ -202,33 +264,87 @@ function e2eRows() {
   ];
 }
 
-/** Serve `rows` to a request carrying the bearer token; 403 otherwise. */
-function ticketHandler(rows, seen = []) {
+/**
+ * A routing stand-in for the server, answering a request that carries the
+ * bearer token (403 otherwise): the ticket list, one ticket from `tickets`
+ * (404 when absent), the project list, and the inbox capture, whose bodies
+ * are pushed to `inbox`.
+ */
+function stubHandler({ rows = [], tickets = {}, projects = [{ id: PROJECT_ID, name: 'my-app' }], inbox = [], inboxStatus = 201, seen = [] } = {}) {
   return (req, res) => {
-    seen.push({ url: req.url, authorization: req.headers.authorization });
+    seen.push({ method: req.method, url: req.url, authorization: req.headers.authorization });
+    const send = (status, body) => {
+      res.statusCode = status;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(body));
+    };
     if (req.headers.authorization !== `Bearer ${TOKEN}`) {
-      res.statusCode = 403;
-      res.end('{}');
+      send(403, {});
       return;
     }
-    res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify(rows));
+    const { pathname } = new URL(req.url, 'http://stub.invalid');
+    const one = /^\/api\/pipeline\/tickets\/([^/]+)$/.exec(pathname);
+    if (req.method === 'GET' && pathname === '/api/pipeline/tickets') {
+      send(200, rows);
+    } else if (req.method === 'GET' && one !== null) {
+      const ticket = tickets[decodeURIComponent(one[1])];
+      send(ticket === undefined ? 404 : 200, ticket ?? {});
+    } else if (req.method === 'GET' && pathname === '/api/projects') {
+      send(200, projects);
+    } else if (req.method === 'POST' && pathname === '/api/inbox') {
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        inbox.push({ contentType: req.headers['content-type'], body: JSON.parse(body) });
+        send(inboxStatus, { id: 'inbox-1' });
+      });
+    } else {
+      send(404, {});
+    }
   };
 }
 
-/** A temp world for an end-to-end run: repo, bin, home, gh output. */
+/** Serve `rows` to a request carrying the bearer token; 403 otherwise. */
+function ticketHandler(rows, seen = []) {
+  return stubHandler({ rows, seen });
+}
+
+/** A temp world for an end-to-end run: repo, bin, home, and the stand-ins' scripted output. */
 function world(label, { config, ghOut = '[]' } = {}) {
   const dir = tempDir(label);
   const repo = initRepo(dir);
   writeConfig(repo, config ?? `mode: server-native\nproject: ${PROJECT_ID}\ndispatch:\n  max_tickets_per_run: 1\n`);
+  commitAll(repo);
   const bin = fakeBin(dir);
   const home = path.join(dir, 'home');
   fs.mkdirSync(home);
-  const ghFile = path.join(dir, 'gh-out.json');
-  fs.writeFileSync(ghFile, ghOut);
+  const file = (name, text) => {
+    const target = path.join(dir, name);
+    fs.writeFileSync(target, text);
+    return target;
+  };
+  const ghFile = file('gh-out.json', ghOut);
+  const files = {
+    FAKE_GH_OUT: ghFile,
+    FAKE_GH_VIEW_OUT: file('gh-view.txt', 'OPEN\n'),
+    FAKE_CLAUDE_SYNC_OUT: file('sync-out.json', `${JSON.stringify(resultEvent('sess-sync'))}\n`),
+    FAKE_CLAUDE_SHIP_OUT: file('ship-out.jsonl', jsonl(initEvent('sess-ship'), resultEvent('sess-ship'))),
+    FAKE_CLAUDE_ARGS: path.join(dir, 'claude-args.log'),
+    FAKE_CLAUDE_PID: path.join(dir, 'claude.pid'),
+  };
   const stateDir = path.join(home, '.feature-pipeline', 'dispatch', 'my-app');
-  return { dir, repo, bin, home, ghFile, stateDir };
+  return { dir, repo, bin, home, ghFile, files, file, stateDir };
 }
+
+/** The child environment for a world: stand-ins on PATH, HOME redirected, the server URL and token. */
+function worldEnv(w, url, extra = {}) {
+  return childEnv({ bin: w.bin, home: w.home, url, token: TOKEN, extra: { ...w.files, ...extra } });
+}
+
+/** The row the server answers for an item after a shipped session. */
+const shippedRow = (id, fields = {}) => ({ id, status: 'in-review', kind: 'solo', pr_url: `https://github.com/acme/my-app/pull/${id.replace(/\D/g, '')}`, ...fields });
 
 const CASES = [
   ['argv: rejections exit 2 before anything runs', async () => {
@@ -303,12 +419,16 @@ const CASES = [
     equal(all.dispatch, { ...DISPATCH_DEFAULTS }, 'missing block → defaults');
     equal(all.notes.length, 1, 'missing block → one note');
     const partial = validateConfig({ ...base, dispatch: { tag: 'night', max_open_prs: '5', colour: 'red' } });
-    equal(partial.dispatch, { tag: 'night', max_age_days: 14, max_tickets_per_run: 2, max_open_prs: 5 }, 'partial block');
+    equal(partial.dispatch, { tag: 'night', max_age_days: 14, max_tickets_per_run: 2, max_open_prs: 5, max_session_minutes: 180, max_rate_limit_retries: 10 }, 'partial block');
     equal(partial.notes, [
       'config.yaml: unknown key dispatch.colour ignored',
       'config.yaml: dispatch.max_age_days not set — using 14',
       'config.yaml: dispatch.max_tickets_per_run not set — using 2',
+      'config.yaml: dispatch.max_session_minutes not set — using 180',
+      'config.yaml: dispatch.max_rate_limit_retries not set — using 10',
     ], 'partial block notes');
+    equal(validateConfig({ ...base, dispatch: { max_session_minutes: '30', max_rate_limit_retries: '4' } }).dispatch.max_session_minutes, 30, 'session cap read');
+    throwsKind(() => validateConfig({ ...base, dispatch: { max_rate_limit_retries: '0' } }), ComputeError, 'dispatch.max_rate_limit_retries must be a positive integer');
     throwsKind(() => validateConfig({ mode: 'fs-native', project: PROJECT_ID }), ComputeError, FS_NATIVE_REFUSAL);
     throwsKind(() => validateConfig({ project: PROJECT_ID }), ComputeError, FS_NATIVE_REFUSAL);
     throwsKind(() => validateConfig({ ...base, project: 'my-project' }), ComputeError, 'project must be the server project UUID');
@@ -519,18 +639,21 @@ const CASES = [
       notes: [],
     });
     const headings = md.split('\n').filter((line) => line.startsWith('## '));
-    equal(headings, ['## Outcome', '## Dispatched', '## Skips', '## Caps', '## Preconditions', '## Notes'], 'sections');
+    equal(headings, ['## Outcome', '## Sync', '## Dispatched', '## Skips', '## Caps', '## Preconditions', '## Notes'], 'sections');
+    assert(md.includes('- before: not run'), 'sync line');
+    assert(md.includes('Night dispatch 2026-10-14-a1b2c3: 0 shipped, 0 stuck, 3 skipped'), 'summary line under Outcome');
     assert(md.includes('| ABC\\|1 | solo |'), 'cell not escaped');
     assert(md.includes('- ABC-3 — blocked (waiting on ABC-9 (in-progress))'), 'skip line');
     assert(md.includes('- open PRs: unknown / 3'), 'caps line');
     assert(md.includes('- FAILED gh — not found on PATH'), 'precondition line');
   }],
 
-  ['end to end: plan answers and writes nothing; run records, reports and releases', async () => {
+  ['end to end: plan answers and writes nothing; run ships, records, reports, posts and releases', async () => {
     const w = world('e2e', { ghOut: JSON.stringify([{ number: 1, title: 'ABC-9: open', url: 'https://g/9' }]) });
+    const inbox = [];
     try {
-      await withStub(ticketHandler(e2eRows()), async (url) => {
-        const env = childEnv({ bin: w.bin, home: w.home, url, token: TOKEN, extra: { FAKE_GH_OUT: w.ghFile } });
+      await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') }, inbox }), async (url) => {
+        const env = worldEnv(w, url);
         const lockDir = path.join(gitCommonDir(w.repo), LOCK_NAME);
 
         const planned = await runEntry(['plan', '--project-root', w.repo], { env });
@@ -539,21 +662,34 @@ const CASES = [
         const p = planned.doc;
         equal([p.verb, p.ok, p.admitted.map((i) => i.id), p.not_admitted, p.skips.map((s) => s.id)], ['plan', true, ['ABC-1'], [{ id: 'ABC-2', reason: 'ticket cap' }], ['ABC-9']], 'plan document');
         equal(p.caps.open_prs, 1, 'open PR counted by title');
-        equal(p.preconditions.map((c) => c.name), ['claude', 'gh', 'node', 'server', 'state_dir'], 'precondition names');
+        equal(p.preconditions.map((c) => c.name), ['claude', 'config', 'gh', 'git_base', 'git_clean', 'node', 'server', 'state_dir'], 'precondition names');
         assert(!fs.existsSync(path.join(w.home, '.feature-pipeline')) && !fs.existsSync(lockDir), 'plan wrote state or a lock');
 
         const ran = await runEntry(['run', '--project-root', w.repo], { env });
         assert(ran.status === 0, `run exit ${ran.status}: ${ran.stdout}`);
         const r = ran.doc;
-        equal([r.verb, r.outcome, r.items.map((i) => [i.id, i.outcome, i.pr_url, i.session_id])], ['run', 'completed', [['ABC-1', 'not dispatched', null, null]]], 'run document');
+        const prUrl = 'https://github.com/acme/my-app/pull/1';
+        equal([r.verb, r.outcome, r.items.map((i) => [i.id, i.outcome, i.reason, i.pr_url, i.session_id, i.exit_code, i.cost_usd, i.rate_limit_retries])], ['run', 'completed', [['ABC-1', 'shipped', null, prUrl, 'sess-ship', 0, 1.25, 0]]], 'run document');
+        equal([r.sync.before?.ok, r.sync.before?.session_id, r.sync.after?.ok], [true, 'sess-sync', true], 'sync before and after');
         assert(RUN_ID_RE.test(r.run_id), `run id: ${r.run_id}`);
         equal(r.report, path.join(w.stateDir, 'reports', `${r.run_id}.md`), 'report path');
-        assert(fs.readFileSync(r.report, 'utf8').includes('## Dispatched'), 'report content');
+        const report = fs.readFileSync(r.report, 'utf8');
+        assert(report.includes('## Sync') && report.includes(`| ABC-1 | solo | ABC-1 | shipped | — | ${prUrl} | sess-ship | 0 | 1.25 | 0 |`), 'report content');
         const runs = JSON.parse(fs.readFileSync(path.join(w.stateDir, 'runs.json'), 'utf8'));
-        equal(runs.map((x) => [x.run_id, x.outcome, x.error]), [[r.run_id, 'completed', null]], 'runs.json');
+        equal(runs.map((x) => [x.run_id, x.outcome, x.error, x.items[0].pr_url, x.sync.before.ok]), [[r.run_id, 'completed', null, prUrl, true]], 'runs.json');
         equal((fs.statSync(w.stateDir).mode & 0o777).toString(8), '700', 'state dir mode');
+        equal((fs.statSync(r.items[0].log).mode & 0o777).toString(8), '600', 'session log mode');
+        equal(path.dirname(r.items[0].log), path.join(w.stateDir, 'logs', r.run_id), 'session log location');
         assert(!fs.existsSync(lockDir), 'lock not released');
-        assert(!ran.stdout.includes(TOKEN) && !fs.readFileSync(r.report, 'utf8').includes(TOKEN), 'token in output or report');
+        assert(!ran.stdout.includes(TOKEN) && !report.includes(TOKEN), 'token in output or report');
+        equal(inbox.length, 1, 'one inbox item');
+        const item = inbox[0].body;
+        equal([item.source, item.project, item.metadata], ['feature:dispatch', 'my-app', { project_id: PROJECT_ID, run_id: r.run_id }], 'inbox item fields');
+        equal(item.body.split('\n')[0], `Night dispatch ${r.run_id}: 1 shipped, 0 stuck, 2 skipped`, 'inbox first line');
+        assert(!item.body.includes(TOKEN), 'token in the inbox body');
+        const calls = fs.readFileSync(w.files.FAKE_CLAUDE_ARGS, 'utf8').split('--\n').filter(Boolean).map((call) => call.split('\n').filter(Boolean));
+        equal(calls.map((call) => call[0]), [w.repo, w.repo, w.repo], 'every child ran in the project root');
+        equal(calls, [[w.repo, ...syncArgv()], [w.repo, ...shipArgv('ABC-1', w.home)], [w.repo, ...syncArgv()]], 'sync, ship, sync: exact vectors in the project root');
       });
     } finally {
       fs.rmSync(w.dir, { recursive: true, force: true });
@@ -569,9 +705,9 @@ const CASES = [
         res.statusCode = 401;
         res.end('{}');
       }, async (url) => {
-        const env = childEnv({ bin: w.bin, home: w.home, url, token: TOKEN, extra: { FAKE_GH_OUT: w.ghFile } });
+        const env = worldEnv(w, url);
         const res = await runEntry(['run', '--project-root', w.repo], { env });
-        assert(res.status === 1 && res.doc?.error === 'server rejected the request: HTTP 401 (token source: env)', `401: exit ${res.status} ${res.stdout}`);
+        assert(res.status === 1 && res.doc?.error === 'preconditions failed: server (server rejected the request: HTTP 401 (token source: env))', `401: exit ${res.status} ${res.stdout}`);
         assert(!res.stdout.includes(TOKEN), '401 leaks the token');
         const runs = JSON.parse(fs.readFileSync(path.join(w.stateDir, 'runs.json'), 'utf8'));
         equal(runs.map((x) => x.outcome), ['stopped'], 'stopped record');
@@ -580,13 +716,15 @@ const CASES = [
       });
 
       await withStub(ticketHandler(e2eRows()), async (url) => {
-        const env = childEnv({ bin: w.bin, home: w.home, url, token: TOKEN, extra: { FAKE_GH_OUT: w.ghFile, FAKE_GH_STATUS: '1' } });
+        const env = worldEnv(w, url, { FAKE_GH_STATUS: '1' });
         const planned = await runEntry(['plan', '--project-root', w.repo], { env });
         assert(planned.status === 0, `plan with failing gh: exit ${planned.status} ${planned.stdout}`);
         const p = planned.doc;
         equal([p.ok, p.caps.open_prs, p.admitted, p.preconditions.find((c) => c.name === 'gh').ok], [false, null, [], false], 'plan with failing gh');
         const ran = await runEntry(['run', '--project-root', w.repo], { env });
-        assert(ran.status === 1 && ran.doc?.error.startsWith('cannot count open pull requests'), `run with failing gh: exit ${ran.status} ${ran.stdout}`);
+        assert(ran.status === 1 && ran.doc?.error === 'preconditions failed: gh (gh auth status failed)', `run with failing gh: exit ${ran.status} ${ran.stdout}`);
+        const listing = await runEntry(['run', '--project-root', w.repo], { env: { ...env, FAKE_GH_AUTH_STATUS: '0' } });
+        assert(listing.status === 1 && listing.doc?.error.startsWith('cannot count open pull requests'), `run with failing gh pr list: exit ${listing.status} ${listing.stdout}`);
         assert(!fs.existsSync(lockDir), 'lock not released after gh failure');
 
         const owner = 'run_id: 2026-10-14-abcdef\nstarted: ' + new Date().toISOString() + '\n';
@@ -615,7 +753,7 @@ const CASES = [
       await withStub(() => {
         // Never answer: the run waits on the request while holding the lock.
       }, async (url) => {
-        const env = childEnv({ bin: w.bin, home: w.home, url, token: TOKEN, extra: { FAKE_GH_OUT: w.ghFile } });
+        const env = worldEnv(w, url);
         const res = await runEntry(['run', '--project-root', w.repo], {
           env,
           onSpawn: (child) => {
@@ -638,6 +776,32 @@ const CASES = [
     }
   }],
 ];
+
+CASES.push(
+  ...sessionCases({
+    assert,
+    equal,
+    tempDir,
+    initRepo,
+    writeConfig,
+    commitAll,
+    fakeBin,
+    childEnv,
+    world,
+    worldEnv,
+    withStub,
+    stubHandler,
+    runEntry,
+    e2eRows,
+    shippedRow,
+    jsonl,
+    initEvent,
+    resultEvent,
+    rateLimitEvent,
+    PROJECT_ID,
+    TOKEN,
+  }),
+);
 
 /** Run every case; return the document, or throw a ComputeError naming the first failure. */
 export async function runSelfTest() {
