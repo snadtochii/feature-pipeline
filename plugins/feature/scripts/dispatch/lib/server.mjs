@@ -9,8 +9,10 @@
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { ComputeError } from './output.mjs';
 
@@ -357,4 +359,69 @@ export async function captureInbox({ access, body, project, metadata, fetchImpl 
   } catch (err) {
     return { ok: false, detail: err.status ? `HTTP ${err.status}` : err.message };
   }
+}
+
+/**
+ * Send a run's inbox item: resolve the project's registry name, then capture.
+ * Returns the `notes` lines the attempt produced — none when the item went out
+ * with its project. Never throws.
+ */
+export async function sendInbox({ access, projectId, runId, body, fetchImpl = fetch, timeoutMs = REQUEST_TIMEOUT_MS }) {
+  const notes = [];
+  const project = await findProjectName({ access, projectId, fetchImpl, timeoutMs });
+  if (project.note !== null) {
+    notes.push(`inbox item sent without a project: ${project.note}`);
+  }
+  const sent = await captureInbox({
+    access,
+    body,
+    project: project.name,
+    metadata: { project_id: projectId, run_id: runId },
+    fetchImpl,
+    timeoutMs,
+  });
+  if (!sent.ok) {
+    notes.push(`inbox capture failed: ${sent.detail}`);
+  }
+  return notes;
+}
+
+export const SIGNAL_REQUEST_TIMEOUT_MS = 5_000;
+const SIGNAL_SEND_SLACK_MS = 2_000;
+const INBOX_HELPER = fileURLToPath(new URL('./inbox-send.mjs', import.meta.url));
+
+/**
+ * `sendInbox` from a synchronous context — the teardown of a signalled run,
+ * where no promise settles before the process exits. A helper `node` process
+ * makes the requests, each with a 5-second timeout; the request, token
+ * included, reaches it on stdin, never in its arguments or environment, and
+ * the wait is bounded at 12 seconds. Returns the same `notes` lines. Never
+ * throws.
+ */
+export function sendInboxSync({ access, projectId, runId, body, env, timeoutMs = SIGNAL_REQUEST_TIMEOUT_MS }) {
+  const waitMs = 2 * timeoutMs + SIGNAL_SEND_SLACK_MS;
+  const child = spawnSync(process.execPath, [INBOX_HELPER], {
+    input: JSON.stringify({ access, projectId, runId, body, timeoutMs }),
+    env,
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'ignore'],
+    timeout: waitMs,
+    killSignal: 'SIGKILL',
+  });
+  if (child.error) {
+    return [`inbox capture failed: ${child.error.code === 'ETIMEDOUT' ? `no answer within ${waitMs / 1000} seconds` : 'the helper could not run'}`];
+  }
+  if (child.status !== 0) {
+    return [`inbox capture failed: the helper exited ${child.status ?? child.signal}`];
+  }
+  let doc;
+  try {
+    doc = JSON.parse(child.stdout);
+  } catch {
+    doc = null;
+  }
+  if (doc === null || !Array.isArray(doc.notes) || doc.notes.some((note) => typeof note !== 'string')) {
+    return ['inbox capture failed: the helper printed no result'];
+  }
+  return doc.notes;
 }

@@ -9,7 +9,8 @@
 // signal both write a `stopped` record and report (best effort) before the
 // lock is released, through a teardown hook registered after the lock's own,
 // so it runs first; a session's own hook, registered later still, stops its
-// child and records it before that.
+// child and records it before that. A signalled run sends its inbox item
+// after its record, through a bounded synchronous helper.
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
@@ -21,7 +22,7 @@ import { acquireLock, gitCommonDir, holdsLock, releaseLock } from './lock.mjs';
 import { ComputeError, errorDoc } from './output.mjs';
 import { checkPreconditions } from './preconditions.mjs';
 import { renderReport } from './report.mjs';
-import { captureInbox, findProjectName, listTickets, resolveServerAccess } from './server.mjs';
+import { listTickets, resolveServerAccess, sendInbox, sendInboxSync } from './server.mjs';
 import {
   appendRun,
   ensureLogDir,
@@ -104,46 +105,79 @@ export async function run({
     } catch (err) {
       failures.push(`report not written: ${errorDoc(err).error}`);
     }
-    finalized = { reportPath, failures };
+    finalized = { reportPath, failures, finished, outcome, error };
     return finalized;
   };
 
-  // Send the inbox item, then record. Only a server-native project whose
-  // access resolved, and whose server did not fail the precondition, reaches
-  // the server; a capture failure is a note.
+  // Rewrite the report after a signalled run's inbox item added notes to it.
+  // Best effort: the report already written stands when this fails.
+  const rewriteReport = () => {
+    try {
+      writeReport(stateDir, runId, renderReport({ ...facts, finished: finalized.finished, outcome: finalized.outcome, error: finalized.error }));
+    } catch {
+      // The first report stands.
+    }
+  };
+
+  // Only a server-native project whose access resolved, and whose server did
+  // not fail the precondition, reaches the server. `serverFailed` is the one
+  // refusal with a note of its own; `unresolved` happens before any request.
+  const inboxBlocked = () => {
+    if (facts.preconditions.some((check) => check.name === 'server' && !check.ok)) {
+      return 'serverFailed';
+    }
+    return config === null || access === null ? 'unresolved' : null;
+  };
+  const inboxRequest = (outcome, error) => ({
+    access,
+    projectId: config.project,
+    runId,
+    body: inboxBody(
+      summaryLine({ runId, items: facts.items, skips: facts.skips, notAdmitted: facts.not_admitted }),
+      renderReport({ ...facts, finished: new Date().toISOString(), outcome, error }),
+    ),
+  });
+  let inboxStarted = false;
+
+  // Send the inbox item, then record; a capture failure is a note.
   const finalize = async (outcome, error) => {
     if (finalized !== null) {
       return finalized;
     }
-    const serverFailed = facts.preconditions.some((check) => check.name === 'server' && !check.ok);
-    if (serverFailed) {
+    const blocked = inboxBlocked();
+    if (blocked === 'serverFailed') {
       facts.notes.push('no inbox item: the server failed the precondition');
-    } else if (config !== null && access !== null) {
-      const draft = renderReport({ ...facts, finished: new Date().toISOString(), outcome, error });
-      const summary = summaryLine({ runId, items: facts.items, skips: facts.skips, notAdmitted: facts.not_admitted });
-      const project = await findProjectName({ access, projectId: config.project, ...fetchOption });
-      if (project.note !== null) {
-        facts.notes.push(`inbox item sent without a project: ${project.note}`);
-      }
-      const sent = await captureInbox({
-        access,
-        body: inboxBody(summary, draft),
-        project: project.name,
-        metadata: { project_id: config.project, run_id: runId },
-        ...fetchOption,
-      });
-      if (!sent.ok) {
-        facts.notes.push(`inbox capture failed: ${sent.detail}`);
-      }
+    } else if (blocked === null) {
+      inboxStarted = true;
+      facts.notes.push(...(await sendInbox({ ...inboxRequest(outcome, error), ...fetchOption })));
     }
     return record(outcome, error);
   };
 
+  // A signal: record first, so a kill that follows still finds the run on
+  // disk, then send the inbox item synchronously and put its notes into the
+  // report. An item already on its way when the signal came is not sent twice.
   const disposeStopped = addTeardown((reason) => {
-    if (finalized === null) {
-      facts.notes.push(`no inbox item: ${reason}`);
+    if (finalized !== null) {
+      return;
+    }
+    const blocked = inboxBlocked();
+    const request = blocked === null && !inboxStarted ? inboxRequest('stopped', reason) : null;
+    if (blocked === 'serverFailed') {
+      facts.notes.push('no inbox item: the server failed the precondition');
+    } else if (blocked === 'unresolved') {
+      facts.notes.push(`no inbox item: ${reason} before the server access resolved`);
+    } else if (request === null) {
+      facts.notes.push(`inbox item not confirmed: ${reason} while it was being sent`);
     }
     record('stopped', reason);
+    if (request !== null) {
+      const notes = sendInboxSync({ ...request, env });
+      if (notes.length > 0) {
+        facts.notes.push(...notes);
+        rewriteReport();
+      }
+    }
   });
 
   try {

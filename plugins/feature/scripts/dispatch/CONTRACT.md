@@ -107,9 +107,11 @@ directory:
   `gh pr view` (a pull request's state, §10);
 - `claude`, during `run` only, with exactly the two argument vectors in §10.
 
-One exception to the working directory: `ps -o stat= -p <pid>`, which runs in the
-dispatcher's own working directory and only while a signal stops a session (§10), to tell
-an exited child from a live one.
+Two exceptions to the working directory, both run in the dispatcher's own working
+directory and only after a signal: `ps -o stat= -p <pid>`, while the signal stops a
+session (§10), to tell an exited child from a live one; and the running Node binary with
+the dispatcher's private inbox helper and no other argument, to send a signalled run's
+inbox item (§10).
 
 Nothing else.
 
@@ -409,7 +411,7 @@ with the group after 5 seconds. A wall-clock cap longer than 2³¹−1 milliseco
 **A signal to the dispatcher** while a session runs sends the child `SIGINT`, waits up to
 10 seconds, sends `SIGTERM`, waits up to 2 seconds, then sends `SIGKILL` to its process
 group. The session is recorded as `interrupted`, with the session id seen so far, before
-the run is recorded `stopped`.
+the run is recorded `stopped`; the inbox item follows (Inbox item).
 
 ### The dispatch step
 
@@ -541,10 +543,10 @@ directory; the report prints that line for every stuck item with a session id.
 
 ### Inbox item
 
-A run that records through its normal path or a thrown error sends one inbox item, once
-the configuration selected server-native storage and the server access resolved, unless
-the `server` precondition failed — then the run sends nothing and adds the `notes` line
-`no inbox item: the server failed the precondition`. The item is
+Every run sends one inbox item — through its normal path, a thrown error or a signal —
+once the configuration selected server-native storage and the server access resolved,
+unless the `server` precondition failed — then the run sends nothing and adds the `notes`
+line `no inbox item: the server failed the precondition`. The item is
 `POST <base>/api/inbox` with
 
 ```json
@@ -566,8 +568,18 @@ the `server` precondition failed — then the run sends nothing and adds the `no
 - A failed capture adds a `notes` line to the report written afterwards; it never changes
   the exit code.
 
-No inbox item is sent on a signal (the report notes it), for a run refused by the lock, or
-for a project that is not server-native — that run makes no server call at all.
+**On a signal** the run is recorded first, so a kill that follows still finds its record
+and report. The item is then sent by a helper process — the running Node binary with the
+dispatcher's private inbox helper, which receives the request, token included, on its
+stdin — making the same two requests with a 5-second timeout each; the dispatcher waits
+for it at most 12 seconds. Notes from that attempt are written into the report again. A
+signal that arrives while the item is already being sent does not send a second one and
+adds the `notes` line `inbox item not confirmed: <reason> while it was being sent`; one
+that arrives before the server access resolved sends nothing and adds
+`no inbox item: <reason> before the server access resolved`.
+
+No inbox item is sent for a run refused by the lock, or for a project that is not
+server-native — that run makes no server call at all.
 
 ### Failure after the lock
 
@@ -704,10 +716,11 @@ an unset `origin/HEAD`, a failing `gh auth status`), stream parsing over fixture
 records, non-JSON lines, CRLF), the finish predicate and every stuck reason over fixture
 ticket states, the `sync` status, the exact argument vectors, the session runner's caps,
 escalation, group kill and timer clamp against stand-in `claude` scripts with millisecond
-caps, the report sections, the inbox body's shape, the sorted-key document shape, and
-end-to-end `plan` and `run` invocations — shipped, stuck, a failed first `sync`, a dirty
-tree, a failed inbox capture, and a signal while a session runs — against a loopback
-stand-in server that
+caps, the report sections, the inbox body's shape, the signal-path inbox helper against an
+unreachable server, the sorted-key document shape, and end-to-end `plan` and `run`
+invocations — shipped, stuck, a failed first `sync`, a dirty tree, a failed inbox capture,
+and a signal while a session runs (its inbox item included) — against a loopback stand-in
+server that
 routes every request in §6, a stand-in `gh` and a stand-in `claude`, with `HOME`
 redirected. Prints `{"cases": <n>, "ok": true}` and exits 0 when every case passes;
 otherwise prints `{"error": "self-test: <case> — <detail>"}` and exits 1. It runs on every

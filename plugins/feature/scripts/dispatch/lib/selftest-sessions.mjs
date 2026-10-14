@@ -2,9 +2,10 @@
 //
 // Stream parsing over fixture lines, the finish predicate over fixture ticket
 // states, the argument vectors, the preconditions on a temporary repository,
-// the session runner against the stand-in `claude` with millisecond caps, and
-// end-to-end runs that ship, get stuck, fail their first `sync`, refuse a
-// dirty tree, survive a failed inbox capture, and are signalled mid-session.
+// the session runner against the stand-in `claude` with millisecond caps, the
+// synchronous inbox helper, and end-to-end runs that ship, get stuck, fail
+// their first `sync`, refuse a dirty tree, survive a failed inbox capture, and
+// are signalled mid-session.
 // The shared helpers come in as `kit` from selftest.mjs, so neither module
 // imports the other's bindings at load time. No case starts a real `claude`.
 //
@@ -12,11 +13,13 @@
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 
 import { ITEM_ID_RE, shipArgv, syncArgv } from './dispatch.mjs';
 import { decideItem, inboxBody, resumeHint, summaryLine, syncStatus } from './finish.mjs';
 import { checkPreconditions, gitBase, gitClean } from './preconditions.mjs';
+import { sendInboxSync } from './server.mjs';
 import { MAX_TIMER_MS, startSession, timerDelay } from './session.mjs';
 import { applyLine, newSessionFacts, parseJsonResult } from './stream.mjs';
 
@@ -396,7 +399,13 @@ export function sessionCases(kit) {
           assert(res.status === 1 && res.doc?.error === 'interrupted by SIGTERM', `signal: exit ${res.status} ${res.stdout}`);
           const runs = readRuns(w);
           equal([runs[0].outcome, runs[0].items.map((i) => [i.outcome, i.reason, i.session_id])], ['stopped', [['stuck', 'interrupted', 'sess-int']]], 'interrupted record');
-          equal(inbox.length, 0, 'no inbox item on a signal');
+          equal(inbox.length, 1, 'a signalled run still sends its inbox item');
+          const item = inbox[0].body;
+          equal([item.source, item.project, item.metadata.run_id], ['feature:dispatch', 'my-app', runs[0].run_id], 'signal inbox item fields');
+          equal(item.body.split('\n')[0], `Night dispatch ${runs[0].run_id}: 0 shipped, 1 stuck, 2 skipped`, 'signal inbox first line');
+          assert(item.body.includes('interrupted by SIGTERM') && !item.body.includes(TOKEN), 'signal inbox body');
+          const report = fs.readFileSync(path.join(w.stateDir, 'reports', `${runs[0].run_id}.md`), 'utf8');
+          assert(!report.includes('no inbox item') && !report.includes('inbox capture failed'), `signal report notes: ${report}`);
           const pid = Number(fs.readFileSync(w.files.FAKE_CLAUDE_PID, 'utf8'));
           assert(await until(() => !alive(pid), 5_000), 'the stand-in survived the dispatcher');
           assert(!fs.existsSync(path.join(w.repo, '.git', 'feature-dispatch.lock')), 'lock not released');
@@ -404,6 +413,24 @@ export function sessionCases(kit) {
       } finally {
         fs.rmSync(w.dir, { recursive: true, force: true });
       }
+    }],
+
+    ['inbox: the synchronous helper reports an unreachable server as notes', async () => {
+      const probe = net.createServer();
+      await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
+      const { port } = probe.address();
+      await new Promise((resolve) => probe.close(resolve));
+      const origin = `http://127.0.0.1:${port}`;
+      const notes = sendInboxSync({
+        access: { apiBase: `${origin}/api`, origin, token: TOKEN, tokenSource: 'env' },
+        projectId: PROJECT_ID,
+        runId: '2026-10-14-a1b2c3',
+        body: 'Night dispatch 2026-10-14-a1b2c3: 0 shipped, 1 stuck, 0 skipped\n',
+        env: { PATH: process.env.PATH },
+        timeoutMs: 2_000,
+      });
+      equal(notes, [`inbox item sent without a project: project name not resolved: server unreachable at ${origin}`, `inbox capture failed: server unreachable at ${origin}`], 'helper notes');
+      assert(!notes.join('\n').includes(TOKEN), 'token in the helper notes');
     }],
 
   ];
