@@ -114,7 +114,8 @@ function parseValue(raw) {
 
 /**
  * The effective configuration from a parsed document:
- * `{ project, dispatch: {tag, max_age_days, max_tickets_per_run, max_open_prs}, notes }`.
+ * `{ project, dispatch: {tag, max_age_days, max_tickets_per_run, max_open_prs,
+ * max_session_minutes, max_rate_limit_retries}, notes }`.
  * Throws ComputeError for a non-server-native mode or an invalid value. Pure.
  */
 export function validateConfig(doc) {

@@ -13,12 +13,14 @@ Deeper material that doesn't belong in the [README](../../../README.md) front do
 - [Epics and blocker dependencies](#epics-and-blocker-dependencies)
 - [Ship flags (`--base`, `--merge`, `--no-ui-testing`, `--attach-screenshots`, `--parallel`, `--worktree`)](#ship-flags---base---merge---no-ui-testing---attach-screenshots---parallel---worktree)
 - [Inbox triage (`/feature:triage`)](#inbox-triage-featuretriage)
+- [Night dispatch](#night-dispatch)
 - [Configuration reference](#configuration-reference)
   - [Project conventions (CLAUDE.md)](#project-conventions-claudemd)
   - [Ticket prefix](#ticket-prefix)
   - [App test config](#app-test-config)
   - [Commit behavior](#commit-behavior)
   - [Worktree setup](#worktree-setup)
+  - [Night dispatch config](#night-dispatch-config)
   - [MCP servers](#mcp-servers)
   - [Storage mode and the personal server](#storage-mode-and-the-personal-server)
     - [Words loaded per stage and mode](#words-loaded-per-stage-and-mode)
@@ -222,6 +224,102 @@ Never change an inbox item. Never create a ticket. Never edit a file.
 
 **Each run** fetches the pending list once, then works through one project at a time — gathers that project's inbox items and tickets once, classifies its pending items and writes their assessments before moving on — and ends with a summary: counts per classification, refs written, refs skipped because the item changed or was reviewed meanwhile (a 409 — a changed item comes back next run), refs that failed, context reads that errored, refs where repo context was used, and the repo-path counts with any missing paths. A missing connector, an unreachable server or a credential without `triage` aborts the run with one message before anything is written; a server that drops mid-run stops it with one message, keeping every assessment already written. A credential without `pipeline` costs only ticket context: those items are classified without it, and the summary lists the errors. A project's inbox list carries every item it has ever captured, whatever its status, so a run's context grows with the inbox's history, not only with the pending count. A very large first backlog may take several runs: every item whose assessment was not written stays pending.
 
+## Night dispatch
+
+The night dispatcher builds tagged tickets unattended, one `ship` run per ticket, while you are away. It is a dependency-free Node script shipped with the plugin, not a skill:
+
+```text
+node '<plugin-root>/scripts/dispatch/dispatch.mjs' plan --project-root '<project-root>'
+node '<plugin-root>/scripts/dispatch/dispatch.mjs' run --project-root '<project-root>'
+```
+
+`<plugin-root>` is the installed `feature` plugin's absolute directory — on Claude Code, `~/.claude/plugins/cache/<marketplace>/feature/<version>` written out in full — and `<project-root>` the absolute path of the project's main checkout. `run` takes the lock, runs `sync` in a `claude -p` session, selects the tagged tickets the caps admit, runs each as its own `claude -p "/feature:ship <ID> --worktree"` session, one after another, runs `sync` again, writes a report and sends one item to the personal server's inbox. `plan` is the dry run: it answers what `run` would do now and writes, locks and starts nothing. Both print one JSON document. The dispatcher serves server-native projects only and runs on Claude Code only. Its authoritative behaviour reference is [CONTRACT.md](../scripts/dispatch/CONTRACT.md); this section points into it by section title — "§1 Invocation", "§7 Selection", "§8 Caps and admission", "§9 `plan`", "§10 `run`", "§11 Lock" and "§12 State layout".
+
+**Prerequisites.**
+
+- Server-native storage ([Storage mode and the personal server](#storage-mode-and-the-personal-server)), with the `feature` and `server-native` plugins installed for your user: each child session loads your plugins, settings and connectors as an interactive session would.
+- `claude`, `gh` (logged in with `gh auth login`), `git` and Node 22 or later on the `PATH` the dispatcher runs with.
+- The main checkout clean — untracked files count — and on the branch `origin/HEAD` names; `git remote set-head origin --auto` sets `origin/HEAD` when it is missing.
+- The dispatcher's own server credential, which is the `personal-server` CLI's, not the connector's: `PERSONAL_SERVER_URL` and `PERSONAL_SERVER_CLIENT_TOKEN` in the environment, or in `~/.config/personal-server/cli.env` (mode `0600`), which a scheduled task reads more reliably than an environment it may not inherit (CONTRACT.md, "§6 Server access"). On a server running in restricted mode the token needs ticket reads and inbox capture. A token without inbox capture costs only the inbox item: the failed capture is a note in the report, never a failed run.
+
+`/feature:setup --check` checks the local part — the `dispatch:` block, `claude`, `gh`, Node, the state directory and the lock — without touching the network. `plan` is the full preflight: it also lists the tickets on the server, runs `gh auth status` and checks the checkout.
+
+**Configuration.** The optional `dispatch:` block in `config.yaml` sets the tag and the caps; every key and its default is in [Night dispatch config](#night-dispatch-config).
+
+**Tagging.** Add the configured tag (`agent-ready` by default) to the tickets a night may build. The tag goes on one of two things:
+
+- **A solo ticket, or a child of an untagged epic** — one item, one pull request. It is a candidate while it is `backlog`, every `blocked_by` entry is `done` or `cancelled`, and it is fresh. A child whose blocker is an `in-review` sibling waits until that sibling's PR merges and `sync` marks it `done`, so tagging the children of a chain one by one ships one link per merge.
+- **An epic** — one item for the whole chain: one `ship` run builds its `backlog` children on `integration/<epic-id>` and opens one integration PR, which holds one `max_open_prs` slot. A tagged epic covers its children; their own tags are ignored. An epic admitted first fills the night whatever its child count, and one that ends stuck is selected again the next night while it still has a `backlog` child.
+
+Fresh means the server row's `updated_at` is at most `max_age_days` old; an older ticket is skipped as `stale` until it is touched. Selection and admission are CONTRACT.md's "§7 Selection" and "§8 Caps and admission".
+
+**Allow rules for the child sessions.** Every child runs with `--permission-prompts none` and no `--allowedTools` or `--permission-mode` of its own, so its permissions are your settings' — the project's `.claude/settings.local.json` or your user settings — and a tool no allow rule covers is denied, not prompted. A denial surfaces in the report as `permission_denied`: a `ship` session that needed the tool ends `stuck` with that reason, or `shipped` with a note naming the denied tools, and its session log names them. Treat this list as a starting point, and add a rule from each `permission_denied` you see:
+
+- `Bash(git *)` and `Bash(gh *)` — branches, commits, pushes, PRs and the integration merges.
+- The project's validation commands — the lint, typecheck and test commands its `CLAUDE.md` or `AGENTS.md` documents, such as `Bash(pnpm *)` or `Bash(npm *)` — and its `test.start` and `worktree.setup` commands.
+- `Edit` and `Write`, or `"defaultMode": "acceptEdits"` — a child runs under your default permission mode.
+- `permissions.additionalDirectories` holding the absolute `<repo-dirname>-worktrees` directory beside the checkout: `--worktree` builds there, outside the project root. The dispatcher adds `<home>/.feature-pipeline` itself with `--add-dir`.
+- The connector's tools: `mcp__plugin_server-native_ps`.
+- For a `test:` entry that declares `driver: browser-cli`, `Bash(node '<home>/.feature-pipeline/verify/cli.mjs' *)` and the driver path's other shell lines, as "Headless runs and the driver" under [Ship flags](#ship-flags---base---merge---no-ui-testing---attach-screenshots---parallel---worktree) lists them; for an MCP entry, `mcp__playwright`.
+- `Skill`, when the report shows it denied.
+
+Unrestricted `Bash` replaces the per-command rules, and grants every shell command to every agent of the run: weigh it the way "Headless runs and the driver" weighs the driver rule. The scheduled task's own approvals cover the task session only; they never reach the children.
+
+**What a night leaves.**
+
+- PRs left open for review — the dispatcher never passes `--merge`.
+- The state directory `~/.feature-pipeline/dispatch/<project-name>/`, `<project-name>` being the main checkout's directory name: `reports/<run-id>.md`, `logs/<run-id>/<ID>.jsonl` with each session's events, and `runs.json`, one record per run. Two checkouts with the same directory name share it, so dispatch one of them or rename the other.
+- One inbox item per run, from `feature:dispatch`, whose first line is `Night dispatch <run-id>: <n> shipped, <m> stuck, <k> skipped` and whose body is the report.
+- No lock: it lives at `<git-common-dir>/feature-dispatch.lock` only while a run holds it. A run killed outright leaves it behind, and the next run takes it over once it is 24 hours old.
+- After an epic, the checkout on `integration/<epic-id>`: the report then notes that the next night would fail its `git_base` check, until you switch back to the default branch.
+
+**Resume.** A stuck item's row in the report carries its session id, and a `Resume <ID>: claude --resume <session-id>` line follows the table for it. That command opens the session from any directory, so you can see where it stopped and continue it by hand.
+
+**Scheduled task.** Save this prompt as `~/.claude/scheduled-tasks/<name>/SKILL.md`, with both placeholders replaced by absolute paths, then register the task in the Claude Code Desktop scheduled-tasks panel, nightly, with its **worktree toggle off**: `ship` works from the main checkout and creates its own worktrees beside it.
+
+```markdown
+---
+name: night-dispatch
+description: Run the feature pipeline's night dispatcher for one project — plan, then run — and relay both results and the report path.
+---
+
+Run one NIGHT DISPATCH for one project. The dispatcher is a script: this session starts it
+and reports what it printed. It never does the dispatcher's work itself.
+
+The two commands, exactly as written:
+
+    node '<plugin-root>/scripts/dispatch/dispatch.mjs' plan --project-root '<project-root>'
+    node '<plugin-root>/scripts/dispatch/dispatch.mjs' run --project-root '<project-root>'
+
+1. Run `plan` in the foreground. It prints one JSON document; keep it for the report.
+   If it exits 2, report its `error` and stop. Any other exit code: continue to step 2.
+2. Run `run` once, as a BACKGROUND command, and wait until it exits: a night can last hours,
+   longer than a foreground command may. Never start a second `run`, never stop it, and never
+   remove its lock. It prints one JSON document when it exits.
+
+If a command reports that the module cannot be found, or prints nothing that parses as one
+JSON document, do NOT improvise: report "dispatcher not found or not runnable at
+<plugin-root>/scripts/dispatch/dispatch.mjs" with the exit code and stderr, and stop.
+
+Never run /feature:ship, /feature:sync or any ticket step yourself. Never merge a pull request.
+Never edit a file.
+
+When `run` exits, report in this order:
+
+1. `plan`'s admitted items, one line each, or "nothing admitted" with `caps.reason`; if `plan`
+   exited 1, its exit code and `error` instead.
+2. `run`'s exit code and `outcome`, or its `error`.
+3. Each item: its id, outcome and pull request URL; for a stuck item, its reason and
+   `claude --resume <session_id>`.
+4. The `report` path.
+5. The `notes`.
+```
+
+- **Permissions.** The task session itself runs two `node` commands and nothing else. Give the task the default permission mode, never one that bypasses permissions: once both commands are allowed, a prompt for anything else means the session is doing more than the template says. Run the task once with **Run now** and answer both prompts with "always allow", or add `Bash(node '<plugin-root>/scripts/dispatch/dispatch.mjs' *)` to your settings, quoted exactly as the prompt writes the command: Bash rules match the command text as written.
+- **After every plugin update**, `<plugin-root>` changes with the version. Update the path in the prompt and in that rule; a stale path runs the previous version's dispatcher, or none once that version is removed.
+- **Running.** The Desktop app must be open and the machine awake at the scheduled time. A run that is stopped takes up to about 25 seconds to exit — about 12 to stop the session in progress and about 12 to send the inbox item — and still records the run and writes its report; let it finish.
+- **The report stands alone.** The report file and the inbox item are written by the dispatcher, so a night's result survives a task session that could not relay it.
+
 ## Configuration reference
 
 All project config lives in `claudedocs/tickets/config.yaml`. `/feature:setup` writes it in one guided run, proposing detected values and documented defaults for you to confirm. Everything except `prefix` is optional.
@@ -375,6 +473,36 @@ worktree:
 ```
 
 The command runs inside whichever repo's worktree is being provisioned and sniffs that repo's manifests — the Node repos install dependencies, the Go repo downloads modules, and a repo matching neither runs nothing. The trust discipline above applies unchanged. Note on config: a repo-relative `.worktreeinclude` pattern cannot reach the workspace-level `config.yaml` (it sits above the repo root) — and doesn't need to: multi-repo worktrees are created under the workspace root, so an ancestor walk-up from a worktree finds the workspace `config.yaml`.
+
+### Night dispatch config
+
+An optional `dispatch:` block tunes the [night dispatcher](#night-dispatch). Unlike the blocks above, no skill acts on it: the dispatcher script's own reader reads it, `/feature:setup` neither asks for nor writes it and keeps it byte-for-byte on a re-run, and `/feature:setup --check` validates it.
+
+```yaml
+prefix: FP
+mode: server-native
+project: <your-project-uuid>
+dispatch:
+  tag: agent-ready               # the ticket tag that marks work for dispatch
+  max_age_days: 14
+  max_tickets_per_run: 2
+  max_open_prs: 3
+  max_session_minutes: 180
+  max_rate_limit_retries: 10
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `tag` | `agent-ready` | The tag that marks a ticket or an epic for dispatch, compared case-sensitively. |
+| `max_age_days` | `14` | A ticket whose server row was last updated longer ago than this is skipped as `stale`. |
+| `max_tickets_per_run` | `2` | Tickets one night may build. An epic counts its `backlog` children; an epic admitted first is admitted whatever its count. |
+| `max_open_prs` | `3` | Open pull requests from dispatched work allowed at once, counting those from earlier nights; an epic's children and its integration PR hold one slot together. |
+| `max_session_minutes` | `180` | Wall-clock cap for one session, per ticket it builds — an epic's session gets this times its ticket count. Each `sync` session gets it once. |
+| `max_rate_limit_retries` | `10` | Rate-limit retries one session may make before it is stopped. |
+
+Every key is optional, and a missing block takes every default. The dispatcher reads the block's keys one level deep, strips one matched pair of quotes from a value and drops ` #` comments. It refuses to run — exit 1, no session started — on a project that is not server-native, an empty `tag`, or a numeric value that is not a positive integer, and it ignores an unknown key with a note. The full rules are CONTRACT.md's "§5 Configuration" ([CONTRACT.md](../scripts/dispatch/CONTRACT.md)).
+
+`/feature:setup --check` is stricter than the dispatcher on two points, both on purpose. It fails an unknown key, since a misspelt key would run the night on that key's default. And it fails a block where `(max_tickets_per_run + 2) × max_session_minutes` reaches 1440 minutes — the longest night those caps allow, the two `sync` sessions included — because the next run takes over a lock older than 24 hours ("§11 Lock"). The defaults give 720.
 
 ### MCP servers
 
