@@ -401,8 +401,10 @@ left alone.
 times the item's ticket count (a `sync` session: `max_session_minutes`), or at the first
 rate-limit retry past `max_rate_limit_retries`. Stopping sends `SIGINT` to the child,
 `SIGTERM` 120 seconds later if it is still running, and `SIGKILL` to its process group 30
-seconds after that. Once the child exits, a process of its group still holding its output
-is killed with the group after 5 seconds.
+seconds after that. When a stopped child exits, every process left in its group is killed
+at once. After any other exit, a process of its group still holding its output is killed
+with the group after 5 seconds. A wall-clock cap longer than 2³¹−1 milliseconds (about
+24.8 days) is held at that length.
 
 **A signal to the dispatcher** while a session runs sends the child `SIGINT`, waits up to
 10 seconds, sends `SIGTERM`, waits up to 2 seconds, then sends `SIGKILL` to its process
@@ -700,11 +702,12 @@ owner) in a temporary git repository, the preconditions (a dirty tree, a branch 
 an unset `origin/HEAD`, a failing `gh auth status`), stream parsing over fixture
 `stream-json` lines (`system/init`, `api_retry` rate limits, `permission_denied`, `result`
 records, non-JSON lines, CRLF), the finish predicate and every stuck reason over fixture
-ticket states, the `sync` status, the exact argument vectors, the session runner's caps
-and escalation against stand-in `claude` scripts with millisecond caps, the report
-sections, the inbox body's shape, the sorted-key document shape, and end-to-end `plan` and
-`run` invocations — shipped, stuck, a failed first `sync`, a dirty tree, a failed inbox
-capture, and a signal while a session runs — against a loopback stand-in server that
+ticket states, the `sync` status, the exact argument vectors, the session runner's caps,
+escalation, group kill and timer clamp against stand-in `claude` scripts with millisecond
+caps, the report sections, the inbox body's shape, the sorted-key document shape, and
+end-to-end `plan` and `run` invocations — shipped, stuck, a failed first `sync`, a dirty
+tree, a failed inbox capture, and a signal while a session runs — against a loopback
+stand-in server that
 routes every request in §6, a stand-in `gh` and a stand-in `claude`, with `HOME`
 redirected. Prints `{"cases": <n>, "ok": true}` and exits 0 when every case passes;
 otherwise prints `{"error": "self-test: <case> — <detail>"}` and exits 1. It runs on every

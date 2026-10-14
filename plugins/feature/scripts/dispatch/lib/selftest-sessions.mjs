@@ -17,7 +17,7 @@ import path from 'node:path';
 import { ITEM_ID_RE, shipArgv, syncArgv } from './dispatch.mjs';
 import { decideItem, inboxBody, resumeHint, summaryLine, syncStatus } from './finish.mjs';
 import { checkPreconditions, gitBase, gitClean } from './preconditions.mjs';
-import { startSession } from './session.mjs';
+import { MAX_TIMER_MS, startSession, timerDelay } from './session.mjs';
 import { applyLine, newSessionFacts, parseJsonResult } from './stream.mjs';
 
 const FORBIDDEN_FLAGS = ['--merge', '--parallel', '--bare', '--settings', '--allowedTools', '--permission-mode'];
@@ -261,6 +261,24 @@ export function sessionCases(kit) {
         equal(after.cap, 'interrupted', 'stopNow marks the session interrupted');
         assert(await until(() => !alive(pids[0]), 5_000), 'stopNow left the stand-in running');
 
+        const orphan = start('orphan', { FAKE_CLAUDE_HANG: 'orphan' }, { capMs: 1_000, graceMs: 5_000, drainMs: 5_000 });
+        const childFile = `${orphan.pidFile}.child`;
+        const childStarted = await until(() => fs.existsSync(childFile) && fs.readFileSync(childFile, 'utf8').trim() !== '', 5_000);
+        pids.push(Number(fs.readFileSync(orphan.pidFile, 'utf8')));
+        assert(childStarted, 'the orphan stand-in never started its grandchild');
+        const grandchild = Number(fs.readFileSync(childFile, 'utf8'));
+        const orphaned = await orphan.handle.done;
+        equal([orphaned.exit_code, orphaned.cap], [130, 'timeout'], 'the orphan stand-in is capped');
+        assert(await until(() => !alive(grandchild), 1_000), 'a capped session left a process of its group running');
+
+        equal([timerDelay(3e9), timerDelay(1_000)], [MAX_TIMER_MS, 1_000], 'a cap past the timer range is clamped');
+        const long = start('long', { FAKE_CLAUDE_HANG: '1' }, { capMs: 3e9, drainMs: 300 });
+        assert(await until(() => fs.existsSync(long.pidFile), 5_000), 'the long-cap stand-in never started');
+        pids.push(Number(fs.readFileSync(long.pidFile, 'utf8')));
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        long.handle.stopNow();
+        equal((await long.handle.done).cap, 'interrupted', 'a cap past the timer range does not fire at once');
+
         const missing = await startSession({ command: null, argv: [], cwd: dir, env: process.env, logPath: path.join(dir, 'n.jsonl'), stderrPath: path.join(dir, 'n.err'), capMs: 1_000 }).done;
         equal([missing.exit_code, missing.spawnError], [null, 'ENOENT'], 'no claude on PATH');
       } finally {
@@ -387,5 +405,6 @@ export function sessionCases(kit) {
         fs.rmSync(w.dir, { recursive: true, force: true });
       }
     }],
+
   ];
 }

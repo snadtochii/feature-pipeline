@@ -123,7 +123,9 @@ exit "\${FAKE_GH_STATUS:-0}"
  * The stand-in `claude`: logs its working directory and arguments, then
  * prints a scripted `sync` document or `ship` stream. Hang mode waits
  * until interrupted, its trap set before it prints, so a cap that fires
- * mid-print still ends it; stubborn mode ignores SIGINT and SIGTERM.
+ * mid-print still ends it; stubborn mode ignores SIGINT and SIGTERM; orphan
+ * mode closes its stdout, starts a grandchild that outlives it, and waits
+ * until interrupted.
  */
 const FAKE_CLAUDE = `#!/bin/sh
 if [ -n "$FAKE_CLAUDE_ARGS" ]; then
@@ -133,10 +135,16 @@ if [ "$2" = "/feature:sync" ]; then
   if [ -n "$FAKE_CLAUDE_SYNC_OUT" ]; then cat "$FAKE_CLAUDE_SYNC_OUT"; fi
   exit "\${FAKE_CLAUDE_SYNC_STATUS:-0}"
 fi
-if [ "$FAKE_CLAUDE_HANG" = "1" ]; then trap 'exit 130' INT; fi
+if [ "$FAKE_CLAUDE_HANG" = "1" ] || [ "$FAKE_CLAUDE_HANG" = "orphan" ]; then trap 'exit 130' INT; fi
 if [ -n "$FAKE_CLAUDE_PID" ]; then echo "$$" > "$FAKE_CLAUDE_PID"; fi
 if [ -n "$FAKE_CLAUDE_SHIP_OUT" ]; then cat "$FAKE_CLAUDE_SHIP_OUT"; fi
 if [ "$FAKE_CLAUDE_HANG" = "1" ]; then sleep 30 & wait; fi
+if [ "$FAKE_CLAUDE_HANG" = "orphan" ]; then
+  exec >/dev/null
+  sleep 30 &
+  echo "$!" > "$FAKE_CLAUDE_PID.child"
+  sleep 30 & wait
+fi
 if [ "$FAKE_CLAUDE_HANG" = "stubborn" ]; then trap '' INT TERM; sleep 30; fi
 exit "\${FAKE_CLAUDE_SHIP_STATUS:-0}"
 `;

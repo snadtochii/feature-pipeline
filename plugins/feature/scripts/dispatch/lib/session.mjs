@@ -9,9 +9,10 @@
 //
 // Two caps end a session early — the wall-clock cap and the rate-limit retry
 // cap — through one escalation: SIGINT to the child, SIGTERM after a grace
-// period, SIGKILL to its whole process group after a further backstop. Once
-// the child exits, any process still holding its stdout is killed with the
-// group after a short drain window. `stopNow` is the synchronous form the
+// period, SIGKILL to its whole process group after a further backstop. When a
+// capped child exits, the rest of its group is killed at once; after any other
+// exit, a process still holding its stdout is killed with the group after a
+// short drain window. A cap longer than a timer can hold is clamped to it. `stopNow` is the synchronous form the
 // teardown hook calls when the dispatcher itself is signalled.
 //
 // Private to the implementation: only dispatch.mjs is a command.
@@ -29,6 +30,13 @@ export const DRAIN_MS = 5_000;
 export const STOP_WAIT_MS = 10_000;
 const STOP_KILL_WAIT_MS = 2_000;
 const POLL_MS = 100;
+/** The longest delay a timer takes; Node fires a longer one after 1 ms. */
+export const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/** A cap in milliseconds as a timer delay: clamped to `MAX_TIMER_MS`. */
+export function timerDelay(ms) {
+  return Math.min(ms, MAX_TIMER_MS);
+}
 
 /** Send `signal` to `pid` (a negative pid names its group); a gone process is not an error. */
 function signal(pid, sig) {
@@ -208,6 +216,11 @@ export function startSession({
       child.on('exit', (code, sig) => {
         exited = true;
         clearTimers();
+        // A capped session's group exists only for it: whatever the child
+        // left behind — a hung test runner, a dev server — dies with it.
+        if (cap !== null) {
+          signal(-pid, 'SIGKILL');
+        }
         const signo = sig ? os.constants.signals[sig] : undefined;
         exitInfo = { exit_code: code ?? (signo !== undefined ? 128 + signo : null), signal: sig ?? null };
         // A process that inherited stdout keeps the stream open past the exit:
@@ -220,7 +233,7 @@ export function startSession({
         }, drainMs);
         finish();
       });
-      later(() => escalate('timeout'), capMs);
+      later(() => escalate('timeout'), timerDelay(capMs));
     }
   });
 
