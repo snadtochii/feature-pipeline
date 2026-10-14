@@ -10,7 +10,7 @@
 // Private to the implementation: only dispatch.mjs is a command.
 
 import { assess } from './assess.mjs';
-import { acquireLock, gitCommonDir, releaseLock } from './lock.mjs';
+import { acquireLock, gitCommonDir, holdsLock, releaseLock } from './lock.mjs';
 import { ComputeError, errorDoc } from './output.mjs';
 import { checkPreconditions } from './preconditions.mjs';
 import { renderReport } from './report.mjs';
@@ -125,14 +125,15 @@ export async function run({ projectRoot, env = process.env, now = new Date(), fe
       outcome = 'completed';
     }
 
+    if (!holdsLock(lock)) {
+      facts.notes.push('the lock no longer names this run, so release leaves it in place');
+    }
     const { reportPath, failures } = finalize(outcome, null);
     if (failures.length > 0) {
       throw new ComputeError(`run ${runId} ended ${outcome}, but ${failures.join('; ')}`);
     }
     disposeStopped();
-    if (!releaseLock(lock)) {
-      facts.notes.push('the lock no longer named this run at release and was left in place');
-    }
+    releaseLock(lock);
     return {
       verb: 'run',
       run_id: runId,

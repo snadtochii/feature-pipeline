@@ -133,6 +133,11 @@ export function acquireLock({ commonDir, runId, now }) {
   return { lock, notes };
 }
 
+/** Whether the lock's owner still names this run. */
+export function holdsLock(lock) {
+  return !lock.released && readOwner(lock.dir)?.runId === lock.runId;
+}
+
 /**
  * Release the lock: remove it only while its owner still names this run.
  * Idempotent. Returns true when this call removed it.

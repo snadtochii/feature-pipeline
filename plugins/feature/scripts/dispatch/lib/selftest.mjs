@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 import { parseArgv } from './args.mjs';
 import { DISPATCH_DEFAULTS, FS_NATIVE_REFUSAL, loadDispatchConfig, parseMiniYaml, validateConfig } from './config.mjs';
-import { LOCK_NAME, STALE_MS, UNREADABLE_GRACE_MS, acquireLock, gitCommonDir, readOwner, releaseLock } from './lock.mjs';
+import { LOCK_NAME, STALE_MS, UNREADABLE_GRACE_MS, acquireLock, gitCommonDir, holdsLock, readOwner, releaseLock } from './lock.mjs';
 import { ComputeError, UsageError, exitCodeFor, render } from './output.mjs';
 import { onPath } from './preconditions.mjs';
 import { countOpenPrs, prSlots } from './prs.mjs';
@@ -474,6 +474,7 @@ const CASES = [
       const second = newRunId(NOW);
       const b = acquireLock({ commonDir, runId: second, now: new Date(NOW.getTime() + STALE_MS) });
       assert(b.notes.length === 1 && b.notes[0].includes(first), `takeover note: ${JSON.stringify(b.notes)}`);
+      assert(holdsLock(a.lock) === false && holdsLock(b.lock) === true, 'holdsLock after a takeover');
       assert(releaseLock(a.lock) === false && fs.existsSync(lockDir), 'a taken-over run removed the new owner\'s lock');
       assert(releaseLock(b.lock) === true && !fs.existsSync(lockDir), 'the owner did not release');
       assert(releaseLock(b.lock) === false, 'release is not idempotent');
