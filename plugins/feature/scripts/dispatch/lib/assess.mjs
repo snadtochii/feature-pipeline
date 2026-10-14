@@ -6,7 +6,7 @@
 // Private to the implementation: only dispatch.mjs is a command.
 
 import { loadDispatchConfig } from './config.mjs';
-import { countOpenPrs, listOpenPrs } from './prs.mjs';
+import { countOpenPrs, listOpenPrs, prSlots } from './prs.mjs';
 import { admit, selectCandidates } from './select.mjs';
 import { listTickets, resolveServerAccess } from './server.mjs';
 
@@ -26,8 +26,7 @@ export async function assess({ projectRoot, env, now, runs, fetchImpl }) {
   const prs = listOpenPrs({ projectRoot, env });
   let openPrs = null;
   if (prs.ok) {
-    const taggedIds = listed.rows.filter((row) => row.tags.includes(tag)).map((row) => row.id);
-    openPrs = countOpenPrs({ openPrs: prs.prs, runs, taggedIds }).count;
+    openPrs = countOpenPrs({ openPrs: prs.prs, runs, slots: prSlots(listed.rows, tag) }).count;
   }
   const admission = admit(selection.candidates, { openPrs, maxOpenPrs, maxTicketsPerRun });
 

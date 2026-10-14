@@ -1,9 +1,9 @@
 // Open pull requests for the dispatcher's PR cap (CONTRACT.md §8).
 //
 // One `gh pr list` call per invocation, run in the project root with an
-// argument vector. `countOpenPrs` is pure: the union, by URL, of open PRs the
-// dispatcher recorded in runs.json and open PRs titled `<ID>:` for a tagged
-// ticket.
+// argument vector. `countOpenPrs` is pure: the number of dispatch slots held
+// by open PRs the dispatcher recorded in runs.json and open PRs titled `<ID>:`
+// for a tagged ticket, an epic's PRs holding one slot.
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
@@ -50,31 +50,69 @@ export function listOpenPrs({ projectRoot, env = process.env, runner = spawnSync
   return { ok: true, prs: parsed.map((pr) => ({ number: pr.number, title: pr.title, url: pr.url })) };
 }
 
-/** The PR URLs recorded in runs.json records. */
-export function recordedPrUrls(runs) {
-  const urls = new Set();
-  for (const record of runs) {
-    for (const item of Array.isArray(record?.items) ? record.items : []) {
-      if (typeof item?.pr_url === 'string' && item.pr_url !== '') {
-        urls.add(item.pr_url);
-      }
+const TITLE_ID = /^([^\s:]+):/;
+
+/**
+ * The dispatch slot each ticket's PRs count toward: a Map from ticket id to
+ * slot id. A child of a tagged epic, tagged or not, counts toward its epic;
+ * every other tagged ticket is its own slot. Untagged tickets have no entry.
+ */
+export function prSlots(rows, tag) {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const isTaggedEpic = (id) => {
+    const row = byId.get(id);
+    return row !== undefined && row.kind === 'epic' && row.tags.includes(tag);
+  };
+  const slots = new Map();
+  for (const row of rows) {
+    if (row.parent_id !== null && isTaggedEpic(row.parent_id)) {
+      slots.set(row.id, row.parent_id);
+    } else if (row.tags.includes(tag)) {
+      slots.set(row.id, row.id);
     }
   }
-  return urls;
+  return slots;
 }
 
 /**
- * Count the open PRs that hold a dispatch slot. Returns `{ count, urls }`,
- * `urls` sorted.
+ * The PRs recorded in runs.json records: a Map from PR URL to the id of the
+ * dispatched item that opened it, or to the URL itself when the record names
+ * no item id.
  */
-export function countOpenPrs({ openPrs, runs, taggedIds }) {
-  const recorded = recordedPrUrls(runs);
-  const prefixes = taggedIds.map((id) => `${id}:`);
+export function recordedPrs(runs) {
+  const recorded = new Map();
+  for (const record of runs) {
+    for (const item of Array.isArray(record?.items) ? record.items : []) {
+      if (typeof item?.pr_url === 'string' && item.pr_url !== '') {
+        recorded.set(item.pr_url, typeof item.id === 'string' && item.id !== '' ? item.id : item.pr_url);
+      }
+    }
+  }
+  return recorded;
+}
+
+/**
+ * Count the dispatch slots held by open PRs. A PR titled `<ID>:` for a ticket
+ * in `slots` holds that ticket's slot; a PR recorded in runs.json holds its
+ * item's slot. Several PRs of one item — an epic's child PRs and its
+ * integration PR — hold one slot. Returns `{ count, slots, urls }`, both
+ * lists sorted.
+ */
+export function countOpenPrs({ openPrs, runs, slots }) {
+  const recorded = recordedPrs(runs);
+  const held = new Set();
   const counted = new Set();
   for (const pr of openPrs) {
-    if (recorded.has(pr.url) || prefixes.some((prefix) => pr.title.startsWith(prefix))) {
+    const titleId = TITLE_ID.exec(pr.title)?.[1];
+    let slot = titleId !== undefined ? slots.get(titleId) : undefined;
+    if (slot === undefined && recorded.has(pr.url)) {
+      const id = recorded.get(pr.url);
+      slot = slots.get(id) ?? id;
+    }
+    if (slot !== undefined) {
+      held.add(slot);
       counted.add(pr.url);
     }
   }
-  return { count: counted.size, urls: [...counted].sort() };
+  return { count: held.size, slots: [...held].sort(), urls: [...counted].sort() };
 }

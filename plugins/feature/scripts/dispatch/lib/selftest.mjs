@@ -21,7 +21,7 @@ import { DISPATCH_DEFAULTS, FS_NATIVE_REFUSAL, loadDispatchConfig, parseMiniYaml
 import { LOCK_NAME, STALE_MS, acquireLock, gitCommonDir, readOwner, releaseLock } from './lock.mjs';
 import { ComputeError, UsageError, exitCodeFor, render } from './output.mjs';
 import { onPath } from './preconditions.mjs';
-import { countOpenPrs } from './prs.mjs';
+import { countOpenPrs, prSlots } from './prs.mjs';
 import { renderReport } from './report.mjs';
 import { admit, compareIds, selectCandidates } from './select.mjs';
 import { listTickets, parseCredentialFile, resolveServerAccess } from './server.mjs';
@@ -414,9 +414,38 @@ const CASES = [
         { title: 'chore', url: 'https://g/4' },
       ],
       runs: [{ items: [{ pr_url: 'https://g/2' }, { pr_url: 'https://g/4' }, { pr_url: null }] }],
-      taggedIds: ['ABC-2', 'ABC-20'],
+      slots: new Map([['ABC-2', 'ABC-2'], ['ABC-20', 'ABC-20']]),
     });
-    equal(counted, { count: 3, urls: ['https://g/1', 'https://g/2', 'https://g/4'] }, 'union by URL');
+    equal(counted, { count: 3, slots: ['ABC-2', 'ABC-20', 'https://g/4'], urls: ['https://g/1', 'https://g/2', 'https://g/4'] }, 'union by URL');
+
+    const row = (id, kind, tags, parentId = null) => ({ id, kind, tags, parent_id: parentId });
+    const slots = prSlots([
+      row('E-1', 'epic', ['agent-ready']),
+      row('E-2', 'child', ['agent-ready'], 'E-1'),
+      row('E-3', 'child', [], 'E-1'),
+      row('U-1', 'epic', []),
+      row('U-2', 'child', ['agent-ready'], 'U-1'),
+      row('U-3', 'child', [], 'U-1'),
+      row('S-1', 'solo', ['agent-ready']),
+      row('S-2', 'solo', []),
+    ], 'agent-ready');
+    equal([...slots].sort(), [['E-1', 'E-1'], ['E-2', 'E-1'], ['E-3', 'E-1'], ['S-1', 'S-1'], ['U-2', 'U-2']], 'pr slots');
+    const epicPrs = countOpenPrs({
+      openPrs: [
+        { title: 'E-2: first child', url: 'https://g/12' },
+        { title: 'E-3: second child', url: 'https://g/13' },
+        { title: 'E-1: integration', url: 'https://g/11' },
+        { title: 'S-1: solo', url: 'https://g/21' },
+        { title: 'U-2: child of an untagged epic', url: 'https://g/32' },
+        { title: 'U-3: untagged', url: 'https://g/33' },
+        { title: 'S-2: untagged', url: 'https://g/22' },
+        { title: 'recorded epic PR', url: 'https://g/40' },
+      ],
+      runs: [{ items: [{ id: 'E-1', pr_url: 'https://g/40' }] }],
+      slots,
+    });
+    equal(epicPrs.slots, ['E-1', 'S-1', 'U-2'], 'an epic\'s child and integration PRs hold one slot');
+    equal(epicPrs.count, 3, 'epic slot count');
 
     const solo = (id) => ({ id, tickets: [id] });
     const epic = { id: 'E-1', tickets: ['E-2', 'E-3', 'E-4'] };

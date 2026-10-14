@@ -192,11 +192,15 @@ candidate's `tickets` is the ticket itself.
 
 Admission walks the candidates in order and admits a prefix of them.
 
-**Open pull requests.** `open_prs` is the number of open pull requests in the project's
-repository that are either recorded in `runs.json` (§12) as opened by a dispatched item, or
-titled `<ID>:` for a tagged ticket's id (an epic's id included), counted once each by URL.
-Both come from one `gh pr list --state open --limit 1000 --json number,title,url` call,
-run in the project root, so at most 1000 open pull requests are seen.
+**Open pull requests.** `open_prs` is the number of dispatch slots held by open pull
+requests in the project's repository. An open pull request holds a slot when it is titled
+`<ID>:` for a tagged ticket's id (an epic's id included) or for a child of a tagged epic,
+tagged or not, or when it is recorded in `runs.json` (§12) as opened by a dispatched item.
+A child's pull request holds its epic's slot, and a recorded one holds the slot of the
+item that opened it, so an epic's child pull requests and its integration pull request
+together hold one slot. Both come from one
+`gh pr list --state open --limit 1000 --json number,title,url` call, run in the project
+root, so at most 1000 open pull requests are seen.
 
 **Weights.** Every admitted item takes one pull-request slot: a solo ticket opens one pull
 request, and an epic opens one integration pull request. Its ticket weight is the length
