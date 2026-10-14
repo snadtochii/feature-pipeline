@@ -404,6 +404,11 @@ checkout's directory name, shared by its linked worktrees. It must match
 `^[A-Za-z0-9._-]+$` and be neither `.` nor `..`; anything else exits 1. `HOME` unset exits
 1. The state lives outside every working tree.
 
+The name is a directory name, not a repository identity: two repositories checked out
+under directories of the same name share one state directory, while each holds its own
+lock (§11). Their `runs.json` records then interleave, and their runs can write it at the
+same time. Dispatch one of them, or give the checkouts different directory names.
+
 The project directory and `reports/` are created on first use by `run`, mode 0700. Every
 file is written to a temporary file beside it and renamed into place, mode 0600.
 
