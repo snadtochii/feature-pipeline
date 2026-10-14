@@ -315,7 +315,7 @@ When `run` exits, report in this order:
 5. The `notes`.
 ```
 
-- **Permissions.** The task session itself runs two `node` commands and nothing else. Run the task once with **Run now** and answer both prompts with "always allow", or add `Bash(node '<plugin-root>/scripts/dispatch/dispatch.mjs' *)` to your settings, quoted exactly as the prompt writes the command: Bash rules match the command text as written.
+- **Permissions.** The task session itself runs two `node` commands and nothing else. Give the task the default permission mode, never one that bypasses permissions: once both commands are allowed, a prompt for anything else means the session is doing more than the template says. Run the task once with **Run now** and answer both prompts with "always allow", or add `Bash(node '<plugin-root>/scripts/dispatch/dispatch.mjs' *)` to your settings, quoted exactly as the prompt writes the command: Bash rules match the command text as written.
 - **After every plugin update**, `<plugin-root>` changes with the version. Update the path in the prompt and in that rule; a stale path runs the previous version's dispatcher, or none once that version is removed.
 - **Running.** The Desktop app must be open and the machine awake at the scheduled time. A run that is stopped takes up to about 25 seconds to exit — about 12 to stop the session in progress and about 12 to send the inbox item — and still records the run and writes its report; let it finish.
 - **The report stands alone.** The report file and the inbox item are written by the dispatcher, so a night's result survives a task session that could not relay it.
