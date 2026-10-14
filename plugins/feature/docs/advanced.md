@@ -475,7 +475,7 @@ The command runs inside whichever repo's worktree is being provisioned and sniff
 
 ### Night dispatch config
 
-An optional `dispatch:` block tunes the [night dispatcher](#night-dispatch). Unlike the blocks above, it is read by the dispatcher script's own reader, not by any skill: `/feature:setup` neither asks for nor writes it, and keeps it byte-for-byte on a re-run.
+An optional `dispatch:` block tunes the [night dispatcher](#night-dispatch). Unlike the blocks above, no skill acts on it: the dispatcher script's own reader reads it, `/feature:setup` neither asks for nor writes it and keeps it byte-for-byte on a re-run, and `/feature:setup --check` validates it.
 
 ```yaml
 prefix: FP
