@@ -4,8 +4,8 @@
 // states, the argument vectors, the preconditions on a temporary repository,
 // the session runner against the stand-in `claude` with millisecond caps, the
 // synchronous inbox helper, and end-to-end runs that ship, get stuck, fail
-// their first `sync`, refuse a dirty tree, survive a failed inbox capture, and
-// are signalled mid-session.
+// their first `sync`, refuse a dirty tree, survive a failed inbox capture, are
+// signalled mid-session, and leave the checkout off its base branch.
 // The shared helpers come in as `kit` from selftest.mjs, so neither module
 // imports the other's bindings at load time. No case starts a real `claude`.
 //
@@ -433,5 +433,20 @@ export function sessionCases(kit) {
       assert(!notes.join('\n').includes(TOKEN), 'token in the helper notes');
     }],
 
+    ['end to end: a ship that leaves the checkout off its base branch is noted', async () => {
+      const w = world('e2e-branch');
+      try {
+        await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') } }), async (url) => {
+          const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url, { FAKE_CLAUDE_SHIP_BRANCH: 'integration/ABC-1' }) });
+          assert(res.status === 0, `branch run: exit ${res.status} ${res.stdout}`);
+          equal(res.doc.items.map((i) => i.outcome), ['shipped'], 'the item still ships');
+          const note = 'the next run fails its git_base precondition until the checkout is back on its base branch: on integration/ABC-1, base branch is main';
+          assert(res.doc.notes.includes(note), `notes: ${JSON.stringify(res.doc.notes)}`);
+          assert(fs.readFileSync(res.doc.report, 'utf8').includes(note), 'the report carries the note');
+        });
+      } finally {
+        fs.rmSync(w.dir, { recursive: true, force: true });
+      }
+    }],
   ];
 }

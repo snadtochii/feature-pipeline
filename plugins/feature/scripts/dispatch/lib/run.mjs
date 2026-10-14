@@ -3,14 +3,14 @@
 // Order of work: common dir and project name → lock → state and log
 // directories → runs.json → configuration and server access → server probe →
 // preconditions → `sync` → assess → the dispatch step → closing `sync` →
-// inbox item → runs.json record → report → release → document. A failed
-// precondition or a failed first `sync` stops the run before any item. Once
-// the lock is held, every exit path records the run: a thrown error and a
-// signal both write a `stopped` record and report (best effort) before the
-// lock is released, through a teardown hook registered after the lock's own,
-// so it runs first; a session's own hook, registered later still, stops its
-// child and records it before that. A signalled run sends its inbox item
-// after its record, through a bounded synchronous helper.
+// checkout re-check → inbox item → runs.json record → report → release →
+// document. A failed precondition or a failed first `sync` stops the run
+// before any item. Once the lock is held, every exit path records the run: a
+// thrown error and a signal both write a `stopped` record and report (best
+// effort) before the lock is released, through a teardown hook registered
+// after the lock's own, so it runs first; a session's own hook, registered
+// later still, stops its child and records it before that. A signalled run
+// sends its inbox item after its record, through a bounded synchronous helper.
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
@@ -20,7 +20,7 @@ import { dispatchItems, runSync } from './dispatch.mjs';
 import { inboxBody, summaryLine } from './finish.mjs';
 import { acquireLock, gitCommonDir, holdsLock, releaseLock } from './lock.mjs';
 import { ComputeError, errorDoc } from './output.mjs';
-import { checkPreconditions } from './preconditions.mjs';
+import { checkPreconditions, gitBase, gitClean } from './preconditions.mjs';
 import { renderReport } from './report.mjs';
 import { listTickets, resolveServerAccess, sendInbox, sendInboxSync } from './server.mjs';
 import {
@@ -51,6 +51,22 @@ export function notDispatched(item) {
     rate_limit_retries: 0,
     log: null,
   };
+}
+
+/**
+ * After the sessions, re-check the two checkout preconditions a session can
+ * break — a `ship` run can end with the main checkout on another branch — and
+ * add a `notes` line for each that the next run would fail. Changes nothing.
+ */
+export function noteNextRunCheckout(projectRoot, env, notes) {
+  const base = gitBase(projectRoot, env);
+  if (!base.ok) {
+    notes.push(`the next run fails its git_base precondition until the checkout is back on its base branch: ${base.detail}`);
+  }
+  const clean = gitClean(projectRoot, env);
+  if (!clean.ok) {
+    notes.push(`the next run fails its git_clean precondition until the checkout is cleaned: ${clean.detail}`);
+  }
 }
 
 export async function run({
@@ -237,6 +253,9 @@ export async function run({
         if (!after.ok) {
           facts.notes.push(`closing sync failed: ${after.reason}`);
         }
+      }
+      if (started > 0) {
+        noteNextRunCheckout(projectRoot, env, facts.notes);
       }
     }
 

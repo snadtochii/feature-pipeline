@@ -121,11 +121,11 @@ exit "\${FAKE_GH_STATUS:-0}"
 
 /**
  * The stand-in `claude`: logs its working directory and arguments, then
- * prints a scripted `sync` document or `ship` stream. Hang mode waits
- * until interrupted, its trap set before it prints, so a cap that fires
- * mid-print still ends it; stubborn mode ignores SIGINT and SIGTERM; orphan
- * mode closes its stdout, starts a grandchild that outlives it, and waits
- * until interrupted.
+ * prints a scripted `sync` document or `ship` stream; a `ship` can leave the
+ * checkout on a new branch. Hang mode waits until interrupted, its trap set
+ * before it prints, so a cap that fires mid-print still ends it; stubborn
+ * mode ignores SIGINT and SIGTERM; orphan mode closes its stdout, starts a
+ * grandchild that outlives it, and waits until interrupted.
  */
 const FAKE_CLAUDE = `#!/bin/sh
 if [ -n "$FAKE_CLAUDE_ARGS" ]; then
@@ -138,6 +138,7 @@ fi
 if [ "$FAKE_CLAUDE_HANG" = "1" ] || [ "$FAKE_CLAUDE_HANG" = "orphan" ]; then trap 'exit 130' INT; fi
 if [ -n "$FAKE_CLAUDE_PID" ]; then echo "$$" > "$FAKE_CLAUDE_PID"; fi
 if [ -n "$FAKE_CLAUDE_SHIP_OUT" ]; then cat "$FAKE_CLAUDE_SHIP_OUT"; fi
+if [ -n "$FAKE_CLAUDE_SHIP_BRANCH" ]; then git checkout -q -b "$FAKE_CLAUDE_SHIP_BRANCH"; fi
 if [ "$FAKE_CLAUDE_HANG" = "1" ]; then sleep 30 & wait; fi
 if [ "$FAKE_CLAUDE_HANG" = "orphan" ]; then
   exec >/dev/null

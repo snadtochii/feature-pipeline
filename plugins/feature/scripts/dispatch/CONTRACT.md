@@ -361,9 +361,9 @@ node dispatch.mjs run --project-root <abs-path>
 (§11) → create the state directory and the run's log directory when absent → read
 `runs.json` → read the configuration and resolve the server access → list the tickets →
 check the preconditions → the first `sync` session → list the tickets again → list open
-pull requests → select → admit → the dispatch step → the closing `sync` session → send the
-inbox item → append the record to `runs.json` → write the report → release the lock →
-print.
+pull requests → select → admit → the dispatch step → the closing `sync` session → check
+the checkout again → send the inbox item → append the record to `runs.json` → write the
+report → release the lock → print.
 
 **Hard stops.** A failed precondition exits 1 with
 `preconditions failed: <name> (<detail>), …`, and a failed first `sync` session exits 1
@@ -433,6 +433,11 @@ reason `run stopped at <ID>`.
 The closing `sync` session runs when at least one `ship` session started, except after a
 stop on `rate_limit`, which adds a `notes` line instead. Its failure adds a `notes` line;
 it never stops the run or changes the exit code.
+
+After the sessions — when at least one `ship` session started — the `git_base` and
+`git_clean` preconditions (§9) are checked again, since a `ship` run can end with the main
+checkout on another branch. Each that fails adds a `notes` line naming its detail, so the
+report says why the next run will stop. The dispatcher changes nothing in the checkout.
 
 ### Finish predicate
 
@@ -719,8 +724,8 @@ escalation, group kill and timer clamp against stand-in `claude` scripts with mi
 caps, the report sections, the inbox body's shape, the signal-path inbox helper against an
 unreachable server, the sorted-key document shape, and end-to-end `plan` and `run`
 invocations — shipped, stuck, a failed first `sync`, a dirty tree, a failed inbox capture,
-and a signal while a session runs (its inbox item included) — against a loopback stand-in
-server that
+a signal while a session runs (its inbox item included), and a `ship` that leaves the
+checkout off its base branch — against a loopback stand-in server that
 routes every request in §6, a stand-in `gh` and a stand-in `claude`, with `HOME`
 redirected. Prints `{"cases": <n>, "ok": true}` and exits 0 when every case passes;
 otherwise prints `{"error": "self-test: <case> — <detail>"}` and exits 1. It runs on every
