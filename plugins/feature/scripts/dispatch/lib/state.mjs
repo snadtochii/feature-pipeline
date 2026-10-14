@@ -129,6 +129,33 @@ export function appendRun(dir, record) {
   writeAtomic(path.join(dir, 'runs.json'), render(runs));
 }
 
+const LOG_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+
+/** Create `<dir>/logs/<runId>/` (mode 0700) and return its path. */
+export function ensureLogDir(dir, runId) {
+  if (!RUN_ID_RE.test(runId)) {
+    throw new ComputeError(`not a run id: ${JSON.stringify(String(runId).slice(0, 40))}`);
+  }
+  const logs = path.join(dir, 'logs');
+  const runLogs = path.join(logs, runId);
+  try {
+    fs.mkdirSync(runLogs, { recursive: true, mode: 0o700 });
+    fs.chmodSync(logs, 0o700);
+    fs.chmodSync(runLogs, 0o700);
+  } catch (err) {
+    throw new ComputeError(`cannot create the log directory ${runLogs} (${err.code ?? 'error'})`);
+  }
+  return runLogs;
+}
+
+/** A log file's path in `logDir`; the base name is checked before any path is built. */
+export function logPathFor(logDir, name) {
+  if (!LOG_NAME_RE.test(name) || name.includes('..')) {
+    throw new ComputeError(`not a log file name: ${JSON.stringify(String(name).slice(0, 60))}`);
+  }
+  return path.join(logDir, name);
+}
+
 /** Write `reports/<runId>.md` (atomic, mode 0600) and return its path. */
 export function writeReport(dir, runId, markdown) {
   if (!RUN_ID_RE.test(runId)) {

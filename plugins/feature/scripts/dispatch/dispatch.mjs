@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 // feature night dispatcher: `dispatch.mjs`.
 // The contract this command implements is CONTRACT.md beside it — verbs, flags,
-// configuration keys, selection and cap rules, the output documents, the exit
-// codes, the lock and the state layout. This header explains mechanics only.
+// configuration keys, selection and cap rules, the child sessions and the
+// finish predicate, the output documents, the exit codes, the lock and the
+// state layout. This header explains mechanics only.
 //
 // Usage:
 //   dispatch.mjs plan --project-root <abs-path>
 //   dispatch.mjs run  --project-root <abs-path>
 //   dispatch.mjs --self-test
-// Output: exactly one sorted-key JSON document on stdout.
-// Exit: 0 answered (nothing to dispatch included), 1 could not compute, 2 bad invocation.
+// Output: exactly one sorted-key JSON document on stdout; child sessions write
+// only to their log files.
+// Exit: 0 answered (nothing to dispatch and stuck items included), 1 could not
+// compute, 2 bad invocation.
 //
 // Zero dependencies: Node 22+ built-ins only.
 // Everything under lib/ is private; this file is the only command.

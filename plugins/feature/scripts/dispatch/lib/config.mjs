@@ -19,9 +19,11 @@ export const DISPATCH_DEFAULTS = Object.freeze({
   max_age_days: 14,
   max_tickets_per_run: 2,
   max_open_prs: 3,
+  max_session_minutes: 180,
+  max_rate_limit_retries: 10,
 });
 
-const NUMERIC_KEYS = ['max_age_days', 'max_tickets_per_run', 'max_open_prs'];
+const NUMERIC_KEYS = ['max_age_days', 'max_tickets_per_run', 'max_open_prs', 'max_session_minutes', 'max_rate_limit_retries'];
 const DISPATCH_KEYS = ['tag', ...NUMERIC_KEYS];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KEY_LINE = /^([A-Za-z0-9_.-]+)\s*:(?:\s+(.*))?$/;

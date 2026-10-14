@@ -1,7 +1,8 @@
 // The `plan` verb (CONTRACT.md §9).
 //
-// Answers what `run` would do now: no lock, no directory, no file written,
-// and no child process beyond `git rev-parse` and `gh pr list`.
+// Answers what `run` would do now: no lock, no directory, no file written, no
+// session, and no child process beyond `git rev-parse`, `git status`,
+// `git symbolic-ref`, `gh pr list` and `gh auth status`.
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
@@ -18,6 +19,8 @@ export async function plan({ projectRoot, env = process.env, now = new Date(), f
   const result = await assess({ projectRoot, env, now, runs, fetchImpl });
   const preconditions = checkPreconditions({
     env,
+    projectRoot,
+    config: result.config,
     gh: result.gh,
     server: result.server,
     stateDir: stateDirWritable(stateDir),

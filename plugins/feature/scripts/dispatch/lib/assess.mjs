@@ -11,14 +11,16 @@ import { admit, selectCandidates } from './select.mjs';
 import { listTickets, resolveServerAccess } from './server.mjs';
 
 /**
- * Decide what a run would dispatch. `runs` is the runs.json history.
+ * Decide what a run would dispatch. `runs` is the runs.json history; a caller
+ * that already read the configuration and resolved the server access passes
+ * them as `config` and `access`, and their notes are then its own.
  * Returns `{ config, server, gh, candidates, admitted, notAdmitted, skips,
  * caps, notes }`; `gh` is `{ok, detail?}`. Throws ComputeError when the
  * configuration or the server says the answer cannot be computed.
  */
-export async function assess({ projectRoot, env, now, runs, fetchImpl }) {
-  const config = loadDispatchConfig(projectRoot);
-  const access = resolveServerAccess(env, env.HOME);
+export async function assess({ projectRoot, env, now, runs, fetchImpl, config: loaded, access: resolved }) {
+  const config = loaded ?? loadDispatchConfig(projectRoot);
+  const access = resolved ?? resolveServerAccess(env, env.HOME);
   const listed = await listTickets({ access, projectId: config.project, ...(fetchImpl ? { fetchImpl } : {}) });
   const { tag, max_age_days: maxAgeDays, max_open_prs: maxOpenPrs, max_tickets_per_run: maxTicketsPerRun } = config.dispatch;
   const selection = selectCandidates(listed.rows, { tag, maxAgeDays, now });
@@ -39,6 +41,6 @@ export async function assess({ projectRoot, env, now, runs, fetchImpl }) {
     notAdmitted: admission.notAdmitted,
     skips: selection.skips,
     caps: admission.caps,
-    notes: [...config.notes, ...listed.notes, ...selection.notes],
+    notes: [...(loaded ? [] : config.notes), ...listed.notes, ...selection.notes],
   };
 }
