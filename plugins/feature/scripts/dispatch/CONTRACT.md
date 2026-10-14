@@ -369,12 +369,21 @@ started: 2026-10-14T02:00:04.512Z
 ```
 
 **An existing lock.** Read `owner`. Its age is measured from `started`, or — when `owner`
-is missing or unparseable — from the lock directory's modification time.
+is missing or unparseable — from the lock directory's modification time. A lock is live
+for 24 hours from `started`; one with an unreadable owner is live for one minute, which
+covers a live run between its `mkdir` and its owner write and nothing more, so a run that
+died in that moment or a corrupted `owner` blocks dispatch for a minute, not a day.
 
-| Age | Result |
+| Lock | Result |
 |---|---|
-| Under 24 hours (a `started` in the future included) | Exit 1, `lock held by run <run-id>`, or `lock held (owner unreadable)`. |
-| 24 hours or more | Taken over: `owner` is re-read, the directory removed and created again with exactly one `mkdir`, and a `notes` line names the run it took over from. An owner (or, unreadable, a modification time) that changed between the two reads, or a `mkdir` that loses to a concurrent run, exits 1 (`lock taken by a concurrent run`). |
+| Live (a `started` or modification time in the future included) | Exit 1, `lock held by run <run-id>`, or `lock held (owner unreadable)`. |
+| Older | Taken over: `owner` is re-read, the directory removed and created again with one more `mkdir`, and a `notes` line names the run it took over from, or the unreadable owner's modification time. An owner (or, unreadable, a modification time) that changed between the two reads, or a `mkdir` that loses to a concurrent run, exits 1 (`lock taken by a concurrent run`). |
+
+The takeover is not atomic. Two runs that both find the same stale lock can both pass the
+re-read; when one of them completes its takeover before the other removes the directory,
+the second removes the first's fresh lock and both proceed. That needs two runs started
+within moments of each other against a lock left stale for a day, which one nightly
+schedule per project does not produce.
 
 **Release.** On normal completion, on any exit 1 after acquisition, and on `SIGINT`,
 `SIGTERM` or `SIGHUP`. The directory is removed only while `owner` still names this run, so

@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 import { parseArgv } from './args.mjs';
 import { DISPATCH_DEFAULTS, FS_NATIVE_REFUSAL, loadDispatchConfig, parseMiniYaml, validateConfig } from './config.mjs';
-import { LOCK_NAME, STALE_MS, acquireLock, gitCommonDir, readOwner, releaseLock } from './lock.mjs';
+import { LOCK_NAME, STALE_MS, UNREADABLE_GRACE_MS, acquireLock, gitCommonDir, readOwner, releaseLock } from './lock.mjs';
 import { ComputeError, UsageError, exitCodeFor, render } from './output.mjs';
 import { onPath } from './preconditions.mjs';
 import { countOpenPrs, prSlots } from './prs.mjs';
@@ -481,7 +481,10 @@ const CASES = [
       fs.mkdirSync(lockDir);
       const now = new Date();
       throwsKind(() => acquireLock({ commonDir, runId: newRunId(now), now }), ComputeError, 'lock held (owner unreadable)');
-      const old = new Date(now.getTime() - STALE_MS - 60_000);
+      const young = new Date(now.getTime() - UNREADABLE_GRACE_MS + 10_000);
+      fs.utimesSync(lockDir, young, young);
+      throwsKind(() => acquireLock({ commonDir, runId: newRunId(now), now }), ComputeError, 'lock held (owner unreadable)');
+      const old = new Date(now.getTime() - UNREADABLE_GRACE_MS - 1_000);
       fs.utimesSync(lockDir, old, old);
       const c = acquireLock({ commonDir, runId: newRunId(now), now });
       assert(c.notes.length === 1 && c.notes[0].includes('unreadable owner'), `mtime takeover note: ${JSON.stringify(c.notes)}`);

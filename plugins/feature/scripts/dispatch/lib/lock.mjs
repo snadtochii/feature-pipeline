@@ -4,8 +4,11 @@
 // the directory or fails, with no window between the two. The owner file
 // records the run id and start time; a lock younger than 24 hours is live, an
 // older one is taken over with exactly one more `mkdir`. A lock whose owner is
-// missing or unparseable — a run that died between `mkdir` and the owner write
-// — is aged by the directory's modification time. Release removes the lock only
+// missing or unparseable is aged by the directory's modification time and taken
+// over once that is a minute old — long past the moment between a live run's
+// `mkdir` and its owner write. The takeover re-reads the owner before removing
+// the directory; two runs taking over the same stale lock at the same instant
+// can both pass that check (CONTRACT.md §11). Release removes the lock only
 // while the owner still names this run, and rides on the teardown registry so
 // it runs on every exit path and on SIGINT, SIGTERM and SIGHUP.
 //
@@ -21,6 +24,7 @@ import { addTeardown } from './teardown.mjs';
 
 export const LOCK_NAME = 'feature-dispatch.lock';
 export const STALE_MS = 24 * 60 * 60 * 1000;
+export const UNREADABLE_GRACE_MS = 60 * 1000;
 
 /** The repository's absolute git common directory. */
 export function gitCommonDir(projectRoot, runner = spawnSync) {
@@ -96,7 +100,7 @@ export function acquireLock({ commonDir, runId, now }) {
       }
     } else {
       const age = owner !== null ? nowMs - owner.startedMs : nowMs - mtime;
-      if (age < STALE_MS) {
+      if (age < (owner !== null ? STALE_MS : UNREADABLE_GRACE_MS)) {
         throw new ComputeError(owner !== null ? `lock held by run ${owner.runId}` : 'lock held (owner unreadable)');
       }
       const again = readOwner(lockDir);
@@ -114,7 +118,7 @@ export function acquireLock({ commonDir, runId, now }) {
       notes.push(
         owner !== null
           ? `took over a stale lock from run ${owner.runId} (started ${owner.started})`
-          : `took over a stale lock with an unreadable owner (last modified ${new Date(mtime).toISOString()})`,
+          : `took over a lock with an unreadable owner (last modified ${new Date(mtime).toISOString()})`,
       );
     }
   }
