@@ -464,8 +464,11 @@ reason that applies:
 
 A `shipped` item whose session had tools denied adds a `notes` line naming them. A `stuck`
 item still records the row's `pr_url` when it has one, so the next run's pull-request cap
-counts it. A stuck session is resumed by hand with `claude --resume <session_id>`, from any
-directory; the report prints that line for every stuck item with a session id.
+counts it. The one exception is an `interrupted` item: a signal leaves no time to re-read
+the row, so it records `pr_url: null`, and a pull request its session already opened is
+counted by the next run only through its `<ID>:` title (§8). A stuck session is resumed by
+hand with `claude --resume <session_id>`, from any directory; the report prints that line
+for every stuck item with a session id.
 
 ### The document
 
