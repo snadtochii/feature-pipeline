@@ -626,13 +626,15 @@ died in that moment or a corrupted `owner` blocks dispatch for a minute, not a d
 | Lock | Result |
 |---|---|
 | Live (a `started` or modification time in the future included) | Exit 1, `lock held by run <run-id>`, or `lock held (owner unreadable)`. |
-| Older | Taken over: `owner` is re-read, the directory removed and created again with one more `mkdir`, and a `notes` line names the run it took over from, or the unreadable owner's modification time. An owner (or, unreadable, a modification time) that changed between the two reads, or a `mkdir` that loses to a concurrent run, exits 1 (`lock taken by a concurrent run`). |
+| Older | Taken over, exclusively: `mkdir <git-common-dir>/feature-dispatch.lock.reclaim`, the reclaim marker; then, while holding it, `owner` is re-read, the lock directory removed and created again with one more `mkdir`, and the new `owner` written; then the marker is removed. A `notes` line names the run it took over from, or the unreadable owner's modification time. A marker that already exists exits 1 (`lock takeover in progress by a concurrent run — if no dispatch run is in progress, remove <marker>`). An owner (or, unreadable, a modification time) that changed since the first read, or a `mkdir` that loses to a concurrent run, exits 1 (`lock taken by a concurrent run`). |
 
-The takeover is not atomic. Two runs that both find the same stale lock can both pass the
-re-read; when one of them completes its takeover before the other removes the directory,
-the second removes the first's fresh lock and both proceed. That needs two runs started
-within moments of each other against a lock left stale for a day, which one nightly
-schedule per project does not produce.
+Two runs that find the same stale lock cannot both take it over: only the holder of the
+reclaim marker removes the lock directory, and it writes the new `owner` before it releases
+the marker, so a second run that gets the marker afterwards finds the owner changed. A run
+that dies while holding the marker — its takeover lasts milliseconds and no signal handler
+runs inside it — leaves the marker behind, and the marker is never aged: it refuses every
+takeover of a stale lock until it is removed by hand. It does not affect a lock that is
+absent or live.
 
 **A night's length.** The 24-hour window is also the longest a run can rely on its lock:
 keep `max_tickets_per_run × max_session_minutes` well under it. Before every item but the
@@ -717,8 +719,9 @@ Exercises the whole deterministic surface without a model, a real server, a real
 real `claude`: argument rejection, the configuration reader and its validation, credential
 resolution and token binding, selection over a fixture ticket list (blocked, stale, not
 backlog, epics, children of a tagged epic, ordering), the open-PR count, admission under
-both caps, the lock (acquire, held, stale takeover, unreadable owner, release only by its
-owner) in a temporary git repository, the preconditions (a dirty tree, a branch off base,
+both caps, the lock (acquire, held, stale takeover, unreadable owner, two concurrent
+takeovers of one stale lock, a leftover reclaim marker, release only by its owner) in a
+temporary git repository, the preconditions (a dirty tree, a branch off base,
 an unset `origin/HEAD`, a failing `gh auth status`), stream parsing over fixture
 `stream-json` lines (`system/init`, `api_retry` rate limits, `permission_denied`, `result`
 records, non-JSON lines, CRLF), the finish predicate and every stuck reason over fixture

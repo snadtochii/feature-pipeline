@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 import { parseArgv } from './args.mjs';
 import { DISPATCH_DEFAULTS, FS_NATIVE_REFUSAL, loadDispatchConfig, parseMiniYaml, validateConfig } from './config.mjs';
-import { LOCK_NAME, STALE_MS, UNREADABLE_GRACE_MS, acquireLock, gitCommonDir, holdsLock, readOwner, releaseLock } from './lock.mjs';
+import { LOCK_NAME, RECLAIM_NAME, STALE_MS, UNREADABLE_GRACE_MS, acquireLock, gitCommonDir, holdsLock, readOwner, releaseLock } from './lock.mjs';
 import { ComputeError, UsageError, exitCodeFor, render } from './output.mjs';
 import { onPath } from './preconditions.mjs';
 import { countOpenPrs, prSlots } from './prs.mjs';
@@ -611,6 +611,61 @@ const CASES = [
       assert(c.notes.length === 1 && c.notes[0].includes('unreadable owner'), `mtime takeover note: ${JSON.stringify(c.notes)}`);
       releaseLock(c.lock);
       assert(!fs.existsSync(lockDir), 'mtime-taken lock not released');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }],
+
+  ['lock: concurrent takeovers of one stale lock — exactly one wins', () => {
+    const dir = tempDir('lock-race');
+    try {
+      const commonDir = gitCommonDir(initRepo(dir));
+      const lockDir = path.join(commonDir, LOCK_NAME);
+      const markerDir = path.join(commonDir, RECLAIM_NAME);
+      const later = new Date(NOW.getTime() + STALE_MS);
+      const staleId = newRunId(NOW);
+      const plantStale = () => {
+        fs.mkdirSync(lockDir);
+        fs.writeFileSync(path.join(lockDir, 'owner'), `run_id: ${staleId}\nstarted: ${NOW.toISOString()}\n`);
+      };
+
+      // A second run reaching the takeover while the first holds the marker is refused.
+      plantStale();
+      let inner = null;
+      const winner = acquireLock({
+        commonDir,
+        runId: newRunId(later),
+        now: later,
+        hooks: { reclaiming: () => { inner = throwsKind(() => acquireLock({ commonDir, runId: newRunId(later), now: later }), ComputeError, 'lock takeover in progress'); } },
+      });
+      assert(inner !== null, 'the concurrent takeover never ran');
+      assert(holdsLock(winner.lock) && !fs.existsSync(markerDir), 'the first takeover holds the lock and released its marker');
+      releaseLock(winner.lock);
+
+      // Both runs judged the lock stale; the one that finishes its takeover first
+      // wins, and the other finds the owner changed instead of removing the fresh lock.
+      plantStale();
+      let first = null;
+      throwsKind(() => acquireLock({
+        commonDir,
+        runId: newRunId(later),
+        now: later,
+        hooks: { stale: () => { first = acquireLock({ commonDir, runId: newRunId(later), now: later }); } },
+      }), ComputeError, 'lock taken by a concurrent run');
+      assert(first !== null && holdsLock(first.lock), 'the first finished takeover lost its lock');
+      assert(!fs.existsSync(markerDir), 'a refused takeover left its marker');
+      releaseLock(first.lock);
+
+      // A marker left by a run that died mid-takeover is never aged away: it refuses until removed.
+      plantStale();
+      fs.mkdirSync(markerDir);
+      fs.utimesSync(markerDir, NOW, NOW);
+      throwsKind(() => acquireLock({ commonDir, runId: newRunId(later), now: later }), ComputeError, `remove ${markerDir}`);
+      assert(fs.existsSync(markerDir) && readOwner(lockDir)?.runId === staleId, 'a refused takeover touched the lock or the marker');
+      fs.rmSync(markerDir, { recursive: true });
+      const after = acquireLock({ commonDir, runId: newRunId(later), now: later });
+      assert(holdsLock(after.lock), 'takeover after the marker was removed');
+      releaseLock(after.lock);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

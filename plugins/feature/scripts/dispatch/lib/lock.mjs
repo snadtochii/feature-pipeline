@@ -6,11 +6,15 @@
 // older one is taken over with exactly one more `mkdir`. A lock whose owner is
 // missing or unparseable is aged by the directory's modification time and taken
 // over once that is a minute old — long past the moment between a live run's
-// `mkdir` and its owner write. The takeover re-reads the owner before removing
-// the directory; two runs taking over the same stale lock at the same instant
-// can both pass that check (CONTRACT.md §11). Release removes the lock only
-// while the owner still names this run, and rides on the teardown registry so
-// it runs on every exit path and on SIGINT, SIGTERM and SIGHUP.
+// `mkdir` and its owner write. A takeover is exclusive: it first `mkdir`s the
+// reclaim marker beside the lock, and only while holding it re-reads the owner,
+// removes the stale directory, creates it again and writes the new owner, so a
+// second run taking over the same stale lock is refused rather than removing
+// the first one's fresh lock. A marker left by a run that died inside that
+// moment is never aged away — aging it would reopen the same race — so it
+// refuses every takeover until it is removed by hand. Release removes the lock
+// only while the owner still names this run, and rides on the teardown
+// registry so it runs on every exit path and on SIGINT, SIGTERM and SIGHUP.
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
@@ -23,6 +27,7 @@ import { RUN_ID_RE, writeAtomic } from './state.mjs';
 import { addTeardown } from './teardown.mjs';
 
 export const LOCK_NAME = 'feature-dispatch.lock';
+export const RECLAIM_NAME = `${LOCK_NAME}.reclaim`;
 export const STALE_MS = 24 * 60 * 60 * 1000;
 export const UNREADABLE_GRACE_MS = 60 * 1000;
 
@@ -60,16 +65,58 @@ export function readOwner(lockDir) {
   return { runId, started, startedMs };
 }
 
-/** `mkdir` the lock once: true when created, false when it already exists. */
-function tryMkdir(lockDir) {
+/** `mkdir` the lock (or the reclaim marker) once: true when created, false when it already exists. */
+function tryMkdir(dir) {
   try {
-    fs.mkdirSync(lockDir, { mode: 0o700 });
+    fs.mkdirSync(dir, { mode: 0o700 });
     return true;
   } catch (err) {
     if (err.code === 'EEXIST') {
       return false;
     }
-    throw new ComputeError(`cannot create the lock ${lockDir} (${err.code ?? 'error'})`);
+    throw new ComputeError(`cannot create the lock ${dir} (${err.code ?? 'error'})`);
+  }
+}
+
+/** Write this run's owner file into a lock directory it just created; on failure remove the directory. */
+function writeOwner(lockDir, runId, now) {
+  try {
+    writeAtomic(path.join(lockDir, 'owner'), `run_id: ${runId}\nstarted: ${now.toISOString()}\n`);
+  } catch (err) {
+    fs.rmSync(lockDir, { recursive: true, force: true });
+    throw new ComputeError(`cannot write the lock owner in ${lockDir} (${err.code ?? 'error'})`);
+  }
+}
+
+/**
+ * Take over the stale lock last seen as `owner` (or, unreadable, as `mtime`)
+ * while holding the reclaim marker, and write this run's owner before the
+ * marker is released. `hooks.reclaiming` runs once the marker is held (a
+ * self-test seam). Throws ComputeError when another run holds the marker or
+ * changed the lock since it was read.
+ */
+function reclaimStale({ lockDir, owner, mtime, runId, now, hooks }) {
+  const markerDir = path.join(path.dirname(lockDir), RECLAIM_NAME);
+  if (!tryMkdir(markerDir)) {
+    throw new ComputeError(`lock takeover in progress by a concurrent run — if no dispatch run is in progress, remove ${markerDir}`);
+  }
+  try {
+    hooks.reclaiming?.();
+    const again = readOwner(lockDir);
+    const unchanged =
+      owner !== null
+        ? again !== null && again.runId === owner.runId && again.started === owner.started
+        : again === null && mtimeOf(lockDir) === mtime;
+    if (!unchanged) {
+      throw new ComputeError('lock taken by a concurrent run');
+    }
+    fs.rmSync(lockDir, { recursive: true, force: true });
+    if (!tryMkdir(lockDir)) {
+      throw new ComputeError('lock taken by a concurrent run');
+    }
+    writeOwner(lockDir, runId, now);
+  } finally {
+    fs.rmSync(markerDir, { recursive: true, force: true });
   }
 }
 
@@ -84,13 +131,17 @@ function mtimeOf(lockDir) {
 
 /**
  * Acquire the lock for `runId`. Returns `{ lock, notes }`; throws ComputeError
- * when a live run holds it or a concurrent run wins a takeover.
+ * when a live run holds it or a concurrent run wins a takeover. `hooks.stale`
+ * runs once a takeover is decided and `hooks.reclaiming` once its marker is
+ * held — self-test seams for concurrent takeovers.
  */
-export function acquireLock({ commonDir, runId, now }) {
+export function acquireLock({ commonDir, runId, now, hooks = {} }) {
   const lockDir = path.join(commonDir, LOCK_NAME);
   const nowMs = now.getTime();
   const notes = [];
-  if (!tryMkdir(lockDir)) {
+  if (tryMkdir(lockDir)) {
+    writeOwner(lockDir, runId, now);
+  } else {
     const owner = readOwner(lockDir);
     const mtime = mtimeOf(lockDir);
     if (owner === null && mtime === null) {
@@ -98,23 +149,14 @@ export function acquireLock({ commonDir, runId, now }) {
       if (!tryMkdir(lockDir)) {
         throw new ComputeError('lock taken by a concurrent run');
       }
+      writeOwner(lockDir, runId, now);
     } else {
       const age = owner !== null ? nowMs - owner.startedMs : nowMs - mtime;
       if (age < (owner !== null ? STALE_MS : UNREADABLE_GRACE_MS)) {
         throw new ComputeError(owner !== null ? `lock held by run ${owner.runId}` : 'lock held (owner unreadable)');
       }
-      const again = readOwner(lockDir);
-      const unchanged =
-        owner !== null
-          ? again !== null && again.runId === owner.runId && again.started === owner.started
-          : again === null && mtimeOf(lockDir) === mtime;
-      if (!unchanged) {
-        throw new ComputeError('lock taken by a concurrent run');
-      }
-      fs.rmSync(lockDir, { recursive: true, force: true });
-      if (!tryMkdir(lockDir)) {
-        throw new ComputeError('lock taken by a concurrent run');
-      }
+      hooks.stale?.();
+      reclaimStale({ lockDir, owner, mtime, runId, now, hooks });
       notes.push(
         owner !== null
           ? `took over a stale lock from run ${owner.runId} (started ${owner.started})`
@@ -123,12 +165,6 @@ export function acquireLock({ commonDir, runId, now }) {
     }
   }
   const lock = { dir: lockDir, runId, released: false, dispose: () => {} };
-  try {
-    writeAtomic(path.join(lockDir, 'owner'), `run_id: ${runId}\nstarted: ${now.toISOString()}\n`);
-  } catch (err) {
-    fs.rmSync(lockDir, { recursive: true, force: true });
-    throw new ComputeError(`cannot write the lock owner in ${lockDir} (${err.code ?? 'error'})`);
-  }
   lock.dispose = addTeardown(() => releaseLock(lock));
   return { lock, notes };
 }
