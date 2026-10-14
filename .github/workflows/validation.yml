@@ -2,8 +2,8 @@
 # to a long-lived branch.
 #
 # These are bash plus python3 or jq — and Node 22, pinned below, for the deepen
-# contract's script self-tests, the verify browser driver's self-test and the
-# margin server's self-test — and
+# contract's script self-tests, the verify browser driver's self-test, the
+# margin server's self-test and the feature dispatcher's self-test — and
 # finish in seconds, so they carry no path filter: a change anywhere can break a
 # frontmatter budget, a mode-split rule, or the runtime contract. Pushes to other
 # branches are checked through their pull request alone, so one commit runs the
@@ -64,3 +64,6 @@ jobs:
 
       - name: Margin server self-test
         run: node plugins/margin/server/cli.mjs --self-test
+
+      - name: Dispatch script self-test
+        run: node plugins/feature/scripts/dispatch/dispatch.mjs --self-test
