@@ -1,7 +1,9 @@
 // The dispatch step and the `sync` sessions (CONTRACT.md §10).
 //
-// Each admitted item runs as one `claude -p "/feature:ship <ID> --worktree"`
-// child, serially, and each `sync` as one `claude -p "/feature:sync"` child.
+// Each admitted item runs as one
+// `claude -p "/feature:ship <ID> --worktree --base <branch>"` child, serially,
+// `<branch>` being the base branch the git_base precondition found checked out,
+// and each `sync` as one `claude -p "/feature:sync"` child.
 // After a ship child exits, the item's ticket row is re-read from the server
 // and its pull request's state from `gh`; the finish predicate decides the
 // outcome. The run stops at the first stuck item. Results are written into the
@@ -16,7 +18,7 @@ import path from 'node:path';
 
 import { decideItem, syncStatus } from './finish.mjs';
 import { holdsLock } from './lock.mjs';
-import { gitClean, onPath } from './preconditions.mjs';
+import { BASE_BRANCH_RE, gitClean, onPath } from './preconditions.mjs';
 import { prState } from './prs.mjs';
 import { getTicket } from './server.mjs';
 import { startSession } from './session.mjs';
@@ -33,14 +35,17 @@ export function syncArgv() {
   return ['-p', '/feature:sync', '--output-format', 'json', '--permission-prompts', 'none'];
 }
 
-/** The `ship` child's argument vector for a checked item id. */
-export function shipArgv(id, home) {
+/** The `ship` child's argument vector for a checked item id and base branch. */
+export function shipArgv(id, home, baseBranch) {
   if (!ITEM_ID_RE.test(id)) {
     throw new Error(`not an item id: ${JSON.stringify(String(id).slice(0, 40))}`);
   }
+  if (typeof baseBranch !== 'string' || !BASE_BRANCH_RE.test(baseBranch)) {
+    throw new Error(`not a base branch: ${JSON.stringify(String(baseBranch).slice(0, 40))}`);
+  }
   return [
     '-p',
-    `/feature:ship ${id} --worktree`,
+    `/feature:ship ${id} --worktree --base ${baseBranch}`,
     '--output-format',
     'stream-json',
     '--verbose',
@@ -138,7 +143,7 @@ async function readTicket(item, { projectRoot, env, access, projectId, fetchImpl
  * ship sessions started and why the loop stopped early, or null.
  */
 export async function dispatchItems(items, ctx) {
-  const { projectRoot, env, logDir, config, results, lock, notes, retryMs = REREAD_RETRY_MS } = ctx;
+  const { projectRoot, env, logDir, config, baseBranch, results, lock, notes, retryMs = REREAD_RETRY_MS } = ctx;
   const leaveRest = (from, reason) => {
     for (let j = from; j < items.length; j += 1) {
       results[j] = { ...results[j], reason };
@@ -167,7 +172,7 @@ export async function dispatchItems(items, ctx) {
     const logPath = logPathFor(logDir, `${item.id}.jsonl`);
     const handle = startSession({
       command: onPath('claude', env),
-      argv: shipArgv(item.id, env.HOME),
+      argv: shipArgv(item.id, env.HOME, baseBranch),
       cwd: projectRoot,
       env,
       logPath,

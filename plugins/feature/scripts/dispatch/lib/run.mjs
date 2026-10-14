@@ -212,13 +212,14 @@ export async function run({
     } catch (err) {
       server = { ok: false, detail: errorDoc(err).error };
     }
-    facts.preconditions = checkPreconditions({ env, projectRoot, server, stateDir: stateDirWritable(stateDir), config });
+    const base = gitBase(projectRoot, env);
+    facts.preconditions = checkPreconditions({ env, projectRoot, server, stateDir: stateDirWritable(stateDir), config, base });
     const failed = facts.preconditions.filter((check) => !check.ok);
     if (failed.length > 0) {
       throw new ComputeError(`preconditions failed: ${failed.map((check) => `${check.name} (${check.detail})`).join(', ')}`);
     }
 
-    const sessionCtx = { projectRoot, env, logDir, config };
+    const sessionCtx = { projectRoot, env, logDir, config, baseBranch: base.branch };
     const before = await sync('before', { ...sessionCtx, record: (entry) => (facts.sync.before = entry) });
     if (!before.ok) {
       throw new ComputeError(`sync failed: ${before.reason}`);

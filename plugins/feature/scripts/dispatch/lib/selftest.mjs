@@ -80,10 +80,10 @@ function tempDir(label) {
   return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `fp-dispatch-${label}-`)));
 }
 
-function initRepo(parent, name = 'my-app') {
+function initRepo(parent, name = 'my-app', branch = 'main') {
   const repo = path.join(parent, name);
   fs.mkdirSync(repo, { recursive: true });
-  const res = spawnSync('git', ['-c', 'init.defaultBranch=main', 'init', '-q', repo], { encoding: 'utf8' });
+  const res = spawnSync('git', ['-c', `init.defaultBranch=${branch}`, 'init', '-q', repo], { encoding: 'utf8' });
   assert(res.status === 0, `git init failed: ${res.stderr}`);
   return repo;
 }
@@ -98,15 +98,15 @@ function writeConfig(repo, text) {
  * Commit everything in `repo` and point `origin/HEAD` at the checked-out
  * branch, so the tree is clean and on its base branch.
  */
-function commitAll(repo) {
+function commitAll(repo, branch = 'main') {
   const git = (...args) => {
     const res = spawnSync('git', ['-C', repo, '-c', 'user.name=selftest', '-c', 'user.email=selftest@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' });
     assert(res.status === 0, `git ${args[0]} failed: ${res.stderr}`);
   };
   git('add', '-A');
   git('commit', '-q', '-m', 'fixture');
-  git('update-ref', 'refs/remotes/origin/main', 'HEAD');
-  git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+  git('update-ref', `refs/remotes/origin/${branch}`, 'HEAD');
+  git('symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${branch}`);
 }
 
 /** The stand-in `gh`: `auth status`, `pr view` and `pr list`, each from its own variable. */
@@ -312,11 +312,11 @@ function ticketHandler(rows, seen = []) {
 }
 
 /** A temp world for an end-to-end run: repo, bin, home, and the stand-ins' scripted output. */
-function world(label, { config, ghOut = '[]' } = {}) {
+function world(label, { config, ghOut = '[]', branch = 'main' } = {}) {
   const dir = tempDir(label);
-  const repo = initRepo(dir);
+  const repo = initRepo(dir, 'my-app', branch);
   writeConfig(repo, config ?? `mode: server-native\nproject: ${PROJECT_ID}\ndispatch:\n  max_tickets_per_run: 1\n`);
-  commitAll(repo);
+  commitAll(repo, branch);
   const bin = fakeBin(dir);
   const home = path.join(dir, 'home');
   fs.mkdirSync(home);
@@ -744,7 +744,7 @@ const CASES = [
         assert(!item.body.includes(TOKEN), 'token in the inbox body');
         const calls = fs.readFileSync(w.files.FAKE_CLAUDE_ARGS, 'utf8').split('--\n').filter(Boolean).map((call) => call.split('\n').filter(Boolean));
         equal(calls.map((call) => call[0]), [w.repo, w.repo, w.repo], 'every child ran in the project root');
-        equal(calls, [[w.repo, ...syncArgv()], [w.repo, ...shipArgv('ABC-1', w.home)], [w.repo, ...syncArgv()]], 'sync, ship, sync: exact vectors in the project root');
+        equal(calls, [[w.repo, ...syncArgv()], [w.repo, ...shipArgv('ABC-1', w.home, 'main')], [w.repo, ...syncArgv()]], 'sync, ship, sync: exact vectors in the project root');
       });
     } finally {
       fs.rmSync(w.dir, { recursive: true, force: true });

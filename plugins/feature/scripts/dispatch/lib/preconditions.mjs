@@ -54,25 +54,34 @@ export function gitClean(projectRoot, env) {
   return { ok: false, detail: `working tree not clean: ${shown.join(', ')}${more}` };
 }
 
-/** The checked-out branch is `origin/HEAD`'s branch. `{ ok, detail }`. */
+/** A base branch name that can ride in the `ship` prompt as one argument. */
+export const BASE_BRANCH_RE = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
+
+/**
+ * The checked-out branch is `origin/HEAD`'s branch. `{ ok, detail, branch }` —
+ * `branch` is that base branch when it is the checked-out one, else null.
+ */
 export function gitBase(projectRoot, env) {
   const head = runArgv('git', ['-C', projectRoot, 'symbolic-ref', '--quiet', '--short', 'HEAD'], { env });
   if (head.error) {
-    return { ok: false, detail: 'git could not run' };
+    return { ok: false, detail: 'git could not run', branch: null };
   }
   if (head.status !== 0) {
-    return { ok: false, detail: 'HEAD is detached' };
+    return { ok: false, detail: 'HEAD is detached', branch: null };
   }
   const base = runArgv('git', ['-C', projectRoot, 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], { env });
   if (base.error || base.status !== 0) {
-    return { ok: false, detail: 'origin/HEAD not set — git remote set-head origin --auto' };
+    return { ok: false, detail: 'origin/HEAD not set — git remote set-head origin --auto', branch: null };
   }
   const branch = head.stdout.trim();
   const baseBranch = base.stdout.trim().replace(/^origin\//, '');
   if (branch !== baseBranch) {
-    return { ok: false, detail: `on ${branch}, base branch is ${baseBranch}` };
+    return { ok: false, detail: `on ${branch}, base branch is ${baseBranch}`, branch: null };
   }
-  return { ok: true, detail: `on ${branch}` };
+  if (!BASE_BRANCH_RE.test(baseBranch)) {
+    return { ok: false, detail: `base branch ${JSON.stringify(baseBranch)} cannot be passed to ship as --base`, branch: null };
+  }
+  return { ok: true, detail: `on ${branch}`, branch: baseBranch };
 }
 
 /** `gh` on PATH and `gh auth status` exits 0; a failed open-PR listing fails it too. */
@@ -96,11 +105,10 @@ function ghCheck({ env, projectRoot, listing }) {
  * detail?}`) when one was made; `server` and `stateDir` are `{ok, detail}`;
  * `config` is the effective configuration.
  */
-export function checkPreconditions({ env, projectRoot, gh, server, stateDir, config }) {
+export function checkPreconditions({ env, projectRoot, gh, server, stateDir, config, base = gitBase(projectRoot, env) }) {
   const claudePath = onPath('claude', env);
   const nodeMajor = Number(process.versions.node.split('.')[0]);
   const clean = gitClean(projectRoot, env);
-  const base = gitBase(projectRoot, env);
   const checks = [
     { name: 'claude', ok: claudePath !== null, detail: claudePath ?? 'not found on PATH' },
     { name: 'config', ok: true, detail: `server-native, project ${config.project}` },

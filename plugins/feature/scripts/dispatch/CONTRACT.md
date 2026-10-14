@@ -345,7 +345,7 @@ preconditions → print.
 | `claude` | An executable `claude` is on `PATH`. |
 | `config` | The configuration selected server-native storage and a project (§5); a configuration that does not exits 1 before any check. |
 | `gh` | An executable `gh` is on `PATH` and `gh auth status` exits 0. In `plan`, it also fails when the open-PR listing failed. |
-| `git_base` | `git symbolic-ref --short HEAD` names the branch `refs/remotes/origin/HEAD` points at. A detached `HEAD` fails; an unset `origin/HEAD` fails with `git remote set-head origin --auto` as the fix, and there is no fallback branch. |
+| `git_base` | `git symbolic-ref --short HEAD` names the branch `refs/remotes/origin/HEAD` points at, and that name matches `^[A-Za-z0-9_][A-Za-z0-9._/-]*$`, so it can be passed to `ship` as `--base`. A detached `HEAD` fails; an unset `origin/HEAD` fails with `git remote set-head origin --auto` as the fix, and there is no fallback branch. |
 | `git_clean` | `git status --porcelain` prints nothing — untracked files count as changes. The detail names up to five paths. |
 | `node` | Node 22 or newer. |
 | `server` | The ticket list answered (§6). |
@@ -379,11 +379,15 @@ passed through unchanged:
 
 ```text
 claude -p /feature:sync --output-format json --permission-prompts none
-claude -p "/feature:ship <ID> --worktree" --output-format stream-json --verbose --permission-prompts none --add-dir <HOME>/.feature-pipeline
+claude -p "/feature:ship <ID> --worktree --base <BASE>" --output-format stream-json --verbose --permission-prompts none --add-dir <HOME>/.feature-pipeline
 ```
 
 `<ID>` is the item's id and must match `^[A-Za-z0-9][A-Za-z0-9_-]*$`; an item whose id does
-not is `stuck` with reason `invalid id` and no session starts. `<HOME>` is `$HOME`. The
+not is `stuck` with reason `invalid id` and no session starts. `<BASE>` is the base branch
+the `git_base` precondition found checked out — `refs/remotes/origin/HEAD`'s branch — so
+`ship` cuts and targets the branch the run checked, never its own `main` default; a base
+branch whose name does not match `^[A-Za-z0-9_][A-Za-z0-9._/-]*$` fails `git_base`.
+`<HOME>` is `$HOME`. The
 dispatcher never passes `--merge`, `--parallel`, `--bare`, `--settings`, `--allowedTools`
 or `--permission-mode`: a child loads the project's and the user's settings, plugins and
 server connectors as an interactive session would, its permissions are theirs, and a tool
@@ -730,8 +734,8 @@ escalation, group kill and timer clamp against stand-in `claude` scripts with mi
 caps, the report sections, the inbox body's shape, the signal-path inbox helper against an
 unreachable server, the sorted-key document shape, and end-to-end `plan` and `run`
 invocations — shipped, stuck, a failed first `sync`, a dirty tree, a failed inbox capture,
-a signal while a session runs (its inbox item included), and a `ship` that leaves the
-checkout off its base branch — against a loopback stand-in server that
+a signal while a session runs (its inbox item included), a repository whose base branch is
+`master`, and a `ship` that leaves the checkout off its base branch — against a loopback stand-in server that
 routes every request in §6, a stand-in `gh` and a stand-in `claude`, with `HOME`
 redirected. Prints `{"cases": <n>, "ok": true}` and exits 0 when every case passes;
 otherwise prints `{"error": "self-test: <case> — <detail>"}` and exits 1. It runs on every

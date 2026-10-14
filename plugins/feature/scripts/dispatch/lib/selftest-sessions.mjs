@@ -18,7 +18,7 @@ import path from 'node:path';
 
 import { ITEM_ID_RE, shipArgv, syncArgv } from './dispatch.mjs';
 import { decideItem, inboxBody, resumeHint, summaryLine, syncStatus } from './finish.mjs';
-import { checkPreconditions, gitBase, gitClean } from './preconditions.mjs';
+import { BASE_BRANCH_RE, checkPreconditions, gitBase, gitClean } from './preconditions.mjs';
 import { sendInboxSync } from './server.mjs';
 import { MAX_TIMER_MS, startSession, timerDelay } from './session.mjs';
 import { applyLine, newSessionFacts, parseJsonResult } from './stream.mjs';
@@ -161,19 +161,28 @@ export function sessionCases(kit) {
 
     ['dispatch: the exact argument vectors', () => {
       equal(syncArgv(), ['-p', '/feature:sync', '--output-format', 'json', '--permission-prompts', 'none'], 'sync vector');
-      equal(shipArgv('ABC-12', '/home/me'), ['-p', '/feature:ship ABC-12 --worktree', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none', '--add-dir', path.join('/home/me', '.feature-pipeline')], 'ship vector');
+      equal(shipArgv('ABC-12', '/home/me', 'main'), ['-p', '/feature:ship ABC-12 --worktree --base main', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none', '--add-dir', path.join('/home/me', '.feature-pipeline')], 'ship vector');
+      equal(shipArgv('ABC-12', '/h', 'release/2.x')[1], '/feature:ship ABC-12 --worktree --base release/2.x', 'a non-main base rides in the prompt');
       for (const flag of FORBIDDEN_FLAGS) {
-        assert(!syncArgv().includes(flag) && !shipArgv('ABC-12', '/h').includes(flag), `${flag} in a vector`);
+        assert(!syncArgv().includes(flag) && !shipArgv('ABC-12', '/h', 'main').includes(flag), `${flag} in a vector`);
       }
+      const refuses = (id, branch) => {
+        try {
+          shipArgv(id, '/h', branch);
+        } catch {
+          return true;
+        }
+        return false;
+      };
       for (const bad of ['ABC-1 --merge', 'ABC-1;rm', '-x', '', 'a/b', '../x']) {
         assert(!ITEM_ID_RE.test(bad), `id accepted: ${JSON.stringify(bad)}`);
-        let threw = false;
-        try {
-          shipArgv(bad, '/h');
-        } catch {
-          threw = true;
-        }
-        assert(threw, `shipArgv took ${JSON.stringify(bad)}`);
+        assert(refuses(bad, 'main'), `shipArgv took id ${JSON.stringify(bad)}`);
+      }
+      for (const bad of ['', 'main --merge', '-x', 'a b', '.hidden']) {
+        assert(!BASE_BRANCH_RE.test(bad), `base accepted: ${JSON.stringify(bad)}`);
+      }
+      for (const bad of [undefined, null, '', 'main --merge', '-x', 'a b', '.hidden']) {
+        assert(refuses('ABC-1', bad), `shipArgv took base ${JSON.stringify(bad)}`);
       }
     }],
 
@@ -186,13 +195,13 @@ export function sessionCases(kit) {
         const git = (...args) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
         const env = process.env;
         equal(gitClean(repo, env), { ok: true, detail: 'working tree clean' }, 'clean');
-        equal(gitBase(repo, env), { ok: true, detail: 'on main' }, 'on base');
+        equal(gitBase(repo, env), { ok: true, detail: 'on main', branch: 'main' }, 'on base');
         fs.writeFileSync(path.join(repo, 'stray.txt'), 'x');
         const dirty = gitClean(repo, env);
         assert(!dirty.ok && dirty.detail.includes('stray.txt'), `untracked file counts: ${JSON.stringify(dirty)}`);
         fs.rmSync(path.join(repo, 'stray.txt'));
         git('checkout', '-q', '-b', 'feature');
-        equal(gitBase(repo, env), { ok: false, detail: 'on feature, base branch is main' }, 'off base');
+        equal(gitBase(repo, env), { ok: false, detail: 'on feature, base branch is main', branch: null }, 'off base');
         git('checkout', '-q', 'main');
         git('symbolic-ref', '--delete', 'refs/remotes/origin/HEAD');
         equal(gitBase(repo, env).detail, 'origin/HEAD not set — git remote set-head origin --auto', 'unset origin/HEAD');
@@ -305,7 +314,7 @@ export function sessionCases(kit) {
           assert(res.status === 0, `stuck run: exit ${res.status} ${res.stdout}`);
           equal(res.doc.items.map((i) => [i.id, i.outcome, i.reason, i.session_id, i.exit_code]), [['ABC-1', 'stuck', 'exit 1', 'sess-stuck', 1], ['ABC-2', 'not dispatched', 'run stopped at ABC-1', null, null]], 'items');
           equal(res.doc.sync.after?.ok, true, 'the closing sync still runs');
-          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree', '/feature:sync'], 'one ship session');
+          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base main', '/feature:sync'], 'one ship session');
           assert(fs.readFileSync(res.doc.report, 'utf8').includes('- Resume ABC-1: claude --resume sess-stuck'), 'resume line');
         });
       } finally {
@@ -431,6 +440,20 @@ export function sessionCases(kit) {
       });
       equal(notes, [`inbox item sent without a project: project name not resolved: server unreachable at ${origin}`, `inbox capture failed: server unreachable at ${origin}`], 'helper notes');
       assert(!notes.join('\n').includes(TOKEN), 'token in the helper notes');
+    }],
+
+    ['end to end: ship gets the base branch the checkout is on, not main', async () => {
+      const w = world('e2e-master', { branch: 'master' });
+      try {
+        await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') } }), async (url) => {
+          const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
+          assert(res.status === 0, `master run: exit ${res.status} ${res.stdout}`);
+          equal(res.doc.items.map((i) => i.outcome), ['shipped'], 'the item ships');
+          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base master', '/feature:sync'], 'ship runs against master');
+        });
+      } finally {
+        fs.rmSync(w.dir, { recursive: true, force: true });
+      }
     }],
 
     ['end to end: a ship that leaves the checkout off its base branch is noted', async () => {
