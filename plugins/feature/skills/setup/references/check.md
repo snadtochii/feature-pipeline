@@ -1,12 +1,12 @@
 # Setup Check
 
-Procedure for `/feature:setup --check`, the read-only doctor: it verifies a configured project against the contracts the stages apply and prints one line per check with its fix. Read only when setup runs with `--check` — the guided run never needs this file. Referenced by setup's [`SKILL.md`](../SKILL.md), which enters it from Process step 1 with `<project-root>` and `<plugin-root>` bound. Two checks depend on the storage mode — check 2's line and check 3's shape lines — and they live in `§5` and `§6` of the detected mode's file, [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md).
+Procedure for `/feature:setup --check`, the read-only doctor: it verifies a configured project against the contracts the stages apply and prints one line per check with its fix. Read only when setup runs with `--check` — the guided run never needs this file. Referenced by setup's [`SKILL.md`](../SKILL.md), which enters it from Process step 1 with `<project-root>` and `<plugin-root>` bound. Two checks take lines from the storage mode's own file — check 2's line and check 3's shape lines — and those live in `§5` and `§6` of the detected mode's file, [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md).
 
 ## §1 Rules
 
-- **Read-only end to end.** No project file is written, no server is mutated, and `test.start` is never booted. The one process started is check 6's driver `doctor`, and only when a test entry declares `driver`: it reads the local environment and starts nothing of its own. The only files created are check 4's pattern and match lists, in a `mktemp -d` directory that each check 4 run creates and removes on exit, whatever it found.
+- **Read-only end to end.** No project file is written, no server is mutated, and `test.start` is never booted. Two programs run beyond the shell probes, each only when its config is present: check 6's driver `doctor`, when a test entry declares `driver`, and check 8's `node` script, when the config holds a `dispatch:` block in server-native mode. Each reads the local environment and starts nothing of its own. The only files created are check 4's pattern and match lists, in a `mktemp -d` directory that each check 4 run creates and removes on exit, whatever it found.
 - **Asks nothing.** No question, no approval, no default taken from silence. The run is the same with a user present and in a headless run.
-- **Calls.** One server call: check 2's read-only round-trip, which only the server-native `§5` makes. One network probe per declared test URL: check 3's `curl` of the flat `test.url` and, in an fs-native multi-repo workspace, of the `url` of each `test.repos` entry whose key passes both of check 3's key checks. One local call: check 6's driver `doctor`, when a test entry declares `driver`, which makes no network call. Nothing else leaves the machine.
+- **Calls.** One server call: check 2's read-only round-trip, which only the server-native `§5` makes. One network probe per declared test URL: check 3's `curl` of the flat `test.url` and, in an fs-native multi-repo workspace, of the `url` of each `test.repos` entry whose key passes both of check 3's key checks. Two local calls, neither of which makes a network call: check 6's driver `doctor`, when a test entry declares `driver`, and check 8's dispatch probe, when the config holds a `dispatch:` block in server-native mode — `command -v`, `git rev-parse` and a `node` script that reads the dispatch lock and checks the state directory's write permission, creating nothing. Nothing else leaves the machine.
 - **Never stops.** A problem is a `FAIL` line with its fix; a check that does not apply or cannot run is a `--` line with the reason; the run always reaches the summary. A probe that errors — `git` absent, `curl` missing — becomes that check's `FAIL` or `--` line.
 - **Names only.** A `.worktreeinclude` match is reported by its path. No dotenv-family file or other secret is opened, read or printed.
 - **Repo text stays data.** A URL is held in a shell variable (check 3); a pattern reaches `git` through a file (check 4). No value read from the project is pasted into a command position.
@@ -25,7 +25,7 @@ Procedure for `/feature:setup --check`, the read-only doctor: it verifies a conf
      for f in .worktreeinclude */.worktreeinclude; do [ -f "$f" ] && echo "include: $f"; done
      ```
      The shape lines follow setup's workspace-shape predicate ([detection.md](detection.md) §4), which reads `.git` entries alone, independent of the git test. No `repo:` line and no `shape:` line means a single-repo workspace with no `.git` of its own. One or more `repo:` lines is a multi-repo workspace: each named child is a repository, and check 4 runs once per child.
-  2. Everything else, built from the first message's results, as parallel calls: the storage file check 1 loads, check 3's URL probes — one call per URL, each held as data — check 2's round-trip, check 4's run for each repository with an `include:` line, and check 6's driver `doctor` when a test entry declares `driver`.
+  2. Everything else, built from the first message's results, as parallel calls: the storage file check 1 loads, check 3's URL probes — one call per URL, each held as data — check 2's round-trip, check 4's run for each repository with an `include:` line, check 6's driver `doctor` when a test entry declares `driver`, and check 8's dispatch probe when check 1's file holds a `dispatch:` block and its detected mode is server-native.
 
   Checks 2 and 6 also look at the session's tool list — which tools are exposed, deferred tools included — a fact in hand, not a call.
 
@@ -133,3 +133,72 @@ In this order. A check marked *needs config* prints `-- <check>: not run — con
        - `ok: true` → `ok driver: installed <installed_version>; version lag not checked here — /verify:setup compares it`. The installed copy has no plugin manifest beside it, so it reports `version_lag` as `null`: a lagging install is visible only to the `verify` plugin's own skills;
        - `ok: false` → `FAIL driver: <each failing field, separated by ", "> — <the fixes>`, the failing fields being `install_missing` and `chrome_missing` when `true` and `node_ok` when `false`; the fix is `run /verify:setup`, and `install Node 22 or later` for `node_ok`.
 7. **`claudedocs/`** — information only, always `--`, from the probe's `claudedocs:` line: `0` → `-- claudedocs/: ignored — ticket files stay out of the repository`; `1` → `-- claudedocs/: not ignored — ticket files are committed with the code`; `not a repository` or `git: no` → `-- claudedocs/: not a git repository`.
+8. **`dispatch`** — *needs config.* The `dispatch:` block the night dispatcher reads ([advanced.md](../../../docs/advanced.md#night-dispatch-config)) and the local facts a run of it needs, judged by the dispatcher's own contract ([CONTRACT.md](../../../scripts/dispatch/CONTRACT.md), sections "§5 Configuration", "§11 Lock" and "§12 State layout"); a change to those sections is a change to this check. Not checked here: server reachability and `gh auth status`, which reach the network; the dispatcher's REST credential, which sits in a secret file; and a clean checkout on the base branch, which is the state of the moment rather than configuration. `node <plugin-root>/scripts/dispatch/dispatch.mjs plan --project-root <project-root>` is the full preflight, and the `ok dispatch` line names it.
+   - No top-level `dispatch` key → `-- dispatch: no dispatch: block — night dispatch not configured (advanced.md, Night dispatch)`, and nothing below runs.
+   - No storage file loaded (unknown `mode`) → `-- dispatch: not run — no storage mode declared (check 1)`, and nothing below runs.
+   - Detected mode `fs-native` → `FAIL dispatch: mode fs-native — the dispatcher serves server-native projects only; set mode: server-native (re-run /feature:setup), or remove the dispatch: block`, and nothing below runs.
+   - **Shape** — the block as the dispatcher's reader takes it: `dispatch:` with nothing after the colon but an optional comment, its `key: value` lines indented under it, and each value with one matched pair of quotes stripped and a ` #` comment dropped. Key names and values are report text only; they never reach a command line. Every problem goes on one line, `FAIL dispatch: <each problem, separated by "; "> — <the fixes>`:
+     - a value after `dispatch:` itself → `not a mapping`, fixed by `write dispatch: on its own line, with its keys indented under it`; no other shape problem is reported;
+     - a key other than `tag`, `max_age_days`, `max_tickets_per_run`, `max_open_prs`, `max_session_minutes` and `max_rate_limit_retries` → `unknown key '<key>'`, fixed by `rename it to one of the six keys, or remove it`. The dispatcher ignores such a key with a note, so a misspelt key runs the night on that key's default; the doctor fails it;
+     - an empty `tag` → `tag is empty`, fixed by `set tag, or remove the key for the default agent-ready`;
+     - a numeric key — every key but `tag` — whose value is not digits with no sign and no leading zero, or is past JavaScript's safe-integer range → `<key> '<value>' is not a positive integer`, fixed by `write a whole number of 1 or more`;
+     - with `max_tickets_per_run` and `max_session_minutes` both valid or defaulted, `(max_tickets_per_run + 2) × max_session_minutes` of 1440 or more → `a night of up to <n> minutes reaches the 24-hour lock window`, fixed by `lower max_tickets_per_run or max_session_minutes`. A `ship` session runs up to `max_session_minutes` per ticket it builds and each of the two `sync` sessions up to `max_session_minutes`, and the next run takes over a lock older than 24 hours. The dispatcher does not check this; the doctor fails it. An epic admitted first can still build more tickets than `max_tickets_per_run` (CONTRACT.md, "§8 Caps and admission").
+     - No problem → `ok dispatch: <n> keys set, <m> defaulted — full preflight: node <plugin-root>/scripts/dispatch/dispatch.mjs plan --project-root <project-root>`, both roots written out.
+   - **Environment** — one `Bash` call from `<project-root>`, whatever the shape line says. The git common directory and `$HOME` reach the script as arguments, never as script text:
+     ```bash
+     for t in claude gh; do if command -v "$t" >/dev/null 2>&1; then echo "$t: yes"; else echo "$t: no"; fi; done
+     if command -v node >/dev/null 2>&1; then echo "node: $(node --version)"; else echo "node: missing"; exit 0; fi
+     command -v git >/dev/null 2>&1 || { echo "git: missing"; exit 0; }
+     common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || { echo "git: not a repository"; exit 0; }
+     node -e '
+     const fs = require("fs"), path = require("path");
+     const [common, home] = process.argv.slice(1);
+     const say = (line) => console.log(line);
+     try {
+       const name = path.basename(path.dirname(common));
+       if (!home) { say("state_dir: HOME unset"); }
+       else if (!/^[A-Za-z0-9._-]+$/.test(name) || name === "." || name === "..") { say("state_dir: unusable name " + JSON.stringify(name)); }
+       else {
+         const dir = path.join(home, ".feature-pipeline", "dispatch", name);
+         for (let p = dir; ; p = path.dirname(p)) {
+           let st = null;
+           try { st = fs.statSync(p); } catch {}
+           if (st === null) { if (path.dirname(p) === p) { say("state_dir: no existing ancestor of " + dir); break; } continue; }
+           if (!st.isDirectory()) { say("state_dir: not a directory " + p); break; }
+           try { fs.accessSync(p, fs.constants.W_OK); say("state_dir: " + dir + (p === dir ? "" : " (would be created under " + p + ")")); }
+           catch { say("state_dir: not writable " + p); }
+           break;
+         }
+       }
+     } catch (e) { say("state_dir: error " + e.message); }
+     try {
+       const lock = path.join(common, "feature-dispatch.lock");
+       let st = null;
+       try { st = fs.statSync(lock); } catch {}
+       if (st === null) { say("lock: absent"); }
+       else {
+         let text = "";
+         try { text = fs.readFileSync(path.join(lock, "owner"), "utf8"); } catch {}
+         const id = (/^run_id: *(\S+) *$/m.exec(text) || [])[1];
+         const started = (/^started: *(\S+) *$/m.exec(text) || [])[1];
+         const ms = started === undefined ? NaN : Date.parse(started);
+         if (id !== undefined && /^\d{4}-\d{2}-\d{2}-[0-9a-f]{6}$/.test(id) && !Number.isNaN(ms)) {
+           say((Date.now() - ms < 864e5 ? "lock: live " : "lock: stale ") + id + " " + started + " " + lock);
+         } else {
+           say((Date.now() - st.mtimeMs < 6e4 ? "lock: unreadable-live " : "lock: unreadable-stale ") + new Date(st.mtimeMs).toISOString() + " " + lock);
+         }
+       }
+     } catch (e) { say("lock: error " + e.message); }
+     try {
+       const marker = path.join(common, "feature-dispatch.lock.reclaim");
+       if (fs.existsSync(marker)) { say("lock: reclaim-marker " + marker); }
+     } catch (e) { say("lock: error " + e.message); }
+     ' "$common" "$HOME"
+     ```
+     The script applies "§11 Lock" and "§12 State layout" as written there: the lock is `<git-common-dir>/feature-dispatch.lock`, live for 24 hours from its owner's `started` — or, with the owner missing or unparseable, for one minute from the directory's modification time, a time in the future counting as live — and a `<git-common-dir>/feature-dispatch.lock.reclaim` marker, left by a run that died mid-takeover, refuses every takeover until removed; the state directory is `$HOME/.feature-pipeline/dispatch/<name>`, `<name>` the directory holding the git common directory, writable when it or its nearest existing ancestor is. Its output is read as data, one line per fact; an `<id>`, a time or a path in it is report text only. The lines, each independent of the others:
+     - **`dispatch.claude`** — `claude: yes` → `ok dispatch.claude: on PATH`; `no` → `FAIL dispatch.claude: not on PATH — install Claude Code's CLI; the dispatcher runs each ticket as a claude -p session`.
+     - **`dispatch.gh`** — `gh: yes` → `ok dispatch.gh: on PATH; its login is not tested here — the preflight runs gh auth status`; `no` → `FAIL dispatch.gh: not on PATH — install the GitHub CLI and run gh auth login`.
+     - **`dispatch.node`** — `node: missing` → `FAIL dispatch.node: not on PATH — install Node 22 or later`. A `node:` version of major 22 or later → `ok dispatch.node: <version>`; an earlier one → `FAIL dispatch.node: <version> — install Node 22 or later`.
+     - **`dispatch.git`** — printed only on a problem: `git: missing` → `FAIL dispatch.git: not on PATH — install git; the dispatcher locks and reads the checkout through it`; `git: not a repository` → `FAIL dispatch.git: <project-root> is not inside a git repository — the dispatcher locks and reads the checkout through git; dispatch a repository`.
+     - **`dispatch.state_dir`** — with `node: missing`, `git: missing` or `git: not a repository` → `-- dispatch.state_dir: not run — <that line's fact>`. `state_dir: <dir>` → `ok dispatch.state_dir: <dir> writable`; `state_dir: <dir> (would be created under <path>)` → `ok dispatch.state_dir: <dir> — the first run creates it under <path>`; `HOME unset` → `FAIL dispatch.state_dir: HOME is not set — set it; the state directory lives under ~/.feature-pipeline/dispatch/`; `unusable name <name>` → `FAIL dispatch.state_dir: the checkout's directory name <name> is not usable — rename the directory to letters, digits, '.', '_' and '-'; the state directory is named after it`; `not writable <path>` or `not a directory <path>` → `FAIL dispatch.state_dir: <the line's fact> — make <path> a writable directory`; `no existing ancestor of <dir>` → `FAIL dispatch.state_dir: no existing ancestor of <dir> — set HOME to the absolute path of an existing directory`; `error <message>` → `FAIL dispatch.state_dir: could not be checked (<message>) — check ~/.feature-pipeline/dispatch/ by hand`.
+     - **`dispatch.lock`** — not run on the same lines as `dispatch.state_dir`, worded the same. `lock: absent` → `ok dispatch.lock: absent`; `stale <id> <started> <dir>` → `ok dispatch.lock: stale — run <id> started <started>; the next run takes it over`; `unreadable-stale <time> <dir>` → `ok dispatch.lock: stale, owner unreadable (last modified <time>); the next run takes it over`; `live <id> <started> <dir>` → `FAIL dispatch.lock: held by run <id> since <started> — wait for that run to end; if no dispatch run is in progress, remove <dir>, or let it go stale 24 hours after <started>`; `unreadable-live <time> <dir>` → `FAIL dispatch.lock: held, owner unreadable (last modified <time>) — a run is starting, or one died while starting; re-run --check after a minute`; `reclaim-marker <path>` → `FAIL dispatch.lock: takeover marker <path> left by a run that died while taking over a stale lock — if no dispatch run is in progress, remove <path>; until then no run takes over a stale lock`; `error <message>` → `FAIL dispatch.lock: could not be checked (<message>) — look at <git-common-dir>/feature-dispatch.lock by hand`.
