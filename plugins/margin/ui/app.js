@@ -1,7 +1,7 @@
 // margin viewer. One page, no build step. Talks to ../server/lib/server.mjs over
 // its six routes and keeps the notes file current through PUT /api/session.
 
-import { highlightLines } from './highlight.js';
+import { highlightLines } from './syntax.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -327,11 +327,11 @@ function renderCode() {
       src.textContent = ' ';
     }
     for (const token of tokens[i]) {
-      if (token.type === null) {
+      if (token.className === null) {
         src.append(token.text);
       } else {
         const piece = document.createElement('span');
-        piece.className = `tok-${token.type}`;
+        piece.className = token.className;
         piece.textContent = token.text;
         src.append(piece);
       }

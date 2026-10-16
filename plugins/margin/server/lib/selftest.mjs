@@ -1,11 +1,12 @@
 // `cli.mjs --self-test` (CONTRACT.md §12).
 //
-// Exercises what no browser session proves, without a browser: the viewer's line tokenizer on
-// fixed samples, the note rules (the anchor rule per kind, range validity, the excerpt cap),
-// resuming a notes file (a stored note keeps its anchor; the refusals), the scope rule, file
-// listing that never lists a symlink, and the reading refusals and limits — then the three
-// request guards and cancel-on-empty against a server on port 0 inside this process, and the
-// command's own refusals through `cli.mjs annotate` children that must exit before serving.
+// Exercises what no browser session proves, without a browser. It checks the viewer's colouring
+// seam over the vendored highlight.js on a fixed TSX sample, and the routes that serve both. It
+// checks the note rules (the anchor rule per kind, range validity, the excerpt cap), resuming a
+// notes file (a stored note keeps its anchor; the refusals), the scope rule, file listing that
+// never lists a symlink, and the reading refusals and limits — then the three request guards
+// and cancel-on-empty against a server on port 0 inside this process, and the command's own
+// refusals through `cli.mjs annotate` children that must exit before serving.
 // Every fixture is a real file in a temp directory, and every expectation is written by hand,
 // never computed by the code under test. Requests go to 127.0.0.1 only. A failing case throws
 // a RunError naming it.
@@ -20,7 +21,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
-import { highlightLines } from '../../ui/highlight.js';
 import { listFiles, readSource } from './files.mjs';
 import { applyEdits, cleanAnnotation } from './annotations.mjs';
 import { startServer } from './server.mjs';
@@ -81,37 +81,6 @@ function isRepository(dir) {
   }
 }
 
-// Tokenizes `lines`, checks that every line's tokens join back to the line, and returns a
-// lookup: `typeOf(lineIndex, substring, from)` is the one token type covering every character
-// of that substring, or `mixed:<types>` when it straddles two types.
-function tokenize(lines, file) {
-  const tokens = highlightLines(lines, file);
-  assert(tokens.length === lines.length, `${file}: ${tokens.length} token lines for ${lines.length} lines`);
-  tokens.forEach((line, i) => {
-    assertEqual(line.map((t) => t.text).join(''), lines[i], `${file} line ${i + 1} text`);
-  });
-  return (lineIndex, substring, from = 0) => {
-    const line = lines[lineIndex];
-    const start = line.indexOf(substring, from);
-    assert(start !== -1, `${file} line ${lineIndex + 1} has no "${substring}"`);
-    const types = new Set();
-    let offset = 0;
-    for (const token of tokens[lineIndex]) {
-      const end = offset + token.text.length;
-      if (end > start && offset < start + substring.length) {
-        types.add(token.type);
-      }
-      offset = end;
-    }
-    return types.size === 1 ? [...types][0] : `mixed:${[...types].join(',')}`;
-  };
-}
-
-function expectType(typeOf, lineIndex, substring, expected, from = 0) {
-  const actual = typeOf(lineIndex, substring, from);
-  assert(actual === expected, `line ${lineIndex + 1} "${substring}": expected ${expected}, got ${actual}`);
-}
-
 function within(promise, what) {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -138,7 +107,7 @@ function request(port, { method = 'GET', target = '/api/session', headers = {}, 
             return;
           }
         }
-        resolve({ status: res.statusCode, json, text });
+        resolve({ status: res.statusCode, type: res.headers['content-type'] ?? '', json, text });
       });
       res.on('error', reject);
     });
@@ -206,55 +175,42 @@ function assertErrorDoc(res, exitCode, fragment, what) {
 const ALLOWED = new Set(['src/a.js', 'src/b/c.js']);
 
 const CASES = [
-  ['highlight: js block comment and template literal across lines', () => {
-    const typeOf = tokenize(['const a = 1; /* start', 'still comment */ let b = `x', 'y` + 2;'], 'a.js');
-    expectType(typeOf, 0, 'const', 'keyword');
-    expectType(typeOf, 0, '/* start', 'comment');
-    expectType(typeOf, 1, 'still comment */', 'comment');
-    expectType(typeOf, 1, 'let', 'keyword');
-    expectType(typeOf, 1, '`x', 'string');
-    expectType(typeOf, 2, 'y`', 'string');
-    expectType(typeOf, 2, '2', 'number');
-  }],
-  ['highlight: tsx tag mode and generics', () => {
-    const typeOf = tokenize(
-      ['const el = <div className="a" for="b">', '  {a > b ? <Item key={1} /> : null}', 'const xs: Array<string> = [];'],
-      'a.tsx',
+  ['highlight: the vendored highlight.js loads and colours TSX across lines', async () => {
+    // Imported here rather than at the top, so a missing or broken vendored file fails this
+    // case by name instead of the whole run.
+    const { highlightLines } = await import('../../ui/syntax.js');
+    const lines = ['/* block', '   comment */', 'const s = `a ${x}', 'b`;', 'interface P { n: number }', 'const el = <Item key={1} />;'];
+    const tokens = highlightLines(lines, 'a.tsx');
+    assert(tokens.length === lines.length, `a.tsx: ${tokens.length} token lines for ${lines.length} lines`);
+    tokens.forEach((line, i) => {
+      assertEqual(line.map((t) => t.text).join(''), lines[i], `a.tsx line ${i + 1} text`);
+    });
+    const classOf = (i, text) => tokens[i].find((t) => t.text === text)?.className;
+    const expect = (i, text, className) => {
+      assert(classOf(i, text) === className, `a.tsx line ${i + 1} "${text}": expected ${className}, got ${classOf(i, text)}`);
+    };
+    expect(0, '/* block', 'hljs-comment');
+    expect(1, '   comment */', 'hljs-comment');
+    expect(2, 'const', 'hljs-keyword');
+    expect(2, '`a ', 'hljs-string');
+    expect(2, '${x}', 'hljs-string hljs-subst');
+    expect(3, 'b`', 'hljs-string');
+    expect(4, 'interface', 'hljs-keyword');
+    expect(5, 'Item', 'language-xml hljs-tag hljs-name');
+    assertEqual(highlightLines(['FROM node:22'], 'Dockerfile')[0][0], { className: 'hljs-keyword', text: 'FROM' }, 'Dockerfile FROM');
+    assertEqual(
+      highlightLines(['const a = 1; // x', ''], 'a.xyz'),
+      [[{ className: null, text: 'const a = 1; // x' }], []],
+      'an unknown extension renders plain',
     );
-    expectType(typeOf, 0, 'const', 'keyword');
-    expectType(typeOf, 0, '<div', 'tag');
-    expectType(typeOf, 0, '"a"', 'string');
-    expectType(typeOf, 0, 'for', null);
-    expectType(typeOf, 0, '>', 'tag', 30);
-    expectType(typeOf, 1, '>', null);
-    expectType(typeOf, 1, '<Item', 'tag');
-    expectType(typeOf, 1, '/>', 'tag');
-    expectType(typeOf, 1, 'null', 'keyword');
-    expectType(typeOf, 2, '<', null);
-    expectType(typeOf, 2, 'string', 'keyword');
-    expectType(typeOf, 2, '>', null);
-  }],
-  ['highlight: markdown fences', () => {
-    const typeOf = tokenize(['# Title', '```js', 'const x = 1;', '```', 'text `code`'], 'a.md');
-    expectType(typeOf, 0, '# Title', 'keyword');
-    expectType(typeOf, 1, '```js', 'string');
-    expectType(typeOf, 2, 'const x = 1;', 'string');
-    expectType(typeOf, 3, '```', 'string');
-    expectType(typeOf, 4, 'text ', null);
-    expectType(typeOf, 4, '`code`', 'string');
-  }],
-  ['highlight: python triple quotes', () => {
-    const typeOf = tokenize(['s = """doc', 'more', '""" + x  # tail'], 'a.py');
-    expectType(typeOf, 0, 's = ', null);
-    expectType(typeOf, 0, '"""doc', 'string');
-    expectType(typeOf, 1, 'more', 'string');
-    expectType(typeOf, 2, '"""', 'string');
-    expectType(typeOf, 2, ' + x  ', null);
-    expectType(typeOf, 2, '# tail', 'comment');
-  }],
-  ['highlight: an unknown extension is one plain token per line', () => {
-    const lines = ['const a = 1; // x', '"text"'];
-    assertEqual(highlightLines(lines, 'a.xyz'), [[{ type: null, text: lines[0] }], [{ type: null, text: lines[1] }]], 'a.xyz tokens');
+    await withServer(async ({ port, host }) => {
+      for (const target of ['/syntax.js', '/vendor/highlight.min.js', '/vendor/dockerfile.min.js']) {
+        const reply = await request(port, { target, headers: { host } });
+        assert(reply.status === 200 && reply.type.startsWith('text/javascript'), `${target} got ${reply.status} ${reply.type}`);
+      }
+      const unlisted = await request(port, { target: '/vendor/LICENSE', headers: { host } });
+      assert(unlisted.status === 404, `/vendor/LICENSE got ${unlisted.status}`);
+    });
   }],
   ['annotations: anchor rule per kind', () => {
     const keep = (anchor) => cleanAnnotation({ anchor, body: 'b' }, ALLOWED) !== null;
