@@ -637,7 +637,7 @@ function finish(status) {
   card.className = 'card';
   const title = document.createElement('h2');
   const text = document.createElement('p');
-  if (status === 'submitted') {
+  if (status === 'sent') {
     title.textContent = `Sent ${total} ${total === 1 ? 'note' : 'notes'}`;
     text.append('Saved to ');
     const code = document.createElement('code');
@@ -654,9 +654,9 @@ function finish(status) {
   document.body.append(overlay);
 }
 
-// Ends the review through one of the two terminal routes; the server exits after answering.
-// A pending autosave is dropped and the terminal write queues behind any write in flight, so
-// the final body is the newest session and nothing lands after it.
+// Posts Send or Cancel: submit ends the round and the server keeps serving; cancel ends the
+// run. A pending autosave is dropped and this write queues behind any write in flight, so its
+// body is the newest session.
 async function end(route, status) {
   clearTimeout(state.saveTimer);
   el.send.disabled = true;
@@ -667,7 +667,7 @@ async function end(route, status) {
   } catch (err) {
     el.send.disabled = false;
     el.cancel.disabled = false;
-    el.saveState.textContent = `${status === 'submitted' ? 'send' : 'cancel'} failed: ${err.message}`;
+    el.saveState.textContent = `${status === 'sent' ? 'send' : 'cancel'} failed: ${err.message}`;
   }
 }
 
@@ -676,7 +676,7 @@ el.send.addEventListener('click', () => {
   if (state.composer?.dirty()) {
     state.composer.commit();
   }
-  end('/api/submit', 'submitted');
+  end('/api/submit', 'sent');
 });
 // Cancel discards a note still open in the composer, and says so before stopping.
 el.cancel.addEventListener('click', () => {

@@ -48,7 +48,8 @@ turns it into work. Nothing is edited before the confirmation in §3.
    survive from one command to the next. `mktemp` fails → report its error and stop; never
    fall back to a fixed path, since the file receives the URL with the run's token.
 4. **Start** the server **in the background with the maximum timeout** — a review takes as
-   long as the human needs, and the command returns only when they press Send or Cancel.
+   long as the human needs, and the command returns only when the run ends — Finish, Cancel or
+   a signal.
    A fresh run:
 
    ```bash
@@ -97,7 +98,7 @@ turns it into work. Nothing is edited before the confirmation in §3.
 
      Then delete the stderr file and stop.
 8. **Exit.** When the command exits, its stdout is one JSON document: `{ status, out,
-   annotations, root, scope }`. Delete the stderr file (`rm -f "<stderr-file>"`) and go on to
+   annotations, rounds, root, scope }`. Delete the stderr file (`rm -f "<stderr-file>"`) and go on to
    §2.
 
 ## §2 Read the notes
@@ -108,7 +109,7 @@ define every field:
 ```json
 {
   "version": 1,
-  "status": "submitted | cancelled | interrupted | draft",
+  "status": "finished | cancelled | interrupted | draft",
   "root": "/abs/repo",
   "scope": ["src/features/orders"],
   "out": "/abs/repo/claudedocs/margin/2026-10-11T09-14-41.json",
@@ -116,10 +117,12 @@ define every field:
   "createdAt": "2026-10-11T09:14:41.512Z",
   "updatedAt": "2026-10-11T09:31:07.204Z",
   "overall": "free text about the whole scope",
+  "round": 1,
+  "rounds": [{ "round": 1, "sentAt": "2026-10-11T09:31:07.204Z", "overall": "…" }],
   "annotations": [
     { "id": "<uuid>",
       "anchor": { "kind": "range", "path": "src/a.ts", "start": 12, "end": 30, "excerpt": "…" },
-      "intent": "change | question", "body": "…", "createdAt": "…" },
+      "intent": "change | question", "body": "…", "createdAt": "…", "round": 1 },
     { "id": "<uuid>", "anchor": { "kind": "file", "path": "src/a.ts" },
       "intent": "change", "body": "…", "createdAt": "…" },
     { "id": "<uuid>", "anchor": { "kind": "folder", "path": "src/features/orders" },

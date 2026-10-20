@@ -1,7 +1,7 @@
 # The margin contract
 
 Authoritative surface between `server/cli.mjs`, the `annotate` skill and the human who
-reviews code in the viewer. The contract fixes the verb, its flags, the stdout and stderr
+reviews code in the viewer. The contract fixes the verbs, their flags, the stdout and stderr
 output, the exit codes, resume, the notes-file schema, the anchor rule, the HTTP routes and
 their guards, the file-listing and reading rules, the seam between the skill and the
 server, and the self-test. The implementation under `server/` and `ui/` is private and may change without
@@ -19,13 +19,14 @@ reads the notes file while the server runs.
 
 ```text
 node <plugin-root>/server/cli.mjs annotate [--root <dir>] [--scope <path>]... [--out <file>] [--port <n>] [--token <token>] [--no-open]
+node <plugin-root>/server/cli.mjs wait <url> [--after <n>]
 node <plugin-root>/server/cli.mjs --self-test
 ```
 
 | Part | Meaning |
 |---|---|
 | `<plugin-root>` | The installed `margin` plugin directory. The skill runs it as `${CLAUDE_PLUGIN_ROOT}`. |
-| `annotate` | The only verb. The first positional argument must be `annotate`; further positional arguments are ignored. |
+| `annotate`, `wait` | The two verbs. `wait` is recognised only as the first argument, and its positional arguments must be exactly `wait <url>`. Otherwise the first positional argument must be `annotate`; further positional arguments are ignored. |
 | flags | §4. |
 | `--self-test` | Runs the self-test (§12) instead of a review. It takes no verb and no other argument; given with anything else it is a bad invocation (§3). |
 
@@ -38,26 +39,47 @@ through `ui/syntax.js`; nothing is installed, downloaded or built at runtime. Up
 procedure: `README.md`, "Vendored highlight.js". `git` is optional: it makes the listing
 git-aware and fills `revision` (§6, §10).
 
-**Lifecycle.** The process validates its arguments, reads the notes file when resuming (§5),
+**Lifecycle.** `annotate` validates its arguments, reads the notes file when resuming (§5),
 resolves the root and scope, lists the files (§10), binds the port, writes the notes file as
-`draft`, prints the stderr block (§2) and opens the viewer unless `--no-open` is given. It then
-runs until the human presses Send or Cancel in the viewer, or the process receives `SIGINT` or
-`SIGTERM`. A run lasts as long as the review.
+`draft`, prints the stderr block (§2) and opens the viewer unless `--no-open` is given. The run
+then spans rounds. Each Send in the viewer (`POST /api/submit`, §8) ends a round: every note
+not yet sent is stamped with the new round number, the round is recorded in the notes file
+(§6), and the server keeps serving on the same port with the same token, so the human can go
+on and send the next round. The run ends once, on whichever comes first: Finish
+(`POST /api/finish`, from the viewer or from the skill with the same token), Cancel
+(`POST /api/cancel`), or `SIGINT` / `SIGTERM`. The notes file then takes its final status,
+every held wait is answered, and the process prints the result document (§2) and exits 0
+(§8, "The end of the run"). A run lasts as long as the review.
+
+`wait` validates its arguments (§3), sends one request to the run's `GET /api/wait` (§8) and
+holds it open until the next round is sent or the run ends. It then prints the wait document
+(§2) and exits 0. It never polls and reads nothing from disk: the run URL carries the port and
+the token.
 
 ## §2 Output rules
 
 **stdout** carries exactly one JSON document on every handled exit, with two-space
-indentation and one trailing newline, and nothing else. It has one of three shapes.
+indentation and one trailing newline, and nothing else. It has one of four shapes.
 
-The result document, on exit 0 from `annotate`, with its keys in this order:
+The result document, on exit 0 from `annotate`, printed once, when the run ends, with its keys
+in this order:
 
 | Key | Value |
 |---|---|
-| `status` | `submitted`, `cancelled` or `interrupted` (§6). |
-| `out` | The absolute path of the notes file. `null` only when a cancelled run had no notes and a blank `overall`, so no file remains (§6). |
-| `annotations` | The number of notes in the file — a count, not the notes. |
+| `status` | `finished`, `cancelled` or `interrupted` (§6). |
+| `out` | The absolute path of the notes file. `null` only when a run cancelled before any round was sent had no notes and a blank `overall`, so no file remains (§6). |
+| `annotations` | The number of notes in the file, sent and unsent — a count, not the notes. |
+| `rounds` | The number of rounds sent — a count, not the rounds. |
 | `root` | The absolute root. |
 | `scope` | The scope as root-relative paths, `.` for the root itself; `[]` when no scope was given and the whole root is listed. |
+
+The wait document, on exit 0 from `wait`, with its keys in this order:
+
+| Key | Value |
+|---|---|
+| `status` | `sent` when a round was sent; otherwise the run's end status, `finished`, `cancelled` or `interrupted`. |
+| `round` | The run's round count when the server answered: the round just sent for `sent`, the number of rounds sent for an end. |
+| `out` | The absolute path of the notes file; `null` when the end of the run deleted it (§6). |
 
 The error document, on exit 1 or 2: `{"status": "error", "error": "<reason>"}`. `<reason>` is
 for humans and may span lines: an argument-parse failure appends the usage line after a
@@ -79,21 +101,27 @@ margin: http://127.0.0.1:<port>/#<token>
 ```
 
 The first line is written once the port is bound, so the URL it names is live, and it is the
-one line a caller may parse (§11). The rest of the block is for the human; a caller may show
-it but does not parse it. `--self-test` prints no stderr block.
+one line a caller may parse (§11); its URL is the one `wait` takes (§4). The rest of the block
+is for the human; a caller may show it but does not parse it. `wait` and `--self-test` print
+no stderr block.
 
 ## §3 Exit codes
 
 | Code | Meaning | Document |
 |---|---|---|
-| `0` | The review ended: Send (`submitted`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). Or every self-test case passed (§12). | Result, or self-test |
-| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), or the port cannot be bound (`could not listen on port <n>: <code>`). Or a self-test case failed (§12). | Error |
-| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. | Error |
+| `0` | `annotate`: the run ended — Finish (`finished`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). `wait`: a round was sent or the run ended. Or every self-test case passed (§12). | Result, wait, or self-test |
+| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), the port cannot be bound (`could not listen on port <n>: <code>`), or the end of the run cannot save the notes file. `wait`: the server is unreachable — the connection is refused, or it drops before the reply ends (`server unreachable at <origin>: <code>`) — or it answers with an error (`wait: <status> <error>`). Or a self-test case failed (§12). | Error |
+| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. For `wait`: no URL or another positional argument, a URL that is not a run URL (§4), or an `--after` that is not a whole number of decimal digits. | Error |
 
-Checks run in this order, and the first failure is the one reported: arguments and verb, then
-`--port`, then `--token`, then the resumed file's JSON and its `annotations` array (§5), then
-the scope paths, then the listing, then the resumed notes (§5), then the port binding. Every one of them happens before the first save, so a refused run
+`annotate`'s checks run in this order, and the first failure is the one reported: arguments
+and verb, then `--port`, then `--token`, then the resumed file's JSON and its `annotations`
+array (§5), then the scope paths, then the listing, then the resumed rounds and notes (§5),
+then the port binding. Every one of them happens before the first save, so a refused run
 writes nothing: an existing `--out` file is left exactly as it was.
+
+`wait`'s checks run in this order: its arguments parse, its positional arguments are exactly
+`wait <url>`, the URL is a run URL, then `--after`. Every one of them happens before its one
+request.
 
 ## §4 Flags
 
@@ -109,6 +137,13 @@ value. A flag other than `--scope` given twice keeps its last value.
 | `--token <token>` | minted | 16 to 128 characters from `[A-Za-z0-9_-]`. When absent, the server mints 32 lowercase hexadecimal characters (16 random bytes). Setting it lets a caller know the viewer URL's fragment before the server prints it. |
 | `--no-open` | off | Do not open the viewer. Without it, the server opens the URL with the platform opener (`open` on macOS, `start` on Windows, `xdg-open` elsewhere). An opener that starts and fails is ignored, since the URL is on stderr; an opener command that is not installed ends the run with exit 1 and no stdout document, after the draft is saved and the stderr block is printed (§13). |
 
+**`wait`** takes one positional argument and one flag:
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `<url>` | required | The run URL: the URL on the stderr block's first line (§2), `http://127.0.0.1:<port>/#<token>`, fragment included. A URL with another host or scheme, no explicit port, a path other than `/`, a query, credentials, or a fragment outside the `--token` class above is refused with exit 2 before any request is made; the refusal does not echo the URL, since it carries the token. The token is sent only in the `x-margin-token` header, and only to that origin. |
+| `--after <n>` | the round count the run started with | The last round the caller has seen, as a whole number of decimal digits. The wait returns at once when the run has sent more rounds than `<n>` or its end has begun, and holds otherwise. The default is `0` on a fresh run and the restored count on a resume (§5), so a first wait on a resumed file does not return for rounds an earlier run sent. |
+
 ## §5 Resume
 
 A run is a resume when `--out` names a file that exists. A `--out` that does not exist is a
@@ -117,8 +152,13 @@ fresh run whose notes file is created at that path.
 1. **Refusals.** Each exits 1 and writes nothing (§3):
    - the file is not valid JSON;
    - the parsed value has no `annotations` array (including a value that is not an object);
-   - any stored note is malformed by the annotation rules of §7. The reason names the count
-     and the indices: `<out>: <k> of <n> notes are malformed (indices <i>, ...)`.
+   - the file's `rounds` is present and is not an array (`<out>: rounds is not a list`), or an
+     entry `i` of it is not an object whose `round` is `i + 1`, with a string `sentAt` and a
+     string `overall` (`<out>: rounds entry <i> is malformed`). This is checked before the
+     notes;
+   - any stored note is malformed by the annotation rules of §7 — a note whose `round` is
+     present and is not an integer from 1 to the number of stored rounds included. The reason
+     names the count and the indices: `<out>: <k> of <n> notes are malformed (indices <i>, ...)`.
 2. **Root and scope.** The file's `root` (when a string) and `scope` (when an array) apply
    unless `--root` or `--scope` is given. The two are independent: `--root` given alone keeps
    the stored scope, resolved under the new root.
@@ -126,11 +166,14 @@ fresh run whose notes file is created at that path.
    listing skipped, so a resumed note keeps its anchor (§7). An accepted note is normalised:
    a missing or non-string `id` gets a fresh UUID, an `intent` outside the two values becomes
    `change`, a missing `createdAt` becomes the current time, a `range` excerpt is truncated to
-   the cap or set to `""` when absent, and unknown fields are dropped.
+   the cap or set to `""` when absent, and unknown fields are dropped. A note's `round` is
+   kept (§7).
 4. **Kept and replaced.** The run keeps `createdAt` (when a string, else the current time),
-   `overall` (when a string, else `""`) and the notes. Every other stored field is dropped;
-   `version`, `status`, `root`, `scope`, `out`, `revision` and `updatedAt` are written fresh
-   for this run (§6).
+   `overall` (when a string, else `""`), `rounds` (each entry's `round`, `sentAt` and
+   `overall`; any other field on an entry is dropped) and the notes. Every other stored field
+   is dropped; `version`, `status`, `round`, `root`, `scope`, `out`, `revision` and
+   `updatedAt` are written fresh for this run (§6), `round` as the number of kept rounds. A
+   file without `rounds` resumes as round 0 with every note unsent.
 5. **First write.** The file is rewritten with `status: "draft"` as soon as the port is bound.
 
 ## §6 Notes file
@@ -141,24 +184,29 @@ on the order of its keys.
 | Field | Value |
 |---|---|
 | `version` | `1`. |
-| `status` | One of four values. `draft`: written when the port is bound and on every save while the viewer is open — a file read while the server runs, or left by a process that died without a signal, says `draft`. `submitted`: the human pressed Send. `cancelled`: the human pressed Cancel. `interrupted`: the process received `SIGINT` or `SIGTERM`. |
+| `status` | One of four values. `draft`: written when the port is bound and on every save while the server runs, between rounds included — a file read while the server runs, or left by a process that died without a signal, says `draft`, and whether a note has been sent is its `round` (§7). `finished`: the run ended on Finish. `cancelled`: the run ended on Cancel. `interrupted`: the process received `SIGINT` or `SIGTERM`. |
 | `root` | The absolute root of the run that wrote the file. |
 | `scope` | The scope, as in §2. |
 | `out` | The absolute path of this file. |
 | `revision` | `{"head": "<commit sha>", "dirty": <boolean>}` read from git in the root when the run starts — `dirty` is `true` when `git status --porcelain` lists anything — or `null` when the root is not in a git repository or git is unavailable. |
 | `createdAt` | ISO 8601 UTC timestamp of the run that created the file; kept across resumes. |
 | `updatedAt` | ISO 8601 UTC timestamp of the last save. |
-| `overall` | The human's framing text for the whole scope. A string; may be empty. |
+| `overall` | The human's framing text for the whole scope. A string; may be empty. One editable field for the whole run; each round records the text it sent (`rounds`). |
+| `round` | The number of rounds sent; `0` before the first Send. Always the length of `rounds`. |
+| `rounds` | The sent rounds, oldest first: `{"round": <n>, "sentAt": "<ISO 8601 UTC timestamp>", "overall": "<the overall text the round sent>"}`, entry `i` holding round `i + 1`. |
 | `annotations` | The notes (§7), in the order they were created. The viewer sorts them for display only. |
 
 `status: "error"` never appears in a notes file; it exists only in the stdout document (§2).
 
 **Writes.** The server rewrites the whole file on every change: when the port is bound, on
-every save from the viewer (§8), and when the run ends. Each write overwrites the file in
-place, not through a temporary file, so a reader that races a write may see a partial file —
-which is why the skill reads it only after the process exits (§11). One exception: a run that
-ends `cancelled` with no notes and an `overall` that is empty or whitespace deletes the file
-instead, and its result document carries `out: null`. This holds on a resume too.
+every save from the viewer (§8), on every Send — one refused for having nothing to send
+included, since its edits are saved — and when the run ends. Every write goes to a temporary
+file in the same directory, `.<name>.<pid>.<random>.tmp`, which is then renamed over the
+notes file, so a reader never sees a partial file; a failed write removes its temporary file.
+One exception: a run that ends `cancelled` before any round was sent, with no notes and an
+`overall` that is empty or whitespace, deletes the file instead, and its result document
+carries `out: null`. This holds on a resume too, where the rounds the resumed file records
+count as sent.
 
 ## §7 Annotations and the anchor rule
 
@@ -171,6 +219,7 @@ Each note has exactly these fields; any other field on a note or on its anchor i
 | `intent` | `change` or `question`. Any other value becomes `change`. |
 | `body` | The human's text. Required: a note without a string `body` is rejected. The server accepts an empty string; the viewer does not create empty notes. |
 | `createdAt` | ISO 8601 UTC timestamp. When missing, the time the server accepted the note. |
+| `round` | The round the note was sent in (§6). Set by the server at Send on every note not yet sent, and absent while the note is unsent. Never taken from a viewer write: a `round` a write carries is stripped. Kept on resume when it is an integer from 1 to the number of stored rounds (§5). |
 
 | Kind | Fields | Meaning |
 |---|---|---|
@@ -193,34 +242,52 @@ server first accepts the note — one rule per kind:
 
 A note whose anchor fails is rejected. The anchor never changes afterwards:
 
-- A write from the viewer that carries the `id` of a stored note revises that note's `intent`
-  (when it is one of the two values) and `body` (when it is a string) only. Its anchor and
-  `createdAt` stay as stored, whatever the write sends.
+- A write from the viewer that carries the `id` of a stored unsent note revises that note's
+  `intent` (when it is one of the two values) and `body` (when it is a string) only. Its
+  anchor and `createdAt` stay as stored, whatever the write sends.
 - A note loaded from a resumed file is checked for shape only (§5) and keeps its anchor even
   when its file has moved, been deleted or fallen outside this run's scope.
 
 A range's `excerpt` is fixed with its anchor, so a reader compares it with the file as it is
 now to detect drift.
 
-**Saves carry the whole list.** A write that includes `annotations` replaces the list: a
-stored note whose `id` is absent from the write is deleted, and a note whose `id` matches no
-stored note is a new note and goes through the checks above. A new note that fails them is
-left out of the list, and the write still answers `{"ok": true}` (§13).
+**Saves carry the whole list.** A write that includes `annotations` replaces the list of
+unsent notes: a stored unsent note whose `id` is absent from the write is deleted, and a note
+whose `id` matches no stored note is a new note and goes through the checks above. A new note
+that fails them is left out of the list, and the write still answers `{"ok": true}` (§13).
+
+**Sent notes are locked.** No write revises or deletes a note that carries `round`: a write
+entry carrying a sent note's `id` is ignored, and a sent note absent from the write is kept.
+Every note present at a Send is stamped, so sent notes all predate unsent ones; the list stays
+in creation order, sent notes first.
 
 ## §8 HTTP routes
 
 The server listens on `127.0.0.1` only, at the bound port. Every response carries
 `cache-control: no-store`; JSON responses are `application/json; charset=utf-8`. Every
-request passes the guards of §9 first. Six routes:
+request passes the guards of §9 first. Eight routes:
 
 | Route | Token | Request | Response |
 |---|---|---|---|
 | `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
 | `GET /api/session` | yes | — | 200 `{"session": <the notes file object, §6>, "files": [<listed paths, §10>]}`. |
 | `GET /api/file?path=<p>` | yes | — | `<p>` not a listed path: 404 `{"error"}`. Otherwise 200 with `{"path", "text"}` or a refusal `{"path", "binary": true, "reason"}` (§10). |
+| `GET /api/wait?after=<n>` | yes | — | `after` present and not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`. Without `after`, `<n>` is the round count the run started with (§4). Once the end of the run has begun: 200 with that end's wait document (§2), at once. When the round count exceeds `<n>`: 200 `{"status": "sent", "round": <count>, "out"}`, at once. Otherwise the reply is held until a Send answers it with `sent` and the new round, or the end of the run answers it. |
 | `PUT /api/session` | yes | `{"overall"?, "annotations"?}` | Applies the edits (§7), saves the file, 200 `{"ok": true, "updatedAt"}`. |
-| `POST /api/submit` | yes | as `PUT` | Applies the edits, answers 200 `{"ok": true, "status": "submitted"}`, then ends the run as `submitted`: saves, prints the result document (§2), exits 0. |
-| `POST /api/cancel` | yes | as `PUT` | As submit, with `status: "cancelled"` and the deletion rule of §6. |
+| `POST /api/submit` | yes | as `PUT` | Applies the edits and sends a round: every note without `round` is stamped with the next round number, the round is appended to `rounds` with the current `overall`, the file is saved, the reply is 200 `{"ok": true, "round": <n>}`, and every held wait is answered `sent`. The server keeps serving. With nothing to send — no unsent note, and an `overall` that, trimmed, equals the `overall` the last round sent, trimmed (`""` before any round) — the edits are still saved, the round count does not move, no wait is answered, and the reply is 409 `{"error": "nothing to send"}`. |
+| `POST /api/cancel` | yes | as `PUT` | Applies the edits without sending a round, answers 200 `{"ok": true, "status": "cancelled"}`, then ends the run as `cancelled`, with the deletion rule of §6. |
+| `POST /api/finish` | yes | as `PUT` | Applies the edits without sending a round, answers 200 `{"ok": true, "status": "finished"}`, then ends the run as `finished`. Unsent notes stay in the file without `round`. |
+
+**The end of the run.** Finish, Cancel and `SIGINT` / `SIGTERM` end the run once, whichever
+comes first. The notes file takes its final status (§6), every held wait is answered with the
+wait document for that end, and the process prints the result document (§2) and exits 0 once
+those replies have been handed to their sockets, or after 1000 ms, whichever is sooner. Once
+the end has begun, `PUT /api/session` and the three `POST` routes answer 409
+`{"error": "the run has ended"}` and apply nothing, a request whose body was still arriving
+included; a `GET /api/wait` answers the end's wait document at once. A caller other than the
+viewer ends the run with
+`curl -s -X POST -H 'x-margin-token: <token>' http://127.0.0.1:<port>/api/finish`: curl sends
+the `Host` the guard expects and no `Origin` (§9).
 
 **Syntax colouring.** The viewer colours a file in the language its extension names, or its
 whole file name when it has no extension (`Dockerfile`, `Makefile`), resolved through
@@ -326,13 +393,20 @@ loading in Node and the viewer's colouring seam on a fixed TSX sample (a block c
 template literal coloured on every line they span, a file with no matching language rendered
 plain, a `Dockerfile` coloured by its name), and the viewer's static routes of §8; the anchor
 rule of §7 for every kind, range validity and the excerpt cap; resume (§5) — a stored note
-keeps its anchor through a write, a new note outside the listing is dropped, an absent `--out`
-starts fresh, and each refusal; the scope check (§4); a listing that never lists a symbolic
-link, on both the git and the walk path (§10); the reading refusals and limits (§10); and,
-against a server on port 0 inside the process, the three guards of §9 and the deletion rule of
-§6 on an empty cancel. A few cases run `cli.mjs annotate` itself and check that each refusal of
-§5 and the scope check exit with the error document and leave an existing `--out` file byte
-for byte as it was.
+keeps its anchor through a write, a new note outside the listing is dropped, rounds and note
+rounds restore, a file without `rounds` resumes as round 0, an absent `--out` starts fresh, and
+each refusal; the atomic save of §6, which leaves no temporary file behind, and a failed save;
+the sent-note lock of §7; the scope check (§4); a listing that never lists a symbolic link, on
+both the git and the walk path (§10); the reading refusals and limits (§10); and, against a
+server on port 0 inside the process, the three guards of §9 (the finish and wait routes
+included), a Send that keeps the server serving and sends the next round, a Send with nothing
+to send, Finish with its result document and a write after the end refused, the deletion rule
+of §6 on an empty cancel and a cancel after a sent round that keeps the file, and `wait`
+returning on a Send and on Finish and failing on a closed port. A few cases run `cli.mjs`
+itself: each refusal of §5 and the scope check exit with the error document and leave an
+existing `--out` file byte for byte as it was; `wait`'s invocation refusals exit 2; one run
+serves a Send, keeps serving, and ends on Finish with exactly one result document while a
+`wait` child returns that end; and another run ends `interrupted` on `SIGTERM`.
 
 It opens no browser, sends requests to `127.0.0.1` only, and binds no fixed port. It prints
 `{"cases": <n>, "ok": true}` and exits 0 when every case passes; otherwise it prints
@@ -367,8 +441,9 @@ What this contract leaves undecided, each as a question.
   symbolic link, so outside git a walk of a scope path whose leading part is a linked
   directory lists files that lie outside the root (§10). Should the scope check and the
   listing be bounded by the root's real path, as reading is?
-- **Deleting a resumed file.** A resumed run cancelled with no notes and a blank `overall`
-  deletes the file it resumed. Is that intended for a file that existed before the run?
+- **Deleting a resumed file.** A resumed run whose file records no sent round, cancelled with
+  no notes and a blank `overall`, deletes the file it resumed. Is that intended for a file that
+  existed before the run?
 - **The revision on resume.** A resume replaces the stored `revision` with the current one, so
   the file no longer says which revision its notes were written against, and drift detection
   rests on `excerpt` alone — which only `range` notes carry. Should the file keep that
