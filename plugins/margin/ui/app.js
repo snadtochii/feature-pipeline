@@ -1056,6 +1056,8 @@ function renderStatus() {
     text = `Round ${round} answered — replies are under the notes.`;
   }
   el.status.textContent = text;
+  // The strip is one line cut with an ellipsis; the full text stays readable on hover.
+  el.status.title = text;
   el.status.className = kind ? `status ${kind}` : 'status';
 }
 
