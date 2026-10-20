@@ -618,8 +618,13 @@ function openComposer(anchor, { existing = null, intent = existing?.intent ?? 'c
       if (target) {
         Object.assign(target, { intent: chosen, body: text });
       }
-    } else {
+    } else if (anchorListed(anchor)) {
       annotations().push({ id: crypto.randomUUID(), anchor, intent: chosen, body: text, createdAt: new Date().toISOString() });
+    } else {
+      // A refresh dropped the anchor from the listing while the composer was open, and the server
+      // would drop the note; the composer stays open so the text is not lost.
+      notify(`Cannot add the note: ${anchorLabel(anchor)} left this review's listing.`, { error: true });
+      return;
     }
     state.selection = null;
     closeComposer();
@@ -956,12 +961,19 @@ function save() {
 // Takes the server's copy in by ownership: the sent notes, the round fields, the overall
 // replies and `out` come from the server; the unsent notes and the overall text stay as the
 // viewer holds them. When the two copies disagree on what is unsent, a save levels the server.
+// A local note the server does not hold whose anchor fails the anchor rule against the current
+// listing is one the server drops on every write, so it is removed here and returned.
 function mergeSession(server) {
   const sent = server.annotations.filter(isSent);
   const sentIds = new Set(sent.map((a) => a.id));
-  const unsent = annotations().filter((a) => !isSent(a) && !sentIds.has(a.id));
+  const stored = server.annotations.filter((a) => !isSent(a));
+  const storedIds = new Set(stored.map((a) => a.id));
+  const local = annotations().filter((a) => !isSent(a) && !sentIds.has(a.id));
+  const keep = (a) => storedIds.has(a.id) || anchorListed(a.anchor);
+  const unsent = local.filter(keep);
+  const dropped = local.filter((a) => !keep(a));
   const ids = (list) => list.map((a) => a.id).join('\n');
-  const differs = ids(unsent) !== ids(server.annotations.filter((a) => !isSent(a))) || server.overall !== el.overall.value;
+  const differs = ids(unsent) !== ids(stored) || server.overall !== el.overall.value;
   state.session = { ...server, overall: el.overall.value, annotations: [...sent, ...unsent] };
   // An edit of a note that has since been sent has nothing left to update.
   if (state.editing !== null && !unsent.some((a) => a.id === state.editing)) {
@@ -970,6 +982,14 @@ function mergeSession(server) {
   if (differs) {
     scheduleSave();
   }
+  return dropped;
+}
+
+// Says which unsent notes were removed because their anchor left the listing.
+function notifyDropped(dropped) {
+  const labels = dropped.map((a) => anchorLabel(a.anchor)).join(', ');
+  const lead = dropped.length === 1 ? 'An unsent note was' : `${dropped.length} unsent notes were`;
+  notify(`${lead} removed: ${labels} left this review's listing.`, { error: true });
 }
 
 // Flushes a pending save, reads the session behind every queued write, merges it, and
@@ -978,19 +998,24 @@ async function refresh() {
   const pending = state.saveTimer !== null;
   clearTimeout(state.saveTimer);
   state.saveTimer = null;
+  let dropped = [];
   await enqueue(async () => {
     if (pending) {
       await writeSession();
     }
     const data = await api('GET', '/api/session');
-    mergeSession(data.session);
+    // The merge checks local notes against the refreshed listing, so the listing comes first.
     setFiles(data.files);
+    dropped = mergeSession(data.session);
     state.changes = Math.max(state.changes, data.changes);
   });
   // A successful refresh is the next action that clears the last action's message, so the
   // round state shows again; the run-ending message stays until the end overlay.
   if (!state.ending) {
     state.notice = null;
+    if (dropped.length) {
+      notifyDropped(dropped);
+    }
   }
   renderTree();
   renderStatus();
