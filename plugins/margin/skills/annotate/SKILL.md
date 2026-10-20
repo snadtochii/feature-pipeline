@@ -1,6 +1,6 @@
 ---
 name: annotate
-description: "Open a read-only viewer over the given paths so the human can leave notes on code ranges, files, folders and the scope as a whole, then read the saved batch and act on it: answer the questions, plan and make the structural changes, hand behavioural ones to the feature pipeline."
+description: "Open a read-only viewer over the given paths so the human can leave notes on code ranges, files, folders and the scope as a whole, then work through each round they send: answer the questions, plan and make the structural changes, hand behavioural ones to the feature pipeline, and reply beside every note, until the human finishes."
 argument-hint: "[path ...] [--resume <notes-file>] [--port <n>]"
 disable-model-invocation: true
 allowed-tools:
@@ -17,8 +17,9 @@ allowed-tools:
 
 The human reads code the agent wrote and says how it should be shaped — types out of this
 file, these twenty components into a tree, this helper renamed — with every remark pinned to
-the line, file or folder it is about. This skill opens the viewer, waits for the batch, and
-turns it into work. Nothing is edited before the confirmation in §3.
+the line, file or folder it is about. This skill opens the viewer and, round by round, turns
+each batch the human sends into work and a reply beside every note. Nothing is edited before
+the round's confirmation in §3.
 
 ## Arguments
 
@@ -31,17 +32,29 @@ turns it into work. Nothing is edited before the confirmation in §3.
 - `--resume <notes-file>` — reopen an earlier notes file. A relative path resolves against the
   working directory, and the file must exist. Its annotations and `overall` load into the
   viewer, its recorded root and scope apply — paths given alongside replace the scope and
-  resolve under the recorded root — and it is written back in place.
+  resolve under the recorded root — and it is written back in place. Its rounds and replies
+  load too, and the loop continues with the next round.
 - `--port <n>` — optional. Without it the server binds a free port.
 
-## §1 Open the viewer and wait
+## §1 Open the viewer and loop over rounds
 
 1. **Root**, on a fresh run: `git rev-parse --show-toplevel` from the working directory; the
    working directory itself when that fails. A resume takes the root recorded in its notes
    file.
 2. **Resume file**, on `--resume`: resolve the path against the working directory to an
    absolute path and check that it exists (`test -f`). Missing → say the notes file was not
-   found, name the absolute path, and stop.
+   found, name the absolute path, and stop. Then read `<last>`, the last round handled, from
+   it now, before the server starts: the viewer can send a round as soon as it opens, and a
+   round sent before `<last>` is read would be skipped.
+
+   ```bash
+   node -p 'const n = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const notes = Array.isArray(n.annotations) ? n.annotations : []; `round ${Array.isArray(n.rounds) ? n.rounds.length : 0}, ${notes.filter((a) => a && a.round !== undefined && !(a.replies && a.replies.length)).length} sent without a reply`' "<absolute-notes-file>"
+   ```
+
+   `<last>` is the printed round: the number of stored `rounds`, which the server keeps as
+   stored and resumes from ([CONTRACT.md](../../CONTRACT.md) §5). Keep the count of notes sent
+   without a reply for step 6. A file this cannot parse prints an error → go on to step 3; the
+   server refuses the file, and step 7 reports why.
 3. **Stderr file.** Create the file the server's stderr goes to with
    `mktemp "${TMPDIR:-/tmp}/margin.XXXXXX"`, which works with both BSD and GNU `mktemp`. Print
    its path once and write that literal path into every later command — shell variables do not
@@ -80,24 +93,14 @@ turns it into work. Nothing is edited before the confirmation in §3.
 6. **Announce**, once the block has printed, in two lines: the viewer URL exactly as printed —
    the server also opens it; it answers on `127.0.0.1` only, `localhost` is refused, and the
    `#<token>` fragment is required, since without it the viewer cannot load the session — and
-   the block's `notes:` line as printed, naming the file that saves as the human goes; Send
-   hands the notes over. Then start the wait for Send, also **in the background with the
-   maximum timeout**, with `<url>` the viewer URL exactly as printed:
+   the block's `notes:` line as printed, naming the file that saves as the human goes. Add
+   that each Send hands a round over, and that Finish in the viewer, or saying so here, ends
+   the review.
 
-   ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" wait "<url>"
-   ```
-
-   Stop talking until a background command exits — do not poll, do not read the notes file
-   early. When the wait exits 0 with `"status": "sent"`, end the run with Finish, `<port>` and
-   `<token>` taken from the URL (`http://127.0.0.1:<port>/#<token>`):
-
-   ```bash
-   curl -s -X POST -H 'x-margin-token: <token>' http://127.0.0.1:<port>/api/finish
-   ```
-
-   Any other `status`, or an exit 1, means the run has already ended. Either way the server
-   command exits next (step 8).
+   `<last>`, the last round handled, is what every wait carries: `0` on a fresh run, and on a
+   resume the round step 2 read. On a resume, a count above `0` of notes sent without a reply
+   (step 2) is named once: an earlier run sent them and never answered; the viewer's reply
+   action on one sends a follow-up in the next round.
 7. **No block** within the wait → check whether the background command has exited.
    - **Still running** → the server is still listing the scope or reading the resumed file,
      which it does before binding. Run step 5's wait once more; the block appears → step 6.
@@ -112,14 +115,54 @@ turns it into work. Nothing is edited before the confirmation in §3.
      - any other error — as printed.
 
      Then delete the stderr file and stop.
-8. **Exit.** When the server command exits, its stdout is one JSON document: `{ status, out,
-   annotations, rounds, root, scope }`. Delete the stderr file (`rm -f "<stderr-file>"`) and go on to
-   §2.
+8. **Wait for a round**, **in the background with the maximum timeout**, with `<url>` the
+   viewer URL exactly as printed and `<last>` written as a number:
 
-## §2 Read the notes
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" wait "<url>" --after <last>
+   ```
 
-Read `out`. The server writes it in this shape; [CONTRACT.md](../../CONTRACT.md) §6 and §7
-define every field:
+   Then say nothing until a background command exits — do not poll, and do not read the notes
+   file while a wait is outstanding. Exactly one wait runs at a time: a chat message that does
+   not end the review (step 9) is answered in chat, and the outstanding wait keeps running. On
+   the wait's exit, its stdout is the wait document `{ status, round, out }`:
+   - exit 0 with `"status": "sent"` → `<R>` is the document's `round` and `<out>` its `out`.
+     The round to handle is every note whose `round` is above `<last>` and at most `<R>` —
+     more than one Send when the human sent again before the wait was answered. Run §2–§6 on
+     it, set `<last>` to `<R>`, and start this step again.
+   - exit 0 with any other `status` — `finished`, `cancelled` or `interrupted` → §7.
+   - no wait document — exit 1, or the command was stopped: the server's background command
+     has exited → §7; it is still running → start one new wait with the same `--after`. A
+     second such exit in a row → report it, print the viewer URL and step 9's Finish command
+     for the user to run, and stop.
+9. **Ending from chat.** A message from the human that clearly means the review is over —
+   "we're done", "close the viewer", "stop the server", in any phrasing — ends the run,
+   whether it arrives while a wait is outstanding, as the answer at §3's gate, or mid-round,
+   before the human pressed Send. Call Finish, with `<port>` and `<token>` taken from the URL
+   (`http://127.0.0.1:<port>/#<token>`) and written literally:
+
+   ```bash
+   curl -s -w '\n%{http_code}' -X POST -H 'x-margin-token: <token>' http://127.0.0.1:<port>/api/finish
+   ```
+
+   The last line printed is the status code. `200` (`finished`), `409` (`the run has ended` —
+   the viewer ended it first) and `000` (curl reached no server) all lead to §7. Start no
+   further wait: the outstanding one exits with the end status, and that exit belongs to §7.
+   No status line — `curl` is not installed → ask the human to press Finish in the viewer;
+   the outstanding wait's exit then leads to §7.
+   At §3's gate, an answer that only ends the review takes no action for the round and calls
+   Finish now; an answer that asks for work and then to finish runs the round through §6 and
+   calls Finish in place of step 8.
+
+   A run can also end from the viewer while the skill works a round. The skill learns it when
+   §6's post answers `409`: the round's actions have run with their checks, and its replies
+   go to the chat.
+
+## §2 Read the round
+
+The round is read from `<out>`, the notes file the wait document names, between rounds: the
+server saves every change atomically, so a read sees a whole file. It writes the file in this
+shape; [CONTRACT.md](../../CONTRACT.md) §6 and §7 define every field:
 
 ```json
 {
@@ -151,25 +194,63 @@ define every field:
 ```
 
 `revision` is `null` when the root is not in a git repository. `annotations` are stored in the
-order they were created; §3 sorts them. Ids are not guaranteed unique, so nothing here is keyed
-on them.
+order they were created; §3 sorts them. Ids are not guaranteed unique, so the table and the
+drift check never key on them; §6's reply post must, so notes that share an id are named
+wherever they occur.
 
-- `cancelled` with `out: null`: say the review was cancelled and stop. `cancelled` or
-  `interrupted` with a file: ask whether to use the draft.
-- Read `overall` first; it is the human's framing for every note below it.
-- **Drift check**, before planning anything. The `excerpt` is what the human saw; the file is
-  what is true now. Run this once, with the notes file's absolute path (`out`), rather than
-  comparing through `Read`, which truncates long lines and prefixes line numbers:
+- **Round view.** Read the round through this script rather than a whole-file `Read`, which
+  grows with every round and truncates long lines. Run it with the notes file's absolute path
+  (`out`), `<last>` and `<R>`:
+
+  ```bash
+  node -e '
+  const notes = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  const after = Number(process.argv[2]), upto = Number(process.argv[3]);
+  const span = ({ kind, path, start, end }) => (kind === "scope" ? "scope" : kind === "range" ? `range ${path}:${start}-${end}` : `${kind} ${path}`);
+  const same = (x, y) => x.kind === y.kind && x.path === y.path && x.start === y.start && x.end === y.end;
+  for (let r = after + 1; r <= upto; r += 1) {
+    const sent = notes.rounds[r - 1].overall, before = r > 1 ? notes.rounds[r - 2].overall : "";
+    if (sent !== before || r === upto) { console.log(`overall (round ${r})${sent === before ? " (unchanged)" : ""}: ${JSON.stringify(sent)}`); }
+  }
+  const round = notes.annotations.map((a, i) => ({ a, i })).filter(({ a }) => a.round > after && a.round <= upto);
+  round.forEach(({ a, i }) => {
+    const shared = notes.annotations.map((b, j) => ({ b, j })).filter(({ b, j }) => j !== i && b.id === a.id && b.round !== undefined).map(({ j }) => j + 1);
+    console.log(`note ${i + 1}, round ${a.round}, id ${a.id}${shared.length ? ` (shared with notes ${shared.join(", ")})` : ""}, ${span(a.anchor)}, ${a.intent}: ${JSON.stringify(a.body)}`);
+    notes.annotations.forEach((b, j) => {
+      if (b.round === undefined || b.round > after || !same(a.anchor, b.anchor)) { return; }
+      const reply = (b.replies || []).at(-1);
+      console.log(`  earlier note ${j + 1}, round ${b.round}: ${JSON.stringify(b.body)}`);
+      console.log(`  last reply${reply ? ` (round ${reply.round}): ${JSON.stringify(reply.body)}` : ": none"}`);
+    });
+  });
+  console.log(`${round.length} notes in ${after + 1 === upto ? `round ${upto}` : `rounds ${after + 1}-${upto}`}`);
+  ' "<absolute-notes-file>" <last> <R>
+  ```
+
+  It prints the `overall` text each round in range sent, when it differs from the round
+  before, and always round `<R>`'s, marked `(unchanged)` when the human left it as it was;
+  then one line per note of the round, in the file's order — its position in
+  `annotations`, round, id (with the other sent notes sharing it), span, intent and body —
+  and under each, every note sent in an earlier round on the same anchor (kind, path, and for
+  a range the same lines) with the agent's last reply to it; then the count. Earlier notes
+  are context for the round, never part of it. Excerpts stay out of it; the drift check
+  reads them.
+- Read the round's `overall` first; it is the human's framing for every note below it.
+- **Drift check**, before planning anything, for the notes of this round. The `excerpt` is
+  what the human saw; the file is what is true now. Run this once, with the notes file's
+  absolute path (`out`), `<last>` and `<R>`, rather than comparing through `Read`, which
+  truncates long lines and prefixes line numbers:
 
   ```bash
   node -e '
   const fs = require("fs"), { join } = require("path");
   const notes = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const after = Number(process.argv[2]), upto = Number(process.argv[3]);
   const split = (text) => text.split("\n").map((line) => line.replace(/\r$/, ""));
   const show = (line, none) => (line === undefined ? none : JSON.stringify(line));
   let drifted = 0;
-  notes.annotations.forEach(({ anchor: { kind, path, start, end, excerpt } }, i) => {
-    if (kind === "scope") { return; }
+  notes.annotations.forEach(({ anchor: { kind, path, start, end, excerpt }, round }, i) => {
+    if (!(round > after && round <= upto) || kind === "scope") { return; }
     const span = kind === "range" ? `${path}:${start}-${end}` : path;
     const report = (why) => { drifted += 1; console.log(`note ${i + 1}, ${kind} ${span}: ${why}`); };
     const stat = fs.statSync(join(notes.root, path), { throwIfNoEntry: false });
@@ -185,10 +266,12 @@ on them.
     report(`line ${start + k}: excerpt ${show(want[k], "(excerpt ends)")}, now ${show(now[k], "(past the end of the file)")}`);
   });
   console.log(drifted ? `${drifted} drifted` : "no drift");
-  ' "<absolute-notes-file>"
+  ' "<absolute-notes-file>" <last> <R>
   ```
 
-  It compares lines `start` to `end` of each `range` anchor's current file with `excerpt`,
+  It skips every note outside the round, since the agent's own edits in earlier rounds would
+  mark those drifted. It compares lines `start` to `end` of each `range` anchor's current file
+  with `excerpt`,
   after dropping a trailing `\r` from every line on both sides — the excerpt keeps the file's
   line endings. Equal text holds, an empty excerpt included; an excerpt of exactly 4000
   characters was truncated by the server's cap, so it holds when the current text starts with
@@ -202,8 +285,10 @@ on them.
 
 ## §3 Plan before touching anything
 
-Open with the count: "N notes read" — the same N as the file's `annotations` length, so the
-human can see nothing was dropped. Then one table, **one row per note**, sorted as the viewer
+Open with the count: "N notes read (round <R>)", or "(rounds <last+1>–<R>)" when the wait
+covered more than one Send — the same N as the round view's count, so the human can see
+nothing was dropped. Then one table for the round, **one row per note of the round**; notes of
+earlier rounds are context and never become rows. Rows are sorted as the viewer
 lists them: scope notes first, then by path, then folder before file before range on the same
 path, then by start line; notes that tie keep the file's order. Paths compare as the viewer
 compares them, with JavaScript's `localeCompare`, not by code point: case only breaks ties
@@ -236,12 +321,20 @@ note — two notes merged into one action, a name the note did not use (`utils` 
 the anchor. Each bullet says what was read into the note and why. No bullet means the action
 is the note, taken literally. Every drifted anchor from §2 gets a bullet too: the drift
 check's line for it — its span and the first line that differs, quoted once from the excerpt
-and once from the current file, or `missing`; the full text of both on request. Omit the list
-only when it would be empty.
+and once from the current file, or `missing`; the full text of both on request. A follow-up —
+a note on the same anchor as a note of an earlier round — gets a bullet quoting the earlier
+note and the agent's last reply to it, from the round view. Notes that share an id get a
+bullet naming them, since §6 answers them in one reply. Omit the list only when it would be
+empty.
+
+A round that sent no notes — only a changed `overall` — opens with "0 notes read (round
+<R>)" and has no table. Its `overall` is answered in §6, or planned like a row, and put to the
+gate, when it asks for edits.
 
 Then ask one question: do the structural rows here, hand everything to `/feature:discover`,
 or adjust the table? A `held:` row is done in §4 only when the answer names it; otherwise it is
-left out of §4 and stays available to §5. Wait for the answer. That is the only gate.
+left out of §4 and stays available to §5. Wait for the answer. That is the only gate of the
+round. An answer that ends the review is §1 step 9.
 
 ## §4 Act in this session
 
@@ -258,7 +351,8 @@ check that was red before the first edit and is red after is reported as pre-exi
 not repaired.
 
 Report per action: files touched, and the before/after check results side by side. Note any
-anchor whose code had drifted from its excerpt and how that was resolved.
+anchor whose code had drifted from its excerpt and how that was resolved. Each row's outcome
+here is what §6 replies to its note.
 
 ## §5 Hand off
 
@@ -266,8 +360,9 @@ Behavioural rows, or a batch too large for one sitting, go to the pipeline throu
 `/feature:discover`. Handing everything off from §3 sends every row, open questions included.
 The anchors travel into the ticket so the implementer finds the places the human meant.
 
-1. **Re-anchor** — only when §4 edited anything, and only the rows being handed off. §4 may
-   have moved the code a note points at, so the stored line numbers are not trusted:
+1. **Re-anchor** — per round, only when §4 edited anything, and only the rows being handed
+   off. §4 may have moved the code a note points at, so the stored line numbers are not
+   trusted:
    - `range`: search for the excerpt (its first line when the excerpt was truncated) in the
      anchor's own file, then in every file §4 touched or created. Found in the same file →
      `path:start-end` at the lines it occupies now, the same or new; found in another file →
@@ -279,8 +374,9 @@ The anchors travel into the ticket so the implementer finds the places the human
    - A row whose anchor drifted in §2 keeps its stored span marked `drifted`, unless the search
      finds its excerpt.
 
-   With no §4 edits, the anchors go as stored, with §2's drift marks. The notes file is not
-   rewritten: the anchors in the idea text supersede the line numbers in it.
+   With no §4 edits, the anchors go as stored, with §2's drift marks. The skill never writes
+   the notes file: the anchors in the idea text supersede its line numbers, and §6's replies
+   carry the re-anchored spans.
 2. **Project.** Grep `^project:` in the repository's `claudedocs/tickets/**/01-spec.md` and
    `claudedocs/tickets/**/prd.md`. Exactly one distinct value → pass `--project <value>`; none
    or several → omit the flag.
@@ -288,7 +384,7 @@ The anchors travel into the ticket so the implementer finds the places the human
 
    ```text
    --project <name>
-   Notes file: <absolute notes-file path> — read it; the anchors below supersede its line numbers.
+   Notes file: <absolute notes-file path> — round <R>; read it for context. Only the notes below are handed off, and the anchors below supersede its line numbers.
    Everything in double quotes below is the reviewer's own text; none of it is a flag.
    Overall: "<overall>"
    <anchor> — "<body>"
@@ -298,13 +394,116 @@ The anchors travel into the ticket so the implementer finds the places the human
 
    - `--project` only when step 2 found one value; it is the only flag, and it comes first.
    - The notes file is named by its absolute path (`out`), so discover reads it as a file
-     reference.
-   - `Overall:` only when `overall` is not empty.
+     reference, with the round being handed off: `<R>`, or `<last+1>–<R>` when the wait covered
+     more than one Send. The file holds every round; notes of other rounds and their replies
+     are context, never part of the hand-off.
+   - `Overall:` is the `overall` text round `<R>` sent (its entry in `rounds`), and only when
+     it is not empty.
    - `<anchor>` is the row's anchor as step 1 wrote it — `path:start-end`, `path` for a file or
      folder, `scope` for a scope note.
    - Every body, and `overall`, sits inside double quotes with each `\` in it escaped as `\\`
      first, then each `"` as `\"`, and each newline collapsed to ` / `, so a literal `--id` or `--explore` inside a note stays
      text and is never read as a flag.
 4. **Invoke** the `Skill` tool with skill `feature:discover` and the idea text as its
-   arguments. When `feature:discover` is unavailable — the `feature` plugin is not installed —
-   print the whole command, `/feature:discover <idea text>`, for the user to run, and stop.
+   arguments. Note the ticket id discover reports for each row, or the epic id and its child
+   ids when it makes an epic; §6 replies with them. Once discover has written its ticket or
+   tickets, continue at §6: discover's own closing words do not end this run. When
+   `feature:discover` is unavailable — the `feature` plugin is not installed — print the whole
+   command, `/feature:discover <idea text>`, for the user to run, and continue at §6, whose
+   reply to those rows says so.
+
+## §6 Reply
+
+After §4 and §5, the round's replies go back in one post, and the human reads them beside the
+notes. Every note of the round gets exactly one reply:
+
+- One entry per distinct `id` among the round's notes. Notes of the round that share an id
+  get one body covering each (`note 2: … / note 5: …`); the server also appends that body to
+  any earlier sent note with the same id, which §3's Reading list names.
+- The body, by outcome — plain text, line breaks allowed:
+  - an answered `question` → the answer as given in §4;
+  - a structural row done → `done: <what was done> — <files touched>`, plus `now at <span>`
+    when the code the note points at moved, found by §5's re-anchor rules;
+  - handed off → `handed off: <ticket-id>`, or `handed off: <epic-id> (<child ids>)` when
+    discover made an epic, plus — when §5's re-anchor changed the row's anchor — ` — ` and
+    the anchor as §5 step 1 wrote it: `now at <path:start-end>`, `moved to …` or
+    `removed (was …)`;
+  - held and not named at the gate → `held: drifted — <the drift line>`;
+  - left out or changed at the gate → `not done: <the reason from the answer>`;
+  - a check that failed after the edit, reverted → `not done: reverted — <check> failed
+    after the edit`;
+  - `feature:discover` unavailable → `not handed off: the feature plugin is not installed —
+    the command is in the chat`.
+- `overall` — always present: one or two sentences summarizing the round, answering the
+  round's own `overall` text when it sent one.
+
+The request is `{"round": <R>, "replies": [{"id": "<id>", "body": "<text>"}], "overall":
+"<text>"}`, with `replies` left out when the round has no notes. Every string escapes `\` as
+`\\`, `"` as `\"`, a newline as `\n` and any other control character as `\u00XX`, so the whole
+request sits on one line. Post it with `<port>` and `<token>` written literally; the quoted
+heredoc expands nothing, and `--data-binary @-` sends its bytes unchanged:
+
+```bash
+curl -s -w '\n%{http_code}' -X POST -H 'x-margin-token: <token>' -H 'content-type: application/json' --data-binary @- http://127.0.0.1:<port>/api/reply <<'MARGIN_REPLY'
+{"round": 2, "replies": [{"id": "<id>", "body": "done: split the types into a-types.ts — src/a.ts, src/a-types.ts"}], "overall": "<one or two sentences>"}
+MARGIN_REPLY
+```
+
+The delimiter cannot occur inside the request, since every newline in it is escaped. The last
+line printed is the status code:
+
+- `200` → `{"ok": true, "replied": <k>}`: the replies are posted. Back to §1 step 8, or
+  Finish (step 9) when the human asked to end after this round.
+- `400` or `500` → nothing was applied. Fix what the error names — an entry, the JSON — and
+  post once more; a second failure → print the replies in chat, then step 8.
+- `409` → the run has ended: print the replies in chat, then §7.
+- `000` → curl reached no server or lost the answer, so whether the replies were applied is
+  unknown. Never post them again, since a repeated post appends them twice: print them in
+  chat, then step 8, whose own exit says whether the server is still there.
+- no status line — `curl` is not installed → print the replies in chat, then step 8, and
+  print them in chat every later round too.
+
+## §7 End of the run
+
+Reached from §1 step 8 (a wait reporting the end), step 9 (Finish from chat) or §6 (`409`).
+
+1. **Result.** Wait for the server's background command to exit — its own notification, no
+   poll; a wait reporting the end can arrive before it. Its stdout is one JSON document, the
+   result document `{ status, out, annotations, rounds, root, scope }`. Delete the stderr
+   file (`rm -f "<stderr-file>"`).
+2. **Nothing to summarize.** `cancelled` with `out: null` → say no round was sent and no notes
+   file remains, and stop. An error document (`"status": "error"`) → report it verbatim and
+   stop.
+3. **Summary.** Otherwise read the run back from the notes file, the durable record of every
+   round and reply, with its absolute path (`out`):
+
+   ```bash
+   node -e '
+   const notes = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+   const span = ({ kind, path, start, end }) => (kind === "scope" ? "scope" : kind === "range" ? `${path}:${start}-${end}` : path);
+   const first = (text) => JSON.stringify(text.split("\n")[0]);
+   const tickets = new Set();
+   notes.rounds.forEach(({ round }) => {
+     const sent = notes.annotations.filter((a) => a.round === round);
+     console.log(`round ${round}: ${sent.length} notes`);
+     sent.forEach((a) => {
+       const replies = a.replies || [];
+       replies.forEach(({ body }) => { for (const m of body.matchAll(/handed off: ([A-Za-z][A-Za-z0-9]*-\d+(?: \([^)]*\))?)/g)) { tickets.add(m[1]); } });
+       console.log(`  ${span(a.anchor)} ${a.intent}: ${replies.length ? replies.map((r) => first(r.body)).join(" | ") : "(no reply)"}`);
+     });
+     (notes.overallReplies || []).filter((r) => r.round === round).forEach((r) => console.log(`  overall: ${first(r.body)}`));
+   });
+   console.log(`tickets: ${[...tickets].join(", ") || "none"}`);
+   console.log(`unsent: ${notes.annotations.filter((a) => a.round === undefined).length}`);
+   ' "<absolute-notes-file>"
+   ```
+
+   It prints, per round, `round <r>: <k> notes`, one line per note sent in it — its span,
+   intent and the first line of each of its replies — and the round's overall reply; then
+   `tickets:` with every id taken from a `handed off:` reply, and `unsent:` with the number
+   of notes never sent.
+4. **Report**, in this order: the status — `finished`, `cancelled` or `interrupted` — with
+   `rounds` and `annotations` from the result document; the per-round list; the tickets
+   created; the rounds whose replies were printed in chat only, from this conversation; and
+   the unsent notes, with `/margin:annotate --resume <out>` to send them in a later run.
+   Unsent notes are not acted on.

@@ -10,8 +10,9 @@ restates a fact this file fixes and disagrees with it, this file governs.
 
 The division of labour: the server owns **mechanics** (listing the files, serving the viewer,
 guarding requests, saving the notes file); the skill owns **judgment** (what the notes mean
-and what to do about them). The server never reads the skill's state, and the skill never
-reads the notes file while the server runs.
+and what to do about them). The server never reads the skill's state, and the skill reads the
+notes file only between rounds and after the run ends; every save is atomic (§6), so each read
+sees a whole file.
 
 ---
 
@@ -306,7 +307,8 @@ included; a `GET /api/wait` answers the end's wait document at once, and a `GET 
 its change document. A caller other than the viewer ends the run with
 `curl -s -X POST -H 'x-margin-token: <token>' http://127.0.0.1:<port>/api/finish`, and posts
 replies with
-`curl -s -X POST -H 'x-margin-token: <token>' -H 'content-type: application/json' --data '<json>' http://127.0.0.1:<port>/api/reply`:
+`curl -s -X POST -H 'x-margin-token: <token>' -H 'content-type: application/json' --data-binary @- http://127.0.0.1:<port>/api/reply`,
+the JSON body on standard input from a quoted heredoc, so no shell quoting touches it:
 curl sends the `Host` the guard expects and no `Origin` (§9).
 
 **Syntax colouring.** The viewer colours a file in the language its extension names, or its
@@ -387,7 +389,7 @@ longer exists — removed, or a parent folder replaced by a file — answers 404
 1. **Root.** On a fresh run the skill resolves the root (`git rev-parse --show-toplevel`, else
    the working directory). A resume takes the root recorded in the notes file.
 2. **Start.** It starts `cli.mjs annotate` as a background command with the maximum timeout,
-   since the command returns only when the review ends, with stderr redirected to a file. A
+   since the command returns only when the run ends (§1), with stderr redirected to a file. A
    fresh run passes `--root <root>` and one `--scope` per path. A resume passes `--out
    <notes-file>` — the skill's `--resume <notes-file>` argument, as an absolute path — and no
    `--root`, so the recorded root applies (§4, §5); it passes `--scope` only for paths the
@@ -400,20 +402,35 @@ longer exists — removed, or a parent folder replaced by a file — answers 404
    retried. A process still running when the wait ends has not bound yet — it lists the files
    before it listens — so the skill waits once more before it stops the process.
 4. **Announce.** Once that line has appeared, it tells the user the URL exactly as printed,
-   and the notes file the block names.
-5. **Wait for Send.** It runs `cli.mjs wait <url>` (§1) as a background command with the URL
-   from step 3. When the wait document's `status` is `sent`, it ends the run with Finish, by
-   the call §8 gives for a caller other than the viewer; any other `status`, or an exit 1,
-   means the run has already ended.
-6. **Read after exit.** It waits for the process to exit, without polling and without reading
-   the notes file. It then parses the one stdout document (§2) and, unless `status` is
-   `error` or `out` is `null`, reads the notes file at `out`.
+   and the notes file the block names. The last round it treats as handled is `0` on a fresh
+   run; on a resume, it is the number of `rounds` in the notes file it passes as `--out`, read
+   before step 2 starts the server, since the viewer can send a round as soon as it opens.
+   The server keeps those rounds as stored and resumes from their count (§5).
+5. **Wait for a round.** It runs `cli.mjs wait <url> --after <n>` (§1, §4) as a background
+   command, with the URL from step 3 and `<n>` the last round handled, one wait at a time,
+   and does not read the notes file while the wait is held. A `sent` wait document → step 6;
+   an end status → step 9. A wait that exits without its document while the server still
+   runs is started once more with the same `<n>`.
+6. **Read the round.** It reads the notes file at the wait document's `out`. The round is
+   every note whose `round` is above `<n>` and at most the wait document's `round`, which
+   covers more than one Send when the human sent again before the wait was answered; notes of
+   earlier rounds are context.
+7. **Reply.** After acting on the round, it sends one `POST /api/reply` (§8) with that
+   `round`, one entry per distinct note `id` of the round, and an overall reply. A 400 or 500
+   applied nothing and may be sent again; a request whose outcome is unknown is not sent
+   again, since a repeat appends twice (§13, retried replies). A 409 means the run has ended
+   → step 9. Otherwise step 5, with `<n>` that round.
+8. **Finish.** When the human ends the review in the session rather than in the viewer, the
+   skill calls `POST /api/finish` (§8) with the run's token, and starts no further wait.
+9. **Read after exit.** It waits for the process to exit, without polling, and parses the one
+   stdout document (§2). Unless `status` is `error` or `out` is `null`, it reads the notes
+   file at `out` for the run's summary.
 
 The server never reads the skill's state: its whole input is its argument vector, the files
-under the root, and the requests of the viewer and of the skill (Finish, replies). The skill's whole input from the server is the
-stdout document, the wait document, the URL on the stderr block's first line and, after exit,
-the notes file;
-the rest of the stderr block is for the human.
+under the root, and the requests of the viewer and of the skill (Finish, replies). The skill's
+whole input from the server is the stdout result document, the wait documents, the answers to
+its reply and Finish requests, the URL on the stderr block's first line, and the notes file —
+between rounds and after exit; the rest of the stderr block is for the human.
 
 ## §12 `--self-test`
 
