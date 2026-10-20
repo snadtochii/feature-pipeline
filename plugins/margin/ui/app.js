@@ -353,18 +353,19 @@ async function fetchFile(path) {
   }
 }
 
+// Answers false when a newer file fetch superseded this one, so its result was not shown.
 async function openFile(path, scrollTo) {
   state.openPath = path;
   const { fresh, data, err } = await fetchFile(path);
   if (!fresh) {
-    return;
+    return false;
   }
   if (err) {
     // A resumed note can point at a file that moved, was deleted or left the listing.
     showFileError(path, err);
     renderTree();
     renderList();
-    return;
+    return true;
   }
   if (data.binary) {
     showBinary(path, data.reason);
@@ -383,6 +384,7 @@ async function openFile(path, scrollTo) {
   renderTree();
   // The notes list marks drift against the open file's text.
   renderList();
+  return true;
 }
 
 // Re-reads the open file after a round: unchanged text only repaints marks and selection,
@@ -859,8 +861,16 @@ async function replyTo(a) {
   }
   const label = anchorLabel(anchor);
   expandTo(anchor.path);
-  await openFile(anchor.path, anchor.start);
-  if (state.current?.path !== anchor.path) {
+  let shown = await openFile(anchor.path, anchor.start);
+  // A refresh re-opening the same file supersedes this fetch; fetch it once more.
+  if (!shown && state.openPath === anchor.path) {
+    shown = await openFile(anchor.path, anchor.start);
+  }
+  // The human opened another file meanwhile: the reply is abandoned without a message.
+  if (state.openPath !== anchor.path) {
+    return;
+  }
+  if (!shown || state.current?.path !== anchor.path) {
     notify(`Cannot reply on ${label}: the file could not be opened.`, { error: true });
     return;
   }
