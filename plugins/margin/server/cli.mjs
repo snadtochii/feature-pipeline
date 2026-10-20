@@ -94,12 +94,12 @@ async function annotate(argv) {
   const root = resolve(values.root ?? (typeof stored?.root === 'string' ? stored.root : process.cwd()));
   const scopeArgs = values.scope.length > 0 ? values.scope : Array.isArray(stored?.scope) ? stored.scope : [];
   const scope = scopeArgs.map((raw) => scopePath(root, raw));
-  const files = listFiles(root, scope);
+  const out = resolve(values.out ?? join(root, 'claudedocs', 'margin', `${stamp()}.json`));
+  const files = listFiles(root, scope, out);
   if (files.length === 0) {
     fail(`no files under ${scope.join(', ') || root}`, 1);
   }
 
-  const out = resolve(values.out ?? join(root, 'claudedocs', 'margin', `${stamp()}.json`));
   const session = createSession({ stored, out, root, scope, revision: revision(root) });
   const save = () => saveSession(session);
 
@@ -111,7 +111,7 @@ async function annotate(argv) {
       session,
       files,
       readSource: (path) => readSource(root, path),
-      relist: () => listFiles(root, scope),
+      relist: () => listFiles(root, scope, out),
       onSave: save,
       onSend: () => sendRound(session),
       onReply: (body) => postReplies(session, body),

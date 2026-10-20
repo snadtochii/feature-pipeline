@@ -365,6 +365,8 @@ keeps the previous listing, and one that finds no files is served as an empty li
   and so never read, and the walk never descends into one. A scope path whose leading part is
   a linked directory is not resolved: git lists nothing beneath it, while the walk lists the
   files beneath it even when they lie outside the root (§13). Reading still refuses them.
+- The run's own notes file (§6) is never listed, so its first save under the root leaves the
+  listing unchanged.
 - Paths are root-relative with `/` separators, without duplicates, sorted by code unit. An
   empty scope lists the whole root. A listing with no files when the run starts exits 1 (§3).
 
@@ -430,8 +432,8 @@ each refusal; the atomic save of §6, which leaves no temporary file behind, and
 the sent-note lock of §7; replies (§7) kept through a viewer write that echoes or forges them
 and through a save and a resume, a file without them resuming with none, each resume refusal
 for them (§5), and a reply post whose save fails leaving the session as it was; the scope
-check (§4); a listing that never lists a symbolic link, on both the git and the walk path
-(§10); the reading refusals and limits (§10); and, against a server on port 0 inside the
+check (§4); a listing that never lists a symbolic link, on both the git and the walk path,
+nor the run's notes file (§10); the reading refusals and limits (§10); and, against a server on port 0 inside the
 process, the three guards of §9 (the finish, wait, reply and change routes included), a Send
 that keeps the server serving and sends the next round, a Send with nothing to send, Finish
 with its result document and a write after the end refused, a Finish whose save fails answered

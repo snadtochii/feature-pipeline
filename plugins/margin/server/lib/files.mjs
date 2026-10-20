@@ -14,15 +14,18 @@ function git(root, args) {
   return execFileSync('git', args, { cwd: root, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 }).toString('utf8');
 }
 
-export function listFiles(root, scope) {
+// `notesFile` is the run's absolute notes-file path: it is never listed, so the listing does
+// not change when the first save creates it under the root.
+export function listFiles(root, scope, notesFile) {
   const targets = scope.length > 0 ? scope : ['.'];
+  const own = notesFile === undefined ? null : relative(root, notesFile).split(sep).join('/');
   let paths;
   try {
     paths = git(root, ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...targets]).split('\0');
   } catch {
     paths = walk(root, targets);
   }
-  return [...new Set(paths)].filter((p) => p !== '' && isRegularFile(join(root, p))).sort();
+  return [...new Set(paths)].filter((p) => p !== '' && p !== own && isRegularFile(join(root, p))).sort();
 }
 
 // A symlink is never listed or read: a link pointing outside the root would otherwise

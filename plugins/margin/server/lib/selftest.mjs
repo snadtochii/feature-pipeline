@@ -132,9 +132,9 @@ function request(port, { method = 'GET', target = '/api/session', headers = {}, 
 function withServer(fn) {
   return withTemp(async (root) => {
     write(root, 'a.txt', 'a\n');
-    const files = listFiles(root, []);
-    assertEqual(files, ['a.txt'], 'fixture listing');
     const out = path.join(root, 'claudedocs', 'margin', 'notes.json');
+    const files = listFiles(root, [], out);
+    assertEqual(files, ['a.txt'], 'fixture listing');
     const session = createSession({ stored: null, out, root, scope: [], revision: null });
     const save = () => saveSession(session);
     const { url, close, ended, waiting, watching } = await startServer({
@@ -143,7 +143,7 @@ function withServer(fn) {
       session,
       files,
       readSource: (p) => readSource(root, p),
-      relist: () => listFiles(root, []),
+      relist: () => listFiles(root, [], out),
       onSave: save,
       onSend: () => sendRound(session),
       onReply: (body) => postReplies(session, body),
@@ -428,6 +428,8 @@ const CASES = [
     const others = execFileSync('git', ['ls-files', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8' }).split('\n');
     assert(others.includes('link.txt'), 'git does not list the symlink, so the filter is not what drops it');
     assertEqual(listFiles(root, []), ['a.txt', 'sub/b.txt'], 'git listing');
+    const notes = write(root, 'claudedocs/margin/notes.json', '{}\n');
+    assertEqual(listFiles(root, [], notes), ['a.txt', 'sub/b.txt'], 'git listing leaves out the notes file');
   })],
   ['reading: refusals and limits', () => withTemp((root) => withTemp((outside) => {
     write(outside, 'secret.txt', 'secret\n');
@@ -892,8 +894,9 @@ const CASES = [
 
     const replied = await post({ round: 1, replies: [{ id: 's', body: 'added b.txt' }] });
     assertEqual(replied.json, { ok: true, replied: 1 }, 'reply answer');
-    // The notes file sits under the root and the fixture is no repository, so the walk lists it.
-    assertEqual(await listed(), ['a.txt', 'b.txt', 'claudedocs/margin/notes.json', 'd/x.txt'], 'listing after a reply');
+    // The notes file sits under the root and the fixture is no repository: the walk finds it,
+    // and the listing leaves it out.
+    assertEqual(await listed(), ['a.txt', 'b.txt', 'd/x.txt'], 'listing after a reply');
     await put([scopeNote, onA, onB]);
     assertEqual(ids(), ['s', 'a1', 'b1'], 'notes kept after a reply');
 
@@ -905,7 +908,7 @@ const CASES = [
       assertEqual([gone.status, gone.json], [404, { error: `${p} no longer exists` }], `${p} once gone`);
     }
     await post({ round: 1, replies: [{ id: 's', body: 'removed a.txt' }] });
-    assertEqual(await listed(), ['b.txt', 'claudedocs/margin/notes.json', 'd'], 'listing after the second reply');
+    assertEqual(await listed(), ['b.txt', 'd'], 'listing after the second reply');
     const dropped = await file('a.txt');
     assertEqual([dropped.status, dropped.json], [404, { error: 'a.txt is not in scope' }], 'a.txt once the listing dropped it');
     assertEqual(session.annotations.find((a) => a.id === 'a1')?.anchor, { kind: 'file', path: 'a.txt' }, 'a stored anchor after the re-list');
