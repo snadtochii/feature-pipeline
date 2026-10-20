@@ -115,7 +115,7 @@ no stderr block.
 
 `annotate`'s checks run in this order, and the first failure is the one reported: arguments
 and verb, then `--port`, then `--token`, then the resumed file's JSON and its `annotations`
-array (§5), then the scope paths, then the listing, then the resumed rounds and notes (§5),
+array (§5), then the scope paths, then the listing, then the resumed rounds, the agent's overall replies and notes (§5),
 then the port binding. Every one of them happens before the first save, so a refused run
 writes nothing: an existing `--out` file is left exactly as it was.
 
@@ -156,9 +156,16 @@ fresh run whose notes file is created at that path.
      entry `i` of it is not an object whose `round` is `i + 1`, with a string `sentAt` and a
      string `overall` (`<out>: rounds entry <i> is malformed`). This is checked before the
      notes;
+   - the file's `overallReplies` is present and is not an array (`<out>: overallReplies is not
+     a list`), or an entry `i` of it is not a reply of §7 answering a round from 1 to the
+     number of stored rounds (`<out>: overallReplies entry <i> is malformed`). This is checked
+     after `rounds` and before the notes;
    - any stored note is malformed by the annotation rules of §7 — a note whose `round` is
-     present and is not an integer from 1 to the number of stored rounds included. The reason
-     names the count and the indices: `<out>: <k> of <n> notes are malformed (indices <i>, ...)`.
+     present and is not an integer from 1 to the number of stored rounds included, and a note
+     whose `replies` is present and is not an array, sits on a note without `round`, or holds
+     an entry that is not a reply of §7 answering a round from the note's `round` to the
+     number of stored rounds. The reason names the count and the indices:
+     `<out>: <k> of <n> notes are malformed (indices <i>, ...)`.
 2. **Root and scope.** The file's `root` (when a string) and `scope` (when an array) apply
    unless `--root` or `--scope` is given. The two are independent: `--root` given alone keeps
    the stored scope, resolved under the new root.
@@ -166,14 +173,17 @@ fresh run whose notes file is created at that path.
    listing skipped, so a resumed note keeps its anchor (§7). An accepted note is normalised:
    a missing or non-string `id` gets a fresh UUID, an `intent` outside the two values becomes
    `change`, a missing `createdAt` becomes the current time, a `range` excerpt is truncated to
-   the cap or set to `""` when absent, and unknown fields are dropped. A note's `round` is
-   kept (§7).
+   the cap or set to `""` when absent, and unknown fields are dropped. A note's `round` and
+   `replies` are kept (§7), with any other field on a reply dropped; an empty `replies` list is
+   dropped.
 4. **Kept and replaced.** The run keeps `createdAt` (when a string, else the current time),
-   `overall` (when a string, else `""`), `rounds` (each entry's `round`, `sentAt` and
-   `overall`; any other field on an entry is dropped) and the notes. Every other stored field
-   is dropped; `version`, `status`, `round`, `root`, `scope`, `out`, `revision` and
-   `updatedAt` are written fresh for this run (§6), `round` as the number of kept rounds. A
-   file without `rounds` resumes as round 0 with every note unsent.
+   `overall` (when a string, else `""`), `overallReplies` (each entry's `body`, `round` and
+   `createdAt`), `rounds` (each entry's `round`, `sentAt` and `overall`; any other field on an
+   entry is dropped) and the notes. Every other stored field is dropped; `version`, `status`,
+   `round`, `root`, `scope`, `out`, `revision` and `updatedAt` are written fresh for this run
+   (§6), `round` as the number of kept rounds. A file without `rounds` resumes as round 0 with
+   every note unsent, and a file without `overallReplies` or `replies` resumes with no
+   replies.
 5. **First write.** The file is rewritten with `status: "draft"` as soon as the port is bound.
 
 ## §6 Notes file
@@ -191,7 +201,8 @@ on the order of its keys.
 | `revision` | `{"head": "<commit sha>", "dirty": <boolean>}` read from git in the root when the run starts — `dirty` is `true` when `git status --porcelain` lists anything — or `null` when the root is not in a git repository or git is unavailable. |
 | `createdAt` | ISO 8601 UTC timestamp of the run that created the file; kept across resumes. |
 | `updatedAt` | ISO 8601 UTC timestamp of the last save. |
-| `overall` | The human's framing text for the whole scope. A string; may be empty. One editable field for the whole run; each round records the text it sent (`rounds`). |
+| `overall` | The human's framing text for the whole scope. A string; may be empty. One editable field for the whole run; each round records the text it sent (`rounds`), and the agent's answers to it are in `overallReplies`. |
+| `overallReplies` | The agent's overall replies, oldest first, each in the reply shape of §7 — `{"body", "round", "createdAt"}`, `round` from 1 to the number of rounds. Written only through `POST /api/reply` (§8); `[]` before the first. |
 | `round` | The number of rounds sent; `0` before the first Send. Always the length of `rounds`. |
 | `rounds` | The sent rounds, oldest first: `{"round": <n>, "sentAt": "<ISO 8601 UTC timestamp>", "overall": "<the overall text the round sent>"}`, entry `i` holding round `i + 1`. |
 | `annotations` | The notes (§7), in the order they were created. The viewer sorts them for display only. |
@@ -200,7 +211,7 @@ on the order of its keys.
 
 **Writes.** The server rewrites the whole file on every change: when the port is bound, on
 every save from the viewer (§8), on every Send — one refused for having nothing to send
-included, since its edits are saved — and when the run ends. Every write goes to a temporary
+included, since its edits are saved — on every accepted reply post (§8), and when the run ends. Every write goes to a temporary
 file in the same directory, `.<name>.<pid>.<random>.tmp`, which is then renamed over the
 notes file, so a reader never sees a partial file; a failed write removes its temporary file.
 One exception: a run that ends `cancelled` before any round was sent, with no notes and an
@@ -220,6 +231,7 @@ Each note has exactly these fields; any other field on a note or on its anchor i
 | `body` | The human's text. Required: a note without a string `body` is rejected. The server accepts an empty string; the viewer does not create empty notes. |
 | `createdAt` | ISO 8601 UTC timestamp. When missing, the time the server accepted the note. |
 | `round` | The round the note was sent in (§6). Set by the server at Send on every note not yet sent, and absent while the note is unsent. Never taken from a viewer write: a `round` a write carries is stripped. Kept on resume when it is an integer from 1 to the number of stored rounds (§5). |
+| `replies` | The agent's replies to the note, oldest first, each `{"body": "<text>", "round": <n>, "createdAt": "<ISO 8601 UTC timestamp>"}` — the reply shape. `body` is plain text, line breaks kept; `round` is the round the agent answered, an integer from the note's `round` to the number of rounds; `createdAt` is the time the server accepted the reply. Present only on a sent note with at least one reply. Written only by `POST /api/reply` (§8), never taken from a viewer write: a `replies` a write carries is stripped. Kept on resume (§5). |
 
 | Kind | Fields | Meaning |
 |---|---|---|
@@ -257,48 +269,54 @@ whose `id` matches no stored note is a new note and goes through the checks abov
 that fails them is left out of the list, and the write still answers `{"ok": true}` (§13).
 
 **Sent notes are locked.** No write revises or deletes a note that carries `round`: a write
-entry carrying a sent note's `id` is ignored, and a sent note absent from the write is kept.
-Every note present at a Send is stamped, so sent notes all predate unsent ones; the list stays
+entry carrying a sent note's `id` is ignored, and a sent note absent from the write is kept,
+so a write never changes a note's `replies` either. Every note present at a Send is stamped, so sent notes all predate unsent ones; the list stays
 in creation order, sent notes first.
 
 ## §8 HTTP routes
 
 The server listens on `127.0.0.1` only, at the bound port. Every response carries
 `cache-control: no-store`; JSON responses are `application/json; charset=utf-8`. Every
-request passes the guards of §9 first. Eight routes:
+request passes the guards of §9 first. Ten routes:
 
 | Route | Token | Request | Response |
 |---|---|---|---|
 | `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
-| `GET /api/session` | yes | — | 200 `{"session": <the notes file object, §6>, "files": [<listed paths, §10>]}`. |
-| `GET /api/file?path=<p>` | yes | — | `<p>` not a listed path: 404 `{"error"}`. Otherwise 200 with `{"path", "text"}` or a refusal `{"path", "binary": true, "reason"}` (§10). |
+| `GET /api/session` | yes | — | 200 `{"session": <the notes file object, §6>, "files": [<the current listing, §10>], "changes": <the run's change count>}`. The change count is `0` when the process starts, is kept in memory only, and goes up by one on every accepted reply post. |
+| `GET /api/file?path=<p>` | yes | — | `<p>` not in the current listing: 404 `{"error": "<p> is not in scope"}`. A listed path that no longer exists — removed, or a parent folder replaced by a file: 404 `{"error": "<p> no longer exists"}`. Otherwise 200 with `{"path", "text"}` or a refusal `{"path", "binary": true, "reason"}` (§10). |
+| `GET /api/changes?after=<n>` | yes | — | `after` absent or not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`, `<value>` empty when absent. Once the end of the run has begun: 200 `{"status": <the end's status>, "changes": <count>}`, at once. When the change count exceeds `<n>`: 200 `{"status": "changed", "changes": <count>}`, at once. Otherwise the reply is held until an accepted reply post brings the count above `<n>`, which answers it `changed` with the new count, or the end of the run answers it. |
 | `GET /api/wait?after=<n>` | yes | — | `after` present and not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`. Without `after`, `<n>` is the round count the run started with (§4). Once the end of the run has begun: 200 with that end's wait document (§2), at once. When the round count exceeds `<n>`: 200 `{"status": "sent", "round": <count>, "out"}`, at once. Otherwise the reply is held until a Send brings the round count above `<n>`, which answers it with `sent` and the new round, or the end of the run answers it. |
 | `PUT /api/session` | yes | `{"overall"?, "annotations"?}` | Applies the edits (§7), saves the file, 200 `{"ok": true, "updatedAt"}`. |
 | `POST /api/submit` | yes | as `PUT` | Applies the edits and sends a round: every note without `round` is stamped with the next round number, the round is appended to `rounds` with the current `overall`, the file is saved, the reply is 200 `{"ok": true, "round": <n>}`, and every held wait whose `<n>` is below the new round is answered `sent`. The server keeps serving. With nothing to send — no unsent note, and an `overall` that, trimmed, equals the `overall` the last round sent, trimmed (`""` before any round) — the edits are still saved, the round count does not move, no wait is answered, and the reply is 409 `{"error": "nothing to send"}`. |
+| `POST /api/reply` | yes | `{"round": <n>, "replies"?: [{"id", "body"}], "overall"?: "<text>"}` | The agent's replies for sent round `<n>`; it carries no viewer edits. The whole request is checked before anything is applied: `round` is an integer from 1 to the round count (`bad round: <value>`, `none` when absent); `replies`, when present, is an array (`replies is not a list`); `overall`, when present, is a string that is not blank (`overall reply is blank or not a string`); there is at least one entry or an `overall` (`nothing to reply`); and each entry `i` has a string `id` (`entry <i>: id is not a string`), a string `body` that is not blank (`entry <i>: body is blank or not a string`), and at least one stored note carrying that `id` that was sent in round `<n>` or earlier (otherwise `entry <i>: no note <id>`, `entry <i>: note <id> is not sent`, or `entry <i>: note <id> was sent after round <n>`). Any problem answers 400 `{"error": "<every problem, joined by '; '>"}` and applies nothing. Otherwise each entry appends a reply `{"body", "round": <n>, "createdAt"}` (§7) to every stored note carrying its `id` that was sent in round `<n>` or earlier — an `id` given twice appends twice, and an unsent note sharing the `id` gets none — and `overall` appends one to `overallReplies` (§6), all with one `createdAt`. Then the file is saved, the listing is recomputed (§10), the change count goes up by one, the reply is 200 `{"ok": true, "replied": <the number of note replies appended>}`, and every held change wait is answered `changed`. A save that fails appends nothing and answers 500 `{"error"}`. |
 | `POST /api/cancel` | yes | as `PUT` | Applies the edits without sending a round and ends the run as `cancelled`, with the deletion rule of §6; once the notes file has taken its final status, answers 200 `{"ok": true, "status": "cancelled"}`. |
 | `POST /api/finish` | yes | as `PUT` | Applies the edits without sending a round and ends the run as `finished`; once the notes file has taken its final status, answers 200 `{"ok": true, "status": "finished"}`. Unsent notes stay in the file without `round`. |
 
 **The end of the run.** Finish, Cancel and `SIGINT` / `SIGTERM` end the run once, whichever
 comes first. The notes file takes its final status (§6), every held wait is answered with the
-wait document for that end, the Cancel or Finish request that ended the run is answered, and
+wait document for that end and every held change wait with its change document, the Cancel or
+Finish request that ended the run is answered, and
 the process prints the result document (§2) and exits 0 once those replies have been handed
 to their sockets, or after 1000 ms, whichever is sooner. When the notes file cannot be saved,
 that Cancel or Finish request is answered 500 `{"error"}` and the process exits 1 with the
 error document (§3). Once
-the end has begun, `PUT /api/session` and the three `POST` routes answer 409
+the end has begun, `PUT /api/session` and the four `POST` routes answer 409
 `{"error": "the run has ended"}` and apply nothing, a request whose body was still arriving
-included; a `GET /api/wait` answers the end's wait document at once. A caller other than the
-viewer ends the run with
-`curl -s -X POST -H 'x-margin-token: <token>' http://127.0.0.1:<port>/api/finish`: curl sends
-the `Host` the guard expects and no `Origin` (§9).
+included; a `GET /api/wait` answers the end's wait document at once, and a `GET /api/changes`
+its change document. A caller other than the viewer ends the run with
+`curl -s -X POST -H 'x-margin-token: <token>' http://127.0.0.1:<port>/api/finish`, and posts
+replies with
+`curl -s -X POST -H 'x-margin-token: <token>' -H 'content-type: application/json' --data '<json>' http://127.0.0.1:<port>/api/reply`:
+curl sends the `Host` the guard expects and no `Origin` (§9).
 
 **Syntax colouring.** The viewer colours a file in the language its extension names, or its
 whole file name when it has no extension (`Dockerfile`, `Makefile`), resolved through
 highlight.js's own language names and aliases — never by auto-detection. A file with no match
 renders plain.
 
-**Request bodies.** `overall` is applied only when it is a string and `annotations` only when
-it is an array; other keys are ignored. An empty body counts as `{}`, so a `PUT` without one
+**Request bodies.** On `PUT /api/session` and the `POST` routes other than `/api/reply`,
+`overall` is applied only when it is a string and `annotations` only when it is an array;
+other keys are ignored. An empty body counts as `{}`, so a `PUT` without one
 only refreshes `updatedAt`. A body larger than 5 MiB (5,242,880 bytes) is refused and its
 connection closed: nothing is applied or saved, and no status code is promised. A body that
 is not valid JSON answers 500 `{"error"}` and applies nothing.
@@ -330,8 +348,12 @@ Opened without the fragment, the viewer cannot load the session.
 
 ## §10 File listing and reading
 
-**Listing.** The listing is computed once, when the run starts, and is fixed for the run: a
-file created later is neither listed nor served.
+**Listing.** The listing is computed when the run starts and again after every accepted reply
+post (§8), each time with the run's root and scope and by the rules below. The current listing
+is what `GET /api/session` returns, what `GET /api/file` reads from, and what the anchor rule
+of §7 checks a new note against; a stored note is never re-checked. A file created after the
+last computation is neither listed nor served until the next one. A recomputation that fails
+keeps the previous listing, and one that finds no files is served as an empty listing.
 
 - When `git ls-files` succeeds in the root, the listing is the tracked files plus the
   untracked files the repository's ignore rules do not exclude, under the scope
@@ -344,7 +366,7 @@ file created later is neither listed nor served.
   a linked directory is not resolved: git lists nothing beneath it, while the walk lists the
   files beneath it even when they lie outside the root (§13). Reading still refuses them.
 - Paths are root-relative with `/` separators, without duplicates, sorted by code unit. An
-  empty scope lists the whole root. A listing with no files exits 1 (§3).
+  empty scope lists the whole root. A listing with no files when the run starts exits 1 (§3).
 
 **Reading.** `GET /api/file` reads only a listed path, then:
 
@@ -354,8 +376,9 @@ file created later is neither listed nor served.
 - a file with a NUL byte in its first 8000 bytes is refused as `binary file`;
 - otherwise `text` is the file's content decoded as UTF-8.
 
-A refusal answers 200 with `binary: true`; its `reason` is display text. A listed file that no
-longer exists answers 500.
+A refusal answers 200 with `binary: true`; its `reason` is display text. A listed path that no
+longer exists — removed, or a parent folder replaced by a file — answers 404
+`{"error": "<p> no longer exists"}`; other read errors answer 500.
 
 ## §11 Skill–server seam
 
@@ -385,7 +408,7 @@ longer exists answers 500.
    `error` or `out` is `null`, reads the notes file at `out`.
 
 The server never reads the skill's state: its whole input is its argument vector, the files
-under the root and the viewer's requests. The skill's whole input from the server is the
+under the root, and the requests of the viewer and of the skill (Finish, replies). The skill's whole input from the server is the
 stdout document, the wait document, the URL on the stderr block's first line and, after exit,
 the notes file;
 the rest of the stderr block is for the human.
@@ -404,15 +427,24 @@ rule of §7 for every kind, range validity and the excerpt cap; resume (§5) —
 keeps its anchor through a write, a new note outside the listing is dropped, rounds and note
 rounds restore, a file without `rounds` resumes as round 0, an absent `--out` starts fresh, and
 each refusal; the atomic save of §6, which leaves no temporary file behind, and a failed save;
-the sent-note lock of §7; the scope check (§4); a listing that never lists a symbolic link, on
-both the git and the walk path (§10); the reading refusals and limits (§10); and, against a
-server on port 0 inside the process, the three guards of §9 (the finish and wait routes
-included), a Send that keeps the server serving and sends the next round, a Send with nothing
-to send, Finish with its result document and a write after the end refused, a Finish whose
-save fails answered 500 with the run failed, the deletion rule of §6 on an empty cancel and a
-cancel after a sent round that keeps the file, and `wait` returning on a Send and on Finish,
-held past a Send that does not bring the round count above its `<n>`, and failing on a closed
-port. A few cases run `cli.mjs` itself: each refusal of §5 and the scope check exit with the
+the sent-note lock of §7; replies (§7) kept through a viewer write that echoes or forges them
+and through a save and a resume, a file without them resuming with none, each resume refusal
+for them (§5), and a reply post whose save fails leaving the session as it was; the scope
+check (§4); a listing that never lists a symbolic link, on both the git and the walk path
+(§10); the reading refusals and limits (§10); and, against a server on port 0 inside the
+process, the three guards of §9 (the finish, wait, reply and change routes included), a Send
+that keeps the server serving and sends the next round, a Send with nothing to send, Finish
+with its result document and a write after the end refused, a Finish whose save fails answered
+500 with the run failed, the deletion rule of §6 on an empty cancel and a cancel after a sent
+round that keeps the file, `wait` returning on a Send and on Finish, held past a Send that does
+not bring the round count above its `<n>`, and failing on a closed port, the reply route of §8
+— replies on sent notes only, each refusal leaving the notes file byte for byte as it was with
+nothing applied from a request that also holds a valid entry, an `id` given twice appending
+twice, and a reply after the end refused 409 — re-listing after a reply post (§10), with a file
+created mid-run listed and accepted as a `file` anchor only after it and a listed file that is
+deleted, or whose parent folder becomes a file, answering 404 `no longer exists` and then
+`not in scope` once a re-list drops it, and the change wait of §8 returning on a reply post and
+on Finish, held past a refused reply post, and refusing a missing or malformed `after`. A few cases run `cli.mjs` itself: each refusal of §5 and the scope check exit with the
 error document and leave an existing `--out` file byte for byte as it was; `wait`'s invocation
 refusals exit 2, and a `wait` child, let go once the server holds its request, returns on a
 Send and on Finish; one run serves a Send, keeps serving, and ends on Finish with exactly one
@@ -461,3 +493,8 @@ What this contract leaves undecided, each as a question.
 - **Usage text and code headers.** `cli.mjs`'s usage line and header comment show `--root` as
   required, the token as `<hex>` and the paths as absolute. Should they match §4, and should
   the header comments point at this file instead of restating it?
+- **Retried replies.** A reply post whose 200 was lost and is sent again appends its replies a
+  second time (§8). Should a reply carry a client key the server de-duplicates on?
+- **Re-listing between reply posts.** The listing is recomputed only after a reply post (§10),
+  so a file the human creates between rounds is listed only once the agent next replies, and a
+  run whose agent never replies keeps its start-time listing. Should a Send recompute it too?

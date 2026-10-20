@@ -62,9 +62,19 @@ function walk(root, targets) {
   return found;
 }
 
+// The viewer's view of one listed file. Null when the path no longer exists — removed, or a
+// parent folder replaced by a file — since the listing was computed; other read errors throw.
 export function readSource(root, path) {
   const abs = join(root, path);
-  const real = realpathSync(abs);
+  let real;
+  try {
+    real = realpathSync(abs);
+  } catch (err) {
+    if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') {
+      return null;
+    }
+    throw err;
+  }
   if (!isRegularFile(abs) || !real.startsWith(`${realpathSync(root)}${sep}`)) {
     return { path, binary: true, reason: 'not a regular file inside the root' };
   }

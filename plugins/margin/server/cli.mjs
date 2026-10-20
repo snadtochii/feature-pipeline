@@ -29,7 +29,7 @@ import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { listFiles, readSource, revision } from './lib/files.mjs';
 import { startServer } from './lib/server.mjs';
-import { RunError, createSession, finishRun, readStored, saveSession, scopePath, sendRound } from './lib/session.mjs';
+import { RunError, createSession, finishRun, postReplies, readStored, saveSession, scopePath, sendRound } from './lib/session.mjs';
 import { TOKEN_PATTERN, parseRunUrl, waitForRound } from './lib/wait.mjs';
 
 const WAIT_USAGE = 'usage: cli.mjs wait <url> [--after <n>]';
@@ -111,8 +111,10 @@ async function annotate(argv) {
       session,
       files,
       readSource: (path) => readSource(root, path),
+      relist: () => listFiles(root, scope),
       onSave: save,
       onSend: () => sendRound(session),
+      onReply: (body) => postReplies(session, body),
       onEnd: (status) => finishRun(session, status),
     });
   } catch (err) {
