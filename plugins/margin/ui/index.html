@@ -12,9 +12,11 @@
     <span id="scope" class="muted"></span>
     <span class="spacer"></span>
     <span id="save-state" class="muted"></span>
-    <button id="cancel" class="ghost" title="Discard this review and close the server">Cancel</button>
-    <button id="send" class="primary" title="Save and hand the notes to the agent">Send</button>
+    <button id="cancel" class="ghost" title="End the review without sending the unsent notes">Cancel</button>
+    <button id="finish" title="End the review; notes not yet sent stay in the notes file">Finish</button>
+    <button id="send" class="primary" title="Send this round's notes to the agent">Send</button>
   </header>
+  <div id="status" class="status" role="status" aria-live="polite"></div>
   <main class="layout">
     <nav id="tree" class="tree" aria-label="Files in scope">
       <div class="filter-box">
@@ -30,6 +32,7 @@
         <span>Overall direction</span>
         <textarea id="overall" rows="4" placeholder="What this whole scope should become, in a few lines. Read by the agent first."></textarea>
       </label>
+      <ol id="overall-replies" class="replies" aria-label="The agent's replies to the overall direction"></ol>
       <div class="notes-head">
         <span id="count" class="muted">0 notes</span>
         <button id="add-scope" class="ghost small" title="A note about the scope as a whole">+ general note</button>
