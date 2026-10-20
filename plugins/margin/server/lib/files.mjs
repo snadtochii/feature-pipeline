@@ -14,15 +14,18 @@ function git(root, args) {
   return execFileSync('git', args, { cwd: root, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 }).toString('utf8');
 }
 
-export function listFiles(root, scope) {
+// `notesFile` is the run's absolute notes-file path: it is never listed, so the listing does
+// not change when the first save creates it under the root.
+export function listFiles(root, scope, notesFile) {
   const targets = scope.length > 0 ? scope : ['.'];
+  const own = notesFile === undefined ? null : relative(root, notesFile).split(sep).join('/');
   let paths;
   try {
     paths = git(root, ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...targets]).split('\0');
   } catch {
     paths = walk(root, targets);
   }
-  return [...new Set(paths)].filter((p) => p !== '' && isRegularFile(join(root, p))).sort();
+  return [...new Set(paths)].filter((p) => p !== '' && p !== own && isRegularFile(join(root, p))).sort();
 }
 
 // A symlink is never listed or read: a link pointing outside the root would otherwise
@@ -62,9 +65,19 @@ function walk(root, targets) {
   return found;
 }
 
+// The viewer's view of one listed file. Null when the path no longer exists — removed, or a
+// parent folder replaced by a file — since the listing was computed; other read errors throw.
 export function readSource(root, path) {
   const abs = join(root, path);
-  const real = realpathSync(abs);
+  let real;
+  try {
+    real = realpathSync(abs);
+  } catch (err) {
+    if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') {
+      return null;
+    }
+    throw err;
+  }
   if (!isRegularFile(abs) || !real.startsWith(`${realpathSync(root)}${sep}`)) {
     return { path, binary: true, reason: 'not a regular file inside the root' };
   }

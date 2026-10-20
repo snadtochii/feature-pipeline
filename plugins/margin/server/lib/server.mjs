@@ -5,20 +5,26 @@
 // reads source through /api/file). Every request must carry the Host of this server, and
 // every /api route must carry the per-run token that only the URL the server printed knows.
 // A run spans rounds: Send ends a round and the server keeps serving; Finish, Cancel or a
-// signal ends the run, once. Eight routes:
-//   GET  /                 the viewer
-//   GET  /api/session      { session, files }
-//   GET  /api/file?path=   { path, text } | { path, binary, reason }
-//   GET  /api/wait?after=  held until the round count exceeds `after` or the run ends, then
-//                          { status: 'sent' | <end status>, round, out }
-//   PUT  /api/session      { overall, annotations } -> saved as draft
-//   POST /api/submit       same body, then a round is sent: { ok, round }; 409 when there is
-//                          nothing to send
-//   POST /api/cancel       same body, then the run ends as `cancelled`: { ok, status }
-//   POST /api/finish       same body, then the run ends as `finished`: { ok, status }
+// signal ends the run, once. Ten routes:
+//   GET  /                    the viewer
+//   GET  /api/session         { session, files, changes }
+//   GET  /api/file?path=      { path, text } | { path, binary, reason }; 404 when the path is
+//                             not listed or no longer exists
+//   GET  /api/wait?after=     held until the round count exceeds `after` or the run ends, then
+//                             { status: 'sent' | <end status>, round, out }
+//   GET  /api/changes?after=  held until the change count exceeds `after` or the run ends, then
+//                             { status: 'changed' | <end status>, changes }
+//   PUT  /api/session         { overall, annotations } -> saved as draft
+//   POST /api/submit          same body, then a round is sent: { ok, round }; 409 when there is
+//                             nothing to send
+//   POST /api/reply           { round, replies?, overall? } -> the agent's replies are saved,
+//                             the listing is recomputed: { ok, replied }; 400 with nothing
+//                             applied when any entry is refused
+//   POST /api/cancel          same body as PUT, then the run ends as `cancelled`: { ok, status }
+//   POST /api/finish          same body as PUT, then the run ends as `finished`: { ok, status }
 // Cancel and Finish answer once the end has saved the notes file, 500 when it could not. Every
-// end of the run answers each held wait before the process exits, and once the end has begun
-// every mutating route answers 409.
+// end of the run answers each held wait and change wait before the process exits, and once the
+// end has begun every mutating route answers 409.
 
 import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -106,21 +112,31 @@ function flush(pending) {
   return Promise.race([Promise.all(pending), cap]).then(() => clearTimeout(timer));
 }
 
-// `onSend()` sends a round and returns its number, or null when there is nothing to send.
-// `onEnd(status)` ends the run and returns the result document. Resolves with
-// `{ url, close, end, ended, waiting }`: `end(status, res?)` ends the run once, whoever calls
-// it, and returns `ended`, which resolves with the result document after every held wait —
-// and `res`, the Cancel or Finish request that ended the run, when given — has been answered
-// (capped at FLUSH_CAP_MS), or rejects when `onEnd` throws, after `res` has been answered 500.
-// `waiting()` is the number of held waits.
-export function startServer({ port, token: givenToken, session, files, readSource, onSave, onSend, onEnd }) {
-  const allowed = new Set(files);
+// `files` is the listing the run starts with, and `relist()` returns the listing recomputed
+// with the run's root and scope; every accepted reply post replaces the listing with it, and a
+// `relist()` that throws keeps the previous one. `readSource(path)` returns null for a listed
+// path that no longer exists. `onSend()` sends a round and returns its number, or null when
+// there is nothing to send. `onReply(body)` applies a reply post and returns `{ replied }`, or
+// `{ error }` when it is refused with nothing applied. `onEnd(status)` ends the run and returns
+// the result document. Resolves with `{ url, close, end, ended, waiting, watching }`: `end(status, res?)` ends the
+// run once, whoever calls it, and returns `ended`, which resolves with the result document
+// after every held wait and change wait — and `res`, the Cancel or Finish request that ended
+// the run, when given — has been answered (capped at FLUSH_CAP_MS), or rejects when `onEnd`
+// throws, after `res` has been answered 500. `waiting()` is the number of held waits and
+// `watching()` the number of held change waits.
+export function startServer({ port, token: givenToken, session, files: initialFiles, readSource, onSave, onSend, onReply, onEnd, relist }) {
+  let files = initialFiles;
+  let allowed = new Set(files);
+  // The run's change count: bumped once per accepted reply post, kept in memory only, so a
+  // viewer reads it from `GET /api/session` and waits on `GET /api/changes` for the next one.
+  let changes = 0;
   const token = givenToken ?? randomBytes(16).toString('hex');
   let origin = null; // set once the port is known
   // A wait with no `after` counts from the round the run started at, so a first wait on a
   // resumed file does not return at once for rounds an earlier run sent.
   const startRound = session.round;
   const waiters = new Map(); // held wait response -> its `after`
+  const watchers = new Map(); // held change wait response -> its `after`
   let closed = false; // no route mutates the session once the end has begun
   let endStarted = false;
   let endDoc = null;
@@ -146,7 +162,7 @@ export function startServer({ port, token: givenToken, session, files, readSourc
       return ended;
     }
     endDoc = { status, round: session.round, out: doc.out };
-    const pending = answerWaiters(waiters, endDoc);
+    const pending = [...answerWaiters(waiters, endDoc), ...answerWaiters(watchers, { status, changes })];
     if (res) {
       pending.push(reply(res, { ok: true, status }));
     }
@@ -170,14 +186,33 @@ export function startServer({ port, token: givenToken, session, files, readSourc
         return sendJson(res, { error: 'missing or wrong token' }, 403);
       }
       if (req.method === 'GET' && url.pathname === '/api/session') {
-        return sendJson(res, { session, files });
+        return sendJson(res, { session, files, changes });
       }
       if (req.method === 'GET' && url.pathname === '/api/file') {
         const path = url.searchParams.get('path') ?? '';
         if (!allowed.has(path)) {
           return sendJson(res, { error: `${path} is not in scope` }, 404);
         }
-        return sendJson(res, readSource(path));
+        const source = readSource(path);
+        if (source === null) {
+          return sendJson(res, { error: `${path} no longer exists` }, 404);
+        }
+        return sendJson(res, source);
+      }
+      if (req.method === 'GET' && url.pathname === '/api/changes') {
+        const raw = url.searchParams.get('after');
+        if (raw === null || !/^\d+$/.test(raw)) {
+          return sendJson(res, { error: `bad after: ${raw ?? ''}` }, 400);
+        }
+        if (endDoc) {
+          return sendJson(res, { status: endDoc.status, changes });
+        }
+        if (changes > Number(raw)) {
+          return sendJson(res, { status: 'changed', changes });
+        }
+        watchers.set(res, Number(raw));
+        res.on('close', () => watchers.delete(res));
+        return undefined;
       }
       if (req.method === 'GET' && url.pathname === '/api/wait') {
         const raw = url.searchParams.get('after');
@@ -197,7 +232,7 @@ export function startServer({ port, token: givenToken, session, files, readSourc
       }
       const mutating =
         (req.method === 'PUT' && url.pathname === '/api/session') ||
-        (req.method === 'POST' && (url.pathname === '/api/submit' || END_ROUTES[url.pathname]));
+        (req.method === 'POST' && (url.pathname === '/api/submit' || url.pathname === '/api/reply' || END_ROUTES[url.pathname]));
       if (!mutating) {
         return sendJson(res, { error: 'not found' }, 404);
       }
@@ -206,6 +241,24 @@ export function startServer({ port, token: givenToken, session, files, readSourc
       const body = await readJson(req);
       if (closed) {
         return sendJson(res, { error: 'the run has ended' }, 409);
+      }
+      // A reply post carries no viewer edits. Once its replies are saved it is the round's
+      // boundary: the listing is recomputed, the change count bumped and held change waits woken.
+      if (url.pathname === '/api/reply') {
+        const result = onReply(body);
+        if (result.error) {
+          return sendJson(res, { error: result.error }, 400);
+        }
+        try {
+          files = relist();
+          allowed = new Set(files);
+        } catch {
+          // the replies are saved; the previous listing stays
+        }
+        changes += 1;
+        sendJson(res, { ok: true, replied: result.replied });
+        answerWaiters(watchers, { status: 'changed', changes }, changes);
+        return undefined;
       }
       applyEdits(session, body, allowed);
       if (req.method === 'PUT') {
@@ -239,7 +292,7 @@ export function startServer({ port, token: givenToken, session, files, readSourc
           server.close(() => done());
           server.closeAllConnections();
         });
-      resolve({ url: `${origin}/#${token}`, close, end, ended, waiting: () => waiters.size });
+      resolve({ url: `${origin}/#${token}`, close, end, ended, waiting: () => waiters.size, watching: () => watchers.size });
     });
   });
 }

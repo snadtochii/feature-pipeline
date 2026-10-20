@@ -1,6 +1,8 @@
 // The annotation model: the fields a note may carry, where it may point, and how a write from
 // the viewer revises the stored notes. A note carries `round` once it has been sent; a sent
 // note is locked, so no write revises or deletes it, and `round` is set only by the server.
+// A sent note may carry the agent's `replies`, which are server-owned like `round`: a viewer
+// write never sets or changes them.
 // Shared by the HTTP surface (`server.mjs`) and the session rules (`session.mjs`); it depends
 // on neither.
 
@@ -29,8 +31,9 @@ function inScope(anchor, allowed) {
 // Keeps only the fields the notes file defines, so neither a stray client nor a
 // hand-edited notes file can give the reading skill a shape it does not expect.
 // `maxRound` is given only on resume: a stored `round` from 1 to `maxRound` is kept and any
-// other value rejects the note. Without it (a viewer write), `round` is dropped like any
-// unknown field.
+// other value rejects the note, and so are stored `replies` — a list, on a sent note only, each
+// reply answering a round from the note's `round` to `maxRound`; an empty list is dropped.
+// Without `maxRound` (a viewer write), `round` and `replies` are dropped like any unknown field.
 export function cleanAnnotation(raw, allowed, maxRound) {
   const anchor = raw?.anchor ?? {};
   if (!ANCHOR_KINDS.has(anchor.kind) || typeof raw.body !== 'string') {
@@ -68,7 +71,32 @@ export function cleanAnnotation(raw, allowed, maxRound) {
     }
     clean.round = raw.round;
   }
+  if (typeof maxRound === 'number' && raw.replies !== undefined) {
+    if (clean.round === undefined || !Array.isArray(raw.replies)) {
+      return null;
+    }
+    const replies = raw.replies.map((reply) => cleanReply(reply, clean.round, maxRound));
+    if (replies.includes(null)) {
+      return null;
+    }
+    if (replies.length > 0) {
+      clean.replies = replies;
+    }
+  }
   return clean;
+}
+
+// One reply of the agent, as stored: `{ body, round, createdAt }`, where `round` is the round
+// the agent answered and lies from `minRound` to `maxRound`. Other keys are dropped; anything
+// else returns null.
+export function cleanReply(raw, minRound, maxRound) {
+  if (!raw || typeof raw !== 'object' || typeof raw.body !== 'string' || typeof raw.createdAt !== 'string') {
+    return null;
+  }
+  if (!Number.isInteger(raw.round) || raw.round < minRound || raw.round > maxRound) {
+    return null;
+  }
+  return { body: raw.body, round: raw.round, createdAt: raw.createdAt };
 }
 
 // A write may change a stored note's text, never its anchor.
