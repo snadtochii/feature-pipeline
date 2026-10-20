@@ -178,7 +178,7 @@ export function postReplies(session, body) {
   if (!Number.isInteger(round) || round < 1 || round > session.round) {
     return { error: `bad round: ${JSON.stringify(round) ?? 'none'}` };
   }
-  const entries = body.replies ?? [];
+  const entries = body.replies === undefined ? [] : body.replies;
   if (!Array.isArray(entries)) {
     return { error: 'replies is not a list' };
   }

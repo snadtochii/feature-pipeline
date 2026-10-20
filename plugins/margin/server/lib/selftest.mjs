@@ -846,6 +846,7 @@ const CASES = [
       [{ round: 1 }, 'nothing to reply'],
       [{ round: 1, overall: ' ' }, 'overall reply is blank or not a string'],
       [{ round: 1, replies: {} }, 'replies is not a list'],
+      [{ round: 1, replies: null, overall: 'x' }, 'replies is not a list'],
     ]) {
       const refused = await post(body);
       assert(refused.status === 400, `${JSON.stringify(body)} got ${refused.status}`);
