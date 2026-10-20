@@ -81,8 +81,23 @@ turns it into work. Nothing is edited before the confirmation in §3.
    the server also opens it; it answers on `127.0.0.1` only, `localhost` is refused, and the
    `#<token>` fragment is required, since without it the viewer cannot load the session — and
    the block's `notes:` line as printed, naming the file that saves as the human goes; Send
-   hands the notes over. Then stop talking until the command exits — do not poll, do not read the notes
-   file early.
+   hands the notes over. Then start the wait for Send, also **in the background with the
+   maximum timeout**, with `<url>` the viewer URL exactly as printed:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" wait "<url>"
+   ```
+
+   Stop talking until a background command exits — do not poll, do not read the notes file
+   early. When the wait exits 0 with `"status": "sent"`, end the run with Finish, `<port>` and
+   `<token>` taken from the URL (`http://127.0.0.1:<port>/#<token>`):
+
+   ```bash
+   curl -s -X POST -H 'x-margin-token: <token>' http://127.0.0.1:<port>/api/finish
+   ```
+
+   Any other `status`, or an exit 1, means the run has already ended. Either way the server
+   command exits next (step 8).
 7. **No block** within the wait → check whether the background command has exited.
    - **Still running** → the server is still listing the scope or reading the resumed file,
      which it does before binding. Run step 5's wait once more; the block appears → step 6.
@@ -97,7 +112,7 @@ turns it into work. Nothing is edited before the confirmation in §3.
      - any other error — as printed.
 
      Then delete the stderr file and stop.
-8. **Exit.** When the command exits, its stdout is one JSON document: `{ status, out,
+8. **Exit.** When the server command exits, its stdout is one JSON document: `{ status, out,
    annotations, rounds, root, scope }`. Delete the stderr file (`rm -f "<stderr-file>"`) and go on to
    §2.
 

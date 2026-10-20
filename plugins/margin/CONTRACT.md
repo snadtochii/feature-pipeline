@@ -376,13 +376,18 @@ longer exists answers 500.
    before it listens — so the skill waits once more before it stops the process.
 4. **Announce.** Once that line has appeared, it tells the user the URL exactly as printed,
    and the notes file the block names.
-5. **Read after exit.** It waits for the process to exit, without polling and without reading
+5. **Wait for Send.** It runs `cli.mjs wait <url>` (§1) as a background command with the URL
+   from step 3. When the wait document's `status` is `sent`, it ends the run with Finish, by
+   the call §8 gives for a caller other than the viewer; any other `status`, or an exit 1,
+   means the run has already ended.
+6. **Read after exit.** It waits for the process to exit, without polling and without reading
    the notes file. It then parses the one stdout document (§2) and, unless `status` is
    `error` or `out` is `null`, reads the notes file at `out`.
 
 The server never reads the skill's state: its whole input is its argument vector, the files
 under the root and the viewer's requests. The skill's whole input from the server is the
-stdout document, the URL on the stderr block's first line and, after exit, the notes file;
+stdout document, the wait document, the URL on the stderr block's first line and, after exit,
+the notes file;
 the rest of the stderr block is for the human.
 
 ## §12 `--self-test`
