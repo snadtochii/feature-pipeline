@@ -642,6 +642,8 @@ function openComposer(anchor, { existing = null, intent = existing?.intent ?? 'c
 
   add.addEventListener('click', commit);
   cancel.addEventListener('click', closeComposer);
+  body.addEventListener('input', updateSend);
+  intents.addEventListener('change', updateSend);
   body.addEventListener('keydown', (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       commit();
@@ -661,6 +663,7 @@ function closeComposer() {
   state.composer = null;
   el.composer.classList.add('hidden');
   el.composer.replaceChildren();
+  updateSend();
 }
 
 function afterChange() {
@@ -699,10 +702,12 @@ function overallChanged() {
 // The server's rule for a Send: an unsent note, or an overall text the last round did not send.
 const canSend = () => unsentNotes().length > 0 || overallChanged();
 
+// Send is offered when the server's rule holds or when the open composer holds a note Send would
+// add first (sendRound commits it before checking the rule).
 function updateSend() {
   const count = unsentNotes().length;
   el.send.textContent = count ? `Send ${count}` : 'Send';
-  el.send.disabled = state.busy || state.ended || !canSend();
+  el.send.disabled = state.busy || state.ended || !(canSend() || Boolean(state.composer?.dirty()));
 }
 
 function renderList() {
