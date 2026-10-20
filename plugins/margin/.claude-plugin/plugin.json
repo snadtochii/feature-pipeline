@@ -1,6 +1,6 @@
 {
   "name": "margin",
-  "description": "Read code in a local browser viewer, leave notes on lines, files, folders and the scope as a whole, and hand the batch to the agent to act on.",
+  "description": "Read code in a local browser viewer, leave notes on lines, files, folders and the scope as a whole, send them to the agent round by round, and read its reply beside each note.",
   "version": "0.3.0",
   "author": {
     "name": "Serhii Nadtochii"
