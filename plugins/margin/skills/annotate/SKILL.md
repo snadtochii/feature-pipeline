@@ -425,7 +425,9 @@ notes. Every note of the round gets exactly one reply:
   - a structural row done → `done: <what was done> — <files touched>`, plus `now at <span>`
     when the code the note points at moved, found by §5's re-anchor rules;
   - handed off → `handed off: <ticket-id>`, or `handed off: <epic-id> (<child ids>)` when
-    discover made an epic;
+    discover made an epic, plus — when §5's re-anchor changed the row's anchor — ` — ` and
+    the anchor as §5 step 1 wrote it: `now at <path:start-end>`, `moved to …` or
+    `removed (was …)`;
   - held and not named at the gate → `held: drifted — <the drift line>`;
   - left out or changed at the gate → `not done: <the reason from the answer>`;
   - a check that failed after the edit, reverted → `not done: reverted — <check> failed
