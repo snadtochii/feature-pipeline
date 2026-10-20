@@ -70,6 +70,10 @@ kbd { font: 11px var(--mono); opacity: .7; margin-left: 4px; }
 .brand { font-weight: 600; letter-spacing: .02em; }
 .spacer { flex: 1; }
 #scope { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50vw; }
+/* One fixed-height line for round, waiting, connection and action messages, so a message never moves the layout. */
+.status { flex: none; height: 28px; line-height: 28px; padding: 0 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.status.waiting { color: var(--accent); background: var(--accent-soft); }
+.status.error { color: var(--danger); }
 
 .layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 280px minmax(0, 1fr) 380px; }
 /* Each pane lays out on its own, so re-rendering the tree or the notes list never re-lays out a long file. */
@@ -145,7 +149,33 @@ kbd { font: 11px var(--mono); opacity: .7; margin-left: 4px; }
 .note .ops button { border: none; background: none; padding: 0; color: var(--muted); }
 .note .ops button:hover { color: var(--accent); }
 .note .ops button.del:hover { color: var(--danger); }
+/* A disabled reply keeps its box, so enabling it later moves nothing. */
+.note .ops button:disabled { opacity: .5; cursor: default; color: var(--muted); }
+.note .tags { display: flex; align-items: center; gap: 4px; flex: none; }
+.note.sent { background: var(--panel); }
+.badge.round { color: var(--muted); }
+.tag { font-size: 11px; padding: 0 6px; border-radius: 10px; }
+.tag.drift { color: var(--muted); border: 1px dashed var(--line); }
+.replies { list-style: none; margin: 6px 0 0; padding: 0 0 0 10px; border-left: 2px solid var(--accent-soft); display: flex; flex-direction: column; gap: 6px; }
+.replies:empty { display: none; }
+.note .replies { margin-bottom: 6px; }
+.reply-head { font-size: 11px; color: var(--accent); font-weight: 600; }
+.reply .body { margin: 2px 0 0; white-space: pre-wrap; word-break: break-word; }
 
 .overlay { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.45); z-index: 10; }
 .overlay .card { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 24px 28px; max-width: 32em; }
 .overlay code { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+
+/* The header controls keep their size, so a changing save message or Send label moves nothing. */
+.bar button { flex: none; white-space: nowrap; }
+#save-state { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Narrow screens: the panes stack as rows of fixed height inside one scrolling layout, so each
+   keeps the explicit size its containment needs. */
+@media (max-width: 760px) {
+  .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: 30vh 60vh 60vh; overflow-y: auto; }
+  .tree { border-right: none; border-bottom: 1px solid var(--line); }
+  .notes { border-left: none; border-top: 1px solid var(--line); }
+  #scope { display: none; }
+  .bar { gap: 8px; padding: 0 8px; }
+}
