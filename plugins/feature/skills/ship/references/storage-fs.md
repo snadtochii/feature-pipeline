@@ -39,7 +39,7 @@ Every shared mutation in a `--parallel` run is orchestrator-only, in the forms [
 
 - **Worker brief, state clause** — the `<STATE_CLAUSE_BLOCK>` (§3).
 - **Transition 1, epic run** — the epic subtree's folder move plus `prd.md` status, before any dispatch; each child's `status` set to `in-progress` at its dispatch.
-- **Transition 5** — multi-solo ticket: status `in-review`, folder → `review/`. Epic child: status `in-review`, plus T5's subtree location check — while any sibling is still `in-progress` the subtree stays put; once none is and at least one child is `in-review` (typically at the last child) the whole epic subtree moves to `review/` with `prd.md` status `in-review`.
+- **Transition 5** — multi-solo ticket: status `in-review`, folder → `review/`. Epic child: status `in-review`, plus T5's subtree location check — while any sibling is still `in-progress` or `backlog`, or a declared child is not yet materialized, the subtree stays put; once the Epic-review condition holds — every declared child `in-review` or terminal, at least one `in-review` (typically at the last child) — the whole epic subtree moves to `review/` with `prd.md` status `in-review`.
 - **Transition 4** (a failed worker's ticket) — the `status: partial-completion` frontmatter flip.
 
 ## §7 UI evidence home and hosting
