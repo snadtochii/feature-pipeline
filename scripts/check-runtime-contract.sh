@@ -122,6 +122,17 @@ else:
     if forbidden:
         errors.append(f"finalizer: leaf role must not hold {sorted(set(forbidden))}")
 
+# The finalizer reads named sections of the state-transitions reference only, so
+# every shared section an epic child's transitions apply by name must be in its
+# read set and defined in both mode files — a section the brief omits reaches the
+# child as a bare name with no rule behind it.
+for section in ("## Epic-completion predicate", "## Epic-review condition"):
+    if f"`{section}`" not in close:
+        errors.append(f"close-stage: finalizer brief must name `{section}` for an epic child")
+    for mode in ("fs", "server"):
+        if not re.search(rf"^{re.escape(section)} \(shared\)$", (refs / f"state-transitions-{mode}.md").read_text(), re.M):
+            errors.append(f"state-transitions-{mode}.md: missing `{section} (shared)`")
+
 # The required UI checks are stated once and injected at both ui-tester spawn
 # sites; the tester needs the resize tool the checks' two widths depend on. A
 # spawn site that stops naming the contract, or a budget that loses the tool,
@@ -170,5 +181,5 @@ if leaked:
 if errors:
     print("\n".join(f"FAIL: {error}" for error in errors), file=sys.stderr)
     sys.exit(1)
-print("OK: 6 runtime consumers, 2 runtime implementations, 4 neutral stage templates, 1 stage chain, 4 read-only reviewer roles, 1 confidence-scale injection site, 1 mutating finalizer role, 2 ui-checks injection sites, 1 browser-driver seam (ui-tester branch, preflight §5 line, driver-pass.md driver-block equivalents)")
+print("OK: 6 runtime consumers, 2 runtime implementations, 4 neutral stage templates, 1 stage chain, 4 read-only reviewer roles, 1 confidence-scale injection site, 1 mutating finalizer role, 2 shared epic sections in the finalizer read set, 2 ui-checks injection sites, 1 browser-driver seam (ui-tester branch, preflight §5 line, driver-pass.md driver-block equivalents)")
 PY
