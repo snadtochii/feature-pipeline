@@ -168,7 +168,8 @@ export function sendRound(session) {
 // A reply post of the agent for sent round `body.round`: each entry `{ id, body }` appends a
 // reply to every stored note carrying that id that was sent in that round or earlier, and an
 // optional `overall` appends an overall reply. The whole request is checked before anything
-// changes: any problem returns `{ error }` naming every problem, and nothing is applied.
+// changes: a problem returns `{ error }` and nothing is applied. A request-level problem is
+// the whole error; otherwise the error joins each entry's first problem.
 // Otherwise the replies are appended with one server time and saved, and `{ replied }` is the
 // number of note replies appended. A failed save undoes every append and rethrows, so a
 // retried post does not duplicate.
