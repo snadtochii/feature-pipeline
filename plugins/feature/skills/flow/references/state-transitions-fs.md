@@ -33,7 +33,7 @@ claudedocs/tickets/<state>/<EPIC-ID>/
     └── <CHILD-3-ID>/...
 ```
 
-For epics, the **entire subtree moves between state folders as a unit**. The epic's `<state>/` location follows the most-advanced child under the precedence `in-progress` ⊐ `review` ⊐ `done`: any child `in-progress` → epic in `in-progress/`; else any child `in-review` → epic in `review/`; else every declared child materialized-and-terminal (the Epic-completion predicate) → epic in `done/`.
+For epics, the **entire subtree moves between state folders as a unit**. The epic's `<state>/` location follows the precedence `in-progress` ⊐ `review` ⊐ `done`: any child `in-progress`, or any declared child not yet started (`backlog`, or not yet materialized) → epic in `in-progress/`; else any child `in-review` (the Epic-review condition) → epic in `review/`; else every declared child materialized-and-terminal (the Epic-completion predicate) → epic in `done/`. Unstarted work outranks an open PR: an epic is not awaiting review while a sibling remains to be built. An epic whose children are all `backlog` or `cancelled` sits in `backlog/` (Transition 3's inverse check).
 
 Variables used throughout:
 - `<ticket-folder>` — resolves to `claudedocs/tickets/<state>/<id>/` (solo) or `claudedocs/tickets/<state>/<EPIC>/tasks/<CHILD>/` (child).
@@ -73,6 +73,20 @@ A declared child with **no** materialized spec is the **expected** mid-flight st
 **Fail-safe composition**: a materialized child whose spec is present but whose `status` is missing or unparseable is treated as `backlog` (non-terminal) → fails (T) → `stay`. This preserves the existing malformed-sibling rule (worst-case assumption keeps the epic out of `done/`) and composes with the roster rules above rather than replacing it.
 
 **Descope escape hatch**: a declared child that will never be built must be reflected in the roster, or it blocks the predicate indefinitely (the child blocks (C)). Manual operator remediations: remove the child's ID from `prd.md`'s `children:` (shrinks `declared`), **or** materialize `tasks/<id>/01-spec.md` as a stub with `status: cancelled` (adds it to `materialized` as a terminal child). Either satisfies the predicate. There is no automated roster mutation — descoping is a deliberate human edit.
+
+---
+
+## Epic-review condition (shared)
+
+The single definition of "is this epic awaiting review?" — whether the subtree belongs in `review/` rather than `in-progress/`. Transition 5 §3, Transition 2 §3's `stay` branch and the read-only Status query apply it by name. It reads only, and it uses the Epic-completion predicate's definitions (`declared`, materialized, terminal).
+
+**The condition holds iff all four hold**:
+1. **(R) roster present** — `prd.md` has a parseable `children:` list.
+2. **(C) coverage** — every ID in `declared` is in `materialized`.
+3. **No unfinished work** — every materialized child is `in-review` or terminal; none is `in-progress` or `backlog`. A spec whose `status` is missing or unparseable counts as `backlog`.
+4. **An open PR** — at least one materialized child is `in-review`.
+
+Otherwise the epic stays in `in-progress/`. A `backlog` sibling and a declared child with no materialized spec block the condition exactly as an `in-progress` sibling does: the epic awaits review only once no work remains to start. An unreadable roster also keeps the epic in `in-progress/`; the condition raises no warning of its own — roster warnings come from the Epic-completion predicate.
 
 ---
 
@@ -137,7 +151,7 @@ If the ticket is already in progress with the expected status — folder in `in-
 
 3. **Epic-completion check** (load-bearing for epic-mode): apply the **Epic-completion predicate** (above).
    - On `promote`: move the **entire epic subtree** from `claudedocs/tickets/in-progress/<EPIC>/` to `claudedocs/tickets/done/<EPIC>/`, and set `prd.md` frontmatter `status` to `done`.
-   - On `stay`: the epic stays out of `done/` — its location follows the precedence `in-progress` ⊐ `review` ⊐ `done` (any sibling still `in-progress` → `in-progress/`; else any `in-review` → `review/`). The subtree only moves to `done/` once the predicate returns `promote` — i.e. the full declared `children:` roster is materialized and every materialized child is terminal.
+   - On `stay`: the epic stays out of `done/`. If the **Epic-review condition** (above) holds, move the entire epic subtree from `claudedocs/tickets/in-progress/<EPIC>/` to `claudedocs/tickets/review/<EPIC>/` and set `prd.md` frontmatter `status` to `in-review`; otherwise the epic stays in `in-progress/`. The subtree only moves to `done/` once the predicate returns `promote` — i.e. the full declared `children:` roster is materialized and every materialized child is terminal.
    - Surface any predicate warnings (roster-unknown, roster-drift): under `close-stage` they travel out in the finalizer's result `notes`, which the close stage prints with its closing message.
 
 ### Folder-move-then-frontmatter atomicity
@@ -210,10 +224,9 @@ Ticket lands here when its PR is open but not yet merged — a **non-terminal** 
 
 2. **Child frontmatter update**: set the child's `01-spec.md` frontmatter `status` to `in-review`. The child's frontmatter is the signal, not its folder: the child is `in-review` even while the subtree stays in `in-progress/` under step 3 — a deliberate divergence from the solo path, where `review/` and `in-review` always coincide. Consumers that key on `review/` (flow's and the close stage's resumption routing) read the folder and so treat such a child by its verdict artifacts, not as an open PR.
 
-3. **Epic-subtree location check** (precedence `in-progress` ⊐ `review` ⊐ `done`):
-   - Scan every sibling under `<epic-folder>/tasks/*/01-spec.md`.
-   - If **no** sibling is `in-progress` AND **at least one** is `in-review` (the rest done/cancelled/partial-completion): move the **entire epic subtree** from `claudedocs/tickets/in-progress/<EPIC>/` to `claudedocs/tickets/review/<EPIC>/` and set `prd.md` frontmatter `status` to `in-review`.
-   - If any sibling is still `in-progress`: the epic stays in `in-progress/` — `in-progress` outranks `review`.
+3. **Epic-subtree location check**: apply the **Epic-review condition** (above) over `prd.md`'s `children:` and every `<epic-folder>/tasks/*/01-spec.md`.
+   - Holds: move the **entire epic subtree** from `claudedocs/tickets/in-progress/<EPIC>/` to `claudedocs/tickets/review/<EPIC>/` and set `prd.md` frontmatter `status` to `in-review`.
+   - Does not hold — a sibling is `in-progress` or `backlog`, a declared child is not yet materialized, or the roster can't be read: the epic stays in `in-progress/`. A `backlog` sibling counts the same as an `in-progress` one, so closing a child with siblings still unstarted never moves the subtree.
 
 ### Folder-move-then-frontmatter atomicity
 
@@ -234,7 +247,7 @@ Same rule as Transition 2: move the folder first, then update frontmatter. On a 
 
 ### Child of an epic
 
-1. **No child-folder move**: child stays inside the epic subtree. The subtree may be in `review/` or still in `in-progress/` (a sibling is mid-build) — the child's status flips in place either way.
+1. **No child-folder move**: child stays inside the epic subtree. The subtree may be in `review/` or still in `in-progress/` (a sibling is mid-build or not yet started) — the child's status flips in place either way.
 
 2. **Child frontmatter update**: set the child's `01-spec.md` frontmatter `status` to `done`.
 
@@ -274,7 +287,7 @@ Used by future tooling (notably the epic-mode flow walker) to inspect aggregate 
 Read the ticket's `status` from `<ticket-folder>/01-spec.md` frontmatter. Possible values:
 - `backlog` — not yet started.
 - `in-progress` — currently in the pipeline.
-- `in-review` — the verdict was `pass` with `--pr`; PR open, awaiting merge. A **solo** ticket lives in `review/`; an **epic child** can be `in-review` while its subtree is still in `in-progress/` (a sibling is mid-build, so the precedence rule keeps the epic out of `review/`). So `in-review` is found by frontmatter `status`, not by folder location alone. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking — build's merged-sibling clause in ticket-resolution Step 6 tests the child's PR and the checkout, not this status), but included in every folder search and resumption path.
+- `in-review` — the verdict was `pass` with `--pr`; PR open, awaiting merge. A **solo** ticket lives in `review/`; an **epic child** can be `in-review` while its subtree is still in `in-progress/` (a sibling is mid-build or not yet started, so the Epic-review condition keeps the epic out of `review/`). So `in-review` is found by frontmatter `status`, not by folder location alone. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking — build's merged-sibling clause in ticket-resolution Step 6 tests the child's PR and the checkout, not this status), but included in every folder search and resumption path.
 - `done` — completed cleanly.
 - `partial-completion` — finalized but with un-fixable failures (treated as terminal for aggregate calculations).
 - `cancelled` — abandoned (lives in `done/` per the discover convention; treated as terminal).
@@ -288,9 +301,9 @@ For an epic (`prd.md` present):
 - Iterate every child — `<epic-folder>/tasks/*/01-spec.md` — and read each child's `status`.
 - Derived states:
   - **Epic-completion predicate returns `promote`** (the full declared `children:` roster is materialized and every materialized child is terminal): epic should be in `done/` (Transition 2 / Transition 6 moves it there on the last child's finalization). A roster that outruns the materialized set — some declared child not yet authored — does NOT qualify; the epic stays under the precedence rule below.
-  - **Any child in-progress**: epic should be in `in-progress/`.
-  - **Any child in-review, none in-progress**: epic should be in `review/` (precedence `in-progress` ⊐ `review` ⊐ `done`).
   - **All children backlog or cancelled**: epic should be in `backlog/`.
+  - **Epic-review condition holds** (every declared child materialized, each `in-review` or terminal, at least one `in-review`): epic should be in `review/`.
+  - **Otherwise** — any child `in-progress`, or a `backlog` or unmaterialized declared child alongside started work: epic should be in `in-progress/` (precedence `in-progress` ⊐ `review` ⊐ `done`).
 
 An epic-walker uses this query to:
 1. Pick the next child to run (topologically sort by `blocked_by`, filter to `backlog` status).

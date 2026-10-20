@@ -12,7 +12,7 @@ Every transition is one `pipeline_transition_ticket` CAS call per status change 
 
 A ticket is a row. An epic is a row with `kind: epic` whose children are rows carrying `parent_id`; "the epic's location" is the epic row's own status. Every stage artifact is an artifact row keyed by name on its ticket.
 
-For epics, the epic row's status follows the most-advanced child under the precedence `in-progress` ⊐ `in-review` ⊐ `done`: any child `in-progress` → epic `in-progress`; else any child `in-review` → epic `in-review`; else every child terminal (the Epic-completion predicate) → epic `done`.
+For epics, the epic row's status follows the precedence `in-progress` ⊐ `in-review` ⊐ `done`: any child `in-progress` or `backlog` → epic `in-progress`; else any child `in-review` (the Epic-review condition) → epic `in-review`; else every child terminal (the Epic-completion predicate) → epic `done`. Unstarted work outranks an open PR: an epic is not awaiting review while a sibling remains to be built. An epic whose children are all `backlog` or `cancelled` is at `backlog` (Transition 3's inverse check).
 
 Variables used throughout:
 - `<ticket-folder>` — the ticket's handle: its row (ID + fields).
@@ -50,6 +50,20 @@ Why coverage (C) is stated: with the roster derived from child rows, `declared` 
 **Fail-safe composition**: a child row whose `status` is empty or outside the six values is treated as `backlog` (non-terminal) → fails (T) → `stay`. This preserves the malformed-sibling rule (worst-case assumption keeps the epic out of `done`) and composes with the roster rules above rather than replacing it.
 
 **Descope escape hatch**: a declared child that will never be built must be reflected in the roster, or it blocks the predicate indefinitely (an existing non-terminal row blocks (T)). Manual operator remediation: transition the child's row to `cancelled` — it becomes terminal. There is no roster list to edit; the roster is the rows. There is no automated roster mutation — descoping is a deliberate human edit.
+
+---
+
+## Epic-review condition (shared)
+
+The single definition of "is this epic awaiting review?" — whether the epic row belongs at `in-review` rather than `in-progress`. Transition 5 §2, Transition 2 §2's `stay` branch and the read-only Status query apply it by name. It reads only, and it uses the Epic-completion predicate's definitions (`declared`, materialized, terminal).
+
+**The condition holds iff all four hold**:
+1. **(R) roster present** — the child listing returned at least one row.
+2. **(C) coverage** — every ID in `declared` is in `materialized`.
+3. **No unfinished work** — every child row is `in-review` or terminal; none is `in-progress` or `backlog`. A row whose `status` is empty or outside the six values counts as `backlog`.
+4. **An open PR** — at least one child row is `in-review`.
+
+Otherwise the epic row stays `in-progress`. A `backlog` sibling blocks the condition exactly as an `in-progress` sibling does: the epic awaits review only once no work remains to start. With the roster derived from child rows, (C) holds by construction — a child whose row is not yet created is invisible here, as it is to the predicate. The condition raises no warning of its own — roster warnings come from the Epic-completion predicate.
 
 ---
 
@@ -91,7 +105,7 @@ If the row status is already `in-progress`, this transition is a no-op (no CAS c
 ### Child of an epic
 
 1. The same per-verdict CAS for the child row.
-2. **Epic-completion check** (load-bearing for epic-mode): apply the **Epic-completion predicate** (above) over the rows. On `promote`, CAS the epic row `from: [in-progress, in-review]`, `to: done`; on `stay`, the epic row keeps its precedence-derived status (any sibling still `in-progress` → `in-progress`; else any `in-review` → `in-review`). The epic row reaches `done` only once the predicate returns `promote` — i.e. every child row is terminal.
+2. **Epic-completion check** (load-bearing for epic-mode): apply the **Epic-completion predicate** (above) over the rows. On `promote`, CAS the epic row `from: [in-progress, in-review]`, `to: done`; on `stay`, if the **Epic-review condition** (above) holds, CAS the epic row `from: [in-progress]`, `to: in-review`; otherwise the epic row stays `in-progress`. The epic row reaches `done` only once the predicate returns `promote` — i.e. every child row is terminal.
 3. Surface any predicate warnings (roster-unknown, roster-drift): under `close-stage` they travel out in the finalizer's result `notes`, which the close stage prints with its closing message.
 
 A CAS failure follows [`storage-server.md`](storage-server.md) §CAS conflict doctrine. The CAS transition is a single atomic call — there is no two-step to order.
@@ -146,7 +160,7 @@ Ticket lands here when its PR is open but not yet merged — a **non-terminal** 
 ### Child of an epic
 
 1. The same CAS for the child row. An epic child's `in-review` is a plain row status — the child row is the signal, and consumers that key on `in-review` (flow's and the close stage's resumption routing) read the child row's status directly, whatever the epic row says.
-2. **Epic status check** (precedence `in-progress` ⊐ `in-review` ⊐ `done`): scan the sibling rows (List tickets / list children in [`storage-server.md`](storage-server.md)). If **no** sibling is `in-progress` and at least one is `in-review` (the rest done/cancelled/partial-completion), CAS the epic row `from: [in-progress]`, `to: in-review`; if any sibling is still `in-progress`, the epic row is untouched — `in-progress` outranks `in-review`.
+2. **Epic status check**: apply the **Epic-review condition** (above) over the sibling rows (List tickets / list children in [`storage-server.md`](storage-server.md)). Holds: CAS the epic row `from: [in-progress]`, `to: in-review`. Does not hold — a sibling is `in-progress` or `backlog`: the epic row is untouched. A `backlog` sibling counts the same as an `in-progress` one, so closing a child with siblings still unstarted never flips the epic row.
 
 When the invoking flow has the opened PR's URL, record it on the row via `pipeline_update_ticket` (`pr_url`) — a non-status field, outside the CAS.
 
@@ -200,7 +214,7 @@ Used by future tooling (notably the epic-mode flow walker) to inspect aggregate 
 Read the ticket's `status` — the row field via `pipeline_get_ticket`. Possible values:
 - `backlog` — not yet started.
 - `in-progress` — currently in the pipeline.
-- `in-review` — the verdict was `pass` with `--pr`; PR open, awaiting merge. An **epic child** can be `in-review` while its epic row is still `in-progress` (a sibling is mid-build, so the precedence rule keeps the epic row at `in-progress`) — the child row's status is the signal. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking — build's merged-sibling clause in ticket-resolution Step 6 tests the child's PR and the checkout, not this status), but included in every resolution and resumption path.
+- `in-review` — the verdict was `pass` with `--pr`; PR open, awaiting merge. An **epic child** can be `in-review` while its epic row is still `in-progress` (a sibling is mid-build or not yet started, so the Epic-review condition keeps the epic row at `in-progress`) — the child row's status is the signal. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking — build's merged-sibling clause in ticket-resolution Step 6 tests the child's PR and the checkout, not this status), but included in every resolution and resumption path.
 - `done` — completed cleanly.
 - `partial-completion` — finalized but with un-fixable failures (treated as terminal for aggregate calculations).
 - `cancelled` — abandoned (treated as terminal).
@@ -214,9 +228,9 @@ For an epic (row with `kind: epic`):
 - Iterate every child row (List tickets / list children in [`storage-server.md`](storage-server.md)) and read each child's `status`.
 - Derived states:
   - **Epic-completion predicate returns `promote`** (every child row is terminal): epic row should be `done` (Transition 2 / Transition 6 writes it on the last child's finalization). An epic whose planned children are not all created yet still promotes once the existing ones are terminal — see the predicate's coverage note.
-  - **Any child in-progress**: epic row should be `in-progress`.
-  - **Any child in-review, none in-progress**: epic row should be `in-review` (precedence `in-progress` ⊐ `in-review` ⊐ `done`).
   - **All children backlog or cancelled**: epic row should be `backlog`.
+  - **Epic-review condition holds** (every child row `in-review` or terminal, at least one `in-review`): epic row should be `in-review`.
+  - **Otherwise** — any child `in-progress`, or a `backlog` child alongside started work: epic row should be `in-progress` (precedence `in-progress` ⊐ `in-review` ⊐ `done`).
 
 An epic-walker uses this query to:
 1. Pick the next child to run (topologically sort by `blocked_by`, filter to `backlog` status).
