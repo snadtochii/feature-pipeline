@@ -272,16 +272,19 @@ request passes the guards of §9 first. Eight routes:
 | `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
 | `GET /api/session` | yes | — | 200 `{"session": <the notes file object, §6>, "files": [<listed paths, §10>]}`. |
 | `GET /api/file?path=<p>` | yes | — | `<p>` not a listed path: 404 `{"error"}`. Otherwise 200 with `{"path", "text"}` or a refusal `{"path", "binary": true, "reason"}` (§10). |
-| `GET /api/wait?after=<n>` | yes | — | `after` present and not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`. Without `after`, `<n>` is the round count the run started with (§4). Once the end of the run has begun: 200 with that end's wait document (§2), at once. When the round count exceeds `<n>`: 200 `{"status": "sent", "round": <count>, "out"}`, at once. Otherwise the reply is held until a Send answers it with `sent` and the new round, or the end of the run answers it. |
+| `GET /api/wait?after=<n>` | yes | — | `after` present and not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`. Without `after`, `<n>` is the round count the run started with (§4). Once the end of the run has begun: 200 with that end's wait document (§2), at once. When the round count exceeds `<n>`: 200 `{"status": "sent", "round": <count>, "out"}`, at once. Otherwise the reply is held until a Send brings the round count above `<n>`, which answers it with `sent` and the new round, or the end of the run answers it. |
 | `PUT /api/session` | yes | `{"overall"?, "annotations"?}` | Applies the edits (§7), saves the file, 200 `{"ok": true, "updatedAt"}`. |
-| `POST /api/submit` | yes | as `PUT` | Applies the edits and sends a round: every note without `round` is stamped with the next round number, the round is appended to `rounds` with the current `overall`, the file is saved, the reply is 200 `{"ok": true, "round": <n>}`, and every held wait is answered `sent`. The server keeps serving. With nothing to send — no unsent note, and an `overall` that, trimmed, equals the `overall` the last round sent, trimmed (`""` before any round) — the edits are still saved, the round count does not move, no wait is answered, and the reply is 409 `{"error": "nothing to send"}`. |
-| `POST /api/cancel` | yes | as `PUT` | Applies the edits without sending a round, answers 200 `{"ok": true, "status": "cancelled"}`, then ends the run as `cancelled`, with the deletion rule of §6. |
-| `POST /api/finish` | yes | as `PUT` | Applies the edits without sending a round, answers 200 `{"ok": true, "status": "finished"}`, then ends the run as `finished`. Unsent notes stay in the file without `round`. |
+| `POST /api/submit` | yes | as `PUT` | Applies the edits and sends a round: every note without `round` is stamped with the next round number, the round is appended to `rounds` with the current `overall`, the file is saved, the reply is 200 `{"ok": true, "round": <n>}`, and every held wait whose `<n>` is below the new round is answered `sent`. The server keeps serving. With nothing to send — no unsent note, and an `overall` that, trimmed, equals the `overall` the last round sent, trimmed (`""` before any round) — the edits are still saved, the round count does not move, no wait is answered, and the reply is 409 `{"error": "nothing to send"}`. |
+| `POST /api/cancel` | yes | as `PUT` | Applies the edits without sending a round and ends the run as `cancelled`, with the deletion rule of §6; once the notes file has taken its final status, answers 200 `{"ok": true, "status": "cancelled"}`. |
+| `POST /api/finish` | yes | as `PUT` | Applies the edits without sending a round and ends the run as `finished`; once the notes file has taken its final status, answers 200 `{"ok": true, "status": "finished"}`. Unsent notes stay in the file without `round`. |
 
 **The end of the run.** Finish, Cancel and `SIGINT` / `SIGTERM` end the run once, whichever
 comes first. The notes file takes its final status (§6), every held wait is answered with the
-wait document for that end, and the process prints the result document (§2) and exits 0 once
-those replies have been handed to their sockets, or after 1000 ms, whichever is sooner. Once
+wait document for that end, the Cancel or Finish request that ended the run is answered, and
+the process prints the result document (§2) and exits 0 once those replies have been handed
+to their sockets, or after 1000 ms, whichever is sooner. When the notes file cannot be saved,
+that Cancel or Finish request is answered 500 `{"error"}` and the process exits 1 with the
+error document (§3). Once
 the end has begun, `PUT /api/session` and the three `POST` routes answer 409
 `{"error": "the run has ended"}` and apply nothing, a request whose body was still arriving
 included; a `GET /api/wait` answers the end's wait document at once. A caller other than the
@@ -400,13 +403,15 @@ the sent-note lock of §7; the scope check (§4); a listing that never lists a s
 both the git and the walk path (§10); the reading refusals and limits (§10); and, against a
 server on port 0 inside the process, the three guards of §9 (the finish and wait routes
 included), a Send that keeps the server serving and sends the next round, a Send with nothing
-to send, Finish with its result document and a write after the end refused, the deletion rule
-of §6 on an empty cancel and a cancel after a sent round that keeps the file, and `wait`
-returning on a Send and on Finish and failing on a closed port. A few cases run `cli.mjs`
-itself: each refusal of §5 and the scope check exit with the error document and leave an
-existing `--out` file byte for byte as it was; `wait`'s invocation refusals exit 2; one run
-serves a Send, keeps serving, and ends on Finish with exactly one result document while a
-`wait` child returns that end; and another run ends `interrupted` on `SIGTERM`.
+to send, Finish with its result document and a write after the end refused, a Finish whose
+save fails answered 500 with the run failed, the deletion rule of §6 on an empty cancel and a
+cancel after a sent round that keeps the file, and `wait` returning on a Send and on Finish,
+held past a Send that does not bring the round count above its `<n>`, and failing on a closed
+port. A few cases run `cli.mjs` itself: each refusal of §5 and the scope check exit with the
+error document and leave an existing `--out` file byte for byte as it was; `wait`'s invocation
+refusals exit 2, and a `wait` child, let go once the server holds its request, returns on a
+Send and on Finish; one run serves a Send, keeps serving, and ends on Finish with exactly one
+result document; and another run ends `interrupted` on `SIGTERM`.
 
 It opens no browser, sends requests to `127.0.0.1` only, and binds no fixed port. It prints
 `{"cases": <n>, "ok": true}` and exits 0 when every case passes; otherwise it prints

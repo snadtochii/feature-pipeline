@@ -133,7 +133,7 @@ function withServer(fn) {
     const out = path.join(root, 'claudedocs', 'margin', 'notes.json');
     const session = createSession({ stored: null, out, root, scope: [], revision: null });
     const save = () => saveSession(session);
-    const { url, close, ended } = await startServer({
+    const { url, close, ended, waiting } = await startServer({
       port: 0,
       token: TOKEN,
       session,
@@ -149,7 +149,7 @@ function withServer(fn) {
       assert(parsed.hostname === '127.0.0.1' && port > 0, `the server is not on a loopback port: ${url}`);
       assert(parsed.hash === `#${TOKEN}`, `the viewer URL does not carry the token: ${url}`);
       const host = `127.0.0.1:${port}`;
-      return await fn({ port, host, root, out, url, session, save, ended, finished: () => within(ended, 'the end of the run') });
+      return await fn({ port, host, root, out, url, session, save, ended, waiting, finished: () => within(ended, 'the end of the run') });
     } finally {
       await close();
     }
@@ -177,6 +177,17 @@ function assertErrorDoc(res, exitCode, fragment, what) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Resolves once `condition()` holds, checking every 10 ms, bounded by WAIT_MS.
+function until(condition, what) {
+  return within(
+    new Promise((resolve) => {
+      const check = () => (condition() ? resolve() : setTimeout(check, 10));
+      check();
+    }),
+    what,
+  );
 }
 
 // Whether `promise` has settled within `ms`, without waiting for it longer than that.
@@ -612,8 +623,22 @@ const CASES = [
     assertEqual(late.json, { error: 'the run has ended' }, 'late write reply');
     assert(fs.readFileSync(out, 'utf8') === saved, 'a write after the end changed the notes file');
   })],
+  ['finish: an end that cannot save answers 500 and fails the run', () => withServer(async ({ port, host, out, save, ended }) => {
+    save();
+    fs.rmSync(out);
+    fs.mkdirSync(out);
+    const reply = await request(port, { method: 'POST', target: '/api/finish', headers: { host, 'x-margin-token': TOKEN } });
+    assert(reply.status === 500 && typeof reply.json?.error === 'string', `a finish whose save failed got ${reply.status} ${reply.text}`);
+    let failed = false;
+    try {
+      await within(ended, 'the end of the run');
+    } catch {
+      failed = true;
+    }
+    assert(failed, 'the run ended although its notes file could not be saved');
+  })],
   ['wait: returns on submit and on finish', async () => {
-    await withServer(async ({ port, host, url, out, finished }) => {
+    await withServer(async ({ port, host, url, out, waiting, finished }) => {
       const headers = { host, 'x-margin-token': TOKEN };
       const badAfter = await request(port, { target: '/api/wait?after=x', headers });
       assert(badAfter.status === 400, `a wait with a bad after got ${badAfter.status}`);
@@ -626,9 +651,38 @@ const CASES = [
       assertEqual(await within(waitForRound({ url, after: 0 }), 'a wait after a sent round'), { status: 'sent', round: 1, out }, 'wait document for a round already sent');
 
       const held = waitForRound({ url, after: 1 });
-      assert(!(await isSettled(held, 200)), 'a wait after the current round returned');
+      const ahead = waitForRound({ url, after: 2 });
+      await until(() => waiting() === 2, 'two held waits');
+      await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: [{ id: 'n2', anchor: { kind: 'scope' }, body: 'two' }] } });
+      assertEqual(await within(held, 'the wait on the second submit'), { status: 'sent', round: 2, out }, 'wait document on the second submit');
+      assert(!(await isSettled(ahead, 200)), 'a wait after round 2 returned on round 2');
       await request(port, { method: 'POST', target: '/api/finish', headers });
-      assertEqual(await within(held, 'the wait on finish'), { status: 'finished', round: 1, out }, 'wait document on finish');
+      assertEqual(await within(ahead, 'the wait on finish'), { status: 'finished', round: 2, out }, 'wait document on finish');
+      await finished();
+    });
+    // The `wait` verb end to end: a child is let go only once the server holds its request.
+    await withServer(async ({ port, host, url, out, waiting, finished }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const onSend = spawnCli(['wait', url]);
+      try {
+        await until(() => waiting() === 1, 'the wait child held on the server');
+        await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: [{ id: 'n1', anchor: { kind: 'scope' }, body: 'one' }] } });
+        const sentExit = await onSend.exited();
+        assert(sentExit.code === 0, `the wait child exited ${sentExit.code ?? sentExit.signal} on a submit: ${sentExit.stdout}`);
+        assertEqual(JSON.parse(sentExit.stdout), { status: 'sent', round: 1, out }, 'wait child document on a submit');
+      } finally {
+        onSend.child.kill('SIGKILL');
+      }
+      const onFinish = spawnCli(['wait', url, '--after', '1']);
+      try {
+        await until(() => waiting() === 1, 'the second wait child held on the server');
+        await request(port, { method: 'POST', target: '/api/finish', headers });
+        const finishExit = await onFinish.exited();
+        assert(finishExit.code === 0, `the wait child exited ${finishExit.code ?? finishExit.signal} on finish: ${finishExit.stdout}`);
+        assertEqual(JSON.parse(finishExit.stdout), { status: 'finished', round: 1, out }, 'wait child document on finish');
+      } finally {
+        onFinish.child.kill('SIGKILL');
+      }
       await finished();
     });
     const closedPort = await new Promise((resolve) => {
@@ -673,7 +727,6 @@ const CASES = [
     const out = path.join(dir, 'notes.json');
     const annotateArgs = (file) => ['annotate', '--root', root, '--out', file, '--port', '0', '--token', TOKEN, '--no-open'];
     const server = spawnCli(annotateArgs(out));
-    let waiter = null;
     try {
       const url = await serverUrl(server);
       const port = Number(new URL(url).port);
@@ -682,13 +735,9 @@ const CASES = [
       assertEqual(sent.json, { ok: true, round: 1 }, 'submit reply');
       const alive = await request(port, { headers });
       assert(alive.status === 200, `the session after a submit got ${alive.status}`);
-      waiter = spawnCli(['wait', url, '--after', '1']);
-      // The wait child must be holding its request before the run ends; a child that connects
-      // after the server exits reports it unreachable, and the case fails on its exit code.
-      await sleep(750);
       const finish = await request(port, { method: 'POST', target: '/api/finish', headers });
       assertEqual(finish.json, { ok: true, status: 'finished' }, 'finish reply');
-      const [serverExit, waitExit] = await Promise.all([server.exited(), waiter.exited()]);
+      const serverExit = await server.exited();
       assert(serverExit.code === 0, `the server exited ${serverExit.code ?? serverExit.signal}: ${serverExit.stdout}`);
       let doc = null;
       try {
@@ -697,11 +746,8 @@ const CASES = [
         throw new CaseFailure(`the server's stdout is not one JSON document: ${JSON.stringify(serverExit.stdout)}`);
       }
       assertEqual(doc, { status: 'finished', out, annotations: 1, rounds: 1, root, scope: [] }, 'result document');
-      assert(waitExit.code === 0, `the wait child exited ${waitExit.code ?? waitExit.signal}: ${waitExit.stdout}`);
-      assertEqual(JSON.parse(waitExit.stdout), { status: 'finished', round: 1, out }, 'wait document');
     } finally {
       server.child.kill('SIGKILL');
-      waiter?.child.kill('SIGKILL');
     }
     const other = path.join(dir, 'other.json');
     const interrupted = spawnCli(annotateArgs(other));
