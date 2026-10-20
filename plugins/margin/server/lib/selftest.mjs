@@ -3,17 +3,22 @@
 // Exercises what no browser session proves, without a browser. It checks the viewer's colouring
 // seam over the vendored highlight.js on a fixed TSX sample, and the routes that serve both. It
 // checks the note rules (the anchor rule per kind, range validity, the excerpt cap), resuming a
-// notes file (a stored note keeps its anchor; the refusals), the scope rule, file listing that
-// never lists a symlink, and the reading refusals and limits — then the three request guards
-// and cancel-on-empty against a server on port 0 inside this process, and the command's own
-// refusals through `cli.mjs annotate` children that must exit before serving.
+// notes file (a stored note keeps its anchor; rounds and note rounds restore; a file without
+// rounds is round 0; the refusals), the atomic save, the sent-note lock, the scope rule, file
+// listing that never lists a symlink, and the reading refusals and limits. Against a server on
+// port 0 inside this process it checks the request guards, a submit that sends a round and
+// keeps serving, finish, cancel (on empty, and after a sent round), and `wait` returning on a
+// submit and on the end of the run. Through `cli.mjs` children it checks the command's own
+// refusals (children that must exit before serving, and `wait`'s invocation refusals) and one
+// end-to-end run: a submit, a `wait` child, finish, and exactly one result document, plus a
+// run ended by SIGTERM.
 // Every fixture is a real file in a temp directory, and every expectation is written by hand,
 // never computed by the code under test. Requests go to 127.0.0.1 only. A failing case throws
 // a RunError naming it.
 //
 // Private to the implementation: only cli.mjs is a command.
 
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -24,7 +29,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { listFiles, readSource } from './files.mjs';
 import { applyEdits, cleanAnnotation } from './annotations.mjs';
 import { startServer } from './server.mjs';
-import { RunError, createSession, finishRun, readStored, restoreSession, saveSession, scopePath } from './session.mjs';
+import { RunError, createSession, finishRun, readStored, restoreSession, saveSession, scopePath, sendRound } from './session.mjs';
+import { waitForRound } from './wait.mjs';
 
 const CLI = fileURLToPath(new URL('../cli.mjs', import.meta.url));
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -117,8 +123,8 @@ function request(port, { method = 'GET', target = '/api/session', headers = {}, 
   });
 }
 
-// A server on port 0 over a temp root holding `a.txt`, with the session and save that
-// `cli.mjs annotate` builds: `finished` settles with the result document the run would print.
+// A server on port 0 over a temp root holding `a.txt`, with the session, save, send and end
+// that `cli.mjs annotate` wires: `finished` settles with the result document the run would print.
 function withServer(fn) {
   return withTemp(async (root) => {
     write(root, 'a.txt', 'a\n');
@@ -127,18 +133,15 @@ function withServer(fn) {
     const out = path.join(root, 'claudedocs', 'margin', 'notes.json');
     const session = createSession({ stored: null, out, root, scope: [], revision: null });
     const save = () => saveSession(session);
-    let settle;
-    const finished = new Promise((resolve) => {
-      settle = resolve;
-    });
-    const { url, close } = await startServer({
+    const { url, close, ended, waiting } = await startServer({
       port: 0,
       token: TOKEN,
       session,
       files,
       readSource: (p) => readSource(root, p),
       onSave: save,
-      onFinish: (status) => settle(finishRun(session, status)),
+      onSend: () => sendRound(session),
+      onEnd: (status) => finishRun(session, status),
     });
     try {
       const parsed = new URL(url);
@@ -146,7 +149,7 @@ function withServer(fn) {
       assert(parsed.hostname === '127.0.0.1' && port > 0, `the server is not on a loopback port: ${url}`);
       assert(parsed.hash === `#${TOKEN}`, `the viewer URL does not carry the token: ${url}`);
       const host = `127.0.0.1:${port}`;
-      return await fn({ port, host, root, out, save, finished: () => within(finished, 'the end of the run') });
+      return await fn({ port, host, root, out, url, session, save, ended, waiting, finished: () => within(ended, 'the end of the run') });
     } finally {
       await close();
     }
@@ -170,6 +173,76 @@ function assertErrorDoc(res, exitCode, fragment, what) {
   assert(res.doc !== null && isDeepStrictEqual(Object.keys(res.doc), ['status', 'error']) && res.doc.status === 'error', `${what}: not an error document: ${JSON.stringify(res.stdout)}`);
   assert(typeof res.doc.error === 'string' && res.doc.error.includes(fragment), `${what}: error does not mention "${fragment}": ${res.doc.error}`);
   assert(res.stdout.endsWith('}\n') && !res.stdout.endsWith('\n\n'), `${what}: not one trailing newline`);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Resolves once `condition()` holds, checking every 10 ms, bounded by WAIT_MS.
+function until(condition, what) {
+  return within(
+    new Promise((resolve) => {
+      const check = () => (condition() ? resolve() : setTimeout(check, 10));
+      check();
+    }),
+    what,
+  );
+}
+
+// Whether `promise` has settled within `ms`, without waiting for it longer than that.
+function isSettled(promise, ms = 100) {
+  return Promise.race([promise.then(() => true, () => true), sleep(ms).then(() => false)]);
+}
+
+async function rejectsRun(promise, exitCode, fragment, what) {
+  let err = null;
+  try {
+    await within(promise, what);
+  } catch (caught) {
+    err = caught;
+  }
+  assert(err !== null, `${what}: resolved instead of failing`);
+  assert(err instanceof RunError, `${what}: expected a RunError, got ${err.constructor.name}: ${err.message}`);
+  assert(err.exitCode === exitCode && err.message.includes(fragment), `${what}: expected exit ${exitCode} mentioning "${fragment}", got ${err.exitCode}: ${err.message}`);
+}
+
+// A `cli.mjs` child the self-test talks to while it runs, so it is started with async `spawn`:
+// a `spawnSync` child would block this process, and with it the requests the child waits for.
+function spawnCli(args) {
+  const child = spawn(process.execPath, [CLI, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+  const exit = new Promise((resolve) => {
+    child.on('close', (code, signal) => resolve({ code, signal, stdout }));
+  });
+  return { child, stdout: () => stdout, stderr: () => stderr, exited: () => within(exit, `cli.mjs ${args[0]} to exit`) };
+}
+
+// The viewer URL a spawned `annotate` child prints on stderr once its port is bound.
+function serverUrl(run) {
+  const found = new Promise((resolve, reject) => {
+    const check = () => {
+      const match = /^margin: (\S+)$/m.exec(run.stderr());
+      if (match) {
+        resolve(match[1]);
+      }
+    };
+    run.child.stderr.on('data', check);
+    run.child.on('close', () => reject(new CaseFailure(`the server exited before printing its URL: ${run.stdout()}`)));
+    check();
+  });
+  return within(found, 'the server URL on stderr').catch((err) => {
+    throw new CaseFailure(`${err.message} (stderr: ${JSON.stringify(run.stderr().slice(0, 300))}, stdout: ${JSON.stringify(run.stdout().slice(0, 300))})`);
+  });
 }
 
 const ALLOWED = new Set(['src/a.js', 'src/b/c.js']);
@@ -376,7 +449,7 @@ const CASES = [
     write(root, 'u.txt', 'héllo\n');
     assertEqual(readSource(root, 'u.txt'), { path: 'u.txt', text: 'héllo\n' }, 'a UTF-8 file');
   }))],
-  ['guards: host, origin and token', () => withServer(async ({ port, host }) => {
+  ['guards: host, origin and token', () => withServer(async ({ port, host, ended }) => {
     const token = { 'x-margin-token': TOKEN };
     const foreignHost = await request(port, { headers: { host: `localhost:${port}`, ...token } });
     assert(foreignHost.status === 421, `a foreign Host got ${foreignHost.status}`);
@@ -391,6 +464,11 @@ const CASES = [
     assert(wrongToken.status === 403, `a request with a wrong token got ${wrongToken.status}`);
     const writeNoToken = await request(port, { method: 'PUT', headers: { host }, body: { overall: 'planted', annotations: [] } });
     assert(writeNoToken.status === 403, `a write without the token got ${writeNoToken.status}`);
+    const finishNoToken = await request(port, { method: 'POST', target: '/api/finish', headers: { host } });
+    assert(finishNoToken.status === 403, `a finish without the token got ${finishNoToken.status}`);
+    const waitNoToken = await request(port, { target: '/api/wait', headers: { host } });
+    assert(waitNoToken.status === 403, `a wait without the token got ${waitNoToken.status}`);
+    assert(!(await isSettled(ended)), 'a finish without the token ended the run');
 
     const ok = await request(port, { headers: { host, ...token } });
     assert(ok.status === 200, `a request with the token got ${ok.status}`);
@@ -413,8 +491,8 @@ const CASES = [
       assert(reply.status === 200, `cancel got ${reply.status}`);
       assertEqual(reply.json, { ok: true, status: 'cancelled' }, 'cancel reply');
       const doc = await finished();
-      assertEqual(doc, { status: 'cancelled', out: null, annotations: 0, root, scope: [] }, 'result document');
-      assertEqual(Object.keys(doc), ['status', 'out', 'annotations', 'root', 'scope'], 'result document keys');
+      assertEqual(doc, { status: 'cancelled', out: null, annotations: 0, rounds: 0, root, scope: [] }, 'result document');
+      assertEqual(Object.keys(doc), ['status', 'out', 'annotations', 'rounds', 'root', 'scope'], 'result document keys');
       assert(!fs.existsSync(out), 'an empty cancel left the notes file behind');
     });
     await withServer(async ({ port, host, root, out, save, finished }) => {
@@ -422,11 +500,267 @@ const CASES = [
       const note = { id: 'n1', anchor: { kind: 'scope' }, body: 'keep me' };
       const reply = await request(port, { method: 'POST', target: '/api/cancel', headers: { host, 'x-margin-token': TOKEN }, body: { overall: '', annotations: [note] } });
       assert(reply.status === 200, `cancel with a note got ${reply.status}`);
-      assertEqual(await finished(), { status: 'cancelled', out, annotations: 1, root, scope: [] }, 'result document with a note');
+      assertEqual(await finished(), { status: 'cancelled', out, annotations: 1, rounds: 0, root, scope: [] }, 'result document with a note');
       const kept = JSON.parse(fs.readFileSync(out, 'utf8'));
       assert(kept.status === 'cancelled' && kept.annotations.length === 1, `a cancel with a note saved ${JSON.stringify(kept).slice(0, 200)}`);
     });
+    await withServer(async ({ port, host, root, out, finished }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const sent = await request(port, { method: 'POST', target: '/api/submit', headers, body: { overall: 'x', annotations: [] } });
+      assertEqual(sent.json, { ok: true, round: 1 }, 'a round with only an overall comment');
+      const reply = await request(port, { method: 'POST', target: '/api/cancel', headers, body: { overall: ' ', annotations: [] } });
+      assert(reply.status === 200, `cancel after a round got ${reply.status}`);
+      assertEqual(await finished(), { status: 'cancelled', out, annotations: 0, rounds: 1, root, scope: [] }, 'result document after a round');
+      const kept = JSON.parse(fs.readFileSync(out, 'utf8'));
+      assert(kept.status === 'cancelled' && kept.round === 1, `a cancel after a round saved ${JSON.stringify(kept).slice(0, 200)}`);
+    });
   }],
+  ['save: an atomic save replaces the file and leaves no temporary file', () => withTemp((dir) => {
+    const out = path.join(dir, 'notes.json');
+    const session = createSession({ stored: null, out, root: dir, scope: [], revision: null });
+    for (const overall of ['one', 'two', 'three']) {
+      session.overall = overall;
+      saveSession(session);
+    }
+    assertEqual(fs.readdirSync(dir), ['notes.json'], 'files after three saves');
+    assert(JSON.parse(fs.readFileSync(out, 'utf8')).overall === 'three', 'the notes file does not hold the last save');
+    const parent = path.join(dir, 'sub');
+    const taken = path.join(parent, 'taken');
+    fs.mkdirSync(taken, { recursive: true });
+    const blocked = createSession({ stored: null, out: taken, root: dir, scope: [], revision: null });
+    let threw = false;
+    try {
+      saveSession(blocked);
+    } catch {
+      threw = true;
+    }
+    assert(threw, 'a save over a directory did not throw');
+    assertEqual(fs.readdirSync(parent), ['taken'], 'files beside a failed save');
+    blocked.annotations = [{ id: 'n1', anchor: { kind: 'scope' }, intent: 'change', body: 'b', createdAt: 'c' }];
+    blocked.overall = 'o';
+    const before = JSON.stringify({ round: blocked.round, rounds: blocked.rounds, annotations: blocked.annotations });
+    let sendThrew = false;
+    try {
+      sendRound(blocked);
+    } catch {
+      sendThrew = true;
+    }
+    assert(sendThrew, 'a send whose save fails did not throw');
+    assertEqual(JSON.stringify({ round: blocked.round, rounds: blocked.rounds, annotations: blocked.annotations }), before, 'the session after a send whose save failed');
+  })],
+  ['rounds: a sent note is locked', () => {
+    const note = (id, body, extra = {}) => ({ id, anchor: { kind: 'scope' }, intent: 'change', body, createdAt: `c-${id}`, ...extra });
+    const session = restoreSession(
+      { rounds: [{ round: 1, sentAt: 't1', overall: '' }], annotations: [note('s1', 'sent', { round: 1 }), note('u1', 'unsent')] },
+      '/notes.json',
+    );
+    applyEdits(
+      session,
+      {
+        annotations: [
+          { id: 'u1', body: 'unsent, revised' },
+          { id: 's1', anchor: { kind: 'file', path: 'src/a.js' }, body: 'rewritten' },
+          { id: 'n1', anchor: { kind: 'scope' }, body: 'new', createdAt: 'c-n1', round: 1 },
+        ],
+      },
+      ALLOWED,
+    );
+    assertEqual(
+      session.annotations,
+      [note('s1', 'sent', { round: 1 }), note('u1', 'unsent, revised'), note('n1', 'new')],
+      'notes after a write over a sent note',
+    );
+    applyEdits(session, { annotations: [] }, ALLOWED);
+    assertEqual(session.annotations, [note('s1', 'sent', { round: 1 })], 'notes after a write that leaves the sent note out');
+  }],
+  ['rounds: a submit keeps the server alive and sends the next round', () => withServer(async ({ port, host, out, ended }) => {
+    const headers = { host, 'x-margin-token': TOKEN };
+    const submit = (body) => request(port, { method: 'POST', target: '/api/submit', headers, body });
+    const one = { id: 'n1', anchor: { kind: 'scope' }, body: 'one' };
+    const two = { id: 'n2', anchor: { kind: 'scope' }, body: 'two' };
+    const first = await submit({ overall: 'first pass', annotations: [one] });
+    assert(first.status === 200, `the first submit got ${first.status}`);
+    assertEqual(first.json, { ok: true, round: 1 }, 'first submit reply');
+    const afterFirst = JSON.parse(fs.readFileSync(out, 'utf8'));
+    assert(afterFirst.status === 'draft' && afterFirst.round === 1, `the file after a submit is ${afterFirst.status} at round ${afterFirst.round}`);
+    assert(afterFirst.rounds.length === 1, `${afterFirst.rounds.length} rounds recorded after one submit`);
+    const [entry] = afterFirst.rounds;
+    assert(entry.round === 1 && typeof entry.sentAt === 'string' && entry.overall === 'first pass', `round entry ${JSON.stringify(entry)}`);
+    assert(afterFirst.annotations[0].round === 1, 'the sent note carries no round');
+    const alive = await request(port, { headers });
+    assert(alive.status === 200, `the session after a submit got ${alive.status}`);
+    assert(!(await isSettled(ended)), 'a submit ended the run');
+
+    const second = await submit({ overall: 'first pass', annotations: [one, two] });
+    assertEqual(second.json, { ok: true, round: 2 }, 'second submit reply');
+    const afterSecond = JSON.parse(fs.readFileSync(out, 'utf8'));
+    assertEqual(afterSecond.annotations.map((a) => [a.id, a.round]), [['n1', 1], ['n2', 2]], 'note rounds after two submits');
+
+    const third = await submit({ overall: 'first pass ', annotations: [one, two] });
+    assert(third.status === 409, `a submit with nothing new got ${third.status}`);
+    assertEqual(third.json, { error: 'nothing to send' }, 'nothing-to-send reply');
+    const afterThird = JSON.parse(fs.readFileSync(out, 'utf8'));
+    assert(afterThird.round === 2 && afterThird.overall === 'first pass ', `a refused submit left round ${afterThird.round}, overall ${JSON.stringify(afterThird.overall)}`);
+
+    const finish = await request(port, { method: 'POST', target: '/api/finish', headers });
+    assert(finish.status === 200, `finish got ${finish.status}`);
+    await within(ended, 'the end of the run');
+  })],
+  ['finish: ends the run with the result document', () => withServer(async ({ port, host, root, out, finished }) => {
+    const headers = { host, 'x-margin-token': TOKEN };
+    const sent = await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: [{ id: 'n1', anchor: { kind: 'scope' }, body: 'one' }] } });
+    assertEqual(sent.json, { ok: true, round: 1 }, 'submit reply');
+    const reply = await request(port, { method: 'POST', target: '/api/finish', headers });
+    assert(reply.status === 200, `finish got ${reply.status}`);
+    assertEqual(reply.json, { ok: true, status: 'finished' }, 'finish reply');
+    const doc = await finished();
+    assertEqual(doc, { status: 'finished', out, annotations: 1, rounds: 1, root, scope: [] }, 'result document');
+    assertEqual(Object.keys(doc), ['status', 'out', 'annotations', 'rounds', 'root', 'scope'], 'result document keys');
+    const saved = fs.readFileSync(out, 'utf8');
+    assert(JSON.parse(saved).status === 'finished', 'the notes file is not finished');
+    const late = await request(port, { method: 'PUT', headers, body: { overall: 'late', annotations: [] } });
+    assert(late.status === 409, `a write after the end got ${late.status}`);
+    assertEqual(late.json, { error: 'the run has ended' }, 'late write reply');
+    assert(fs.readFileSync(out, 'utf8') === saved, 'a write after the end changed the notes file');
+  })],
+  ['finish: an end that cannot save answers 500 and fails the run', () => withServer(async ({ port, host, out, save, ended }) => {
+    save();
+    fs.rmSync(out);
+    fs.mkdirSync(out);
+    const reply = await request(port, { method: 'POST', target: '/api/finish', headers: { host, 'x-margin-token': TOKEN } });
+    assert(reply.status === 500 && typeof reply.json?.error === 'string', `a finish whose save failed got ${reply.status} ${reply.text}`);
+    let failed = false;
+    try {
+      await within(ended, 'the end of the run');
+    } catch {
+      failed = true;
+    }
+    assert(failed, 'the run ended although its notes file could not be saved');
+  })],
+  ['wait: returns on submit and on finish', async () => {
+    await withServer(async ({ port, host, url, out, waiting, finished }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const badAfter = await request(port, { target: '/api/wait?after=x', headers });
+      assert(badAfter.status === 400, `a wait with a bad after got ${badAfter.status}`);
+      assertEqual(badAfter.json, { error: 'bad after: x' }, 'bad after reply');
+
+      const first = waitForRound({ url });
+      assert(!(await isSettled(first, 200)), 'a wait returned before any round was sent');
+      await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: [{ id: 'n1', anchor: { kind: 'scope' }, body: 'one' }] } });
+      assertEqual(await within(first, 'the wait on a submit'), { status: 'sent', round: 1, out }, 'wait document on a submit');
+      assertEqual(await within(waitForRound({ url, after: 0 }), 'a wait after a sent round'), { status: 'sent', round: 1, out }, 'wait document for a round already sent');
+
+      const held = waitForRound({ url, after: 1 });
+      const ahead = waitForRound({ url, after: 2 });
+      await until(() => waiting() === 2, 'two held waits');
+      await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: [{ id: 'n2', anchor: { kind: 'scope' }, body: 'two' }] } });
+      assertEqual(await within(held, 'the wait on the second submit'), { status: 'sent', round: 2, out }, 'wait document on the second submit');
+      assert(!(await isSettled(ahead, 200)), 'a wait after round 2 returned on round 2');
+      await request(port, { method: 'POST', target: '/api/finish', headers });
+      assertEqual(await within(ahead, 'the wait on finish'), { status: 'finished', round: 2, out }, 'wait document on finish');
+      await finished();
+    });
+    // The `wait` verb end to end: a child is let go only once the server holds its request.
+    await withServer(async ({ port, host, url, out, waiting, finished }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const onSend = spawnCli(['wait', url]);
+      try {
+        await until(() => waiting() === 1, 'the wait child held on the server');
+        await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: [{ id: 'n1', anchor: { kind: 'scope' }, body: 'one' }] } });
+        const sentExit = await onSend.exited();
+        assert(sentExit.code === 0, `the wait child exited ${sentExit.code ?? sentExit.signal} on a submit: ${sentExit.stdout}`);
+        assertEqual(JSON.parse(sentExit.stdout), { status: 'sent', round: 1, out }, 'wait child document on a submit');
+      } finally {
+        onSend.child.kill('SIGKILL');
+      }
+      const onFinish = spawnCli(['wait', url, '--after', '1']);
+      try {
+        await until(() => waiting() === 1, 'the second wait child held on the server');
+        await request(port, { method: 'POST', target: '/api/finish', headers });
+        const finishExit = await onFinish.exited();
+        assert(finishExit.code === 0, `the wait child exited ${finishExit.code ?? finishExit.signal} on finish: ${finishExit.stdout}`);
+        assertEqual(JSON.parse(finishExit.stdout), { status: 'finished', round: 1, out }, 'wait child document on finish');
+      } finally {
+        onFinish.child.kill('SIGKILL');
+      }
+      await finished();
+    });
+    const closedPort = await new Promise((resolve) => {
+      const probe = http.createServer();
+      probe.listen(0, '127.0.0.1', () => {
+        const { port } = probe.address();
+        probe.close(() => resolve(port));
+      });
+    });
+    await rejectsRun(waitForRound({ url: `http://127.0.0.1:${closedPort}/#${TOKEN}` }), 1, 'unreachable', 'a wait on a closed port');
+    const valid = `http://127.0.0.1:1/#${TOKEN}`;
+    assertErrorDoc(runCli(['wait', `http://localhost:1/#${TOKEN}`]), 2, 'bad run URL', 'wait on a non-loopback URL');
+    assertErrorDoc(runCli(['wait']), 2, 'usage: cli.mjs wait', 'wait with no URL');
+    assertErrorDoc(runCli(['wait', valid, 'extra']), 2, 'usage: cli.mjs wait', 'wait with an extra argument');
+    assertErrorDoc(runCli(['wait', valid, '--after', 'x']), 2, 'bad --after x', 'wait with a bad --after');
+  }],
+  ['resume: rounds and note rounds restore; a file without them is round 0', () => withTemp((dir) => {
+    const out = path.join(dir, 'notes.json');
+    const note = (id, round) => ({ id, anchor: { kind: 'scope' }, intent: 'change', body: id, createdAt: `c-${id}`, ...(round === undefined ? {} : { round }) });
+    const rounds = [{ round: 1, sentAt: 't1', overall: 'a' }, { round: 2, sentAt: 't2', overall: 'b' }];
+    const resumed = createSession({ stored: { status: 'finished', round: 7, rounds, annotations: [note('a', 1), note('b', 2), note('c')] }, out, root: dir, scope: [], revision: null });
+    assert(resumed.round === 2 && resumed.status === 'draft', `a resumed run starts at round ${resumed.round} as ${resumed.status}`);
+    assertEqual(resumed.rounds, rounds, 'resumed rounds');
+    assertEqual(resumed.annotations, [note('a', 1), note('b', 2), note('c')], 'resumed notes');
+
+    const earlier = createSession({ stored: { status: 'submitted', overall: 'o', annotations: [note('x')] }, out, root: dir, scope: [], revision: null });
+    assert(earlier.round === 0, `a file without rounds resumes at round ${earlier.round}`);
+    assertEqual(earlier.rounds, [], 'rounds of a file without them');
+    assertEqual(earlier.annotations, [note('x')], 'notes of a file without rounds');
+
+    throwsRun(() => restoreSession({ rounds: [{ round: 2, sentAt: 't', overall: '' }], annotations: [] }, out), 1, 'rounds entry 0 is malformed');
+    throwsRun(() => restoreSession({ rounds: [{ round: 1, overall: '' }], annotations: [] }, out), 1, 'rounds entry 0 is malformed');
+    throwsRun(() => restoreSession({ rounds: [{ round: 1, sentAt: 't' }], annotations: [] }, out), 1, 'rounds entry 0 is malformed');
+    throwsRun(() => restoreSession({ rounds: {}, annotations: [] }, out), 1, 'rounds is not a list');
+    for (const bad of [3, 0, 1.5, '1']) {
+      throwsRun(() => restoreSession({ rounds, annotations: [note('z', bad)] }, out), 1, '1 of 1 notes are malformed (indices 0)');
+    }
+  })],
+  ['cli: a run survives a submit and prints one document on finish', () => withTemp(async (dir) => {
+    const root = path.join(dir, 'root');
+    write(root, 'a.txt', 'a\n');
+    const out = path.join(dir, 'notes.json');
+    const annotateArgs = (file) => ['annotate', '--root', root, '--out', file, '--port', '0', '--token', TOKEN, '--no-open'];
+    const server = spawnCli(annotateArgs(out));
+    try {
+      const url = await serverUrl(server);
+      const port = Number(new URL(url).port);
+      const headers = { host: `127.0.0.1:${port}`, 'x-margin-token': TOKEN };
+      const sent = await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: [{ id: 'n1', anchor: { kind: 'scope' }, body: 'one' }] } });
+      assertEqual(sent.json, { ok: true, round: 1 }, 'submit reply');
+      const alive = await request(port, { headers });
+      assert(alive.status === 200, `the session after a submit got ${alive.status}`);
+      const finish = await request(port, { method: 'POST', target: '/api/finish', headers });
+      assertEqual(finish.json, { ok: true, status: 'finished' }, 'finish reply');
+      const serverExit = await server.exited();
+      assert(serverExit.code === 0, `the server exited ${serverExit.code ?? serverExit.signal}: ${serverExit.stdout}`);
+      let doc = null;
+      try {
+        doc = JSON.parse(serverExit.stdout);
+      } catch {
+        throw new CaseFailure(`the server's stdout is not one JSON document: ${JSON.stringify(serverExit.stdout)}`);
+      }
+      assertEqual(doc, { status: 'finished', out, annotations: 1, rounds: 1, root, scope: [] }, 'result document');
+    } finally {
+      server.child.kill('SIGKILL');
+    }
+    const other = path.join(dir, 'other.json');
+    const interrupted = spawnCli(annotateArgs(other));
+    try {
+      await serverUrl(interrupted);
+      interrupted.child.kill('SIGTERM');
+      const exit = await interrupted.exited();
+      assert(exit.code === 0, `a SIGTERM run exited ${exit.code ?? exit.signal}: ${exit.stdout}`);
+      assertEqual(JSON.parse(exit.stdout), { status: 'interrupted', out: other, annotations: 0, rounds: 0, root, scope: [] }, 'result document on SIGTERM');
+    } finally {
+      interrupted.child.kill('SIGKILL');
+    }
+  })],
   ['cli: resume and scope refusals write nothing', () => withTemp((dir) => {
     const root = path.join(dir, 'root');
     write(root, 'a.txt', 'a\n');

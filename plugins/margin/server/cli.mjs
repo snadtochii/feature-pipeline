@@ -3,18 +3,25 @@
 //
 // Usage:
 //   cli.mjs annotate --root <abs-dir> [--scope <path>]... [--out <abs-file>] [--port <n>] [--token <hex>] [--no-open]
+//   cli.mjs wait <url> [--after <n>]
 //   cli.mjs --self-test
 //
-// Serves a read-only code viewer for the files under the scope paths and collects
-// the human's annotations. The notes file named by --out is rewritten on every
-// change (status `draft`); when the human presses Send it is marked `submitted`,
-// one JSON summary document is printed on stdout, and the process exits.
-// If --out already exists, its annotations are loaded so a review can resume, and its root
-// and scope apply unless --root / --scope are given.
+// `annotate` serves a read-only code viewer for the files under the scope paths and collects
+// the human's annotations over a run of rounds. The notes file named by --out is rewritten
+// on every change (status `draft`). Each Send ends a round: the unsent notes are stamped with
+// the round number and the server keeps serving on the same port with the same token. The run
+// ends on Finish, Cancel or SIGINT/SIGTERM; then the notes file takes its final status, one
+// JSON result document is printed on stdout, and the process exits.
+// If --out already exists, its annotations and rounds are loaded so a review can resume, and
+// its root and scope apply unless --root / --scope are given.
 // Every /api call must carry the per-run token; it is random unless --token sets it, which
 // lets a caller know the viewer URL before this process prints it.
 //
-// Exit: 0 finished (submitted, cancelled, or interrupted), 1 could not run, 2 bad invocation.
+// `wait` takes the URL `annotate` printed on stderr, blocks until the next round is sent or
+// the run ends, and prints one wait document. --after is the last round the caller has seen.
+//
+// Exit: 0 the run ended (finished, cancelled or interrupted) or the wait returned, 1 could not
+// run or the server was unreachable, 2 bad invocation.
 // Zero dependencies: Node 22+ built-ins only. Everything under lib/ is private.
 
 import { parseArgs } from 'node:util';
@@ -22,9 +29,11 @@ import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { listFiles, readSource, revision } from './lib/files.mjs';
 import { startServer } from './lib/server.mjs';
-import { RunError, createSession, finishRun, readStored, saveSession, scopePath } from './lib/session.mjs';
+import { RunError, createSession, finishRun, readStored, saveSession, scopePath, sendRound } from './lib/session.mjs';
+import { TOKEN_PATTERN, parseRunUrl, waitForRound } from './lib/wait.mjs';
 
-const USAGE = 'usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--port <n>] [--token <hex>] [--no-open]';
+const WAIT_USAGE = 'usage: cli.mjs wait <url> [--after <n>]';
+const USAGE = `usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--port <n>] [--token <hex>] [--no-open]\n       ${WAIT_USAGE.slice('usage: '.length)}`;
 
 function writeDoc(doc) {
   process.stdout.write(`${JSON.stringify(doc, null, 2)}\n`);
@@ -75,7 +84,7 @@ async function annotate(argv) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     fail(`bad --port ${values.port}`, 2);
   }
-  if (values.token !== undefined && !/^[A-Za-z0-9_-]{16,128}$/.test(values.token)) {
+  if (values.token !== undefined && !TOKEN_PATTERN.test(values.token)) {
     fail('bad --token: 16-128 characters of [A-Za-z0-9_-]', 2);
   }
 
@@ -94,35 +103,62 @@ async function annotate(argv) {
   const session = createSession({ stored, out, root, scope, revision: revision(root) });
   const save = () => saveSession(session);
 
-  const finish = (status) => {
-    writeDoc(finishRun(session, status));
-    process.exit(0);
-  };
-
-  let url;
+  let run;
   try {
-    ({ url } = await startServer({
+    run = await startServer({
       port,
       token: values.token,
       session,
       files,
       readSource: (path) => readSource(root, path),
       onSave: save,
-      onFinish: finish,
-    }));
+      onSend: () => sendRound(session),
+      onEnd: (status) => finishRun(session, status),
+    });
   } catch (err) {
     fail(`could not listen on port ${port}: ${err.code ?? err.message}`, 1);
   }
+  // The one place the result document is printed: when the run ends, whichever way it ends.
+  run.ended.then(
+    (doc) => {
+      writeDoc(doc);
+      process.exit(0);
+    },
+    (err) => fail(String(err?.message ?? err), 1),
+  );
+  // Bound before the URL is printed: a caller that has seen the URL may signal the run at once.
+  process.on('SIGINT', () => run.end('interrupted'));
+  process.on('SIGTERM', () => run.end('interrupted'));
   // The first draft is written only once the port is bound, so a failed bind leaves nothing
   // behind.
   save();
 
-  process.stderr.write(`margin: ${url}\n  root:  ${root}\n  scope: ${scope.join(', ') || '.'} (${files.length} files)\n  notes: ${out}\n`);
+  process.stderr.write(`margin: ${run.url}\n  root:  ${root}\n  scope: ${scope.join(', ') || '.'} (${files.length} files)\n  notes: ${out}\n`);
   if (!values['no-open']) {
-    openInBrowser(url);
+    openInBrowser(run.url);
   }
-  process.on('SIGINT', () => finish('interrupted'));
-  process.on('SIGTERM', () => finish('interrupted'));
+}
+
+// Checks in order: the arguments parse, the positionals are exactly `wait <url>`, the URL is a
+// run URL, and --after is a whole number. Then one wait, and its document.
+async function waitCmd(argv) {
+  let parsed;
+  try {
+    parsed = parseArgs({ args: argv, allowPositionals: true, options: { after: { type: 'string' } } });
+  } catch (err) {
+    fail(`${err.message}\n${WAIT_USAGE}`, 2);
+  }
+  const { values, positionals } = parsed;
+  if (positionals.length !== 2 || positionals[0] !== 'wait') {
+    fail(WAIT_USAGE, 2);
+  }
+  const url = positionals[1];
+  parseRunUrl(url);
+  if (values.after !== undefined && !/^\d+$/.test(values.after)) {
+    fail(`bad --after ${values.after}`, 2);
+  }
+  writeDoc(await waitForRound({ url, after: values.after === undefined ? undefined : Number(values.after) }));
+  process.exit(0);
 }
 
 // `--self-test` is recognised only on its own; with any other argument it falls through to
@@ -133,6 +169,10 @@ async function main(argv) {
     if (argv.length === 1 && argv[0] === '--self-test') {
       writeDoc(await (await import('./lib/selftest.mjs')).runSelfTest());
       process.exit(0);
+    }
+    if (argv[0] === 'wait') {
+      await waitCmd(argv);
+      return;
     }
     await annotate(argv);
   } catch (err) {

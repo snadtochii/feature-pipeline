@@ -48,7 +48,8 @@ turns it into work. Nothing is edited before the confirmation in §3.
    survive from one command to the next. `mktemp` fails → report its error and stop; never
    fall back to a fixed path, since the file receives the URL with the run's token.
 4. **Start** the server **in the background with the maximum timeout** — a review takes as
-   long as the human needs, and the command returns only when they press Send or Cancel.
+   long as the human needs, and the command returns only when the run ends — Finish, Cancel or
+   a signal.
    A fresh run:
 
    ```bash
@@ -80,8 +81,23 @@ turns it into work. Nothing is edited before the confirmation in §3.
    the server also opens it; it answers on `127.0.0.1` only, `localhost` is refused, and the
    `#<token>` fragment is required, since without it the viewer cannot load the session — and
    the block's `notes:` line as printed, naming the file that saves as the human goes; Send
-   hands the notes over. Then stop talking until the command exits — do not poll, do not read the notes
-   file early.
+   hands the notes over. Then start the wait for Send, also **in the background with the
+   maximum timeout**, with `<url>` the viewer URL exactly as printed:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" wait "<url>"
+   ```
+
+   Stop talking until a background command exits — do not poll, do not read the notes file
+   early. When the wait exits 0 with `"status": "sent"`, end the run with Finish, `<port>` and
+   `<token>` taken from the URL (`http://127.0.0.1:<port>/#<token>`):
+
+   ```bash
+   curl -s -X POST -H 'x-margin-token: <token>' http://127.0.0.1:<port>/api/finish
+   ```
+
+   Any other `status`, or an exit 1, means the run has already ended. Either way the server
+   command exits next (step 8).
 7. **No block** within the wait → check whether the background command has exited.
    - **Still running** → the server is still listing the scope or reading the resumed file,
      which it does before binding. Run step 5's wait once more; the block appears → step 6.
@@ -96,8 +112,8 @@ turns it into work. Nothing is edited before the confirmation in §3.
      - any other error — as printed.
 
      Then delete the stderr file and stop.
-8. **Exit.** When the command exits, its stdout is one JSON document: `{ status, out,
-   annotations, root, scope }`. Delete the stderr file (`rm -f "<stderr-file>"`) and go on to
+8. **Exit.** When the server command exits, its stdout is one JSON document: `{ status, out,
+   annotations, rounds, root, scope }`. Delete the stderr file (`rm -f "<stderr-file>"`) and go on to
    §2.
 
 ## §2 Read the notes
@@ -108,7 +124,7 @@ define every field:
 ```json
 {
   "version": 1,
-  "status": "submitted | cancelled | interrupted | draft",
+  "status": "finished | cancelled | interrupted | draft",
   "root": "/abs/repo",
   "scope": ["src/features/orders"],
   "out": "/abs/repo/claudedocs/margin/2026-10-11T09-14-41.json",
@@ -116,10 +132,12 @@ define every field:
   "createdAt": "2026-10-11T09:14:41.512Z",
   "updatedAt": "2026-10-11T09:31:07.204Z",
   "overall": "free text about the whole scope",
+  "round": 1,
+  "rounds": [{ "round": 1, "sentAt": "2026-10-11T09:31:07.204Z", "overall": "…" }],
   "annotations": [
     { "id": "<uuid>",
       "anchor": { "kind": "range", "path": "src/a.ts", "start": 12, "end": 30, "excerpt": "…" },
-      "intent": "change | question", "body": "…", "createdAt": "…" },
+      "intent": "change | question", "body": "…", "createdAt": "…", "round": 1 },
     { "id": "<uuid>", "anchor": { "kind": "file", "path": "src/a.ts" },
       "intent": "change", "body": "…", "createdAt": "…" },
     { "id": "<uuid>", "anchor": { "kind": "folder", "path": "src/features/orders" },
