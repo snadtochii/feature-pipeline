@@ -1028,32 +1028,55 @@ const sleep = (ms) =>
     setTimeout(resolve, ms);
   });
 
+const LOST_CONTACT = 'Lost contact with the server — retrying';
+
 // Holds one GET /api/changes for the life of the page. A change refreshes the page and re-arms
 // the wait; the end of the run raises the end overlay. Requests start at least a second apart,
-// and a lost connection retries after a backoff from 1 s, doubling up to 10 s.
+// and a failure retries after a backoff from 1 s, doubling up to 10 s. The held wait answers
+// only at the next change, which can be a whole round away, so after a lost connection a
+// request the server answers at once confirms it is back before the wait re-arms. A refresh
+// that fails with the server answering is the refresh's error, not a lost connection.
 async function watchChanges() {
   let backoff = 1000;
   while (!state.ended) {
     const started = Date.now();
+    let failed = false;
     try {
+      if (state.connection) {
+        await api('GET', '/api/session');
+        state.connection = '';
+        renderStatus();
+      }
       const res = await api('GET', `/api/changes?after=${state.changes}`);
       if (res.status !== 'changed') {
         showEnd(res.status);
         return;
       }
-      backoff = 1000;
-      if (state.connection) {
-        state.connection = '';
-        renderStatus();
-      }
-      await refresh();
     } catch {
-      state.connection = 'Lost contact with the server — retrying';
+      failed = true;
+      state.connection = LOST_CONTACT;
       renderStatus();
+    }
+    if (!failed) {
+      try {
+        await refresh();
+      } catch (err) {
+        failed = true;
+        if (err.status === 0) {
+          state.connection = LOST_CONTACT;
+          renderStatus();
+        } else {
+          notify(`The page could not refresh: ${err.message} — retrying`, { error: true });
+        }
+      }
+    }
+    if (failed) {
       await sleep(backoff);
       backoff = Math.min(backoff * 2, 10000);
+    } else {
+      backoff = 1000;
+      await sleep(Math.max(0, 1000 - (Date.now() - started)));
     }
-    await sleep(Math.max(0, 1000 - (Date.now() - started)));
   }
 }
 
