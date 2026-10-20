@@ -2,9 +2,10 @@
 
 Notes in the margin of code the agent wrote. A read-only viewer in the browser — file tree,
 line numbers, light syntax colouring from a vendored highlight.js, nothing else — where you pin remarks to a line range, a file, a folder or the
-whole scope, then press Send. The batch lands in a JSON file in the repository and the
-`annotate` skill reads it, plans, and does the structural work or hands the rest to the
-feature pipeline.
+whole scope, then press Send. Each Send hands that round to the `annotate` skill, which
+plans, does the structural work or hands the rest to the feature pipeline, and replies beside
+every note; you read the replies next to the code and send the next round. Finish ends the
+review. Every note and reply lives in a JSON file in the repository.
 
 It is for the kind of feedback that is awkward to type into a chat: *these twenty components
 belong in a tree, not one folder* · *types and helpers out of this file* · *why is this here?*
@@ -37,15 +38,20 @@ token. Click a line number to annotate it, shift-click
 to extend the range; the `+` on a tree row annotates that file or folder; *+ general note* is
 for the scope as a whole; *Overall direction* is the framing the agent reads first. Each note
 is a `change` or a `question`. Notes save as you go to `claudedocs/margin/<timestamp>.json`,
-or back into the file a `--resume` names; Send marks the file `submitted` and returns control
-to the session.
+or back into the file a `--resume` names. Send hands the round's notes to the agent: they
+lock, the viewer shows that the agent is working, and its replies appear under each note
+while the tree and the open file refresh. The reply action on a sent note starts a follow-up
+on the same lines, for the next round. Finish in the viewer, or telling the agent in the
+session that you are done, ends the review; Cancel ends it without sending the unsent notes.
+`--resume` reopens a file with its rounds and replies and continues with the next round.
 
-The skill ([skills/annotate/SKILL.md](skills/annotate/SKILL.md)) then presents one table —
-note, action, kind (`answer` / `structural` / `behavioural`), risk — and asks once. A note
-whose code differs from the excerpt you saw is quoted both ways and held until you name it. Structural actions run in the session behind the
-project's own checks, run before and after, with test edits limited to moved imports and
-the test list unchanged.
-Behavioural ones go to `/feature:discover` with the anchors attached.
+For each round, the skill ([skills/annotate/SKILL.md](skills/annotate/SKILL.md)) presents one
+table — note, action, kind (`answer` / `structural` / `behavioural`), risk — and asks once. A
+note whose code differs from the excerpt you saw is quoted both ways and held until you name
+it. Structural actions run in the session behind the project's own checks, run before and
+after, with test edits limited to moved imports and the test list unchanged. Behavioural ones
+go to `/feature:discover` with the anchors attached. When the review ends, the skill
+summarizes every round's actions and the tickets it created.
 
 ## Standalone
 
@@ -56,9 +62,11 @@ node plugins/margin/server/cli.mjs annotate --root /path/to/repo --scope src/fea
 Prints the viewer URL on stderr once the port is bound — a free port unless `--port` is
 given. Open that exact URL: its `#fragment` is the per-run token
 every API call must carry, so a page on another origin cannot plant notes or read source
-(`--token` fixes it in advance). Exits when Send or Cancel is pressed, printing one JSON
-document with the notes file path. [CONTRACT.md](CONTRACT.md) specifies the flags, the output
-document and the exit codes.
+(`--token` fixes it in advance). The server keeps serving across rounds and exits on Finish,
+Cancel or a signal, printing one JSON document with the notes file path.
+`node plugins/margin/server/cli.mjs wait <url> --after <n>` blocks until a round after `<n>`
+is sent or the run ends. [CONTRACT.md](CONTRACT.md) specifies the flags, the output
+documents, the routes — replies and Finish included — and the exit codes.
 
 ## Notes file
 
@@ -74,6 +82,9 @@ bullet says what happens when it is missing.
 - **`feature`** — the skill hands behavioural notes to `/feature:discover` (its §5). Not
   installed → the skill prints the `/feature:discover …` command it built, for you to run once
   the plugin is installed.
+- **`curl`** — the skill posts each round's replies, and the Finish you ask for in the
+  session, with it. Missing → the replies are printed in the chat instead, and the review ends
+  from the viewer's Finish button.
 - **`git`** — optional. It resolves the root, makes the listing git-aware and fills
   `revision`. Missing → the root is the working directory, the listing walks the scope paths,
   and `revision` is `null`.

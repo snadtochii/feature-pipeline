@@ -1,7 +1,9 @@
-// margin viewer. One page, no build step. Talks to ../server/lib/server.mjs over
-// its six routes and keeps the notes file current through PUT /api/session.
+// margin viewer. One page, no build step. Renders the tree, the code pane, the composer and the
+// notes with their replies; ./rounds.js holds the session and talks to ../server/lib/server.mjs
+// for it, and this file reads files through GET /api/file.
 
 import { highlightLines } from './syntax.js';
+import { createRounds, isSent } from './rounds.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -9,17 +11,11 @@ const $ = (selector) => document.querySelector(selector);
 const COLLAPSE_THRESHOLD = 200;
 
 const state = {
-  session: null, // { root, scope, out, overall, annotations }
-  files: [], // repo-relative paths in scope, sorted
   current: null, // { path, lines } or { path, lines: null } for a binary file
   selection: null, // { start, end } line numbers in the current file
   editing: null, // annotation id while the composer edits instead of adds
   collapsed: new Set(), // folder paths shown closed; not consulted while the filter is on
   filter: '', // lower-cased tree filter text, '' when off
-  saveTimer: null,
-  // The last write sent to the server. Writes run one after another, so an older snapshot can
-  // never land after a newer one; each sends the session as it stands when its turn comes.
-  writes: Promise.resolve(),
   // The open composer's { dirty, commit } while a note is being written, null otherwise.
   composer: null,
   // The rendered code view, null when no text file is shown. It records what the line nodes
@@ -27,16 +23,25 @@ const state = {
   // { nodes: index n-1 → the .line node for line n, marks: line numbers painted .marked,
   //   selection: { start, end } painted .selected or null, btn: the "Annotate L…" button }
   view: null,
+  // The path the human last opened, and a counter bumped by every file fetch so that an answer
+  // arriving after a newer fetch began is dropped.
+  openPath: null,
+  fileSeq: 0,
+  // A message from the last action, { text, error }, or null.
+  notice: null,
 };
 
 const el = {
+  status: $('#status'),
   treeRows: $('#tree-rows'),
   filter: $('#filter'),
   code: $('#code'),
   list: $('#list'),
   overall: $('#overall'),
+  overallReplies: $('#overall-replies'),
   composer: $('#composer'),
   send: $('#send'),
+  finish: $('#finish'),
   cancel: $('#cancel'),
   addScope: $('#add-scope'),
   scope: $('#scope'),
@@ -47,20 +52,66 @@ const el = {
 // The per-run token rides in the URL fragment the server printed; every API call carries it.
 const TOKEN = window.location.hash.slice(1);
 
+// A failed call throws an Error carrying `status` — the HTTP status, or 0 when the server could
+// not be reached — with the server's own `error` text as its message when the reply has one.
 async function api(method, url, body) {
-  const res = await fetch(url, {
-    method,
-    headers: { 'x-margin-token': TOKEN, ...(body ? { 'content-type': 'application/json' } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: { 'x-margin-token': TOKEN, ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (cause) {
+    throw Object.assign(new Error(`${method} ${url} failed: ${cause.message}`), { status: 0 });
+  }
   if (!res.ok) {
-    throw new Error(`${method} ${url} failed with ${res.status}`);
+    let message = `${method} ${url} failed with ${res.status}`;
+    try {
+      const data = await res.json();
+      if (typeof data?.error === 'string') {
+        message = data.error;
+      }
+    } catch {
+      // Not a JSON reply; the generic message stands.
+    }
+    throw Object.assign(new Error(message), { status: res.status });
   }
   return res.json();
 }
 
+// The session, the write queue, the change poll and the Send, Finish and Cancel lifecycle; it
+// shows everything through these callbacks.
+const rounds = createRounds({
+  api,
+  view: {
+    overall: () => el.overall.value,
+    composer: () => state.composer,
+    editing: () => state.editing,
+    closeComposer,
+    confirm: (text) => window.confirm(text),
+    saveState: (text) => {
+      el.saveState.textContent = text;
+    },
+    notify,
+    clearNotice: () => {
+      state.notice = null;
+    },
+    dropped: notifyDropped,
+    renderStatus,
+    renderControls,
+    refreshed: async () => {
+      renderTree();
+      renderStatus();
+      await refreshOpenFile();
+      renderList();
+    },
+    showEnd,
+  },
+});
+
 const byName = (a, b) => a.name.localeCompare(b.name);
-const annotations = () => state.session.annotations;
+const annotations = () => rounds.session.annotations;
 
 function anchorLabel(anchor) {
   switch (anchor.kind) {
@@ -78,14 +129,14 @@ function anchorLabel(anchor) {
 // ---- loading -------------------------------------------------------------
 
 async function load() {
-  const data = await api('GET', '/api/session');
-  state.session = data.session;
-  state.files = data.files;
-  el.scope.textContent = `${data.session.root} · ${data.session.scope.join(', ') || '.'}`;
-  el.overall.value = data.session.overall || '';
+  const session = await rounds.load();
+  el.scope.textContent = `${session.root} · ${session.scope.join(', ') || '.'}`;
+  el.overall.value = session.overall || '';
   applyDefaultCollapse();
   renderTree();
   renderList();
+  renderStatus();
+  rounds.watchChanges();
 }
 
 // ---- tree ----------------------------------------------------------------
@@ -129,15 +180,15 @@ function expandTo(path, { self = false } = {}) {
 // Large scopes open collapsed below each scope entry, with the folders holding notes open,
 // so a resumed review shows its noted rows without a click.
 function applyDefaultCollapse() {
-  if (state.files.length <= COLLAPSE_THRESHOLD) {
+  if (rounds.files.length <= COLLAPSE_THRESHOLD) {
     return;
   }
-  for (const path of state.files) {
+  for (const path of rounds.files) {
     for (const dir of ancestors(path)) {
       state.collapsed.add(dir);
     }
   }
-  for (const entry of state.session.scope) {
+  for (const entry of rounds.session.scope) {
     expandTo(entry, { self: true });
   }
   for (const a of annotations()) {
@@ -166,7 +217,7 @@ const matchesFilter = (path) => path.toLowerCase().includes(state.filter);
 // back the expansion as it was plus the folders of any file opened while filtering.
 function renderTree() {
   const filtering = state.filter !== '';
-  const paths = filtering ? state.files.filter(matchesFilter) : state.files;
+  const paths = filtering ? rounds.files.filter(matchesFilter) : rounds.files;
   if (filtering && paths.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'tree-empty';
@@ -241,36 +292,74 @@ function setFilter(text) {
 
 // ---- code view -----------------------------------------------------------
 
-async function openFile(path, scrollTo) {
-  let data;
-  try {
-    data = await api('GET', `/api/file?path=${encodeURIComponent(path)}`);
-  } catch {
-    // A resumed note can point at a file that moved or sits outside this run's scope.
-    const note = document.createElement('div');
-    note.className = 'empty';
-    note.textContent = `${path} is not in this scope (moved, deleted, or outside the paths this review was opened with). Its notes are kept.`;
-    el.code.replaceChildren(note);
-    state.current = null;
-    state.selection = null;
-    state.view = null;
-    renderTree();
-    return;
+// Splits file text into lines. A `\r` ending a line of CRLF text stays on it.
+function splitLines(text) {
+  const lines = text.split('\n');
+  if (lines.at(-1) === '') {
+    lines.pop();
   }
-  state.selection = null;
-  if (data.binary) {
-    state.current = { path, lines: null };
-    const note = document.createElement('div');
-    note.className = 'empty';
-    note.textContent = `${path}: ${data.reason}. Annotate it as a file from the tree.`;
-    el.code.replaceChildren(note);
-    state.view = null;
+  return lines;
+}
+
+function showEmpty(text) {
+  const note = document.createElement('div');
+  note.className = 'empty';
+  note.textContent = text;
+  el.code.replaceChildren(note);
+}
+
+// Says why a file cannot be shown and drops its cached text, so nothing stale stays on screen.
+function showFileError(path, err) {
+  if (err.status === 404 && /no longer exists/.test(err.message)) {
+    showEmpty(`${path} no longer exists. Its notes are kept.`);
+  } else if (err.status === 404) {
+    showEmpty(`${path} is not in this review's listing. Its notes are kept.`);
   } else {
-    const lines = data.text.split('\n');
-    if (lines.at(-1) === '') {
-      lines.pop();
-    }
-    state.current = { path, lines };
+    showEmpty(`Could not read ${path}: ${err.message}`);
+  }
+  state.current = null;
+  state.selection = null;
+  state.view = null;
+}
+
+function showBinary(path, reason) {
+  state.current = { path, lines: null };
+  state.selection = null;
+  state.view = null;
+  showEmpty(`${path}: ${reason}. Annotate it as a file from the tree.`);
+}
+
+// Reads a file. `fresh` is false when a newer file fetch began before this one answered.
+async function fetchFile(path) {
+  state.fileSeq += 1;
+  const seq = state.fileSeq;
+  try {
+    const data = await api('GET', `/api/file?path=${encodeURIComponent(path)}`);
+    return { fresh: seq === state.fileSeq, data };
+  } catch (err) {
+    return { fresh: seq === state.fileSeq, err };
+  }
+}
+
+// Answers false when a newer file fetch superseded this one, so its result was not shown.
+async function openFile(path, scrollTo) {
+  state.openPath = path;
+  const { fresh, data, err } = await fetchFile(path);
+  if (!fresh) {
+    return false;
+  }
+  if (err) {
+    // A resumed note can point at a file that moved, was deleted or left the listing.
+    showFileError(path, err);
+    renderTree();
+    renderList();
+    return true;
+  }
+  if (data.binary) {
+    showBinary(path, data.reason);
+  } else {
+    state.selection = null;
+    state.current = { path, lines: splitLines(data.text) };
     renderCode();
     if (scrollTo) {
       state.view.nodes[scrollTo - 1]?.scrollIntoView({ block: 'center' });
@@ -281,6 +370,52 @@ async function openFile(path, scrollTo) {
     expandTo(path);
   }
   renderTree();
+  // The notes list marks drift against the open file's text.
+  renderList();
+  return true;
+}
+
+// Re-reads the open file after a round: unchanged text only repaints marks and selection,
+// changed text re-renders this one file at the same scroll position, and a failure drops the
+// cached text, so text from before the round is never shown as current.
+async function refreshOpenFile() {
+  const path = state.openPath;
+  if (path === null) {
+    return;
+  }
+  if (state.current?.path !== path) {
+    await openFile(path);
+    return;
+  }
+  const { fresh, data, err } = await fetchFile(path);
+  if (!fresh) {
+    return;
+  }
+  if (err) {
+    showFileError(path, err);
+    renderTree();
+    return;
+  }
+  if (data.binary) {
+    showBinary(path, data.reason);
+    return;
+  }
+  const lines = splitLines(data.text);
+  const shown = state.current.lines;
+  if (shown && shown.length === lines.length && shown.every((text, i) => text === lines[i])) {
+    if (state.view) {
+      refreshMarks();
+      applySelection();
+    }
+    return;
+  }
+  const { scrollTop } = el.code;
+  state.current = { path, lines };
+  if (state.selection && state.selection.end > lines.length) {
+    state.selection = null;
+  }
+  renderCode();
+  el.code.scrollTop = scrollTop;
 }
 
 function markedLines(path) {
@@ -346,7 +481,7 @@ function renderCode() {
   selBtn.addEventListener('click', () => {
     const sel = state.selection;
     if (sel) {
-      const excerpt = state.current.lines.slice(sel.start - 1, sel.end).join('\n');
+      const excerpt = excerptOf(state.current.lines, sel.start, sel.end);
       openComposer({ kind: 'range', path: state.current.path, start: sel.start, end: sel.end, excerpt });
     }
   });
@@ -418,9 +553,9 @@ function applySelection() {
 
 // ---- composer ------------------------------------------------------------
 
-function openComposer(anchor, existing = null) {
+// `existing` is the unsent note being edited; `intent` presets the intent of a new note.
+function openComposer(anchor, { existing = null, intent = existing?.intent ?? 'change' } = {}) {
   state.editing = existing?.id ?? null;
-  const intent = existing?.intent ?? 'change';
   el.composer.classList.remove('hidden');
   el.composer.replaceChildren();
 
@@ -466,10 +601,14 @@ function openComposer(anchor, existing = null) {
     }
     const chosen = intents.querySelector('input:checked').value;
     if (state.editing) {
-      const target = annotations().find((a) => a.id === state.editing);
-      Object.assign(target, { intent: chosen, body: text });
+      rounds.updateNote(state.editing, { intent: chosen, body: text });
+    } else if (rounds.listed(anchor)) {
+      rounds.addNote({ id: crypto.randomUUID(), anchor, intent: chosen, body: text, createdAt: new Date().toISOString() });
     } else {
-      annotations().push({ id: crypto.randomUUID(), anchor, intent: chosen, body: text, createdAt: new Date().toISOString() });
+      // A refresh dropped the anchor from the listing while the composer was open, and the server
+      // would drop the note; the composer stays open so the text is not lost.
+      notify(`Cannot add the note: ${anchorLabel(anchor)} left this review's listing.`, { error: true });
+      return;
     }
     state.selection = null;
     closeComposer();
@@ -487,6 +626,8 @@ function openComposer(anchor, existing = null) {
 
   add.addEventListener('click', commit);
   cancel.addEventListener('click', closeComposer);
+  body.addEventListener('input', updateSend);
+  intents.addEventListener('change', updateSend);
   body.addEventListener('keydown', (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       commit();
@@ -506,10 +647,11 @@ function closeComposer() {
   state.composer = null;
   el.composer.classList.add('hidden');
   el.composer.replaceChildren();
+  updateSend();
 }
 
 function afterChange() {
-  scheduleSave();
+  rounds.scheduleSave();
   renderList();
   renderTree();
   // Patch the open file in place; commit clears the selection, so repaint it too.
@@ -534,16 +676,80 @@ function sortedAnnotations() {
   });
 }
 
+// Send is offered when the server's rule holds or when the open composer holds a note Send would
+// add first (rounds.sendRound commits it before checking the rule).
+function updateSend() {
+  const count = rounds.unsent().length;
+  el.send.textContent = count ? `Send ${count}` : 'Send';
+  el.send.disabled = rounds.busy || rounds.ended || !(rounds.canSend() || Boolean(state.composer?.dirty()));
+}
+
+// Finish and Cancel are disabled while a lifecycle request is in flight and once the run is over.
+function renderControls() {
+  el.finish.disabled = rounds.busy || rounds.ended;
+  el.cancel.disabled = rounds.busy || rounds.ended;
+  updateSend();
+}
+
 function renderList() {
   const all = sortedAnnotations();
-  el.count.textContent = `${all.length} ${all.length === 1 ? 'note' : 'notes'}`;
-  el.send.textContent = all.length ? `Send ${all.length}` : 'Send';
+  const noun = `${all.length} ${all.length === 1 ? 'note' : 'notes'}`;
+  el.count.textContent = rounds.session.round ? `${noun} · ${all.filter(isSent).length} sent` : noun;
+  updateSend();
   el.list.replaceChildren(...all.map(noteItem));
+  renderOverallReplies();
+}
+
+// Replies render as text only, under the note or the overall direction they answer.
+function replyItems(replies) {
+  return replies.map((reply) => {
+    const item = document.createElement('li');
+    item.className = 'reply';
+    const head = document.createElement('div');
+    head.className = 'reply-head';
+    head.textContent = `agent · round ${reply.round}`;
+    const body = document.createElement('p');
+    body.className = 'body';
+    body.textContent = reply.body;
+    item.append(head, body);
+    return item;
+  });
+}
+
+function renderOverallReplies() {
+  el.overallReplies.replaceChildren(...replyItems(rounds.session.overallReplies ?? []));
+}
+
+// The server caps a stored excerpt at this many characters, so a capped one is a prefix.
+const EXCERPT_CAP = 4000;
+const stripCr = (line) => (line.endsWith('\r') ? line.slice(0, -1) : line);
+
+// A range note's excerpt: its lines as the file holds them, raw line endings kept, so the drift
+// check below and every note created from a selection or a reply agree.
+function excerptOf(lines, start, end) {
+  return lines.slice(start - 1, end).join('\n');
+}
+
+// Whether a range note on the open file no longer matches the text it was written on. Line
+// endings are compared without a trailing `\r`, so CRLF text matches its own excerpt.
+function drifted(anchor) {
+  const lines = anchor.kind === 'range' && state.current?.path === anchor.path ? state.current.lines : null;
+  if (!lines) {
+    return false;
+  }
+  if (anchor.end > lines.length) {
+    return true;
+  }
+  const excerpt = anchor.excerpt ?? '';
+  const now = lines.slice(anchor.start - 1, anchor.end).map(stripCr).join('\n');
+  const was = excerpt.split('\n').map(stripCr).join('\n');
+  return excerpt.length >= EXCERPT_CAP ? !now.startsWith(was) : now !== was;
 }
 
 function noteItem(a) {
+  const sent = isSent(a);
   const item = document.createElement('li');
-  item.className = 'note';
+  item.className = sent ? 'note sent' : 'note';
 
   const head = document.createElement('div');
   head.className = 'head';
@@ -551,25 +757,54 @@ function noteItem(a) {
   anchor.className = 'anchor';
   anchor.textContent = anchorLabel(a.anchor);
   anchor.addEventListener('click', () => revealAnchor(a.anchor));
+  const tags = document.createElement('span');
+  tags.className = 'tags';
+  if (drifted(a.anchor)) {
+    const drift = document.createElement('span');
+    drift.className = 'tag drift';
+    drift.textContent = 'lines changed';
+    drift.title = 'These lines differ from the text the note was written on';
+    tags.append(drift);
+  }
+  if (sent) {
+    const round = document.createElement('span');
+    round.className = 'badge round';
+    round.textContent = `round ${a.round}`;
+    tags.append(round);
+  }
   const badge = document.createElement('span');
   badge.className = `badge ${a.intent}`;
   badge.textContent = a.intent;
-  head.append(anchor, badge);
+  tags.append(badge);
+  head.append(anchor, tags);
 
   const body = document.createElement('p');
   body.className = 'body';
   body.textContent = a.body;
+  item.append(head, body);
 
+  if (a.replies?.length) {
+    const thread = document.createElement('ol');
+    thread.className = 'replies';
+    thread.append(...replyItems(a.replies));
+    item.append(thread);
+  }
+  item.append(sent ? lockedOps(a) : editOps(a));
+  return item;
+}
+
+function editOps(a) {
   const ops = document.createElement('div');
   ops.className = 'ops';
   const edit = document.createElement('button');
   edit.textContent = 'edit';
-  edit.addEventListener('click', () => openComposer(a.anchor, a));
+  edit.addEventListener('click', () => openComposer(a.anchor, { existing: a }));
   const del = document.createElement('button');
   del.className = 'del';
   del.textContent = 'delete';
   del.addEventListener('click', () => {
-    state.session.annotations = annotations().filter((x) => x.id !== a.id);
+    // A sent note sharing this id stays, as it does on the server.
+    rounds.deleteNote(a.id);
     // A composer editing this note has nothing left to update.
     if (state.editing === a.id) {
       closeComposer();
@@ -577,9 +812,74 @@ function noteItem(a) {
     afterChange();
   });
   ops.append(edit, del);
+  return ops;
+}
 
-  item.append(head, body, ops);
-  return item;
+// A sent note is read-only; its one action starts a follow-up note on the same anchor, offered
+// while the anchor still passes the anchor rule against the current listing.
+function lockedOps(a) {
+  const ops = document.createElement('div');
+  ops.className = 'ops';
+  const reply = document.createElement('button');
+  reply.textContent = 'reply';
+  if (rounds.listed(a.anchor)) {
+    reply.title = 'Write a follow-up note on the same anchor';
+    reply.addEventListener('click', () => replyTo(a));
+  } else {
+    reply.disabled = true;
+    reply.title = `${a.anchor.path} is no longer in this review's listing`;
+  }
+  ops.append(reply);
+  return ops;
+}
+
+// Opens the composer for a follow-up note on a sent note's anchor, preset to its intent. A range
+// takes a fresh excerpt from the file as it is now, with its raw line endings.
+async function replyTo(a) {
+  const { anchor } = a;
+  const options = { intent: a.intent };
+  state.notice = null;
+  renderStatus();
+  if (anchor.kind === 'scope') {
+    openComposer({ kind: 'scope' }, options);
+    return;
+  }
+  if (anchor.kind === 'folder') {
+    expandTo(anchor.path, { self: true });
+    renderTree();
+    openComposer({ kind: 'folder', path: anchor.path }, options);
+    return;
+  }
+  const label = anchorLabel(anchor);
+  expandTo(anchor.path);
+  let shown = await openFile(anchor.path, anchor.start);
+  // A refresh re-opening the same file supersedes this fetch; fetch it once more.
+  if (!shown && state.openPath === anchor.path) {
+    shown = await openFile(anchor.path, anchor.start);
+  }
+  // The human opened another file meanwhile: the reply is abandoned without a message.
+  if (state.openPath !== anchor.path) {
+    return;
+  }
+  if (!shown || state.current?.path !== anchor.path) {
+    notify(`Cannot reply on ${label}: the file could not be opened.`, { error: true });
+    return;
+  }
+  if (anchor.kind === 'file') {
+    openComposer({ kind: 'file', path: anchor.path }, options);
+    return;
+  }
+  const { lines } = state.current;
+  if (lines === null) {
+    notify(`Cannot reply on ${label}: the file is not shown as text.`, { error: true });
+    return;
+  }
+  if (lines.length < anchor.end) {
+    notify(`Cannot reply on ${label}: the file now has ${lines.length} lines.`, { error: true });
+    return;
+  }
+  const excerpt = excerptOf(lines, anchor.start, anchor.end);
+  openComposer({ kind: 'range', path: anchor.path, start: anchor.start, end: anchor.end, excerpt }, options);
 }
 
 // Shows a note's anchor in the tree, clearing first a filter that would hide it.
@@ -599,53 +899,86 @@ function revealAnchor(anchor) {
   }
 }
 
-// ---- persistence ---------------------------------------------------------
+// ---- status --------------------------------------------------------------
 
-function payload() {
-  return { overall: el.overall.value, annotations: annotations() };
+// Waiting: a round has been sent and the agent has posted no reply for it yet.
+function waiting() {
+  const round = rounds.session.round ?? 0;
+  const forRound = (reply) => reply.round === round;
+  return (
+    round > 0 &&
+    !annotations().some((a) => a.replies?.some(forRound)) &&
+    !(rounds.session.overallReplies ?? []).some(forRound)
+  );
 }
 
-function scheduleSave() {
-  clearTimeout(state.saveTimer);
-  el.saveState.textContent = 'saving…';
-  state.saveTimer = setTimeout(save, 400);
+// The strip shows one message, in this order: a lost connection, the last action's message,
+// then the round state.
+function renderStatus() {
+  const round = rounds.session.round ?? 0;
+  let text;
+  let kind = '';
+  if (rounds.connection) {
+    text = rounds.connection;
+    kind = 'error';
+  } else if (state.notice) {
+    text = state.notice.text;
+    kind = state.notice.error ? 'error' : '';
+  } else if (round === 0) {
+    text = 'Notes go out when you press Send.';
+  } else if (waiting()) {
+    text = `Round ${round} sent — the agent is working. You can keep reading and adding notes.`;
+    kind = 'waiting';
+  } else {
+    text = `Round ${round} answered — replies are under the notes.`;
+  }
+  el.status.textContent = text;
+  // The strip is one line cut with an ellipsis; the full text stays readable on hover.
+  el.status.title = text;
+  el.status.className = kind ? `status ${kind}` : 'status';
 }
 
-// Queues one write behind the previous one; the payload is read when the write starts, not
-// when it is queued, so a queued write always carries the newest session.
-function enqueue(write) {
-  const run = state.writes.then(write);
-  state.writes = run.catch(() => {});
-  return run;
+function notify(text, { error = false } = {}) {
+  state.notice = { text, error };
+  renderStatus();
 }
 
-function save() {
-  clearTimeout(state.saveTimer);
-  return enqueue(async () => {
-    try {
-      const res = await api('PUT', '/api/session', payload());
-      el.saveState.textContent = `saved ${new Date(res.updatedAt).toLocaleTimeString()}`;
-    } catch (err) {
-      el.saveState.textContent = `save failed: ${err.message}`;
-    }
-  });
+// Says which unsent notes were removed because their anchor left the listing.
+function notifyDropped(dropped) {
+  const labels = dropped.map((a) => anchorLabel(a.anchor)).join(', ');
+  const lead = dropped.length === 1 ? 'An unsent note was' : `${dropped.length} unsent notes were`;
+  notify(`${lead} removed: ${labels} left this review's listing.`, { error: true });
 }
 
-function finish(status) {
-  const total = annotations().length;
+// Disables every control and raises the end-of-run overlay; rounds.js calls it once per run.
+function showEnd(status) {
+  for (const control of document.querySelectorAll('button, textarea, input')) {
+    control.disabled = true;
+  }
+  const count = rounds.session.round ?? 0;
+  const sent = `${count} ${count === 1 ? 'round' : 'rounds'} sent.`;
   const card = document.createElement('div');
   card.className = 'card';
   const title = document.createElement('h2');
   const text = document.createElement('p');
-  if (status === 'submitted') {
-    title.textContent = `Sent ${total} ${total === 1 ? 'note' : 'notes'}`;
-    text.append('Saved to ');
-    const code = document.createElement('code');
-    code.textContent = state.session.out;
-    text.append(code, '. The agent picks the file up from here. You can close this tab.');
-  } else {
+  if (status === 'finished') {
+    title.textContent = 'Review finished';
+    text.append(`${sent} `);
+    if (rounds.session.out) {
+      const code = document.createElement('code');
+      code.textContent = rounds.session.out;
+      text.append('Saved to ', code, '. ');
+    }
+    text.append('You can close this tab.');
+  } else if (status === 'cancelled') {
     title.textContent = 'Review cancelled';
-    text.textContent = total || el.overall.value.trim() ? 'The draft stays on disk; nothing was sent.' : 'Nothing was saved.';
+    text.textContent = `${sent} Notes not sent were not handed to the agent.`;
+  } else if (status === 'interrupted') {
+    title.textContent = 'Review interrupted';
+    text.textContent = `The server stopped. ${sent} You can close this tab.`;
+  } else {
+    title.textContent = 'Review ended';
+    text.textContent = `${sent} You can close this tab.`;
   }
   card.append(title, text);
   const overlay = document.createElement('div');
@@ -654,43 +987,17 @@ function finish(status) {
   document.body.append(overlay);
 }
 
-// Ends the review through one of the two terminal routes; the server exits after answering.
-// A pending autosave is dropped and the terminal write queues behind any write in flight, so
-// the final body is the newest session and nothing lands after it.
-async function end(route, status) {
-  clearTimeout(state.saveTimer);
-  el.send.disabled = true;
-  el.cancel.disabled = true;
-  try {
-    await enqueue(() => api('POST', route, payload()));
-    finish(status);
-  } catch (err) {
-    el.send.disabled = false;
-    el.cancel.disabled = false;
-    el.saveState.textContent = `${status === 'submitted' ? 'send' : 'cancel'} failed: ${err.message}`;
-  }
-}
-
-// Send keeps a note still open in the composer: it is added (or its update applied) first.
-el.send.addEventListener('click', () => {
-  if (state.composer?.dirty()) {
-    state.composer.commit();
-  }
-  end('/api/submit', 'submitted');
-});
-// Cancel discards a note still open in the composer, and says so before stopping.
-el.cancel.addEventListener('click', () => {
-  const unsaved = state.composer?.dirty() ? ' The note you are writing is discarded.' : '';
-  if (window.confirm(`Cancel this review?${unsaved} The server stops; a non-empty draft stays on disk.`)) {
-    closeComposer();
-    end('/api/cancel', 'cancelled');
-  }
-});
+el.send.addEventListener('click', rounds.sendRound);
+el.finish.addEventListener('click', rounds.finishRun);
+el.cancel.addEventListener('click', rounds.cancelRun);
 
 el.filter.addEventListener('input', () => setFilter(el.filter.value));
 
 el.addScope.addEventListener('click', () => openComposer({ kind: 'scope' }));
-el.overall.addEventListener('input', scheduleSave);
+el.overall.addEventListener('input', () => {
+  rounds.scheduleSave();
+  updateSend();
+});
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && el.composer.classList.contains('hidden') && state.selection) {
     state.selection = null;
