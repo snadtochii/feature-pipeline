@@ -43,7 +43,18 @@ the round's confirmation in §3.
    file.
 2. **Resume file**, on `--resume`: resolve the path against the working directory to an
    absolute path and check that it exists (`test -f`). Missing → say the notes file was not
-   found, name the absolute path, and stop.
+   found, name the absolute path, and stop. Then read `<last>`, the last round handled, from
+   it now, before the server starts: the viewer can send a round as soon as it opens, and a
+   round sent before `<last>` is read would be skipped.
+
+   ```bash
+   node -p 'const n = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const notes = Array.isArray(n.annotations) ? n.annotations : []; `round ${Array.isArray(n.rounds) ? n.rounds.length : 0}, ${notes.filter((a) => a && a.round !== undefined && !(a.replies && a.replies.length)).length} sent without a reply`' "<absolute-notes-file>"
+   ```
+
+   `<last>` is the printed round: the number of stored `rounds`, which the server keeps as
+   stored and resumes from ([CONTRACT.md](../../CONTRACT.md) §5). Keep the count of notes sent
+   without a reply for step 6. A file this cannot parse prints an error → go on to step 3; the
+   server refuses the file, and step 7 reports why.
 3. **Stderr file.** Create the file the server's stderr goes to with
    `mktemp "${TMPDIR:-/tmp}/margin.XXXXXX"`, which works with both BSD and GNU `mktemp`. Print
    its path once and write that literal path into every later command — shell variables do not
@@ -86,17 +97,10 @@ the round's confirmation in §3.
    that each Send hands a round over, and that Finish in the viewer, or saying so here, ends
    the review.
 
-   Then set `<last>`, the last round handled, which every wait carries: `0` on a fresh run. On
-   a resume, read it once from the absolute notes file passed as `--out`, which the server has
-   already rewritten as `draft` with its restored rounds:
-
-   ```bash
-   node -p 'const n = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); `round ${n.round}, ${n.annotations.filter((a) => a.round !== undefined && !(a.replies && a.replies.length)).length} sent without a reply`' "<absolute-notes-file>"
-   ```
-
-   `<last>` is the printed round. A count above `0` of notes sent without a reply is named
-   once: an earlier run sent them and never answered; the viewer's reply action on one sends
-   a follow-up in the next round.
+   `<last>`, the last round handled, is what every wait carries: `0` on a fresh run, and on a
+   resume the round step 2 read. On a resume, a count above `0` of notes sent without a reply
+   (step 2) is named once: an earlier run sent them and never answered; the viewer's reply
+   action on one sends a follow-up in the next round.
 7. **No block** within the wait → check whether the background command has exited.
    - **Still running** → the server is still listing the scope or reading the resumed file,
      which it does before binding. Run step 5's wait once more; the block appears → step 6.

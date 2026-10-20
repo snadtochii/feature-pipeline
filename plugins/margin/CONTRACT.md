@@ -402,9 +402,10 @@ longer exists — removed, or a parent folder replaced by a file — answers 404
    retried. A process still running when the wait ends has not bound yet — it lists the files
    before it listens — so the skill waits once more before it stops the process.
 4. **Announce.** Once that line has appeared, it tells the user the URL exactly as printed,
-   and the notes file the block names. It then takes the last round it treats as handled: `0`
-   on a fresh run; on a resume, the `round` of the notes file it passed as `--out`, which the
-   server has rewritten as `draft` before printing the block (§5).
+   and the notes file the block names. The last round it treats as handled is `0` on a fresh
+   run; on a resume, it is the number of `rounds` in the notes file it passes as `--out`, read
+   before step 2 starts the server, since the viewer can send a round as soon as it opens.
+   The server keeps those rounds as stored and resumes from their count (§5).
 5. **Wait for a round.** It runs `cli.mjs wait <url> --after <n>` (§1, §4) as a background
    command, with the URL from step 3 and `<n>` the last round handled, one wait at a time,
    and does not read the notes file while the wait is held. A `sent` wait document → step 6;
