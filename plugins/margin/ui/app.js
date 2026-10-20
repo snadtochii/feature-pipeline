@@ -1,8 +1,9 @@
-// margin viewer. One page, no build step. Talks to ../server/lib/server.mjs over its session,
-// file, changes, submit, finish and cancel routes, keeps the notes file current through
-// PUT /api/session, and refreshes in place whenever GET /api/changes reports a change.
+// margin viewer. One page, no build step. Renders the tree, the code pane, the composer and the
+// notes with their replies; ./rounds.js holds the session and talks to ../server/lib/server.mjs
+// for it, and this file reads files through GET /api/file.
 
 import { highlightLines } from './syntax.js';
+import { createRounds, isSent } from './rounds.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -10,21 +11,11 @@ const $ = (selector) => document.querySelector(selector);
 const COLLAPSE_THRESHOLD = 200;
 
 const state = {
-  // The notes file as the viewer holds it: { root, scope, out, overall, round, rounds,
-  // overallReplies, annotations }. The server owns the sent notes and the round fields; the
-  // viewer owns the unsent notes and the overall text (mergeSession).
-  session: null,
-  files: [], // repo-relative paths in scope, sorted
-  fileSet: new Set(), // state.files as a set, rebuilt with it
   current: null, // { path, lines } or { path, lines: null } for a binary file
   selection: null, // { start, end } line numbers in the current file
   editing: null, // annotation id while the composer edits instead of adds
   collapsed: new Set(), // folder paths shown closed; not consulted while the filter is on
   filter: '', // lower-cased tree filter text, '' when off
-  saveTimer: null,
-  // The last write sent to the server. Writes run one after another, so an older snapshot can
-  // never land after a newer one; each sends the session as it stands when its turn comes.
-  writes: Promise.resolve(),
   // The open composer's { dirty, commit } while a note is being written, null otherwise.
   composer: null,
   // The rendered code view, null when no text file is shown. It records what the line nodes
@@ -32,21 +23,12 @@ const state = {
   // { nodes: index n-1 → the .line node for line n, marks: line numbers painted .marked,
   //   selection: { start, end } painted .selected or null, btn: the "Annotate L…" button }
   view: null,
-  // The last change count seen from GET /api/session or GET /api/changes.
-  changes: 0,
   // The path the human last opened, and a counter bumped by every file fetch so that an answer
   // arriving after a newer fetch began is dropped.
   openPath: null,
   fileSeq: 0,
-  // The change poll's connection problem, '' while the server answers.
-  connection: '',
   // A message from the last action, { text, error }, or null.
   notice: null,
-  // A Send, Finish or Cancel request is in flight; Send, Finish and Cancel are disabled.
-  busy: false,
-  // The server has begun ending the run: autosave stops until the end overlay comes up.
-  ending: false,
-  ended: false, // true once the end-of-run overlay is up
 };
 
 const el = {
@@ -98,8 +80,38 @@ async function api(method, url, body) {
   return res.json();
 }
 
+// The session, the write queue, the change poll and the Send, Finish and Cancel lifecycle; it
+// shows everything through these callbacks.
+const rounds = createRounds({
+  api,
+  view: {
+    overall: () => el.overall.value,
+    composer: () => state.composer,
+    editing: () => state.editing,
+    closeComposer,
+    confirm: (text) => window.confirm(text),
+    saveState: (text) => {
+      el.saveState.textContent = text;
+    },
+    notify,
+    clearNotice: () => {
+      state.notice = null;
+    },
+    dropped: notifyDropped,
+    renderStatus,
+    renderControls,
+    refreshed: async () => {
+      renderTree();
+      renderStatus();
+      await refreshOpenFile();
+      renderList();
+    },
+    showEnd,
+  },
+});
+
 const byName = (a, b) => a.name.localeCompare(b.name);
-const annotations = () => state.session.annotations;
+const annotations = () => rounds.session.annotations;
 
 function anchorLabel(anchor) {
   switch (anchor.kind) {
@@ -116,39 +128,15 @@ function anchorLabel(anchor) {
 
 // ---- loading -------------------------------------------------------------
 
-// A note is sent once the server has stamped it with the round it went out in.
-const isSent = (a) => typeof a.round === 'number';
-
-function setFiles(files) {
-  state.files = files;
-  state.fileSet = new Set(files);
-}
-
-// The contract's anchor rule (CONTRACT.md §7) against the current listing: whether the server
-// would accept a new note on this anchor now.
-function anchorListed(anchor) {
-  switch (anchor.kind) {
-    case 'scope':
-      return true;
-    case 'folder':
-      return anchor.path !== '' && anchor.path !== '.' && state.files.some((path) => path.startsWith(`${anchor.path}/`));
-    default:
-      return state.fileSet.has(anchor.path);
-  }
-}
-
 async function load() {
-  const data = await api('GET', '/api/session');
-  state.session = data.session;
-  setFiles(data.files);
-  state.changes = data.changes;
-  el.scope.textContent = `${data.session.root} · ${data.session.scope.join(', ') || '.'}`;
-  el.overall.value = data.session.overall || '';
+  const session = await rounds.load();
+  el.scope.textContent = `${session.root} · ${session.scope.join(', ') || '.'}`;
+  el.overall.value = session.overall || '';
   applyDefaultCollapse();
   renderTree();
   renderList();
   renderStatus();
-  watchChanges();
+  rounds.watchChanges();
 }
 
 // ---- tree ----------------------------------------------------------------
@@ -192,15 +180,15 @@ function expandTo(path, { self = false } = {}) {
 // Large scopes open collapsed below each scope entry, with the folders holding notes open,
 // so a resumed review shows its noted rows without a click.
 function applyDefaultCollapse() {
-  if (state.files.length <= COLLAPSE_THRESHOLD) {
+  if (rounds.files.length <= COLLAPSE_THRESHOLD) {
     return;
   }
-  for (const path of state.files) {
+  for (const path of rounds.files) {
     for (const dir of ancestors(path)) {
       state.collapsed.add(dir);
     }
   }
-  for (const entry of state.session.scope) {
+  for (const entry of rounds.session.scope) {
     expandTo(entry, { self: true });
   }
   for (const a of annotations()) {
@@ -229,7 +217,7 @@ const matchesFilter = (path) => path.toLowerCase().includes(state.filter);
 // back the expansion as it was plus the folders of any file opened while filtering.
 function renderTree() {
   const filtering = state.filter !== '';
-  const paths = filtering ? state.files.filter(matchesFilter) : state.files;
+  const paths = filtering ? rounds.files.filter(matchesFilter) : rounds.files;
   if (filtering && paths.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'tree-empty';
@@ -613,13 +601,9 @@ function openComposer(anchor, { existing = null, intent = existing?.intent ?? 'c
     }
     const chosen = intents.querySelector('input:checked').value;
     if (state.editing) {
-      // Only an unsent note is edited; a sent note sharing its id stays as the server holds it.
-      const target = annotations().find((a) => a.id === state.editing && !isSent(a));
-      if (target) {
-        Object.assign(target, { intent: chosen, body: text });
-      }
-    } else if (anchorListed(anchor)) {
-      annotations().push({ id: crypto.randomUUID(), anchor, intent: chosen, body: text, createdAt: new Date().toISOString() });
+      rounds.updateNote(state.editing, { intent: chosen, body: text });
+    } else if (rounds.listed(anchor)) {
+      rounds.addNote({ id: crypto.randomUUID(), anchor, intent: chosen, body: text, createdAt: new Date().toISOString() });
     } else {
       // A refresh dropped the anchor from the listing while the composer was open, and the server
       // would drop the note; the composer stays open so the text is not lost.
@@ -667,7 +651,7 @@ function closeComposer() {
 }
 
 function afterChange() {
-  scheduleSave();
+  rounds.scheduleSave();
   renderList();
   renderTree();
   // Patch the open file in place; commit clears the selection, so repaint it too.
@@ -692,28 +676,25 @@ function sortedAnnotations() {
   });
 }
 
-const unsentNotes = () => annotations().filter((a) => !isSent(a));
-
-// Whether the overall text, trimmed, differs from the text the last round sent.
-function overallChanged() {
-  return el.overall.value.trim() !== (state.session.rounds?.at(-1)?.overall ?? '').trim();
+// Send is offered when the server's rule holds or when the open composer holds a note Send would
+// add first (rounds.sendRound commits it before checking the rule).
+function updateSend() {
+  const count = rounds.unsent().length;
+  el.send.textContent = count ? `Send ${count}` : 'Send';
+  el.send.disabled = rounds.busy || rounds.ended || !(rounds.canSend() || Boolean(state.composer?.dirty()));
 }
 
-// The server's rule for a Send: an unsent note, or an overall text the last round did not send.
-const canSend = () => unsentNotes().length > 0 || overallChanged();
-
-// Send is offered when the server's rule holds or when the open composer holds a note Send would
-// add first (sendRound commits it before checking the rule).
-function updateSend() {
-  const count = unsentNotes().length;
-  el.send.textContent = count ? `Send ${count}` : 'Send';
-  el.send.disabled = state.busy || state.ended || !(canSend() || Boolean(state.composer?.dirty()));
+// Finish and Cancel are disabled while a lifecycle request is in flight and once the run is over.
+function renderControls() {
+  el.finish.disabled = rounds.busy || rounds.ended;
+  el.cancel.disabled = rounds.busy || rounds.ended;
+  updateSend();
 }
 
 function renderList() {
   const all = sortedAnnotations();
   const noun = `${all.length} ${all.length === 1 ? 'note' : 'notes'}`;
-  el.count.textContent = state.session.round ? `${noun} · ${all.filter(isSent).length} sent` : noun;
+  el.count.textContent = rounds.session.round ? `${noun} · ${all.filter(isSent).length} sent` : noun;
   updateSend();
   el.list.replaceChildren(...all.map(noteItem));
   renderOverallReplies();
@@ -736,7 +717,7 @@ function replyItems(replies) {
 }
 
 function renderOverallReplies() {
-  el.overallReplies.replaceChildren(...replyItems(state.session.overallReplies ?? []));
+  el.overallReplies.replaceChildren(...replyItems(rounds.session.overallReplies ?? []));
 }
 
 // The server caps a stored excerpt at this many characters, so a capped one is a prefix.
@@ -823,7 +804,7 @@ function editOps(a) {
   del.textContent = 'delete';
   del.addEventListener('click', () => {
     // A sent note sharing this id stays, as it does on the server.
-    state.session.annotations = annotations().filter((x) => !(x.id === a.id && !isSent(x)));
+    rounds.deleteNote(a.id);
     // A composer editing this note has nothing left to update.
     if (state.editing === a.id) {
       closeComposer();
@@ -841,7 +822,7 @@ function lockedOps(a) {
   ops.className = 'ops';
   const reply = document.createElement('button');
   reply.textContent = 'reply';
-  if (anchorListed(a.anchor)) {
+  if (rounds.listed(a.anchor)) {
     reply.title = 'Write a follow-up note on the same anchor';
     reply.addEventListener('click', () => replyTo(a));
   } else {
@@ -918,194 +899,27 @@ function revealAnchor(anchor) {
   }
 }
 
-// ---- persistence ---------------------------------------------------------
-
-function payload() {
-  return { overall: el.overall.value, annotations: annotations() };
-}
-
-function scheduleSave() {
-  if (state.ending || state.ended) {
-    return;
-  }
-  clearTimeout(state.saveTimer);
-  el.saveState.textContent = 'saving…';
-  state.saveTimer = setTimeout(save, 400);
-}
-
-// Queues one write behind the previous one; the payload is read when the write starts, not
-// when it is queued, so a queued write always carries the newest session.
-function enqueue(write) {
-  const run = state.writes.then(write);
-  state.writes = run.catch(() => {});
-  return run;
-}
-
-// PUTs the session as it stands when the write's turn comes.
-async function writeSession() {
-  try {
-    const res = await api('PUT', '/api/session', payload());
-    el.saveState.textContent = `saved ${new Date(res.updatedAt).toLocaleTimeString()}`;
-  } catch (err) {
-    if (err.status === 409) {
-      markEnding();
-    } else {
-      el.saveState.textContent = `save failed: ${err.message}`;
-    }
-  }
-}
-
-function save() {
-  clearTimeout(state.saveTimer);
-  state.saveTimer = null;
-  return enqueue(writeSession);
-}
-
-// ---- server changes ------------------------------------------------------
-
-// Takes the server's copy in by ownership: the sent notes, the round fields, the overall
-// replies and `out` come from the server; the unsent notes and the overall text stay as the
-// viewer holds them. When the two copies disagree on what is unsent, a save levels the server.
-// A local note the server does not hold whose anchor fails the anchor rule against the current
-// listing is one the server drops on every write, so it is removed here and returned.
-function mergeSession(server) {
-  const sent = server.annotations.filter(isSent);
-  const sentIds = new Set(sent.map((a) => a.id));
-  const stored = server.annotations.filter((a) => !isSent(a));
-  const storedIds = new Set(stored.map((a) => a.id));
-  const local = annotations().filter((a) => !isSent(a) && !sentIds.has(a.id));
-  const keep = (a) => storedIds.has(a.id) || anchorListed(a.anchor);
-  const unsent = local.filter(keep);
-  const dropped = local.filter((a) => !keep(a));
-  const ids = (list) => list.map((a) => a.id).join('\n');
-  const differs = ids(unsent) !== ids(stored) || server.overall !== el.overall.value;
-  state.session = { ...server, overall: el.overall.value, annotations: [...sent, ...unsent] };
-  // An edit of a note that has since been sent has nothing left to update.
-  if (state.editing !== null && !unsent.some((a) => a.id === state.editing)) {
-    closeComposer();
-  }
-  if (differs) {
-    scheduleSave();
-  }
-  return dropped;
-}
-
-// Says which unsent notes were removed because their anchor left the listing.
-function notifyDropped(dropped) {
-  const labels = dropped.map((a) => anchorLabel(a.anchor)).join(', ');
-  const lead = dropped.length === 1 ? 'An unsent note was' : `${dropped.length} unsent notes were`;
-  notify(`${lead} removed: ${labels} left this review's listing.`, { error: true });
-}
-
-// Flushes a pending save, reads the session behind every queued write, merges it, and
-// re-renders what depends on it: the tree, the status strip, the open file and the notes.
-async function refresh() {
-  const pending = state.saveTimer !== null;
-  clearTimeout(state.saveTimer);
-  state.saveTimer = null;
-  let dropped = [];
-  await enqueue(async () => {
-    if (pending) {
-      await writeSession();
-    }
-    const data = await api('GET', '/api/session');
-    // The merge checks local notes against the refreshed listing, so the listing comes first.
-    setFiles(data.files);
-    dropped = mergeSession(data.session);
-    state.changes = Math.max(state.changes, data.changes);
-  });
-  // A successful refresh is the next action that clears the last action's message, so the
-  // round state shows again; the run-ending message stays until the end overlay.
-  if (!state.ending) {
-    state.notice = null;
-    if (dropped.length) {
-      notifyDropped(dropped);
-    }
-  }
-  renderTree();
-  renderStatus();
-  await refreshOpenFile();
-  renderList();
-}
-
-const sleep = (ms) =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-const LOST_CONTACT = 'Lost contact with the server — retrying';
-
-// Holds one GET /api/changes for the life of the page. A change refreshes the page and re-arms
-// the wait; the end of the run raises the end overlay. Requests start at least a second apart,
-// and a failure retries after a backoff from 1 s, doubling up to 10 s. The held wait answers
-// only at the next change, which can be a whole round away, so after a lost connection a
-// request the server answers at once confirms it is back before the wait re-arms. A refresh
-// that fails with the server answering is the refresh's error, not a lost connection.
-async function watchChanges() {
-  let backoff = 1000;
-  while (!state.ended) {
-    const started = Date.now();
-    let failed = false;
-    try {
-      if (state.connection) {
-        await api('GET', '/api/session');
-        state.connection = '';
-        renderStatus();
-      }
-      const res = await api('GET', `/api/changes?after=${state.changes}`);
-      if (res.status !== 'changed') {
-        showEnd(res.status);
-        return;
-      }
-    } catch {
-      failed = true;
-      state.connection = LOST_CONTACT;
-      renderStatus();
-    }
-    if (!failed) {
-      try {
-        await refresh();
-      } catch (err) {
-        failed = true;
-        if (err.status === 0) {
-          state.connection = LOST_CONTACT;
-          renderStatus();
-        } else {
-          notify(`The page could not refresh: ${err.message} — retrying`, { error: true });
-        }
-      }
-    }
-    if (failed) {
-      await sleep(backoff);
-      backoff = Math.min(backoff * 2, 10000);
-    } else {
-      backoff = 1000;
-      await sleep(Math.max(0, 1000 - (Date.now() - started)));
-    }
-  }
-}
-
 // ---- status --------------------------------------------------------------
 
 // Waiting: a round has been sent and the agent has posted no reply for it yet.
 function waiting() {
-  const round = state.session.round ?? 0;
+  const round = rounds.session.round ?? 0;
   const forRound = (reply) => reply.round === round;
   return (
     round > 0 &&
     !annotations().some((a) => a.replies?.some(forRound)) &&
-    !(state.session.overallReplies ?? []).some(forRound)
+    !(rounds.session.overallReplies ?? []).some(forRound)
   );
 }
 
 // The strip shows one message, in this order: a lost connection, the last action's message,
 // then the round state.
 function renderStatus() {
-  const round = state.session.round ?? 0;
+  const round = rounds.session.round ?? 0;
   let text;
   let kind = '';
-  if (state.connection) {
-    text = state.connection;
+  if (rounds.connection) {
+    text = rounds.connection;
     kind = 'error';
   } else if (state.notice) {
     text = state.notice.text;
@@ -1129,20 +943,20 @@ function notify(text, { error = false } = {}) {
   renderStatus();
 }
 
-// Raises the end-of-run overlay once, whichever end came first: the viewer's own Finish or
-// Cancel, or an end the change poll reports.
+// Says which unsent notes were removed because their anchor left the listing.
+function notifyDropped(dropped) {
+  const labels = dropped.map((a) => anchorLabel(a.anchor)).join(', ');
+  const lead = dropped.length === 1 ? 'An unsent note was' : `${dropped.length} unsent notes were`;
+  notify(`${lead} removed: ${labels} left this review's listing.`, { error: true });
+}
+
+// Disables every control and raises the end-of-run overlay; rounds.js calls it once per run.
 function showEnd(status) {
-  if (state.ended) {
-    return;
-  }
-  state.ended = true;
-  clearTimeout(state.saveTimer);
-  state.saveTimer = null;
   for (const control of document.querySelectorAll('button, textarea, input')) {
     control.disabled = true;
   }
-  const rounds = state.session.round ?? 0;
-  const sent = `${rounds} ${rounds === 1 ? 'round' : 'rounds'} sent.`;
+  const count = rounds.session.round ?? 0;
+  const sent = `${count} ${count === 1 ? 'round' : 'rounds'} sent.`;
   const card = document.createElement('div');
   card.className = 'card';
   const title = document.createElement('h2');
@@ -1150,9 +964,9 @@ function showEnd(status) {
   if (status === 'finished') {
     title.textContent = 'Review finished';
     text.append(`${sent} `);
-    if (state.session.out) {
+    if (rounds.session.out) {
       const code = document.createElement('code');
-      code.textContent = state.session.out;
+      code.textContent = rounds.session.out;
       text.append('Saved to ', code, '. ');
     }
     text.append('You can close this tab.');
@@ -1173,120 +987,15 @@ function showEnd(status) {
   document.body.append(overlay);
 }
 
-// ---- rounds and the end of the run ---------------------------------------
-
-// Disables Send, Finish and Cancel while a lifecycle request is in flight, and for good once the
-// run is ending; when idle, Send follows its own rule again.
-function setBusy(flag) {
-  state.busy = flag || state.ending;
-  el.finish.disabled = state.busy || state.ended;
-  el.cancel.disabled = state.busy || state.ended;
-  updateSend();
-}
-
-// The server refused a write because the run is ending: saving stops, and the change poll's end
-// document raises the overlay.
-function markEnding() {
-  state.ending = true;
-  clearTimeout(state.saveTimer);
-  state.saveTimer = null;
-  setBusy(true);
-  notify('The review has ended.');
-}
-
-// Sends the round: a note still open in the composer is added (or its update applied) first, so
-// it goes out too. The write queues behind any write in flight, so its body is the newest
-// session; the refresh that follows locks the sent notes and shows the waiting state.
-async function sendRound() {
-  if (state.composer?.dirty()) {
-    state.composer.commit();
-  }
-  if (!canSend()) {
-    return;
-  }
-  state.notice = null;
-  setBusy(true);
-  clearTimeout(state.saveTimer);
-  state.saveTimer = null;
-  try {
-    const res = await enqueue(() => api('POST', '/api/submit', payload()));
-    el.saveState.textContent = `round ${res.round} sent ${new Date().toLocaleTimeString()}`;
-  } catch (err) {
-    if (err.status === 409 && err.message === 'nothing to send') {
-      notify('Nothing new to send.');
-    } else if (err.status === 409) {
-      markEnding();
-    } else {
-      notify(`Send failed: ${err.message}`, { error: true });
-    }
-    setBusy(false);
-    return;
-  }
-  try {
-    await refresh();
-  } catch (err) {
-    notify(`The round was sent, but the page could not refresh: ${err.message}`, { error: true });
-  }
-  setBusy(false);
-}
-
-// Finish adds a note still open in the composer, then asks before ending the run. Unsent work
-// stays in the notes file without a round, and the dialog names it.
-function finishRun() {
-  if (state.composer?.dirty()) {
-    state.composer.commit();
-  }
-  const count = unsentNotes().length;
-  const kept = [];
-  if (count) {
-    kept.push(`${count} unsent ${count === 1 ? 'note' : 'notes'}`);
-  }
-  if (overallChanged()) {
-    kept.push('the overall direction edit');
-  }
-  const clause = kept.length ? ` Kept in the notes file but not sent to the agent: ${kept.join(' and ')}.` : '';
-  if (window.confirm(`Finish the review?${clause}`)) {
-    endRun('/api/finish', 'finished');
-  }
-}
-
-// Posts Finish or Cancel behind any write in flight, so its body is the newest session, and
-// raises the end overlay once the server has saved the run's end.
-async function endRun(route, status) {
-  state.notice = null;
-  setBusy(true);
-  clearTimeout(state.saveTimer);
-  state.saveTimer = null;
-  try {
-    await enqueue(() => api('POST', route, payload()));
-  } catch (err) {
-    if (err.status === 409) {
-      markEnding();
-    } else {
-      notify(`${status === 'finished' ? 'Finish' : 'Cancel'} failed: ${err.message}`, { error: true });
-      setBusy(false);
-    }
-    return;
-  }
-  showEnd(status);
-}
-
-el.send.addEventListener('click', sendRound);
-el.finish.addEventListener('click', finishRun);
-// Cancel discards a note still open in the composer, and says so before ending the run.
-el.cancel.addEventListener('click', () => {
-  const writing = state.composer?.dirty() ? ' The note you are writing is discarded too.' : '';
-  if (window.confirm(`Cancel the review? The unsent notes are discarded: the agent never receives them, and the review ends.${writing}`)) {
-    closeComposer();
-    endRun('/api/cancel', 'cancelled');
-  }
-});
+el.send.addEventListener('click', rounds.sendRound);
+el.finish.addEventListener('click', rounds.finishRun);
+el.cancel.addEventListener('click', rounds.cancelRun);
 
 el.filter.addEventListener('input', () => setFilter(el.filter.value));
 
 el.addScope.addEventListener('click', () => openComposer({ kind: 'scope' }));
 el.overall.addEventListener('input', () => {
-  scheduleSave();
+  rounds.scheduleSave();
   updateSend();
 });
 document.addEventListener('keydown', (event) => {

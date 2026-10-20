@@ -2,7 +2,10 @@
 //
 // Exercises what no browser session proves, without a browser. It checks the viewer's colouring
 // seam over the vendored highlight.js on a fixed TSX sample, and the routes that serve both. It
-// checks the note rules (the anchor rule per kind, range validity, the excerpt cap), resuming a
+// checks the viewer's round controller over a fake server and a fake view: the anchor rule
+// against the listing, the Send rule, writes running one at a time with the newest session, a
+// refresh merging the server copy by ownership, Send, Finish and Cancel with each refusal, and
+// the change wait's backoff, reconnection and end. It checks the note rules (the anchor rule per kind, range validity, the excerpt cap), resuming a
 // notes file (a stored note keeps its anchor; rounds and note rounds restore; a file without
 // rounds is round 0; the refusals), the atomic save, the sent-note lock, the agent's replies
 // (kept through a viewer write and a resume, each resume refusal for them, a reply post whose
@@ -251,6 +254,114 @@ function serverUrl(run) {
   });
 }
 
+// ---- the viewer's round controller (ui/rounds.js) --------------------------------------------
+
+// Imported per case rather than at the top, so a broken module fails its cases by name. The
+// import itself proves the module touches no DOM when it loads: Node has none.
+const loadRounds = () => import('../../ui/rounds.js');
+
+// An error the way the viewer's `api` throws one.
+function apiError(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+
+const viewerSession = (annotations = [], extra = {}) => ({
+  root: '/r',
+  scope: [],
+  out: '/r/notes.json',
+  overall: '',
+  round: 0,
+  rounds: [],
+  overallReplies: [],
+  annotations,
+  ...extra,
+});
+
+const viewerNote = (id, anchor = { kind: 'scope' }, extra = {}) => ({ id, anchor, intent: 'change', body: id, createdAt: 't', ...extra });
+
+// A controller over a fake `api` and a fake view. `routes` maps "METHOD /path" to a function of
+// the body and the URL that answers the reply or throws. `calls` records every request with a
+// copy of its body, `events` every view callback, `sleeps` every pause the controller asked for
+// (answered at once); `h.overall`, `h.composer`, `h.editing` and `h.answer` are what the view
+// shows and the human answers.
+async function roundsHarness(routes) {
+  const { createRounds } = await loadRounds();
+  const h = { overall: '', composer: null, editing: null, answer: true, calls: [], events: [], sleeps: [] };
+  const api = async (method, url, body) => {
+    h.calls.push([method, url, body === undefined ? undefined : structuredClone(body)]);
+    const route = routes[`${method} ${url.split('?')[0]}`];
+    if (!route) {
+      throw apiError(404, `no route for ${method} ${url}`);
+    }
+    return route(body, url);
+  };
+  h.rounds = createRounds({
+    api,
+    saveDelay: 5,
+    sleep: async (ms) => {
+      h.sleeps.push(ms);
+    },
+    view: {
+      overall: () => h.overall,
+      composer: () => h.composer,
+      editing: () => h.editing,
+      closeComposer: () => {
+        h.events.push('closeComposer');
+        h.composer = null;
+        h.editing = null;
+      },
+      confirm: (text) => {
+        h.events.push(['confirm', text]);
+        return h.answer;
+      },
+      saveState: (text) => h.events.push(['saveState', text]),
+      notify: (text, { error = false } = {}) => h.events.push(['notify', text, error]),
+      clearNotice: () => h.events.push('clearNotice'),
+      dropped: (notes) => h.events.push(['dropped', notes.map((a) => a.id)]),
+      renderStatus: () => h.events.push('renderStatus'),
+      renderControls: () => h.events.push(['controls', h.rounds.busy, h.rounds.ended]),
+      refreshed: async () => {
+        h.events.push('refreshed');
+      },
+      showEnd: (status) => h.events.push(['showEnd', status]),
+    },
+  });
+  h.requests = () => h.calls.map(([method, url]) => `${method} ${url}`);
+  h.take = () => h.events.splice(0);
+  return h;
+}
+
+// A fake server holding `session`: GET answers it with `files`, a write stores the body, and a
+// submit stamps the unsent notes with the next round. `extra` replaces any route.
+function roundsRoutes(session, files = ['src/a.js', 'src/b/c.js'], extra = {}) {
+  const server = structuredClone(session);
+  const store = (body) => {
+    server.overall = body.overall;
+    server.annotations = structuredClone(body.annotations);
+  };
+  return {
+    'GET /api/session': () => ({ session: structuredClone(server), files, changes: 2 }),
+    'PUT /api/session': (body) => {
+      store(body);
+      return { ok: true, updatedAt: '2026-01-01T00:00:00.000Z' };
+    },
+    'POST /api/submit': (body) => {
+      store(body);
+      server.round += 1;
+      server.rounds.push({ round: server.round, sentAt: 't', overall: body.overall });
+      for (const a of server.annotations) {
+        a.round ??= server.round;
+      }
+      return { ok: true, round: server.round };
+    },
+    'POST /api/finish': () => ({ ok: true, status: 'finished' }),
+    'POST /api/cancel': () => ({ ok: true, status: 'cancelled' }),
+    ...extra,
+  };
+}
+
+const bodyIds = (call) => call[2].annotations.map((a) => a.id);
+
 const ALLOWED = new Set(['src/a.js', 'src/b/c.js']);
 
 const CASES = [
@@ -290,6 +401,332 @@ const CASES = [
       const unlisted = await request(port, { target: '/vendor/LICENSE', headers: { host } });
       assert(unlisted.status === 404, `/vendor/LICENSE got ${unlisted.status}`);
     });
+  }],
+  ['viewer rounds: load, the anchor rule against the listing, the Send rule and the static route', async () => {
+    const h = await roundsHarness(roundsRoutes(viewerSession()));
+    const session = await h.rounds.load();
+    assertEqual(session.round, 0, 'the loaded round');
+    assertEqual(h.rounds.files, ['src/a.js', 'src/b/c.js'], 'the loaded listing');
+    const listed = (anchor) => h.rounds.listed(anchor);
+    assert(listed({ kind: 'scope' }), 'a scope anchor is not listed');
+    for (const folder of ['src', 'src/b']) {
+      assert(listed({ kind: 'folder', path: folder }), `the folder ${folder} is not listed`);
+    }
+    for (const folder of ['', '.', 'sr', 'src/a.js']) {
+      assert(!listed({ kind: 'folder', path: folder }), `the folder "${folder}" is listed`);
+    }
+    assert(listed({ kind: 'file', path: 'src/a.js' }) && listed({ kind: 'range', path: 'src/b/c.js', start: 1, end: 1 }), 'a listed file is not listed');
+    assert(!listed({ kind: 'file', path: 'src/x.js' }), 'an unlisted file is listed');
+    assert(!h.rounds.canSend(), 'Send is allowed with nothing to send');
+    h.overall = '  ';
+    assert(!h.rounds.canSend(), 'Send is allowed for a blank overall text');
+    h.overall = 'direction';
+    assert(h.rounds.overallChanged() && h.rounds.canSend(), 'Send is refused for a new overall text');
+    h.overall = '';
+    h.rounds.addNote(viewerNote('n1'));
+    h.rounds.updateNote('n1', { body: 'edited' });
+    assertEqual(h.rounds.unsent().map((a) => a.body), ['edited'], 'an unsent note after an edit');
+    assert(h.rounds.canSend(), 'Send is refused with an unsent note');
+    h.rounds.deleteNote('n1');
+    assertEqual(h.rounds.session.annotations, [], 'the notes after a delete');
+    assertEqual(h.requests(), ['GET /api/session'], 'the requests');
+    await withServer(async ({ port, host }) => {
+      const reply = await request(port, { target: '/rounds.js', headers: { host } });
+      assert(reply.status === 200 && reply.type.startsWith('text/javascript'), `/rounds.js got ${reply.status} ${reply.type}`);
+    });
+  }],
+  ['viewer rounds: writes run one at a time, each carrying the session as it stands at its turn', async () => {
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const h = await roundsHarness(
+      roundsRoutes(viewerSession(), undefined, {
+        'PUT /api/session': async () => {
+          await gate;
+          return { ok: true, updatedAt: '2026-01-01T00:00:00.000Z' };
+        },
+      }),
+    );
+    await h.rounds.load();
+    h.rounds.addNote(viewerNote('n1'));
+    h.overall = 'first';
+    h.rounds.scheduleSave();
+    assertEqual(h.take(), [['saveState', 'saving…']], 'the events of a scheduled save');
+    await until(() => h.calls.length === 2, 'the debounced save');
+    const sending = h.rounds.sendRound();
+    h.overall = 'newest';
+    await sleep(30);
+    assertEqual(h.requests(), ['GET /api/session', 'PUT /api/session'], 'the requests while the save is held');
+    release();
+    await sending;
+    assertEqual(h.requests(), ['GET /api/session', 'PUT /api/session', 'POST /api/submit', 'GET /api/session'], 'the requests after the Send');
+    assertEqual(h.calls[1][2].overall, 'first', 'the overall text the save carried');
+    assertEqual(h.calls[2][2], { overall: 'newest', annotations: [viewerNote('n1')] }, 'the body of the Send queued behind the save');
+    const events = h.take();
+    assertEqual(events[0], 'clearNotice', 'the first event of a Send');
+    assertEqual(events[1], ['controls', true, false], 'the controls while sending');
+    assert(events[2][0] === 'saveState' && events[2][1].startsWith('saved '), `the save's indicator: ${JSON.stringify(events[2])}`);
+    assert(events[3][0] === 'saveState' && events[3][1].startsWith('round 1 sent '), `the Send's indicator: ${JSON.stringify(events[3])}`);
+    assertEqual(events.slice(-2), ['refreshed', ['controls', false, false]], 'the last events of a Send');
+
+    // A Send cancels a save still waiting for its delay: only the Send writes.
+    const quiet = await roundsHarness(roundsRoutes(viewerSession()));
+    await quiet.rounds.load();
+    quiet.rounds.addNote(viewerNote('n2'));
+    quiet.rounds.scheduleSave();
+    await quiet.rounds.sendRound();
+    await sleep(30);
+    assertEqual(quiet.requests(), ['GET /api/session', 'POST /api/submit', 'GET /api/session'], 'the requests of a Send over a scheduled save');
+  }],
+  ['viewer rounds: a refresh takes the server copy in by ownership', async () => {
+    let server = viewerSession();
+    let files = ['src/a.js', 'src/b/c.js'];
+    const h = await roundsHarness(
+      roundsRoutes(viewerSession(), undefined, {
+        'GET /api/session': () => ({ session: structuredClone(server), files, changes: 4 }),
+      }),
+    );
+    await h.rounds.load();
+    for (const note of [
+      viewerNote('kept'),
+      viewerNote('gone', { kind: 'file', path: 'src/b/c.js' }),
+      viewerNote('stored', { kind: 'file', path: 'src/b/c.js' }),
+      viewerNote('sentNow'),
+    ]) {
+      h.rounds.addNote(note);
+    }
+    h.overall = 'local overall';
+    h.editing = 'sentNow';
+    const reply = { body: 'answer', round: 1, createdAt: 't' };
+    server = viewerSession([viewerNote('sentNow', { kind: 'scope' }, { body: 'as sent', round: 1, replies: [reply] }), viewerNote('stored', { kind: 'file', path: 'src/b/c.js' })], {
+      overall: 'server overall',
+      round: 1,
+      rounds: [{ round: 1, sentAt: 't', overall: 'server overall' }],
+      overallReplies: [reply],
+    });
+    files = ['src/a.js'];
+    h.take();
+    await h.rounds.refresh();
+    const merged = h.rounds.session;
+    assertEqual(merged.annotations.map((a) => a.id), ['sentNow', 'kept', 'stored'], 'the merged notes');
+    assertEqual(merged.annotations[0], server.annotations[0], 'a sent note as the server holds it');
+    assertEqual([merged.overall, merged.round, merged.overallReplies], ['local overall', 1, [reply]], 'the merged overall text, round and overall replies');
+    assertEqual(h.rounds.files, ['src/a.js'], 'the refreshed listing');
+    assertEqual(h.take(), ['closeComposer', ['saveState', 'saving…'], 'clearNotice', ['dropped', ['gone']], 'refreshed'], 'the events of a refresh');
+    await until(() => h.calls.length === 3, 'the save that levels the server');
+    assertEqual(bodyIds(h.calls[2]), ['sentNow', 'kept', 'stored'], 'the notes the levelling save carried');
+    assertEqual(h.calls[2][2].overall, 'local overall', 'the overall text the levelling save carried');
+    h.rounds.updateNote('sentNow', { body: 'forged' });
+    h.rounds.deleteNote('sentNow');
+    assertEqual(h.rounds.session.annotations[0].body, 'as sent', 'a sent note after an edit and a delete');
+
+    // Copies that agree on what is unsent need no save.
+    server = { ...server, overall: 'local overall', annotations: [server.annotations[0], viewerNote('kept'), server.annotations[1]] };
+    h.take();
+    await h.rounds.refresh();
+    await sleep(30);
+    assertEqual(h.take(), ['clearNotice', 'refreshed'], 'the events of a refresh that changes nothing');
+    assertEqual(h.calls.length, 4, 'the requests after a refresh that changes nothing');
+  }],
+  ['viewer rounds: Send commits an open composer note, and each refusal', async () => {
+    const h = await roundsHarness(roundsRoutes(viewerSession()));
+    await h.rounds.load();
+    h.composer = { dirty: () => false, commit: () => assert(false, 'a clean composer was committed') };
+    await h.rounds.sendRound();
+    assertEqual(h.requests(), ['GET /api/session'], 'the requests of a Send with nothing to send');
+    h.composer = {
+      dirty: () => true,
+      commit: () => {
+        h.rounds.addNote(viewerNote('c1'));
+        h.composer = null;
+      },
+    };
+    await h.rounds.sendRound();
+    assertEqual(bodyIds(h.calls[1]), ['c1'], 'the notes a Send with only an open composer note carried');
+
+    for (const [error, expected] of [
+      [apiError(409, 'nothing to send'), ['notify', 'Nothing new to send.', false]],
+      [apiError(500, 'boom'), ['notify', 'Send failed: boom', true]],
+    ]) {
+      const refused = await roundsHarness(roundsRoutes(viewerSession(), undefined, { 'POST /api/submit': () => { throw error; } }));
+      await refused.rounds.load();
+      refused.rounds.addNote(viewerNote('n1'));
+      await refused.rounds.sendRound();
+      assertEqual(refused.take(), ['clearNotice', ['controls', true, false], expected, ['controls', false, false]], `the events of a Send refused ${error.status}`);
+    }
+
+    const ending = await roundsHarness(roundsRoutes(viewerSession(), undefined, { 'POST /api/submit': () => { throw apiError(409, 'the run has ended'); } }));
+    await ending.rounds.load();
+    ending.rounds.addNote(viewerNote('n1'));
+    await ending.rounds.sendRound();
+    assertEqual(
+      ending.take(),
+      ['clearNotice', ['controls', true, false], ['controls', true, false], ['notify', 'The review has ended.', false], ['controls', true, false]],
+      'the events of a Send refused because the run is ending',
+    );
+    assert(ending.rounds.busy, 'the controls came back while the run is ending');
+    ending.rounds.scheduleSave();
+    await sleep(30);
+    assertEqual(ending.take(), [], 'the events of a save while the run is ending');
+    assertEqual(ending.requests(), ['GET /api/session', 'POST /api/submit'], 'the requests while the run is ending');
+    await ending.rounds.refresh();
+    assertEqual(ending.take(), ['refreshed'], 'the events of a refresh while the run is ending');
+
+    const saveEnding = await roundsHarness(roundsRoutes(viewerSession(), undefined, { 'PUT /api/session': () => { throw apiError(409, 'the run has ended'); } }));
+    await saveEnding.rounds.load();
+    await saveEnding.rounds.save();
+    assertEqual(saveEnding.take(), [['controls', true, false], ['notify', 'The review has ended.', false]], 'the events of a save refused because the run is ending');
+    const saveFails = await roundsHarness(roundsRoutes(viewerSession(), undefined, { 'PUT /api/session': () => { throw apiError(500, 'disk full'); } }));
+    await saveFails.rounds.load();
+    await saveFails.rounds.save();
+    assertEqual(saveFails.take(), [['saveState', 'save failed: disk full']], 'the events of a failed save');
+  }],
+  ['viewer rounds: Finish and Cancel ask first, end the run once, and report a failure', async () => {
+    const sent = viewerSession([viewerNote('s1', { kind: 'scope' }, { round: 1 })], { round: 1, rounds: [{ round: 1, sentAt: 't', overall: 'sent text' }] });
+    const h = await roundsHarness(roundsRoutes(sent));
+    await h.rounds.load();
+    h.overall = 'sent text';
+    h.answer = false;
+    await h.rounds.finishRun();
+    assertEqual(h.take(), [['confirm', 'Finish the review?']], 'the Finish dialog with nothing unsent');
+    h.rounds.addNote(viewerNote('u1'));
+    h.overall = 'edited';
+    await h.rounds.finishRun();
+    assertEqual(
+      h.take(),
+      [['confirm', 'Finish the review? Kept in the notes file but not sent to the agent: 1 unsent note and the overall direction edit.']],
+      'the Finish dialog with unsent work',
+    );
+    assertEqual(h.requests(), ['GET /api/session'], 'the requests of a dismissed Finish');
+    h.answer = true;
+    await h.rounds.finishRun();
+    assertEqual(h.calls[1].slice(0, 2), ['POST', '/api/finish'], 'the Finish request');
+    assertEqual([h.calls[1][2].overall, bodyIds(h.calls[1])], ['edited', ['s1', 'u1']], 'the Finish body');
+    assertEqual(h.take().slice(1), ['clearNotice', ['controls', true, false], ['showEnd', 'finished']], 'the events of a Finish');
+    assert(h.rounds.ended, 'the run is not ended after a Finish');
+    h.rounds.scheduleSave();
+    await sleep(30);
+    assertEqual([h.take(), h.calls.length], [[], 2], 'the events and requests of a save after the end');
+
+    const cancel = await roundsHarness(roundsRoutes(viewerSession()));
+    await cancel.rounds.load();
+    cancel.composer = { dirty: () => true, commit: () => assert(false, 'Cancel committed the open composer') };
+    await cancel.rounds.cancelRun();
+    assertEqual(
+      cancel.take(),
+      [
+        ['confirm', 'Cancel the review? The unsent notes are discarded: the agent never receives them, and the review ends. The note you are writing is discarded too.'],
+        'closeComposer',
+        'clearNotice',
+        ['controls', true, false],
+        ['showEnd', 'cancelled'],
+      ],
+      'the events of a Cancel over an open composer note',
+    );
+
+    const failing = await roundsHarness(roundsRoutes(viewerSession(), undefined, { 'POST /api/finish': () => { throw apiError(500, 'could not save'); } }));
+    await failing.rounds.load();
+    await failing.rounds.finishRun();
+    assertEqual(failing.take().slice(1), ['clearNotice', ['controls', true, false], ['notify', 'Finish failed: could not save', true], ['controls', false, false]], 'the events of a failed Finish');
+    assert(!failing.rounds.ended, 'a failed Finish ended the run');
+    const ended = await roundsHarness(roundsRoutes(viewerSession(), undefined, { 'POST /api/cancel': () => { throw apiError(409, 'the run has ended'); } }));
+    await ended.rounds.load();
+    await ended.rounds.cancelRun();
+    assertEqual(
+      ended.take().slice(1),
+      ['closeComposer', 'clearNotice', ['controls', true, false], ['controls', true, false], ['notify', 'The review has ended.', false]],
+      'the events of a Cancel refused because the run is ending',
+    );
+    assert(!ended.rounds.ended, 'a refused Cancel raised the end overlay');
+
+    // A change wait held across the Finish answers with the end too; the overlay comes up once.
+    let answerWait;
+    const held = new Promise((resolve) => {
+      answerWait = resolve;
+    });
+    const both = await roundsHarness(roundsRoutes(viewerSession(), undefined, { 'GET /api/changes': () => held }));
+    await both.rounds.load();
+    const watching = both.rounds.watchChanges();
+    await both.rounds.finishRun();
+    answerWait({ status: 'finished', changes: 2 });
+    await within(watching, 'the change wait after a Finish');
+    assertEqual(both.events.filter((e) => e[0] === 'showEnd'), [['showEnd', 'finished']], 'the end overlays raised');
+  }],
+  ['viewer rounds: the change wait refreshes, backs off, reconnects and ends', async () => {
+    const changes = [
+      { status: 'changed', changes: 3 },
+      'lost',
+      { status: 'changed', changes: 4 },
+      { status: 'changed', changes: 5 },
+      { status: 'changed', changes: 6 },
+      'lost',
+      { status: 'finished', changes: 6 },
+    ];
+    let sessionCalls = 0;
+    const h = await roundsHarness(
+      roundsRoutes(viewerSession(), undefined, {
+        'GET /api/session': () => {
+          sessionCalls += 1;
+          if (sessionCalls === 4) {
+            throw apiError(500, 'down');
+          }
+          if (sessionCalls === 5) {
+            throw apiError(0, 'unreachable');
+          }
+          return { session: viewerSession(), files: ['src/a.js'], changes: sessionCalls === 1 ? 2 : 5 };
+        },
+        'GET /api/changes': () => {
+          const next = changes.shift();
+          if (next === 'lost') {
+            throw apiError(0, 'unreachable');
+          }
+          return next;
+        },
+      }),
+    );
+    await h.rounds.load();
+    await within(h.rounds.watchChanges(), 'the change wait');
+    assertEqual(
+      h.requests(),
+      [
+        'GET /api/session',
+        'GET /api/changes?after=2',
+        'GET /api/session',
+        'GET /api/changes?after=5',
+        'GET /api/session',
+        'GET /api/changes?after=5',
+        'GET /api/session',
+        'GET /api/changes?after=5',
+        'GET /api/session',
+        'GET /api/session',
+        'GET /api/changes?after=5',
+        'GET /api/session',
+        'GET /api/changes?after=5',
+        'GET /api/session',
+        'GET /api/changes?after=5',
+      ],
+      'the requests of the change wait',
+    );
+    const [first, ...rest] = h.sleeps;
+    assert(first > 900 && first <= 1000 && rest[3] > 900 && rest[3] <= 1000, `the pauses after a change: ${JSON.stringify(h.sleeps)}`);
+    assertEqual([rest[0], rest[1], rest[2], rest[4]], [1000, 2000, 4000, 1000], 'the backoff after each failure');
+    const events = h.events.filter((e) => e !== 'refreshed' && e !== 'clearNotice');
+    assertEqual(
+      events,
+      [
+        'renderStatus',
+        'renderStatus',
+        ['notify', 'The page could not refresh: down — retrying', true],
+        'renderStatus',
+        'renderStatus',
+        'renderStatus',
+        'renderStatus',
+        ['showEnd', 'finished'],
+      ],
+      'the status events of the change wait',
+    );
+    assert(h.rounds.ended && h.rounds.connection === '', `the state after the end: ended ${h.rounds.ended}, connection "${h.rounds.connection}"`);
   }],
   ['annotations: anchor rule per kind', () => {
     const keep = (anchor) => cleanAnnotation({ anchor, body: 'b' }, ALLOWED) !== null;

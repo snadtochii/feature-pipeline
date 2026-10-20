@@ -441,7 +441,13 @@ node <plugin-root>/server/cli.mjs --self-test
 Exercises the rules a browser session does not, without a browser: the vendored highlight.js
 loading in Node and the viewer's colouring seam on a fixed TSX sample (a block comment and a
 template literal coloured on every line they span, a file with no matching language rendered
-plain, a `Dockerfile` coloured by its name), and the viewer's static routes of §8; the anchor
+plain, a `Dockerfile` coloured by its name), and the viewer's static routes of §8; the viewer's
+round controller in Node against a fake server — the anchor rule of §7 against the listing and
+the Send rule of §8, writes sent one at a time each carrying the session as it stands when it
+starts, the server's copy merged by ownership after a change (sent notes and round fields from
+the server, unsent notes and the overall text from the viewer, an unsent note whose anchor left
+the listing removed), Send, Finish and Cancel with each refusal and the end raised once, and the
+change wait's backoff from 1 s doubling, its reconnection check and its end; the anchor
 rule of §7 for every kind, range validity and the excerpt cap; resume (§5) — a stored note
 keeps its anchor through a write, a new note outside the listing is dropped, rounds and note
 rounds restore, a file without `rounds` resumes as round 0, an absent `--out` starts fresh, and
