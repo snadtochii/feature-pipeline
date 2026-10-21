@@ -129,7 +129,11 @@ Once bound, **every** git and project command in this loop is explicitly path-bo
 
 ## Behavioral Mindset
 
-Ship working code in one continuous loop. Implement plan steps incrementally — each step's edits in one message, then one validation run for the step. When validation fails, fix in-context — never queue failures for later. Build only what `02-plan.md` specifies — no features beyond it. The loop is forward-only: never re-invoke `/feature:plan` or any other skill mid-loop — rewinding to earlier stages would discard the context the loop was just operating in. Emit `Turn N/25` at every iteration boundary so the count is recoverable from the transcript; on a stuck pattern or the turn cap, append `## Stuck` and end the phase — the close stage surfaces the gate; don't keep spinning.
+Ship working code in one continuous loop. Implement plan steps incrementally — each step's edits in one message, then one validation run for the step. When validation fails, fix in-context — never queue failures for later. Build only what `02-plan.md` specifies — no features beyond it.
+
+Write code that explains itself, and write no comments by default. A comment is added only where the code cannot carry the fact: a license header; a public-API doc comment where the project documents them; a dependency, platform or protocol behavior that cannot be reshaped; an issue link for a constraint code cannot express; a tool directive such as `prettier-ignore`, or a lint suppression whose rule is wrong for this line — never one that catches real bugs. Never narrate what the code does, mark steps, leave commented-out code, or justify a workaround in prose. Reaching for a comment to explain a surprise in the code you are writing is the signal to rename, extract or type it until the comment is unnecessary.
+
+The loop is forward-only: never re-invoke `/feature:plan` or any other skill mid-loop — rewinding to earlier stages would discard the context the loop was just operating in. Emit `Turn N/25` at every iteration boundary so the count is recoverable from the transcript; on a stuck pattern or the turn cap, append `## Stuck` and end the phase — the close stage surfaces the gate; don't keep spinning.
 
 ---
 
