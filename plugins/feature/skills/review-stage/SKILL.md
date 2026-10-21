@@ -143,7 +143,7 @@ One composition, used by all four reviewers:
 Use the selected runtime's Spawn and Capacity operations: run concurrently when slots permit, otherwise in bounded batches. Every role receives the same shared base from step 3 plus its own suffix; another reviewer's findings never enter that prompt. Collect all four results before step 5; capacity-queued roles remain pending, not skipped or failed. Each prompt includes its runtime block and the role instructions required by that runtime:
 
 **a. `feature:code-reviewer`** (correctness + quality):
-> Review these code changes for correctness, bugs, logic errors, and adherence to project conventions. Use the confidence scale above — only report issues with confidence ≥ 80.
+> Review these code changes for correctness, bugs, logic errors, and adherence to project conventions. Comments the diff adds are in scope: read each one for the reason to remove it, and score one outside your role's keep list as a guideline violation, not a stylistic preference. Use the confidence scale above — only report issues with confidence ≥ 80.
 
 **b. `feature:security-engineer`** (security):
 > Review these code changes for security vulnerabilities. Check for: input validation, auth issues, injection risks, data exposure, OWASP Top 10. Use the confidence scale above — only report issues with confidence ≥ 80.
