@@ -1668,8 +1668,17 @@ const CASES = [
       'const g = require("./g");',
       "x.import('./not-this');",
       "const s = 'from nowhere';",
+      'import {',
+      '  h,',
+      "  // don't",
+      '  /* i */ i,',
+      "} from './hi';",
+      "// import './line-comment';",
+      "/* import './block-comment'; */",
+      "const u = 'http://host/*'; import './after-url';",
+      'const t = `// not a comment`; import "./after-template";',
     ].join('\r\n');
-    assertEqual(scanSpecifiers(text), ['./a', './bc', './d', './e', './types', './side-effect', './lazy', './g'], 'scanned specifiers');
+    assertEqual(scanSpecifiers(text), ['./a', './bc', './d', './e', './types', './side-effect', './lazy', './g', './hi', './after-url', './after-template'], 'scanned specifiers');
   }],
   ['imports: relative, extension, index and .js to .ts resolution against the listing', () => withTemp((root) => {
     const resolver = createResolver(root, ['src/a.ts', 'src/b.ts', 'src/dir/index.tsx', 'src/js.ts', 'src/raw.css', 'lib.mjs']);

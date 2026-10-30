@@ -26,9 +26,10 @@ export function isScriptPath(path) {
 }
 
 export function scanSpecifiers(text) {
+  const code = withoutComments(text);
   const found = [];
   for (const form of SPECIFIER_FORMS) {
-    for (const match of text.matchAll(form)) {
+    for (const match of code.matchAll(form)) {
       found.push({ index: match.index, spec: match[2] });
     }
   }
@@ -43,19 +44,22 @@ function isRelativeSpecifier(spec) {
   return spec === '.' || spec === '..' || spec.startsWith('./') || spec.startsWith('../');
 }
 
+const QUOTES = new Set(["'", '"', '`']);
+
 function stringEnd(text, start) {
+  const quote = text[start];
   let i = start + 1;
-  while (i < text.length && text[i] !== '"') {
+  while (i < text.length && text[i] !== quote && (quote === '`' || text[i] !== '\n')) {
     i += text[i] === '\\' ? 2 : 1;
   }
-  return i + 1;
+  return Math.min(i + 1, text.length);
 }
 
 function withoutComments(text) {
   let out = '';
   let i = 0;
   while (i < text.length) {
-    if (text[i] === '"') {
+    if (QUOTES.has(text[i])) {
       const end = stringEnd(text, i);
       out += text.slice(i, end);
       i = end;
@@ -64,6 +68,7 @@ function withoutComments(text) {
       i = end === -1 ? text.length : end;
     } else if (text.startsWith('/*', i)) {
       const end = text.indexOf('*/', i + 2);
+      out += ' ';
       i = end === -1 ? text.length : end + 2;
     } else {
       out += text[i];

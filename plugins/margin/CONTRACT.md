@@ -545,7 +545,8 @@ check (§4); a listing that never lists a symbolic link, on both the git and the
 nor the run's notes file or overview file (§10); the reading refusals and limits (§10); the
 overview document of §13 — a document accepted with its unknown fields dropped, each shape
 refusal, each reading refusal and the size limit; the overview data of §14 — the import scan
-over every form, resolution against the listing with the extension, `index` and `.js`-to-`.ts`
+over every form, past comments inside an import, with commented-out imports ignored and
+comment markers inside strings kept, resolution against the listing with the extension, `index` and `.js`-to-`.ts`
 probes, `tsconfig.json` `paths` with and without `baseUrl`, through `extends`, past comments
 and trailing commas, with an `extends` cycle, an `extends` outside the root (a symbolic-link
 folder included) and an unparseable config warned; the line count, the
@@ -687,9 +688,11 @@ of §10 refuses — binary, larger than 2 MiB, or no longer a regular file insid
 
 **Imports.** Only a file ending in `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`, `.mts` or
 `.cts` is scanned; every other file has empty `imports` and `outside`. The scan is a heuristic
-over the source text, not a parser: it takes the string literal of `import … from`,
-`export … from`, a bare `import '<x>'`, `import('<x>')` and `require('<x>')` wherever they
-appear, so `import type` counts and so does an import inside a comment. A specifier is
+over the source text, not a parser. It first removes `//` and `/* */` comments, skipping over
+`'`, `"` and `` ` `` strings, a `'` or `"` string ending at the end of its line; then it takes
+the string literal of `import … from`, `export … from`, a bare `import '<x>'`, `import('<x>')`
+and `require('<x>')` wherever they appear, so `import type` counts and an import inside a
+comment does not. A specifier is
 resolved with any `?…` or `#…` suffix removed:
 
 - A relative specifier (`.`, `..`, `./…`, `../…`) is joined to the importing file's folder.
