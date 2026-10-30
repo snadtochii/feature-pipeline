@@ -217,6 +217,8 @@ kbd { font: 11px var(--mono); opacity: .7; margin-left: 4px; }
 .cands .ov-head { margin: 14px 0 0; }
 .ov-none { margin: 0; }
 .cand { padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 8px; }
+.cand:focus { outline: none; }
+.cand.target { outline: 2px solid var(--c); outline-offset: 1px; }
 .cand-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; }
 .cand-name { font: 600 12.5px var(--mono); }
 .tier { padding: 0 7px; font-size: 11px; border: 1px solid var(--line); border-radius: 10px; }

@@ -465,9 +465,20 @@ function outlineFileRow(row, doc, counts) {
   return node;
 }
 
+// Opens a candidate's card: it scrolls into view, takes the focus and stays outlined until another
+// card is opened or the overview re-renders. The outline sits outside the box, so nothing moves.
 function revealCandidate(name) {
-  const card = [...el.overviewBody.querySelectorAll('.cand')].find((c) => c.dataset.name === name);
-  card?.scrollIntoView({ block: 'nearest' });
+  const cards = [...el.overviewBody.querySelectorAll('.cand')];
+  const card = cards.find((c) => c.dataset.name === name);
+  if (!card) {
+    return;
+  }
+  for (const other of cards) {
+    other.classList.toggle('target', other === card);
+  }
+  card.tabIndex = -1;
+  card.scrollIntoView({ block: 'nearest' });
+  card.focus({ preventScroll: true });
 }
 
 // ---- the outline's detail card ----------------------------------------------
