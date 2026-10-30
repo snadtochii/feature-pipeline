@@ -549,7 +549,8 @@ over every form, resolution against the listing with the extension, `index` and 
 probes, `tsconfig.json` `paths` with and without `baseUrl`, through `extends`, past comments
 and trailing commas, with an `extends` cycle, an `extends` outside the root (a symbolic-link
 folder included) and an unparseable config warned; the line count, the
-indent width and the indentation sum; churn counted from dated commits in a temporary
+indent width, a half-length on a stray line or under doc-comment lines left unhalved, and the
+indentation sum; churn counted from dated commits in a temporary
 repository with a commit older than six months left out, a root below the repository's top
 level, a root outside git and a repository without commits; the hotspot table; explorer
 blocks parsed, a block with its fields out of order included, and dropped for a malformed site
@@ -679,7 +680,8 @@ own `--out` and `--hotspots` files left out. Every listed file has one entry.
 
 The **indent width** is detected once over every listed text file: the most frequent length of
 a leading run of spaces on a non-blank line, the smaller length on a tie, halved while it is
-even and its half also occurs; `1` when no line starts with a space. A file the reading rule
+even and its half starts at least half as many lines as that most frequent length does, so a
+few stray lines never narrow it; `1` when no line starts with a space. A file the reading rule
 of §10 refuses — binary, larger than 2 MiB, or no longer a regular file inside the root — has
 `lines` and `indentation` `null` and empty `imports` and `outside`, and keeps its `churn`.
 

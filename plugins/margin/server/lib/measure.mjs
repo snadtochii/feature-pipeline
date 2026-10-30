@@ -40,7 +40,7 @@ export function detectWidth(texts) {
   if (width === 0) {
     return 1;
   }
-  while (width % 2 === 0 && counts.has(width / 2)) {
+  while (width % 2 === 0 && (counts.get(width / 2) ?? 0) * 2 >= best) {
     width /= 2;
   }
   return width;

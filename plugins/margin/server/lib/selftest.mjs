@@ -1715,7 +1715,9 @@ const CASES = [
   }))],
   ['measure: line count, indent width and indentation', () => {
     assertEqual(['', 'a', 'a\n', 'a\n\n', 'a\r\nb'].map(countLines), [0, 1, 1, 2, 2], 'line counts');
-    assertEqual(detectWidth(['  a\n    b\n    c\n']), 2, 'a width halved while the half occurs');
+    assertEqual(detectWidth(['  a\n    b\n    c\n']), 2, 'a width halved while the half starts half as many lines');
+    assertEqual(detectWidth(['    a\n    b\n    c\n  d\n']), 4, 'a half on one stray line does not halve');
+    assertEqual(detectWidth(['/**\n * doc\n */\nf() {\n    a\n    b\n    c\n  d\n}\n']), 4, 'doc-comment lines below a stray half do not halve');
     assertEqual(detectWidth(['    a\n        b\n']), 4, 'a tie won by the smaller width');
     assertEqual(detectWidth(['a\n\tb\n   \n']), 1, 'no space-indented line');
     assertEqual(indentation('a\n\t  x\n\n    \n    y\r\n', 2), 4, 'tabs plus spaces over the width, blank lines skipped');
