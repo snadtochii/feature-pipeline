@@ -219,7 +219,7 @@ Tickets are markdown with YAML frontmatter — see `skills/discover/templates/ta
   - `siblings: [<child-id>, ...]` — informational cross-references.
   - `blocked_by: [<child-id>, ...]` — sequencing dependencies. Enforced by `plan`/`build`: build refuses if blockers aren't done; plan auto-loads blocker context. See ticket-resolution Step 6.
 - **Epic frontmatter** (on `prd.md`):
-  - `kind: epic` — marks as non-pipelineable.
+  - `kind: epic` — `flow` and `ship` walk its children in `blocked_by` order; `plan`, `build`, `review-stage` and `close-stage` refuse it.
   - `children: [<child-id>, ...]` — populated by discover.
   - `epic: <slug>` — same slug as children.
 

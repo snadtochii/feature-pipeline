@@ -79,7 +79,7 @@ The Phase 3.5 checkpoint ([`multi-sibling.md`](multi-sibling.md)) applies unchan
    ```
    ## Epic + Children Created
 
-   **Epic ID**: <EPIC-ID> (kind: epic — not pipelineable directly; server-native — visible on the project board)
+   **Epic ID**: <EPIC-ID> (kind: epic — `/feature:flow <EPIC-ID>` or `/feature:ship <EPIC-ID>` runs its children; single stages refuse it; server-native — visible on the project board)
    **Children**: <N>
 
    | ID | Title | Complexity | blocked_by |
