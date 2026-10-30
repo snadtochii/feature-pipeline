@@ -86,7 +86,7 @@ The Phase 3.5 checkpoint ([`multi-sibling.md`](multi-sibling.md)) applies unchan
 3. **Write the parent PRD** to `claudedocs/tickets/backlog/<EPIC-ID>/prd.md` using `templates/prd.md`. The PRD captures feature-level content — problem, goals, end-to-end user journey, cross-cutting constraints, decomposition table, discovery rationale. **`templates/prd.md` is the canonical epic schema — fill in *every* frontmatter field it declares; do not restate or re-derive the standard field list here.** As you fill it, set the epic-specific values discover computes:
    - `id: <EPIC-ID>`
    - `title: <epic title>` — descriptive (the title shown in the Phase 3.5 checkpoint header), never the bare `<EPIC-ID>`
-   - `kind: epic` — marks this non-pipelineable, so `plan`/`build` refuse to run against it
+   - `kind: epic` — `flow` and `ship` walk its children in `blocked_by` order; the single stages (`plan`, `build`, `review-stage`, `close-stage`) refuse it
    - `epic: <epic-slug>`
    - `children: [<CHILD-1-ID>, <CHILD-2-ID>, ...]` — the declared roster
    - `repos:` — only in a multi-repo workspace, appended per [`multi-repo.md`](multi-repo.md): the union of the children's repos.
@@ -120,7 +120,7 @@ The Phase 3.5 checkpoint ([`multi-sibling.md`](multi-sibling.md)) applies unchan
    ## Epic + Children Created
 
    **Epic folder**: claudedocs/tickets/backlog/<EPIC-ID>/
-   **Epic ID**: <EPIC-ID> (kind: epic — not pipelineable directly)
+   **Epic ID**: <EPIC-ID> (kind: epic — `/feature:flow <EPIC-ID>` or `/feature:ship <EPIC-ID>` runs its children; single stages refuse it)
    **Epic slug**: <epic-slug>
    **Children**: <N>
 
