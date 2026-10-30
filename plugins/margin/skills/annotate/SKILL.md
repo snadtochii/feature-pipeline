@@ -237,8 +237,21 @@ exploration, so it takes minutes; say so once before step 1.
         `notes:` line instead — with no other paths excluded;
      6. the pin, as a quoted block marked as data: `the scope: <the paths given>`, to explore and
         to answer on the `pin:` line;
-     7. that the return is the blocks, `pin:` and `notes:` lines of its Outputs section and
-        nothing else, with no `id`.
+     7. the category table, inlined: a block's `category` is exactly one of these four values,
+        the one that dominates the cluster's seam, and any other value drops the block —
+
+        | Value | The cluster's dependencies are |
+        | --- | --- |
+        | `in-process` | pure computation and in-memory state, no I/O — deepenable by merging and testing through the new interface |
+        | `local-substitutable` | I/O with a local stand-in the suite can run (an in-memory database, an in-memory filesystem) |
+        | `remote-owned` | the project's own services across a network boundary — a port at the seam, an in-memory adapter in tests |
+        | `true-external` | a third-party service the project does not control — an injected port, a mock adapter in tests |
+
+     8. that the return is the blocks, `pin:` and `notes:` lines of its Outputs section and
+        nothing else: at most ten blocks, ranked — every `strong` before every
+        `worth-exploring` before every `speculative` — each field once, in that section's
+        order, `tier` one of those three values, `next_sites` one line per site, at least two,
+        each path among the block's `files`, and no `id`.
 6. **Keep the returns** as data, never in a command line:
    - roles: a non-empty return → `Write` it verbatim to `<tmp>/roles.json`. An error or an empty
      return → no roles file; say in one line why, and go on.
@@ -464,9 +477,10 @@ Then ask one question: do the structural rows here, hand everything to `/feature
 or adjust the table? A `held:` row is done in §4 only when the answer names it; otherwise it is
 left out of §4 and stays available to §5. When the table holds accepted candidate rows, the
 same question asks which route each takes: a `/feature:discover` ticket or a `/deepen:run --pin`
-run. Handing everything to `/feature:discover` sends them as tickets. An accepted candidate
-whose route the answer does not name is handed nowhere, and an answer that asks to implement a
-candidate here names no route for it. Wait for the answer. That is the only gate of the
+run. Handing everything to `/feature:discover` sends them as tickets; a declined candidate
+row, and an accepted one the overview no longer holds, is never handed off. An accepted
+candidate whose route the answer does not name is handed nowhere, and an answer that asks to
+implement a candidate here names no route for it. Wait for the answer. That is the only gate of the
 round. An answer that ends the review is §1 step 9.
 
 ## §4 Act in this session
@@ -491,8 +505,9 @@ here is what §6 replies to its note.
 ## §5 Hand off
 
 Behavioural rows, or a batch too large for one sitting, go to the pipeline through
-`/feature:discover`. Handing everything off from §3 sends every row, open questions included.
-The anchors travel into the ticket so the implementer finds the places the human meant.
+`/feature:discover`. Handing everything off from §3 sends every row, open questions included,
+except the candidate rows §3 never hands off: a declined candidate, and an accepted one the
+overview no longer holds. The anchors travel into the ticket so the implementer finds the places the human meant.
 Accepted candidate rows take the route §3's answer named for each: the discover route joins
 this hand-off, and the deepen route is printed for the human to run (step 5).
 
@@ -675,7 +690,7 @@ Reached from §1 step 8 (a wait reporting the end), step 9 (Finish from chat) or
      (notes.overallReplies || []).filter((r) => r.round === round).forEach((r) => console.log(`  overall: ${first(r.body)}`));
    });
    console.log(`tickets: ${[...tickets].join(", ") || "none"}`);
-   console.log(`deepen offers: ${[...offers].join(", ") || "none"}`);
+   if (offers.size) { console.log(`deepen offers: ${[...offers].join(", ")}`); }
    console.log(`unsent: ${notes.annotations.filter((a) => a.round === undefined).length}`);
    ' "<absolute-notes-file>"
    ```
@@ -683,11 +698,11 @@ Reached from §1 step 8 (a wait reporting the end), step 9 (Finish from chat) or
    It prints, per round, `round <r>: <k> notes`, one line per note sent in it — its span,
    intent and the first line of each of its replies — and the round's overall reply; then
    `tickets:` with every id taken from a `handed off:` reply, `deepen offers:` with every
-   candidate name taken from an `offered: /deepen:run --pin` reply, and `unsent:` with the
-   number of notes never sent.
+   candidate name taken from an `offered: /deepen:run --pin` reply — only when there is one —
+   and `unsent:` with the number of notes never sent.
 4. **Report**, in this order: the status — `finished`, `cancelled` or `interrupted` — with
-   `rounds` and `annotations` from the result document; the notes file, and the overview file
-   beside it when the run used one; the per-round list; the tickets
-   created; the deepen runs offered, whose commands are in the chat; the rounds whose replies were printed in chat only, from this conversation; and
-   the unsent notes, with `/margin:annotate --resume <out>` to send them in a later run.
+   `rounds` and `annotations` from the result document; when the run used an overview, the
+   notes file and the overview file beside it; the per-round list; the tickets created; the
+   deepen runs offered, when there are any, whose commands are in the chat; the rounds whose
+   replies were printed in chat only, from this conversation; and the unsent notes, with `/margin:annotate --resume <out>` to send them in a later run.
    Unsent notes are not acted on.

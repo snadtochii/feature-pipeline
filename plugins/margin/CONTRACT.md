@@ -176,8 +176,9 @@ first write. It writes `--out` before `--hotspots`, so a failure writing `--out`
 `assemble`'s checks run in this order: its arguments parse, its positional arguments are
 exactly `assemble`, `--measurements` and `--out` are each given and non-empty, `--roles` and
 `--explorer` are non-empty when given, `--explorer-unavailable` is not given with `--explorer`,
-is one line and is not blank, then the measurement file, the shape check and the size limit. Every one of them happens before its one write, so a refused run leaves an existing
-`--out` file exactly as it was. A roles file or explorer output that is missing or unreadable
+is one line and is not blank, then the measurement file, the shape check and the size limit.
+Every one of them happens before its one write, so a refused run leaves an existing `--out`
+file exactly as it was. A roles file or explorer output that is missing or unreadable
 is not a refusal (§14).
 
 ## §4 Flags
