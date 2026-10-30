@@ -544,7 +544,7 @@ function detailCard(row, { doc, model }) {
   if (folder === '') {
     const rootFolder = textNode('button', '', 'Note on folder');
     rootFolder.disabled = true;
-    rootFolder.title = 'A file at the root has no folder to annotate; use a general note';
+    rootFolder.title = NO_ROOT_FOLDER;
     actions.append(rootFolder);
   } else {
     const label = `Note on ${folder}/${folderNotes ? ` (${folderNotes})` : ''}`;
