@@ -4,7 +4,7 @@ Authoritative surface between `server/cli.mjs`, the `annotate` skill and the hum
 reviews code in the viewer. The contract fixes the verbs, their flags, the stdout and stderr
 output, the exit codes, resume, the notes-file schema, the anchor rule, the HTTP routes and
 their guards, the file-listing and reading rules, the seam between the skill and the
-server, and the self-test. The implementation under `server/` and `ui/` is private and may change without
+server, the self-test, and the overview document. The implementation under `server/` and `ui/` is private and may change without
 changing this file. Header comments in `server/` and `ui/` explain mechanics only; where one
 restates a fact this file fixes and disagrees with it, this file governs.
 
@@ -19,7 +19,7 @@ sees a whole file.
 ## §1 Invocation
 
 ```text
-node <plugin-root>/server/cli.mjs annotate [--root <dir>] [--scope <path>]... [--out <file>] [--port <n>] [--token <token>] [--no-open]
+node <plugin-root>/server/cli.mjs annotate [--root <dir>] [--scope <path>]... [--out <file>] [--overview <file>] [--port <n>] [--token <token>] [--no-open]
 node <plugin-root>/server/cli.mjs wait <url> [--after <n>]
 node <plugin-root>/server/cli.mjs --self-test
 ```
@@ -41,7 +41,8 @@ procedure: `README.md`, "Vendored highlight.js". `git` is optional: it makes the
 git-aware and fills `revision` (§6, §10).
 
 **Lifecycle.** `annotate` validates its arguments, reads the notes file when resuming (§5),
-resolves the root and scope, lists the files (§10), binds the port, writes the notes file as
+resolves the root and scope, lists the files (§10), reads and checks the overview file when
+`--overview` names one (§13), binds the port, writes the notes file as
 `draft`, prints the stderr block (§2) and opens the viewer unless `--no-open` is given. The run
 then spans rounds. Each Send in the viewer (`POST /api/submit`, §8) ends a round: every note
 not yet sent is stamped with the new round number, the round is recorded in the notes file
@@ -111,13 +112,14 @@ no stderr block.
 | Code | Meaning | Document |
 |---|---|---|
 | `0` | `annotate`: the run ended — Finish (`finished`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). `wait`: a round was sent or the run ended. Or every self-test case passed (§12). | Result, wait, or self-test |
-| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), the port cannot be bound (`could not listen on port <n>: <code>`), or the end of the run cannot save the notes file. `wait`: the server is unreachable — the connection is refused, or it drops before the reply ends (`server unreachable at <origin>: <code>`) — or it answers with an error (`wait: <status> <error>`). Or a self-test case failed (§12). | Error |
-| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. For `wait`: no URL or another positional argument, a URL that is not a run URL (§4), or an `--after` that is not a whole number of decimal digits. | Error |
+| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), the `--overview` file is refused (§13), the port cannot be bound (`could not listen on port <n>: <code>`), or the end of the run cannot save the notes file. `wait`: the server is unreachable — the connection is refused, or it drops before the reply ends (`server unreachable at <origin>: <code>`) — or it answers with an error (`wait: <status> <error>`). Or a self-test case failed (§12). | Error |
+| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), an empty `--overview` (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. For `wait`: no URL or another positional argument, a URL that is not a run URL (§4), or an `--after` that is not a whole number of decimal digits. | Error |
 
 `annotate`'s checks run in this order, and the first failure is the one reported: arguments
-and verb, then `--port`, then `--token`, then the resumed file's JSON and its `annotations`
-array (§5), then the scope paths, then the listing, then the resumed rounds, the agent's overall replies and notes (§5),
-then the port binding. Every one of them happens before the first save, so a refused run
+and verb, then `--port`, then `--token`, then an empty `--overview`, then the resumed file's
+JSON and its `annotations` array (§5), then the scope paths, then the listing, then the resumed
+rounds, the agent's overall replies and notes (§5), then the overview file (§13), then the port
+binding. Every one of them happens before the first save, so a refused run
 writes nothing: an existing `--out` file is left exactly as it was.
 
 `wait`'s checks run in this order: its arguments parse, its positional arguments are exactly
@@ -134,9 +136,10 @@ value. A flag other than `--scope` given twice keeps its last value.
 | `--root <dir>` | see meaning | The directory the scope is resolved against and served from. The flag applies when given, else the resumed file's `root` when it is a string (§5), else the working directory. A relative value resolves against the working directory; the result is absolute. |
 | `--scope <path>` | none | Repeatable. A file or folder, relative to the root (an absolute path inside the root is accepted). Each is normalised to a root-relative path, and the root itself becomes `.`. A path outside the root exits 2; the check compares path text and resolves no symbolic link (§10). With no `--scope`, a resumed file's `scope` applies when it is an array; otherwise the scope is empty and the whole root is listed. |
 | `--out <file>` | `<root>/claudedocs/margin/<stamp>.json` | The notes file. `<stamp>` is the start time in UTC as `YYYY-MM-DDTHH-MM-SS`. A relative value resolves against the working directory. When the file exists, the run is a resume (§5). Missing parent directories are created on the first save. |
-| `--port <n>` | `0` | An integer from 0 to 65535 after the value is converted with JavaScript's `Number()`: an empty or all-whitespace value becomes `0`, and `1e3` and `0x10` are accepted as `1000` and `16` (§13). `0` lets the operating system assign a free port; the bound port is the one in the stderr URL. |
+| `--overview <file>` | none | An overview document (§13), served at `GET /api/overview` (§8). A relative value resolves against the working directory. The file is read and checked once, when the run starts and before the port is bound; a refused file exits 1 and writes nothing (§3), and an empty value exits 2. The file is never listed (§10). It applies on a fresh run and on a resume alike, and the notes file does not record it. |
+| `--port <n>` | `0` | An integer from 0 to 65535 after the value is converted with JavaScript's `Number()`: an empty or all-whitespace value becomes `0`, and `1e3` and `0x10` are accepted as `1000` and `16` (§14). `0` lets the operating system assign a free port; the bound port is the one in the stderr URL. |
 | `--token <token>` | minted | 16 to 128 characters from `[A-Za-z0-9_-]`. When absent, the server mints 32 lowercase hexadecimal characters (16 random bytes). Setting it lets a caller know the viewer URL's fragment before the server prints it. |
-| `--no-open` | off | Do not open the viewer. Without it, the server opens the URL with the platform opener (`open` on macOS, `start` on Windows, `xdg-open` elsewhere). An opener that starts and fails is ignored, since the URL is on stderr; an opener command that is not installed ends the run with exit 1 and no stdout document, after the draft is saved and the stderr block is printed (§13). |
+| `--no-open` | off | Do not open the viewer. Without it, the server opens the URL with the platform opener (`open` on macOS, `start` on Windows, `xdg-open` elsewhere). An opener that starts and fails is ignored, since the URL is on stderr; an opener command that is not installed ends the run with exit 1 and no stdout document, after the draft is saved and the stderr block is printed (§14). |
 
 **`wait`** takes one positional argument and one flag:
 
@@ -226,7 +229,7 @@ Each note has exactly these fields; any other field on a note or on its anchor i
 
 | Field | Value |
 |---|---|
-| `id` | A string. A note that arrives without one gets a fresh UUID when the server accepts it; the viewer mints UUIDs for the notes it creates. It is the identity a later write revises the note by. Ids are not checked for uniqueness: a write or a resumed file may hold two notes with one id, and both are kept; a later write then revises each note carrying that id from the last stored note with it (§13). |
+| `id` | A string. A note that arrives without one gets a fresh UUID when the server accepts it; the viewer mints UUIDs for the notes it creates. It is the identity a later write revises the note by. Ids are not checked for uniqueness: a write or a resumed file may hold two notes with one id, and both are kept; a later write then revises each note carrying that id from the last stored note with it (§14). |
 | `anchor` | Where the note sits, by kind (below). |
 | `intent` | `change` or `question`. Any other value becomes `change`. |
 | `body` | The human's text. Required: a note without a string `body` is rejected. The server accepts an empty string; the viewer does not create empty notes. |
@@ -267,7 +270,7 @@ now to detect drift.
 **Saves carry the whole list.** A write that includes `annotations` replaces the list of
 unsent notes: a stored unsent note whose `id` is absent from the write is deleted, and a note
 whose `id` matches no stored note is a new note and goes through the checks above. A new note
-that fails them is left out of the list, and the write still answers `{"ok": true}` (§13).
+that fails them is left out of the list, and the write still answers `{"ok": true}` (§14).
 
 **Sent notes are locked.** No write revises or deletes a note that carries `round`: a write
 entry carrying a sent note's `id` is ignored, and a sent note absent from the write is kept,
@@ -278,11 +281,12 @@ in creation order, sent notes first.
 
 The server listens on `127.0.0.1` only, at the bound port. Every response carries
 `cache-control: no-store`; JSON responses are `application/json; charset=utf-8`. Every
-request passes the guards of §9 first. Ten routes:
+request passes the guards of §9 first. Eleven routes:
 
 | Route | Token | Request | Response |
 |---|---|---|---|
-| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
+| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/rounds.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
+| `GET /api/overview` | yes | — | 200 with the overview document as checked (§13). 404 `{"error": "no overview"}` when the run has none. Served until the process exits. |
 | `GET /api/session` | yes | — | 200 `{"session": <the notes file object, §6>, "files": [<the current listing, §10>], "changes": <the run's change count>}`. The change count is `0` when the process starts, is kept in memory only, and goes up by one on every accepted reply post. |
 | `GET /api/file?path=<p>` | yes | — | `<p>` not in the current listing: 404 `{"error": "<p> is not in scope"}`. A listed path that no longer exists — removed, or a parent folder replaced by a file: 404 `{"error": "<p> no longer exists"}`. Otherwise 200 with `{"path", "text"}` or a refusal `{"path", "binary": true, "reason"}` (§10). |
 | `GET /api/changes?after=<n>` | yes | — | `after` absent or not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`, `<value>` empty when absent. Once the end of the run has begun: 200 `{"status": <the end's status>, "changes": <count>}`, at once. When the change count exceeds `<n>`: 200 `{"status": "changed", "changes": <count>}`, at once. Otherwise the reply is held until an accepted reply post brings the count above `<n>`, which answers it `changed` with the new count, or the end of the run answers it. |
@@ -366,9 +370,11 @@ keeps the previous listing, and one that finds no files is served as an empty li
 - Either way, only regular files present on disk are listed. A symbolic link is never listed,
   and so never read, and the walk never descends into one. A scope path whose leading part is
   a linked directory is not resolved: git lists nothing beneath it, while the walk lists the
-  files beneath it even when they lie outside the root (§13). Reading still refuses them.
-- The run's own notes file (§6) is never listed, so its first save under the root leaves the
-  listing unchanged.
+  files beneath it even when they lie outside the root (§14). Reading still refuses them.
+- The run's own notes file (§6) and the overview file `--overview` names (§13) are never
+  listed, whatever their paths, so the notes file's first save under the root leaves the
+  listing unchanged. The exclusion compares root-relative path text, so a file outside the
+  root never matches.
 - Paths are root-relative with `/` separators, without duplicates, sorted by code unit. An
   empty scope lists the whole root. A listing with no files when the run starts exits 1 (§3).
 
@@ -418,7 +424,7 @@ longer exists — removed, or a parent folder replaced by a file — answers 404
 7. **Reply.** After acting on the round, it sends one `POST /api/reply` (§8) with that
    `round`, one entry per distinct note `id` of the round, and an overall reply. A 400 or 500
    applied nothing and may be sent again; a request whose outcome is unknown is not sent
-   again, since a repeat appends twice (§13, retried replies). A 409 means the run has ended
+   again, since a repeat appends twice (§14, retried replies). A 409 means the run has ended
    → step 9. Otherwise step 5, with `<n>` that round.
 8. **Finish.** When the human ends the review in the session rather than in the viewer, the
    skill calls `POST /api/finish` (§8) with the run's token, and starts no further wait.
@@ -427,7 +433,7 @@ longer exists — removed, or a parent folder replaced by a file — answers 404
    file at `out` for the run's summary.
 
 The server never reads the skill's state: its whole input is its argument vector, the files
-under the root, and the requests of the viewer and of the skill (Finish, replies). The skill's
+under the root, the overview file `--overview` names (§13), and the requests of the viewer and of the skill (Finish, replies). The skill's
 whole input from the server is the stdout result document, the wait documents, the answers to
 its reply and Finish requests, the URL on the stderr block's first line, and the notes file —
 between rounds and after exit; the rest of the stderr block is for the human.
@@ -456,7 +462,9 @@ the sent-note lock of §7; replies (§7) kept through a viewer write that echoes
 and through a save and a resume, a file without them resuming with none, each resume refusal
 for them (§5), and a reply post whose save fails leaving the session as it was; the scope
 check (§4); a listing that never lists a symbolic link, on both the git and the walk path,
-nor the run's notes file (§10); the reading refusals and limits (§10); and, against a server on port 0 inside the
+nor the run's notes file or overview file (§10); the reading refusals and limits (§10); the
+overview document of §13 — a document accepted with its unknown fields dropped, each shape
+refusal, each reading refusal and the size limit; and, against a server on port 0 inside the
 process, the three guards of §9 (the finish, wait, reply and change routes included), a Send
 that keeps the server serving and sends the next round, a Send with nothing to send, Finish
 with its result document and a write after the end refused, a Finish whose save fails answered
@@ -469,11 +477,15 @@ twice, and a reply after the end refused 409 — re-listing after a reply post (
 created mid-run listed and accepted as a `file` anchor only after it and a listed file that is
 deleted, or whose parent folder becomes a file, answering 404 `no longer exists` and then
 `not in scope` once a re-list drops it, and the change wait of §8 returning on a reply post and
-on Finish, held past a refused reply post, and refusing a missing or malformed `after`. A few cases run `cli.mjs` itself: each refusal of §5 and the scope check exit with the
-error document and leave an existing `--out` file byte for byte as it was; `wait`'s invocation
+on Finish, held past a refused reply post, and refusing a missing or malformed `after`, and the
+overview route of §8 behind the token, with its 404 without an overview. A few cases run
+`cli.mjs` itself: each refusal of §5, the scope check and each `--overview` refusal of §13 exit
+with the error document and leave an existing `--out` file byte for byte as it was, and an
+empty `--overview` exits 2; `wait`'s invocation
 refusals exit 2, and a `wait` child, let go once the server holds its request, returns on a
 Send and on Finish; one run serves a Send, keeps serving, and ends on Finish with exactly one
-result document; and another run ends `interrupted` on `SIGTERM`.
+result document; another run ends `interrupted` on `SIGTERM`; and a run given `--overview`
+serves the document and keeps the file out of the listing, after a reply post included.
 
 It opens no browser, sends requests to `127.0.0.1` only, and binds no fixed port. It prints
 `{"cases": <n>, "ok": true}` and exits 0 when every case passes; otherwise it prints
@@ -481,7 +493,66 @@ It opens no browser, sends requests to `127.0.0.1` only, and binds no fixed port
 exits 1. Unlike a review, it needs `git` on `PATH`: one listing case builds a repository. It
 runs on every change in the repository's validation workflow.
 
-## §13 Open questions
+## §13 Overview document
+
+A run given `--overview <file>` (§4) carries one overview document: a JSON object, UTF-8,
+describing the run's files and the refactoring candidates found in them. The server reads it
+once, when the run starts, and serves it unchanged for the whole run at `GET /api/overview`
+(§8); it is a snapshot, and nothing refreshes it. The file is at most 2 MiB (2,097,152 bytes).
+
+**Top level.** Every key below is required; a key that is present with a wrong value and a key
+that is missing are both refused.
+
+| Field | Value |
+|---|---|
+| `version` | `1`. |
+| `root` | An absolute path: the root the overview was made for. It is not compared with the run's root. |
+| `scope` | An array of `.` or overview paths (below); may be empty. |
+| `generatedAt` | A string that JavaScript's `Date.parse` reads as a date, written as an ISO 8601 UTC timestamp. |
+| `files` | An array of file entries (below); may be empty. |
+| `candidates` | An array of candidate entries (below); may be empty. |
+| `notices` | An array of non-empty strings, shown in the viewer as they are — why there are no candidates, for example; may be empty. |
+
+**A `files[]` entry.** The measurement fields and the four role fields are nullable together:
+a field the producer could not measure or describe is present as `null`.
+
+| Field | Value |
+|---|---|
+| `path` | An overview path, unique across `files`. |
+| `lines`, `churn`, `indentation` | A non-negative integer, or `null`. |
+| `kind`, `role` | A non-empty string, or `null`. |
+| `exports`, `mixes` | An array of non-empty strings, or `null`. |
+| `imports` | An array of the overview paths this file imports; each is the `path` of a `files` entry. |
+| `outside` | An array of non-empty strings: import specifiers that name nothing in `files`. |
+
+**A `candidates[]` entry.**
+
+| Field | Value |
+|---|---|
+| `name` | Lowercase letters, digits and hyphens, starting with a letter or digit; unique across `candidates`. |
+| `tier` | `strong`, `worth-exploring` or `speculative`. |
+| `category` | `in-process`, `local-substitutable`, `remote-owned` or `true-external`. |
+| `files` | A non-empty array; each is the `path` of a `files` entry. |
+| `next_change` | A non-empty string: the change this candidate would make cheaper. |
+| `next_sites` | An array, may be empty, of `{"path", "line", "what"}`: `path` one of this candidate's `files`, `line` an integer of at least 1, `what` a non-empty string. |
+| `est_diff_lines` | A non-negative integer. |
+| `deletion_test` | A non-empty string. |
+| `friction` | A non-empty string. |
+
+**Overview paths.** Root-relative with `/` separators, as the listing writes them (§10): a
+non-empty string with no `\`, not starting with `/`, and with no empty, `.` or `..` segment.
+
+**Unknown fields** are dropped at every level, and only the checked fields reach
+`GET /api/overview`. Numbers are never read from strings.
+
+**Refusals.** The first violation refuses the run with exit 1 and writes nothing (§3). The
+reason begins `overview <file>:`, `<file>` the absolute path, and goes on with one of
+`not found`, `not a regular file`, `<x.y> MB is above the 2 MB overview limit`,
+`could not be read (<code>)`, `not valid JSON (<detail>)`, or the violation itself, named by
+its location in the document — `missing key <location>`, `<location> is not <what it must be>`,
+`<location> duplicates <location>`, `<location> is not an overview file`.
+
+## §14 Open questions
 
 What this contract leaves undecided, each as a question.
 

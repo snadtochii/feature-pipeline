@@ -15,10 +15,13 @@
 // after a sent round), `wait` returning on a submit and on the end of the run, the reply route
 // (sent notes only, its refusals, all or nothing, 409 after the end), re-listing after a reply
 // (a new file accepted as a `file` anchor, a deleted listed file answering 404), and the change
-// wait returning on a reply and on the end. Through `cli.mjs` children it checks the command's own
-// refusals (children that must exit before serving, and `wait`'s invocation refusals) and one
-// end-to-end run: a submit, a `wait` child, finish, and exactly one result document, plus a
-// run ended by SIGTERM.
+// wait returning on a reply and on the end. It checks the overview document: a document accepted
+// with its unknown fields dropped, each shape refusal, each reading refusal and the size limit,
+// the overview route behind the token and its 404 without an overview, and a listing that never
+// lists the overview file. Through `cli.mjs` children it checks the command's own
+// refusals (children that must exit before serving, `wait`'s invocation refusals, and each
+// `--overview` refusal leaving `--out` as it was) and end-to-end runs: a submit, a `wait` child,
+// finish, and exactly one result document, a run ended by SIGTERM, and a run serving its overview.
 // Every fixture is a real file in a temp directory, and every expectation is written by hand,
 // never computed by the code under test. Requests go to 127.0.0.1 only. A failing case throws
 // a RunError naming it.
@@ -35,6 +38,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { listFiles, readSource } from './files.mjs';
 import { applyEdits, cleanAnnotation } from './annotations.mjs';
+import { MAX_OVERVIEW_BYTES, checkOverview, readOverview } from './overview.mjs';
 import { startServer } from './server.mjs';
 import { RunError, createSession, finishRun, postReplies, readStored, restoreSession, saveSession, scopePath, sendRound } from './session.mjs';
 import { waitForRound } from './wait.mjs';
@@ -132,11 +136,11 @@ function request(port, { method = 'GET', target = '/api/session', headers = {}, 
 
 // A server on port 0 over a temp root holding `a.txt`, with the session, save, send and end
 // that `cli.mjs annotate` wires: `finished` settles with the result document the run would print.
-function withServer(fn) {
+function withServer(fn, { overview = null } = {}) {
   return withTemp(async (root) => {
     write(root, 'a.txt', 'a\n');
     const out = path.join(root, 'claudedocs', 'margin', 'notes.json');
-    const files = listFiles(root, [], out);
+    const files = listFiles(root, [], [out]);
     assertEqual(files, ['a.txt'], 'fixture listing');
     const session = createSession({ stored: null, out, root, scope: [], revision: null });
     const save = () => saveSession(session);
@@ -146,11 +150,12 @@ function withServer(fn) {
       session,
       files,
       readSource: (p) => readSource(root, p),
-      relist: () => listFiles(root, [], out),
+      relist: () => listFiles(root, [], [out]),
       onSave: save,
       onSend: () => sendRound(session),
       onReply: (body) => postReplies(session, body),
       onEnd: (status) => finishRun(session, status),
+      overview,
     });
     try {
       const parsed = new URL(url);
@@ -252,6 +257,66 @@ function serverUrl(run) {
   return within(found, 'the server URL on stderr').catch((err) => {
     throw new CaseFailure(`${err.message} (stderr: ${JSON.stringify(run.stderr().slice(0, 300))}, stdout: ${JSON.stringify(run.stdout().slice(0, 300))})`);
   });
+}
+
+// ---- the overview document (lib/overview.mjs) ------------------------------------------------
+
+const OVERVIEW_ROOT = path.join(os.tmpdir(), 'margin-overview-root');
+
+function overviewFixture(root) {
+  return {
+    version: 1,
+    root,
+    scope: ['src'],
+    generatedAt: '2026-10-30T12:00:00Z',
+    producer: 'hand-written',
+    files: [
+      { path: 'src/a.js', lines: 120, churn: 4, indentation: 3, kind: 'module', role: 'entry point', exports: ['main'], mixes: ['io', 'parsing'], imports: ['src/b.js'], outside: ['node:fs'], hotspot: { score: 9 } },
+      { path: 'src/b.js', lines: null, churn: null, indentation: null, kind: null, role: null, exports: null, mixes: null, imports: [], outside: [] },
+    ],
+    candidates: [
+      {
+        name: 'split-parsing',
+        tier: 'strong',
+        category: 'in-process',
+        files: ['src/a.js', 'src/b.js'],
+        next_change: 'add a second input format',
+        next_sites: [{ path: 'src/a.js', line: 12, what: 'the format switch', column: 4 }],
+        est_diff_lines: 80,
+        deletion_test: 'deleting b.js moves its parsing back into a.js',
+        friction: 'a.js mixes io and parsing',
+        structural_key: 'parse:a.js',
+      },
+    ],
+    notices: ['one candidate found'],
+  };
+}
+
+function expectedOverview(root) {
+  return {
+    version: 1,
+    root,
+    scope: ['src'],
+    generatedAt: '2026-10-30T12:00:00Z',
+    files: [
+      { path: 'src/a.js', lines: 120, churn: 4, indentation: 3, kind: 'module', role: 'entry point', exports: ['main'], mixes: ['io', 'parsing'], imports: ['src/b.js'], outside: ['node:fs'] },
+      { path: 'src/b.js', lines: null, churn: null, indentation: null, kind: null, role: null, exports: null, mixes: null, imports: [], outside: [] },
+    ],
+    candidates: [
+      {
+        name: 'split-parsing',
+        tier: 'strong',
+        category: 'in-process',
+        files: ['src/a.js', 'src/b.js'],
+        next_change: 'add a second input format',
+        next_sites: [{ path: 'src/a.js', line: 12, what: 'the format switch' }],
+        est_diff_lines: 80,
+        deletion_test: 'deleting b.js moves its parsing back into a.js',
+        friction: 'a.js mixes io and parsing',
+      },
+    ],
+    notices: ['one candidate found'],
+  };
 }
 
 // ---- the viewer's round controller (ui/rounds.js) --------------------------------------------
@@ -866,7 +931,7 @@ const CASES = [
     assert(others.includes('link.txt'), 'git does not list the symlink, so the filter is not what drops it');
     assertEqual(listFiles(root, []), ['a.txt', 'sub/b.txt'], 'git listing');
     const notes = write(root, 'claudedocs/margin/notes.json', '{}\n');
-    assertEqual(listFiles(root, [], notes), ['a.txt', 'sub/b.txt'], 'git listing leaves out the notes file');
+    assertEqual(listFiles(root, [], [notes]), ['a.txt', 'sub/b.txt'], 'git listing leaves out the notes file');
   })],
   ['reading: refusals and limits', () => withTemp((root) => withTemp((outside) => {
     write(outside, 'secret.txt', 'secret\n');
@@ -893,6 +958,103 @@ const CASES = [
     assert(typeof readSource(root, 'late.dat').text === 'string', 'a NUL past the first 8000 bytes was read as binary');
     write(root, 'u.txt', 'héllo\n');
     assertEqual(readSource(root, 'u.txt'), { path: 'u.txt', text: 'héllo\n' }, 'a UTF-8 file');
+  }))],
+  ['overview: the shape check accepts a document and drops unknown fields', () => {
+    assertEqual(checkOverview(overviewFixture(OVERVIEW_ROOT)), expectedOverview(OVERVIEW_ROOT), 'the checked document');
+    const empty = { version: 1, root: OVERVIEW_ROOT, scope: ['.'], generatedAt: '2026-10-30', files: [], candidates: [], notices: [] };
+    assertEqual(checkOverview(structuredClone(empty)), empty, 'a document with no files, candidates or notices');
+    const doc = overviewFixture(OVERVIEW_ROOT);
+    doc.candidates[0].next_sites = [];
+    assertEqual(checkOverview(doc).candidates[0].next_sites, [], 'a candidate with no next sites');
+    const planted = JSON.parse(`{"__proto__": {"polluted": true}, ${JSON.stringify(overviewFixture(OVERVIEW_ROOT)).slice(1)}`);
+    const checked = checkOverview(planted);
+    assert(Object.getPrototypeOf(checked) === Object.prototype && checked.polluted === undefined, 'a __proto__ key reached the checked document');
+  }],
+  ['overview: the shape check refuses each violation', () => {
+    const cases = [
+      [() => null, 'overview: the document is not an object'],
+      [(d) => [d], 'the document is not an object'],
+      [(d) => { delete d.generatedAt; }, 'missing key generatedAt'],
+      [(d) => { d.generatedAt = 'yesterday'; }, 'generatedAt is not a date-time string'],
+      [(d) => { d.version = 2; }, 'version is not the number 1'],
+      [(d) => { d.root = 'work/repo'; }, 'root is not an absolute path'],
+      [(d) => { d.scope = ['../elsewhere']; }, 'scope[0] is not . or a root-relative path'],
+      [(d) => { d.files[1].path = 'src/../b.js'; }, 'files[1].path is not a root-relative path'],
+      [(d) => { d.files[0].path = '/src/a.js'; }, 'files[0].path is not a root-relative path'],
+      [(d) => { d.files[0].path = 'src\\a.js'; }, 'files[0].path is not a root-relative path'],
+      [(d) => { d.files[1].path = 'src/a.js'; }, 'files[1].path duplicates files[0].path'],
+      [(d) => { d.files[0].imports = ['src/c.js']; }, 'files[0].imports[0] is not an overview file'],
+      [(d) => { d.files[0].lines = -1; }, 'files[0].lines is not a non-negative integer or null'],
+      [(d) => { delete d.files[1].role; }, 'missing key files[1].role'],
+      [(d) => { d.files[0].outside = null; }, 'files[0].outside is not an array of non-empty strings'],
+      [(d) => { d.candidates.push(structuredClone(d.candidates[0])); }, 'candidates[1].name duplicates candidates[0].name'],
+      [(d) => { d.candidates[0].name = 'Split Parsing'; }, 'candidates[0].name is not a name of lowercase letters, digits and hyphens'],
+      [(d) => { d.candidates[0].tier = 'maybe'; }, 'candidates[0].tier is not one of strong, worth-exploring, speculative'],
+      [(d) => { d.candidates[0].category = 'external'; }, 'candidates[0].category is not one of in-process, local-substitutable, remote-owned, true-external'],
+      [(d) => { d.candidates[0].files = []; }, 'candidates[0].files is not a non-empty array'],
+      [(d) => { d.candidates[0].files = ['src/c.js']; }, 'candidates[0].files[0] is not an overview file'],
+      [(d) => { d.candidates[0].files = ['src/b.js']; }, "candidates[0].next_sites[0].path is not one of the candidate's files"],
+      [(d) => { d.candidates[0].next_sites[0].line = 0; }, 'candidates[0].next_sites[0].line is not an integer of at least 1'],
+      [(d) => { d.candidates[0].next_sites[0].line = '3'; }, 'candidates[0].next_sites[0].line is not an integer of at least 1'],
+      [(d) => { d.candidates[0].est_diff_lines = 1.5; }, 'candidates[0].est_diff_lines is not a non-negative integer'],
+      [(d) => { d.candidates[0].friction = ''; }, 'candidates[0].friction is not a non-empty string'],
+      [(d) => { d.notices = [3]; }, 'notices is not an array of non-empty strings'],
+    ];
+    for (const [mutate, fragment] of cases) {
+      const doc = overviewFixture(OVERVIEW_ROOT);
+      const replaced = mutate(doc);
+      throwsRun(() => checkOverview(replaced === undefined ? doc : replaced), 1, fragment);
+    }
+    throwsRun(() => checkOverview(null, 'overview /x.json'), 1, 'overview /x.json: the document is not an object');
+  }],
+  ['overview: reading refusals and the size limit', () => withTemp((dir) => {
+    assert(MAX_OVERVIEW_BYTES === 2097152, `the overview limit is ${MAX_OVERVIEW_BYTES} bytes`);
+    const missing = path.join(dir, 'missing.json');
+    throwsRun(() => readOverview(missing), 1, `overview ${missing}: not found`);
+    throwsRun(() => readOverview(path.join(dir, 'missing', 'x.json')), 1, 'not found');
+    fs.mkdirSync(path.join(dir, 'folder'));
+    throwsRun(() => readOverview(path.join(dir, 'folder')), 1, 'folder: not a regular file');
+    const big = write(dir, 'big.json', Buffer.alloc(MAX_BYTES + 1, ' '));
+    throwsRun(() => readOverview(big), 1, 'big.json: 2.0 MB is above the 2 MB overview limit');
+    const edge = write(dir, 'edge.json', Buffer.alloc(MAX_BYTES, 'a'));
+    throwsRun(() => readOverview(edge), 1, 'edge.json: not valid JSON');
+    const broken = write(dir, 'broken.json', '{');
+    throwsRun(() => readOverview(broken), 1, `overview ${broken}: not valid JSON`);
+    const shape = write(dir, 'shape.json', '[]');
+    throwsRun(() => readOverview(shape), 1, `overview ${shape}: the document is not an object`);
+    const good = write(dir, 'good.json', JSON.stringify(overviewFixture(OVERVIEW_ROOT)));
+    assertEqual(readOverview(good), expectedOverview(OVERVIEW_ROOT), 'a valid overview file');
+  })],
+  ['overview: the route serves the document behind the token, 404 without one', async () => {
+    await withServer(async ({ port, host }) => {
+      const noToken = await request(port, { target: '/api/overview', headers: { host } });
+      assert(noToken.status === 403, `the overview without the token got ${noToken.status}`);
+      const served = await request(port, { target: '/api/overview', headers: { host, 'x-margin-token': TOKEN } });
+      assert(served.status === 200, `the overview with the token got ${served.status}`);
+      assertEqual(served.json, expectedOverview(OVERVIEW_ROOT), 'the served overview');
+      const session = await request(port, { headers: { host, 'x-margin-token': TOKEN } });
+      assertEqual(Object.keys(session.json), ['session', 'files', 'changes'], 'session route keys on an overview run');
+    }, { overview: checkOverview(overviewFixture(OVERVIEW_ROOT)) });
+    await withServer(async ({ port, host }) => {
+      const noToken = await request(port, { target: '/api/overview', headers: { host } });
+      assert(noToken.status === 403, `the overview route without the token and without an overview got ${noToken.status}`);
+      const none = await request(port, { target: '/api/overview', headers: { host, 'x-margin-token': TOKEN } });
+      assert(none.status === 404, `the overview route without an overview got ${none.status}`);
+      assertEqual(none.json, { error: 'no overview' }, 'the reply without an overview');
+    });
+  }],
+  ["listing: the run's overview file is never listed", () => withTemp((root) => withTemp((outside) => {
+    write(root, 'a.txt', 'a\n');
+    const notes = write(root, 'claudedocs/margin/notes.json', '{}\n');
+    const overview = write(root, 'claudedocs/margin/notes.overview.json', '{}\n');
+    const away = write(outside, 'overview.json', '{}\n');
+    assert(!isRepository(root), `${root} is inside a git repository, so the walk is not what runs`);
+    assertEqual(listFiles(root, []), ['a.txt', 'claudedocs/margin/notes.json', 'claudedocs/margin/notes.overview.json'], 'walk listing with nothing left out');
+    assertEqual(listFiles(root, [], [notes, overview]), ['a.txt'], 'walk listing leaves out the notes and overview files');
+    assertEqual(listFiles(root, ['claudedocs'], [notes, overview]), [], 'walk listing of a scope holding only the run files');
+    assertEqual(listFiles(root, [], [notes, away]), ['a.txt', 'claudedocs/margin/notes.overview.json'], 'walk listing with an overview outside the root');
+    execFileSync('git', ['init', '-q'], { cwd: root, stdio: 'ignore' });
+    assertEqual(listFiles(root, [], [notes, overview]), ['a.txt'], 'git listing leaves out the notes and overview files');
   }))],
   ['guards: host, origin and token', () => withServer(async ({ port, host, ended }) => {
     const token = { 'x-margin-token': TOKEN };
@@ -1441,6 +1603,60 @@ const CASES = [
     assertErrorDoc(runCli(['annotate', '--root', root, '--scope', '../outside', '--port', '0', '--no-open']), 2, 'is outside', 'a scope outside the root');
     assertEqual(fs.readdirSync(root), ['a.txt'], 'files under the root after the refusals');
     assertErrorDoc(runCli(['--self-test', 'extra']), 2, 'usage: cli.mjs annotate', '--self-test with another argument');
+  })],
+  ['cli: overview refusals write nothing', () => withTemp((dir) => {
+    const root = path.join(dir, 'root');
+    write(root, 'a.txt', 'a\n');
+    const out = path.join(dir, 'notes.json');
+    const notes = '{"annotations": []}';
+    fs.writeFileSync(out, notes);
+    const args = (overview) => ['annotate', '--root', root, '--out', out, '--overview', overview, '--port', '0', '--no-open'];
+    for (const [name, content, fragment] of [
+      ['missing.json', null, 'missing.json: not found'],
+      ['broken.json', '{', 'broken.json: not valid JSON'],
+      ['shape.json', JSON.stringify({ ...overviewFixture(root), version: 2 }), 'shape.json: version is not the number 1'],
+    ]) {
+      const overview = path.join(dir, name);
+      if (content !== null) {
+        fs.writeFileSync(overview, content);
+      }
+      assertErrorDoc(runCli(args(overview)), 1, fragment, `--overview ${name}`);
+      assert(fs.readFileSync(out).equals(Buffer.from(notes)), `--overview ${name} rewrote --out`);
+    }
+    assertErrorDoc(runCli(['annotate', '--root', root, '--out', out, '--overview=', '--port', '0', '--no-open']), 2, 'bad --overview: empty', 'an empty --overview');
+    assertErrorDoc(runCli(['annotate', '--root', root, '--out', out, '--port', '0', '--no-open', '--overview']), 2, 'usage: cli.mjs annotate', '--overview with no value');
+    assert(fs.readFileSync(out).equals(Buffer.from(notes)), 'a bad --overview invocation rewrote --out');
+    fs.rmSync(out);
+    assertErrorDoc(runCli(['annotate', '--root', root, '--overview', path.join(dir, 'broken.json'), '--port', '0', '--no-open']), 1, 'not valid JSON', 'a fresh run with a bad overview');
+    assertEqual(fs.readdirSync(root), ['a.txt'], 'files under the root after the overview refusals');
+  })],
+  ['cli: an overview run serves the document and keeps it out of the listing', () => withTemp(async (dir) => {
+    const root = path.join(dir, 'root');
+    write(root, 'a.txt', 'a\n');
+    const overviewFile = write(root, 'claudedocs/margin/notes.overview.json', JSON.stringify(overviewFixture(root)));
+    const out = path.join(dir, 'notes.json');
+    const server = spawnCli(['annotate', '--root', root, '--out', out, '--overview', overviewFile, '--port', '0', '--token', TOKEN, '--no-open']);
+    try {
+      const url = await serverUrl(server);
+      const port = Number(new URL(url).port);
+      const headers = { host: `127.0.0.1:${port}`, 'x-margin-token': TOKEN };
+      const served = await request(port, { target: '/api/overview', headers });
+      assert(served.status === 200, `the overview route got ${served.status}`);
+      assertEqual(served.json, expectedOverview(root), 'the served overview');
+      assertEqual((await request(port, { headers })).json.files, ['a.txt'], 'listing on an overview run');
+      const sent = await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: [{ id: 'n1', anchor: { kind: 'scope' }, body: 'one' }] } });
+      assertEqual(sent.json, { ok: true, round: 1 }, 'submit reply');
+      const replied = await request(port, { method: 'POST', target: '/api/reply', headers, body: { round: 1, replies: [{ id: 'n1', body: 'noted' }] } });
+      assertEqual(replied.json, { ok: true, replied: 1 }, 'reply answer');
+      assertEqual((await request(port, { headers })).json.files, ['a.txt'], 'listing after a reply on an overview run');
+      const finish = await request(port, { method: 'POST', target: '/api/finish', headers });
+      assertEqual(finish.json, { ok: true, status: 'finished' }, 'finish reply');
+      const exit = await server.exited();
+      assert(exit.code === 0, `the server exited ${exit.code ?? exit.signal}: ${exit.stdout}`);
+      assertEqual(JSON.parse(exit.stdout), { status: 'finished', out, annotations: 1, rounds: 1, root, scope: [] }, 'result document on an overview run');
+    } finally {
+      server.child.kill('SIGKILL');
+    }
   })],
 ];
 

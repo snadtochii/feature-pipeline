@@ -5,9 +5,10 @@
 // reads source through /api/file). Every request must carry the Host of this server, and
 // every /api route must carry the per-run token that only the URL the server printed knows.
 // A run spans rounds: Send ends a round and the server keeps serving; Finish, Cancel or a
-// signal ends the run, once. Ten routes:
+// signal ends the run, once. Eleven routes:
 //   GET  /                    the viewer
 //   GET  /api/session         { session, files, changes }
+//   GET  /api/overview        the overview document; 404 when the run has none
 //   GET  /api/file?path=      { path, text } | { path, binary, reason }; 404 when the path is
 //                             not listed or no longer exists
 //   GET  /api/wait?after=     held until the round count exceeds `after` or the run ends, then
@@ -124,8 +125,9 @@ function flush(pending) {
 // after every held wait and change wait — and `res`, the Cancel or Finish request that ended
 // the run, when given — has been answered (capped at FLUSH_CAP_MS), or rejects when `onEnd`
 // throws, after `res` has been answered 500. `waiting()` is the number of held waits and
-// `watching()` the number of held change waits.
-export function startServer({ port, token: givenToken, session, files: initialFiles, readSource, onSave, onSend, onReply, onEnd, relist }) {
+// `watching()` the number of held change waits. `overview` is the run's checked overview
+// document, or null when it has none; it is served as is.
+export function startServer({ port, token: givenToken, session, files: initialFiles, readSource, onSave, onSend, onReply, onEnd, relist, overview = null }) {
   let files = initialFiles;
   let allowed = new Set(files);
   // The run's change count: bumped once per accepted reply post, kept in memory only, so a
@@ -188,6 +190,9 @@ export function startServer({ port, token: givenToken, session, files: initialFi
       }
       if (req.method === 'GET' && url.pathname === '/api/session') {
         return sendJson(res, { session, files, changes });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/overview') {
+        return overview ? sendJson(res, overview) : sendJson(res, { error: 'no overview' }, 404);
       }
       if (req.method === 'GET' && url.pathname === '/api/file') {
         const path = url.searchParams.get('path') ?? '';
