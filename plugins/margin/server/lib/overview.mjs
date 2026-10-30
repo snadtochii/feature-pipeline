@@ -14,6 +14,7 @@ export const MAX_OVERVIEW_BYTES = 2 * 1024 * 1024;
 const TIERS = ['strong', 'worth-exploring', 'speculative'];
 const CATEGORIES = ['in-process', 'local-substitutable', 'remote-owned', 'true-external'];
 const CANDIDATE_NAME = /^[a-z0-9][a-z0-9-]*$/;
+const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 
 class ShapeViolation extends Error {}
 
@@ -89,6 +90,23 @@ function checkFile(entry, loc) {
   };
 }
 
+function isUtcTimestamp(value) {
+  return typeof value === 'string' && UTC_TIMESTAMP.test(value) && !Number.isNaN(Date.parse(value));
+}
+
+function checkOverviewFiles(list, loc, paths) {
+  const seen = new Map();
+  list.forEach((path, j) => {
+    if (!paths.has(path)) {
+      violation(`${loc}[${j}] is not an overview file`);
+    }
+    if (seen.has(path)) {
+      violation(`${loc}[${j}] duplicates ${loc}[${seen.get(path)}]`);
+    }
+    seen.set(path, j);
+  });
+}
+
 function checkFiles(list) {
   const index = new Map();
   const files = list.map((entry, i) => {
@@ -100,11 +118,7 @@ function checkFiles(list) {
     return file;
   });
   files.forEach((file, i) => {
-    file.imports.forEach((path, j) => {
-      if (!index.has(path)) {
-        violation(`files[${i}].imports[${j}] is not an overview file`);
-      }
-    });
+    checkOverviewFiles(file.imports, `files[${i}].imports`, index);
   });
   return { files, paths: index };
 }
@@ -128,11 +142,7 @@ function checkCandidate(entry, loc, paths) {
   const tier = field(entry, 'tier', loc, (value) => TIERS.includes(value), `one of ${TIERS.join(', ')}`);
   const category = field(entry, 'category', loc, (value) => CATEGORIES.includes(value), `one of ${CATEGORIES.join(', ')}`);
   const files = [...field(entry, 'files', loc, (value) => Array.isArray(value) && value.length > 0, 'a non-empty array')];
-  files.forEach((path, j) => {
-    if (!paths.has(path)) {
-      violation(`${loc}.files[${j}] is not an overview file`);
-    }
-  });
+  checkOverviewFiles(files, `${loc}.files`, paths);
   const nextChange = field(entry, 'next_change', loc, isNonEmptyString, 'a non-empty string');
   const sites = field(entry, 'next_sites', loc, Array.isArray, 'an array');
   return {
@@ -170,7 +180,7 @@ function checkDocument(value) {
       violation(`scope[${i}] is not . or a root-relative path`);
     }
   });
-  const generatedAt = field(value, 'generatedAt', '', (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v)), 'a date-time string');
+  const generatedAt = field(value, 'generatedAt', '', isUtcTimestamp, 'an ISO 8601 UTC timestamp');
   const fileList = field(value, 'files', '', Array.isArray, 'an array');
   const candidateList = field(value, 'candidates', '', Array.isArray, 'an array');
   const notices = [...field(value, 'notices', '', isStringArray, 'an array of non-empty strings')];

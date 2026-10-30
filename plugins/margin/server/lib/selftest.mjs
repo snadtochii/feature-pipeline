@@ -961,8 +961,11 @@ const CASES = [
   }))],
   ['overview: the shape check accepts a document and drops unknown fields', () => {
     assertEqual(checkOverview(overviewFixture(OVERVIEW_ROOT)), expectedOverview(OVERVIEW_ROOT), 'the checked document');
-    const empty = { version: 1, root: OVERVIEW_ROOT, scope: ['.'], generatedAt: '2026-10-30', files: [], candidates: [], notices: [] };
+    const empty = { version: 1, root: OVERVIEW_ROOT, scope: ['.'], generatedAt: '2026-10-30T12:00:00.123Z', files: [], candidates: [], notices: [] };
     assertEqual(checkOverview(structuredClone(empty)), empty, 'a document with no files, candidates or notices');
+    const mixed = overviewFixture(OVERVIEW_ROOT);
+    Object.assign(mixed.files[0], { churn: null, role: null, mixes: null });
+    assertEqual(checkOverview(mixed).files[0], { ...expectedOverview(OVERVIEW_ROOT).files[0], churn: null, role: null, mixes: null }, 'a file with some fields null and the rest set');
     const doc = overviewFixture(OVERVIEW_ROOT);
     doc.candidates[0].next_sites = [];
     assertEqual(checkOverview(doc).candidates[0].next_sites, [], 'a candidate with no next sites');
@@ -975,7 +978,11 @@ const CASES = [
       [() => null, 'overview: the document is not an object'],
       [(d) => [d], 'the document is not an object'],
       [(d) => { delete d.generatedAt; }, 'missing key generatedAt'],
-      [(d) => { d.generatedAt = 'yesterday'; }, 'generatedAt is not a date-time string'],
+      [(d) => { d.generatedAt = 'yesterday'; }, 'generatedAt is not an ISO 8601 UTC timestamp'],
+      [(d) => { d.generatedAt = '3'; }, 'generatedAt is not an ISO 8601 UTC timestamp'],
+      [(d) => { d.generatedAt = '2026-10-30'; }, 'generatedAt is not an ISO 8601 UTC timestamp'],
+      [(d) => { d.generatedAt = '2026-10-30T12:00:00+02:00'; }, 'generatedAt is not an ISO 8601 UTC timestamp'],
+      [(d) => { d.generatedAt = '2026-13-30T12:00:00Z'; }, 'generatedAt is not an ISO 8601 UTC timestamp'],
       [(d) => { d.version = 2; }, 'version is not the number 1'],
       [(d) => { d.root = 'work/repo'; }, 'root is not an absolute path'],
       [(d) => { d.scope = ['../elsewhere']; }, 'scope[0] is not . or a root-relative path'],
@@ -984,6 +991,7 @@ const CASES = [
       [(d) => { d.files[0].path = 'src\\a.js'; }, 'files[0].path is not a root-relative path'],
       [(d) => { d.files[1].path = 'src/a.js'; }, 'files[1].path duplicates files[0].path'],
       [(d) => { d.files[0].imports = ['src/c.js']; }, 'files[0].imports[0] is not an overview file'],
+      [(d) => { d.files[0].imports = ['src/b.js', 'src/b.js']; }, 'files[0].imports[1] duplicates files[0].imports[0]'],
       [(d) => { d.files[0].lines = -1; }, 'files[0].lines is not a non-negative integer or null'],
       [(d) => { delete d.files[1].role; }, 'missing key files[1].role'],
       [(d) => { d.files[0].outside = null; }, 'files[0].outside is not an array of non-empty strings'],
@@ -993,6 +1001,7 @@ const CASES = [
       [(d) => { d.candidates[0].category = 'external'; }, 'candidates[0].category is not one of in-process, local-substitutable, remote-owned, true-external'],
       [(d) => { d.candidates[0].files = []; }, 'candidates[0].files is not a non-empty array'],
       [(d) => { d.candidates[0].files = ['src/c.js']; }, 'candidates[0].files[0] is not an overview file'],
+      [(d) => { d.candidates[0].files = ['src/a.js', 'src/b.js', 'src/a.js']; }, 'candidates[0].files[2] duplicates candidates[0].files[0]'],
       [(d) => { d.candidates[0].files = ['src/b.js']; }, "candidates[0].next_sites[0].path is not one of the candidate's files"],
       [(d) => { d.candidates[0].next_sites[0].line = 0; }, 'candidates[0].next_sites[0].line is not an integer of at least 1'],
       [(d) => { d.candidates[0].next_sites[0].line = '3'; }, 'candidates[0].next_sites[0].line is not an integer of at least 1'],

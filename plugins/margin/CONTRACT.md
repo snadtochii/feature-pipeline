@@ -508,13 +508,14 @@ that is missing are both refused.
 | `version` | `1`. |
 | `root` | An absolute path: the root the overview was made for. It is not compared with the run's root. |
 | `scope` | An array of `.` or overview paths (below); may be empty. |
-| `generatedAt` | A string that JavaScript's `Date.parse` reads as a date, written as an ISO 8601 UTC timestamp. |
+| `generatedAt` | An ISO 8601 UTC timestamp, `YYYY-MM-DDTHH:MM:SSZ` with an optional fraction of a second before the `Z`, as JavaScript's `Date.prototype.toISOString` writes it; a string of that form that `Date.parse` cannot read, such as month `13`, is refused. |
 | `files` | An array of file entries (below); may be empty. |
 | `candidates` | An array of candidate entries (below); may be empty. |
 | `notices` | An array of non-empty strings, shown in the viewer as they are — why there are no candidates, for example; may be empty. |
 
-**A `files[]` entry.** The measurement fields and the four role fields are nullable together:
-a field the producer could not measure or describe is present as `null`.
+**A `files[]` entry.** Each measurement field and each of the four role fields is nullable on
+its own: a field the producer could not measure or describe is present as `null`, whatever the
+entry's other fields hold.
 
 | Field | Value |
 |---|---|
@@ -522,7 +523,7 @@ a field the producer could not measure or describe is present as `null`.
 | `lines`, `churn`, `indentation` | A non-negative integer, or `null`. |
 | `kind`, `role` | A non-empty string, or `null`. |
 | `exports`, `mixes` | An array of non-empty strings, or `null`. |
-| `imports` | An array of the overview paths this file imports; each is the `path` of a `files` entry. |
+| `imports` | An array of the overview paths this file imports; each is the `path` of a `files` entry, and none appears twice. |
 | `outside` | An array of non-empty strings: import specifiers that name nothing in `files`. |
 
 **A `candidates[]` entry.**
@@ -532,7 +533,7 @@ a field the producer could not measure or describe is present as `null`.
 | `name` | Lowercase letters, digits and hyphens, starting with a letter or digit; unique across `candidates`. |
 | `tier` | `strong`, `worth-exploring` or `speculative`. |
 | `category` | `in-process`, `local-substitutable`, `remote-owned` or `true-external`. |
-| `files` | A non-empty array; each is the `path` of a `files` entry. |
+| `files` | A non-empty array; each is the `path` of a `files` entry, and none appears twice. |
 | `next_change` | A non-empty string: the change this candidate would make cheaper. |
 | `next_sites` | An array, may be empty, of `{"path", "line", "what"}`: `path` one of this candidate's `files`, `line` an integer of at least 1, `what` a non-empty string. |
 | `est_diff_lines` | A non-negative integer. |
