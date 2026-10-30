@@ -187,7 +187,9 @@ kbd { font: 11px var(--mono); opacity: .7; margin-left: 4px; }
 .o-row:hover { background: var(--accent-soft); }
 .o-row:hover .note-btn { opacity: 1; }
 .o-folder { display: flex; gap: 8px; padding: 0 8px 0 calc(8px + var(--d) * 16px); font-family: var(--mono); font-weight: 600; }
+.o-folder .o-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .o-folder .o-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 12px var(--sans); }
+.o-folder .note-btn { flex: none; }
 .o-file { display: grid; grid-template-columns: minmax(7em, 1fr) 40px 3.5em 6.5em 4.5em minmax(0, 1.4fr) 24px; gap: 8px; padding: 0 8px; cursor: pointer; }
 .o-file > * { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .o-file .o-name { padding-left: calc(var(--d) * 16px); font-family: var(--mono); }
