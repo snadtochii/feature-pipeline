@@ -224,7 +224,6 @@ kbd { font: 11px var(--mono); opacity: .7; margin-left: 4px; }
 .cand-field { margin: 2px 0; font-size: 12px; overflow-wrap: anywhere; }
 .cand-field b { font-weight: 600; color: var(--muted); }
 .sites { margin: 4px 0 0; padding-left: 18px; }
-.cand-actions:empty { display: none; }
 @container (max-width: 700px) {
   .o-file { grid-template-columns: minmax(4em, 1fr) 40px 3.5em 5.5em 4.5em 24px; }
   .o-file .o-role { display: none; }

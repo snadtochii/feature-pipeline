@@ -328,13 +328,13 @@ function candidateCard(candidate, index) {
     }
     card.append(sites);
   }
-  card.append(textNode('div', 'cand-actions', ''));
   return card;
 }
 
 const candidateColour = (index) => CANDIDATE_COLOURS[index % CANDIDATE_COLOURS.length];
 const reading = (value, unit) => (value === null ? 'not measured' : `${value} ${unit}`);
 const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+const NO_ROOT_FOLDER = 'A file at the root has no folder to annotate; use a general note';
 
 function textNode(tag, className, text) {
   const node = document.createElement(tag);
