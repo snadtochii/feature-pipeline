@@ -1014,9 +1014,9 @@ const CASES = [
     throwsRun(() => readOverview(path.join(dir, 'missing', 'x.json')), 1, 'not found');
     fs.mkdirSync(path.join(dir, 'folder'));
     throwsRun(() => readOverview(path.join(dir, 'folder')), 1, 'folder: not a regular file');
-    const big = write(dir, 'big.json', Buffer.alloc(MAX_BYTES + 1, ' '));
+    const big = write(dir, 'big.json', Buffer.alloc(MAX_OVERVIEW_BYTES + 1, ' '));
     throwsRun(() => readOverview(big), 1, 'big.json: 2.0 MB is above the 2 MB overview limit');
-    const edge = write(dir, 'edge.json', Buffer.alloc(MAX_BYTES, 'a'));
+    const edge = write(dir, 'edge.json', Buffer.alloc(MAX_OVERVIEW_BYTES, 'a'));
     throwsRun(() => readOverview(edge), 1, 'edge.json: not valid JSON');
     const broken = write(dir, 'broken.json', '{');
     throwsRun(() => readOverview(broken), 1, `overview ${broken}: not valid JSON`);
