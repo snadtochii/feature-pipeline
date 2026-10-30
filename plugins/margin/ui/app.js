@@ -354,10 +354,10 @@ function enableUnless(button, why, onClick) {
   return button;
 }
 
-function outlineNoteButton(count, noun, listed, anchor) {
+function outlineNoteButton(count, noun, why, anchor) {
   const btn = textNode('button', `note-btn${count ? ' has' : ''}`, count ? String(count) : '+');
   btn.title = `Annotate this ${noun}`;
-  return enableUnless(btn, listed ? '' : `This ${noun} is not in this review's listing`, (event) => {
+  return enableUnless(btn, why, (event) => {
     event.stopPropagation();
     openComposer(anchor);
   });
@@ -371,7 +371,11 @@ function outlineFolderRow(row, counts) {
   name.title = row.path;
   const contents = row.folders ? `${plural(row.files, 'file')} · ${plural(row.folders, 'folder')}` : plural(row.files, 'file');
   node.append(name, textNode('span', 'o-count muted', contents), textNode('span', 'spacer', ''));
-  node.append(outlineNoteButton(counts.get(`folder:${row.path}`) ?? 0, 'folder', row.listed, { kind: 'folder', path: row.path }));
+  let why = row.listed ? '' : "This folder is not in this review's listing";
+  if (row.path === '.') {
+    why = NO_ROOT_FOLDER;
+  }
+  node.append(outlineNoteButton(counts.get(`folder:${row.path}`) ?? 0, 'folder', why, { kind: 'folder', path: row.path }));
   return node;
 }
 
@@ -434,7 +438,7 @@ function outlineFileRow(row, doc, counts) {
     textNode('span', 'o-kind', file.kind ?? ''),
     outlineFlags(row, doc),
     role,
-    outlineNoteButton(counts.get(`file:${row.path}`) ?? 0, 'file', row.listed, { kind: 'file', path: row.path }),
+    outlineNoteButton(counts.get(`file:${row.path}`) ?? 0, 'file', row.listed ? '' : "This file is not in this review's listing", { kind: 'file', path: row.path }),
   );
   node.addEventListener('click', () => toggleDetail(row.path));
   return node;
@@ -505,9 +509,7 @@ function detailCard(row, { doc, model }) {
   fact('lines', file.lines === null ? 'not measured' : String(file.lines));
   fact('churn', reading(file.churn, 'commits in 6 months'));
   fact('tangle', reading(file.indentation, 'summed indentation'));
-  if (file.exports?.length) {
-    fact('exports', file.exports.join(', '));
-  }
+  fact('exports', file.exports === null ? 'not recorded' : list(file.exports));
   fact('imports', list(file.imports));
   fact('imported by', list(model.importedBy.get(path)));
   if (row.candidates.length) {
