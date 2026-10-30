@@ -22,7 +22,7 @@ sees a whole file.
 node <plugin-root>/server/cli.mjs annotate [--root <dir>] [--scope <path>]... [--out <file>] [--overview <file>] [--port <n>] [--token <token>] [--no-open]
 node <plugin-root>/server/cli.mjs wait <url> [--after <n>]
 node <plugin-root>/server/cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>
-node <plugin-root>/server/cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file>] --out <file>
+node <plugin-root>/server/cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file> | --explorer-unavailable <reason>] --out <file>
 node <plugin-root>/server/cli.mjs --self-test
 ```
 
@@ -67,8 +67,9 @@ listed files, the `tsconfig.json` files at or below the root with the configs th
 `git`'s output.
 
 `assemble` validates its arguments (§3), reads the measurement document `measure` wrote and
-the roles file and the explorer output when given, builds the overview document of §13 from
-them (§14), checks it, and writes it to `--out`. It then prints the assemble document (§2) and
+the roles file and the explorer output when given — or takes the reason `--explorer-unavailable`
+gives in place of the explorer output — builds the overview document of §13 from them (§14),
+checks it, and writes it to `--out`. It then prints the assemble document (§2) and
 exits 0. The file it writes is the one `annotate --overview` reads.
 
 ## §2 Output rules
@@ -153,7 +154,7 @@ parse them. A refused run prints none.
 |---|---|---|
 | `0` | `annotate`: the run ended — Finish (`finished`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). `wait`: a round was sent or the run ended. `measure` and `assemble`: their files were written. Or every self-test case passed (§12). | Result, wait, measure, assemble, or self-test |
 | `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), the `--overview` file is refused (§13), the port cannot be bound (`could not listen on port <n>: <code>`), or the end of the run cannot save the notes file. `wait`: the server is unreachable — the connection is refused, or it drops before the reply ends (`server unreachable at <origin>: <code>`) — or it answers with an error (`wait: <status> <error>`). `measure`: no files are listed under the scope (`no files under <scope>`), or an output cannot be written (`could not write <file>: <code>`). `assemble`: the measurement file is refused (§14), the assembled document fails the shape check of §13 (`assembled overview: <violation>`), it is above 2 MiB once serialised (`overview <out>: <x.y> MB is above the 2 MB overview limit`), or `--out` cannot be written. Or a self-test case failed (§12). | Error |
-| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), an empty `--overview` (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. For `wait`: no URL or another positional argument, a URL that is not a run URL (§4), or an `--after` that is not a whole number of decimal digits. For `measure`: another positional argument, a missing or empty `--root`, `--out` or `--hotspots` (`measure needs --<flag>`, `bad --<flag>: empty`), a `--hotspots` that names the same file as `--out`, or a `--scope` outside the root. For `assemble`: another positional argument, a missing or empty `--measurements` or `--out`, or an empty `--roles` or `--explorer`. | Error |
+| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), an empty `--overview` (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. For `wait`: no URL or another positional argument, a URL that is not a run URL (§4), or an `--after` that is not a whole number of decimal digits. For `measure`: another positional argument, a missing or empty `--root`, `--out` or `--hotspots` (`measure needs --<flag>`, `bad --<flag>: empty`), a `--hotspots` that names the same file as `--out`, or a `--scope` outside the root. For `assemble`: another positional argument, a missing or empty `--measurements` or `--out`, an empty `--roles` or `--explorer`, or an `--explorer-unavailable` given together with `--explorer` (`--explorer and --explorer-unavailable are exclusive`), holding a control character such as a line break (`bad --explorer-unavailable: not one line`), or blank once trimmed and stripped of one trailing `.` (`bad --explorer-unavailable: empty`). | Error |
 
 `annotate`'s checks run in this order, and the first failure is the one reported: arguments
 and verb, then `--port`, then `--token`, then an empty `--overview`, then the resumed file's
@@ -174,9 +175,10 @@ first write. It writes `--out` before `--hotspots`, so a failure writing `--out`
 
 `assemble`'s checks run in this order: its arguments parse, its positional arguments are
 exactly `assemble`, `--measurements` and `--out` are each given and non-empty, `--roles` and
-`--explorer` are non-empty when given, then the measurement file, the shape check and the size
-limit. Every one of them happens before its one write, so a refused run leaves an existing
-`--out` file exactly as it was. A roles file or explorer output that is missing or unreadable
+`--explorer` are non-empty when given, `--explorer-unavailable` is not given with `--explorer`,
+is one line and is not blank, then the measurement file, the shape check and the size limit.
+Every one of them happens before its one write, so a refused run leaves an existing `--out`
+file exactly as it was. A roles file or explorer output that is missing or unreadable
 is not a refusal (§14).
 
 ## §4 Flags
@@ -210,13 +212,14 @@ value. A flag other than `--scope` given twice keeps its last value.
 | `--out <file>` | required | Where the measurement document (§14) is written. |
 | `--hotspots <file>` | required | Where the hotspot table (§14) is written; not the same file as `--out`. |
 
-**`assemble`** takes four flags:
+**`assemble`** takes five flags:
 
 | Flag | Default | Meaning |
 |---|---|---|
 | `--measurements <file>` | required | The measurement document `measure` wrote. |
 | `--roles <file>` | none | The roles JSON (§14). When it is not given, missing or unreadable, every role field is `null` and a notice says why. |
 | `--explorer <file>` | none | A deepen explorer's text output (§14). When it is not given, missing or unreadable, there are no candidates and a notice says why. |
+| `--explorer-unavailable <reason>` | none | One line of text: why there is no explorer output, such as an explorer that is not installed or that failed. There are no candidates, and the notice gives this reason (§14). Exclusive with `--explorer`. |
 | `--out <file>` | required | Where the overview document (§13) is written. It may name the `--measurements` file, which is read in full first. |
 
 For both verbs a relative path resolves against the working directory, missing parent
@@ -493,7 +496,12 @@ longer exists — removed, or a parent folder replaced by a file — answers 404
    fresh run passes `--root <root>` and one `--scope` per path. A resume passes `--out
    <notes-file>` — the skill's `--resume <notes-file>` argument, as an absolute path — and no
    `--root`, so the recorded root applies (§4, §5); it passes `--scope` only for paths the
-   user gave, which then resolve under the recorded root. It passes `--port` only when the
+   user gave, which then resolve under the recorded root. A fresh overview run also passes
+   `--out <root>/claudedocs/margin/<stamp>.json`, a path that does not exist yet, so the run
+   is fresh and its notes file is created there (§5), and `--overview` naming the overview
+   file assembled beside it, `<stamp>.overview.json`. A resume passes `--overview` with the
+   notes file's sibling — its path with the trailing `.json` replaced by `.overview.json` —
+   when that file exists. It passes `--port` only when the
    user gave one, so the server otherwise binds a free port, and no `--token`, so the server
    mints the token.
 3. **Read the URL.** It waits, bounded, for the stderr block's first line (§2), `margin:
@@ -533,7 +541,10 @@ its reply and Finish requests, the URL on the stderr block's first line, and the
 between rounds and after exit; the rest of the stderr block is for the human.
 
 The overview file `--overview` names is produced by `measure` and then `assemble` (§14), each
-run as its own command before `annotate` starts; `annotate` never runs them.
+run as its own command before `annotate` starts; `annotate` never runs them. Between the two,
+the skill has the files described and the candidates found from `measure`'s outputs, and
+passes the returns to `assemble` as `--roles` and `--explorer`, or `--explorer-unavailable`
+with the reason there is no explorer output.
 
 ## §12 `--self-test`
 
@@ -620,7 +631,11 @@ with the error document and write nothing, the last two leaving an existing `--o
 for byte as it was; and `measure` then `assemble` on a
 temporary repository write the measurement document, the hotspot table and an overview the
 shape check of §13 accepts, with the dropped block's warning on stderr, and an `assemble`
-given neither roles nor explorer output writes an overview with both notices.
+given neither roles nor explorer output writes an overview with both notices; an `assemble`
+given `--explorer-unavailable` writes its reason as the candidates notice, with roles merged
+beside it, and its refusals — an empty or blank reason, a reason with a line break, and the
+flag given with `--explorer` — exit 2 before the measurement file is read, leaving an existing
+`--out` file byte for byte as it was.
 
 It opens no browser, sends requests to `127.0.0.1` only, and binds no fixed port. It prints
 `{"cases": <n>, "ok": true}` and exits 0 when every case passes; otherwise it prints
@@ -809,7 +824,8 @@ an earlier block kept the same name.
   not valid JSON, or is not a JSON object.
 - `No deepening candidates: <reason>.` — the explorer output is not given or cannot be read,
   or holds neither a block nor a `notes:` line (`the explorer output holds no candidate block
-  and no notes: line`).
+  and no notes: line`), or `--explorer-unavailable` gives the reason, trimmed and with one
+  trailing `.` removed.
 - `Explorer: <notes>` — the output holds no block and its `notes:` is neither empty nor `none`.
 - `<n> explorer candidate dropped as malformed.` (`candidates` when `<n>` is above 1) — the
   output holds blocks and every one was dropped.

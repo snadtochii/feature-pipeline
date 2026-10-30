@@ -5,7 +5,7 @@
 //   cli.mjs annotate --root <abs-dir> [--scope <path>]... [--out <abs-file>] [--overview <file>] [--port <n>] [--token <hex>] [--no-open]
 //   cli.mjs wait <url> [--after <n>]
 //   cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>
-//   cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file>] --out <file>
+//   cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file> | --explorer-unavailable <reason>] --out <file>
 //   cli.mjs --self-test
 //
 // `annotate` serves a read-only code viewer for the files under the scope paths and collects
@@ -45,7 +45,7 @@ import { TOKEN_PATTERN, parseRunUrl, waitForRound } from './lib/wait.mjs';
 
 const WAIT_USAGE = 'usage: cli.mjs wait <url> [--after <n>]';
 const MEASURE_USAGE = 'usage: cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>';
-const ASSEMBLE_USAGE = 'usage: cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file>] --out <file>';
+const ASSEMBLE_USAGE = 'usage: cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file> | --explorer-unavailable <reason>] --out <file>';
 const USAGE = [
   'usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--overview <file>] [--port <n>] [--token <hex>] [--no-open]',
   ...[WAIT_USAGE, MEASURE_USAGE, ASSEMBLE_USAGE].map((line) => `       ${line.slice('usage: '.length)}`),
@@ -213,6 +213,24 @@ function fileFlag(values, name, verb, required) {
   return resolve(values[name]);
 }
 
+function reasonFlag(values, name, exclusiveWith) {
+  const value = values[name];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (values[exclusiveWith] !== undefined) {
+    fail(`--${exclusiveWith} and --${name} are exclusive`, 2);
+  }
+  if (/[\u0000-\u001f\u007f]/.test(value)) {
+    fail(`bad --${name}: not one line`, 2);
+  }
+  const reason = value.trim().replace(/\.$/, '').trim();
+  if (reason === '') {
+    fail(`bad --${name}: empty`, 2);
+  }
+  return reason;
+}
+
 function writeOutput(file, text) {
   try {
     writeAtomic(file, text);
@@ -254,12 +272,16 @@ function assembleCmd(argv) {
     measurements: { type: 'string' },
     roles: { type: 'string' },
     explorer: { type: 'string' },
+    'explorer-unavailable': { type: 'string' },
     out: { type: 'string' },
   });
   const measurements = fileFlag(values, 'measurements', 'assemble', true);
   const out = fileFlag(values, 'out', 'assemble', true);
-  const roles = readOptional(fileFlag(values, 'roles', 'assemble', false), 'roles');
-  const explorer = readOptional(fileFlag(values, 'explorer', 'assemble', false), 'explorer');
+  const rolesFile = fileFlag(values, 'roles', 'assemble', false);
+  const explorerFile = fileFlag(values, 'explorer', 'assemble', false);
+  const explorerUnavailable = reasonFlag(values, 'explorer-unavailable', 'explorer');
+  const roles = readOptional(rolesFile, 'roles');
+  const explorer = explorerUnavailable === undefined ? readOptional(explorerFile, 'explorer') : { reason: explorerUnavailable };
   const measurement = readMeasurement(measurements);
   const { document, warnings, dropped } = assembleOverview({
     measurement,

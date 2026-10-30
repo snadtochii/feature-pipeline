@@ -34,7 +34,9 @@ In priority order:
 
 Stage 1 (discover) ranks candidates with the read-only `explorer` agent, starting from a
 churn × indentation hotspot table and filtering on what the loop already did with each candidate
-(`<state_dir>/memory.md`).
+(`<state_dir>/memory.md`). The margin plugin's `/margin:annotate --overview` spawns the same
+agent outside any run, read-only, to show an area's deepening candidates in its overview; a
+candidate accepted there comes back as `/deepen:run --pin <hint>`.
 
 Stage 2 (characterize) creates the run worktree at the base commit, has the fenced
 `qa-characterizer` agent write the behavior inventory against the running app without seeing any

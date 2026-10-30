@@ -2254,6 +2254,45 @@ const CASES = [
     assert(fs.readFileSync(out, 'utf8') === kept, 'a refused assemble rewrote --out');
     assertEqual(fs.readdirSync(root), ['a.txt'], 'files under the root after the refusals');
   })],
+  ['cli: --explorer-unavailable gives its reason as the candidates notice; its refusals write nothing', () => withTemp((dir) => {
+    const root = path.join(dir, 'repo');
+    fs.mkdirSync(root);
+    measureFixture(root);
+    const measurements = path.join(dir, 'measurements.json');
+    const measured = runCli(['measure', '--root', root, '--scope', 'src', '--out', measurements, '--hotspots', path.join(dir, 'hotspots.tsv')]);
+    assert(measured.status === 0, `measure exited ${measured.status}: ${measured.stdout}`);
+    const roles = write(dir, 'roles.json', '{"src/a.ts": {"kind": "util", "role": "entry", "exports": ["a"], "mixes": []}}');
+    const out = path.join(dir, 'overview.json');
+    const assembled = runCli(['assemble', '--measurements', measurements, '--roles', roles, '--explorer-unavailable', ' candidates need the deepen plugin, which is not installed. ', '--out', out]);
+    assertEqual(assembled.doc, { status: 'ok', out, files: 4, candidates: 0, dropped: 0, notices: 1 }, 'the assemble document');
+    const overview = readOverview(out);
+    assertEqual(overview.notices, ['No deepening candidates: candidates need the deepen plugin, which is not installed.'], 'the notice from the given reason');
+    assertEqual([overview.files[0].kind, overview.files[0].role], ['util', 'entry'], 'roles merged beside the given reason');
+
+    const bare = path.join(dir, 'bare.json');
+    runCli(['assemble', '--measurements', measurements, '--explorer-unavailable', 'the explorer failed: it timed out', '--out', bare]);
+    assertEqual(readOverview(bare).notices, [
+      'File roles are unavailable: no roles file was given.',
+      'No deepening candidates: the explorer failed: it timed out.',
+    ], 'the notices without roles and with a given reason');
+
+    const kept = fs.readFileSync(out, 'utf8');
+    const explorer = write(dir, 'explorer.txt', 'notes: none\n');
+    const missing = path.join(dir, 'missing.json');
+    for (const [flags, fragment] of [
+      [['--explorer-unavailable='], 'bad --explorer-unavailable: empty'],
+      [['--explorer-unavailable', ' . '], 'bad --explorer-unavailable: empty'],
+      [['--explorer-unavailable', 'one\ntwo'], 'bad --explorer-unavailable: not one line'],
+      [['--explorer-unavailable', 'one\rtwo'], 'bad --explorer-unavailable: not one line'],
+      [['--explorer', explorer, '--explorer-unavailable', 'gone'], '--explorer and --explorer-unavailable are exclusive'],
+    ]) {
+      for (const source of [measurements, missing]) {
+        const args = ['assemble', '--measurements', source, ...flags, '--out', out];
+        assertErrorDoc(runCli(args), 2, fragment, JSON.stringify(args));
+        assert(fs.readFileSync(out, 'utf8') === kept, `${JSON.stringify(args)} rewrote --out`);
+      }
+    }
+  })],
   ['cli: a run survives a submit and prints one document on finish', () => withTemp(async (dir) => {
     const root = path.join(dir, 'root');
     write(root, 'a.txt', 'a\n');
