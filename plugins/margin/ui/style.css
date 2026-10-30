@@ -224,6 +224,9 @@ kbd { font: 11px var(--mono); opacity: .7; margin-left: 4px; }
 .cand-field { margin: 2px 0; font-size: 12px; overflow-wrap: anywhere; }
 .cand-field b { font-weight: 600; color: var(--muted); }
 .sites { margin: 4px 0 0; padding-left: 18px; }
+.cand-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.o-flags .dot.has-note { box-shadow: 0 0 0 2px var(--mark-edge); }
+.notes-notice { height: 28px; line-height: 28px; margin: 0 0 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--muted); }
 @container (max-width: 700px) {
   .o-file { grid-template-columns: minmax(4em, 1fr) 40px 3.5em 5.5em 4.5em 24px; }
   .o-file .o-role { display: none; }

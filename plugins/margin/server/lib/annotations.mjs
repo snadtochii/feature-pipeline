@@ -3,25 +3,33 @@
 // note is locked, so no write revises or deletes it, and `round` is set only by the server.
 // A sent note may carry the agent's `replies`, which are server-owned like `round`: a viewer
 // write never sets or changes them.
+// A new candidate note that names no candidate of the run's overview refuses the whole write
+// (`refuseCandidates`); any other new note that fails the anchor rule is left out of it.
 // Shared by the HTTP surface (`server.mjs`) and the session rules (`session.mjs`); it depends
 // on neither.
 
 import { randomUUID } from 'node:crypto';
 
-const ANCHOR_KINDS = new Set(['range', 'file', 'folder', 'scope']);
+// The overview's candidate name rule (CONTRACT §13), which a candidate anchor's `name` follows.
+export const CANDIDATE_NAME = /^[a-z0-9][a-z0-9-]*$/;
+
+const ANCHOR_KINDS = new Set(['range', 'file', 'folder', 'scope', 'candidate']);
 const INTENTS = new Set(['change', 'question']);
 
 // The one rule for where a note may point: an anchor is checked against the listed paths
-// when the note is created, and never changes afterwards. A later write from the viewer
-// may revise what the human typed (`intent`, `body`), not where the note sits, so a note
-// resumed from an earlier run keeps its anchor even when that file has since moved or
-// fallen outside this run's scope. `allowed` is the set of listed paths; one rule per
-// kind, no fallthrough; null skips the check for notes read back from the file.
+// and the run's overview candidates when the note is created, and never changes afterwards.
+// A later write from the viewer may revise what the human typed (`intent`, `body`), not where
+// the note sits, so a note resumed from an earlier run keeps its anchor even when that file
+// has since moved or fallen outside this run's scope, or its candidate is not in this run's
+// overview. `allowed` is `{ paths, candidates }`: the set of listed paths and the set of the
+// overview's candidate names; one rule per kind, no fallthrough; null skips the check for
+// notes read back from the file.
 const IN_SCOPE = {
   scope: () => true,
-  folder: (anchor, allowed) => [...allowed].some((path) => path.startsWith(`${anchor.path}/`)),
-  file: (anchor, allowed) => allowed.has(anchor.path),
-  range: (anchor, allowed) => allowed.has(anchor.path),
+  folder: (anchor, allowed) => [...allowed.paths].some((path) => path.startsWith(`${anchor.path}/`)),
+  file: (anchor, allowed) => allowed.paths.has(anchor.path),
+  range: (anchor, allowed) => allowed.paths.has(anchor.path),
+  candidate: (anchor, allowed) => allowed.candidates.has(anchor.name),
 };
 
 function inScope(anchor, allowed) {
@@ -46,7 +54,12 @@ export function cleanAnnotation(raw, allowed, maxRound) {
     body: raw.body,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date().toISOString(),
   };
-  if (anchor.kind !== 'scope') {
+  if (anchor.kind === 'candidate') {
+    if (typeof anchor.name !== 'string' || !CANDIDATE_NAME.test(anchor.name)) {
+      return null;
+    }
+    clean.anchor.name = anchor.name;
+  } else if (anchor.kind !== 'scope') {
     if (typeof anchor.path !== 'string') {
       return null;
     }
@@ -108,26 +121,47 @@ function reviseAnnotation(stored, raw) {
   };
 }
 
+function newEntries(session, entries) {
+  const stored = new Set(session.annotations.map((a) => a.id));
+  return entries.map((raw, index) => ({ raw, index })).filter(({ raw }) => !(typeof raw?.id === 'string' && stored.has(raw.id)));
+}
+
 // Applies a viewer write to the session. Sent notes (those with `round`) are locked: a write
 // entry carrying a sent note's id is ignored, and a sent note absent from the write is kept.
 // Among unsent notes, one whose `id` is stored is revised, any other note is cleaned and
-// checked against `allowed`, and a stored note absent from the write is dropped. Every note
-// present at a Send is stamped, so sent notes all predate unsent ones and lead the list.
+// checked against `allowed`, and a stored note absent from the write is dropped. A Send
+// stamps every unsent note it does not withhold and moves the withheld ones after it, so sent notes
+// all predate unsent ones and lead the list.
 export function applyEdits(session, body, allowed) {
   if (typeof body.overall === 'string') {
     session.overall = body.overall;
   }
   if (Array.isArray(body.annotations)) {
     const sent = session.annotations.filter((a) => a.round !== undefined);
-    const sentIds = new Set(sent.map((a) => a.id));
     const unsent = new Map(session.annotations.filter((a) => a.round === undefined).map((a) => [a.id, a]));
+    const created = new Set(newEntries(session, body.annotations).map(({ index }) => index));
     const rest = body.annotations
-      .filter((raw) => !(typeof raw?.id === 'string' && sentIds.has(raw.id)))
-      .map((raw) => {
-        const known = typeof raw?.id === 'string' ? unsent.get(raw.id) : undefined;
-        return known ? reviseAnnotation(known, raw) : cleanAnnotation(raw, allowed);
+      .map((raw, index) => {
+        if (created.has(index)) {
+          return cleanAnnotation(raw, allowed);
+        }
+        const known = unsent.get(raw.id);
+        return known ? reviseAnnotation(known, raw) : null;
       })
       .filter(Boolean);
     session.annotations = [...sent, ...rest];
   }
+}
+
+// Checks a write before `applyEdits` runs, deciding which entries are new the same way: every
+// new entry with a well-formed candidate anchor whose name is not in `allowed.candidates`
+// fails, and the result is one message naming each failing entry, or null when none fails.
+export function refuseCandidates(session, body, allowed) {
+  if (!Array.isArray(body.annotations)) {
+    return null;
+  }
+  const problems = newEntries(session, body.annotations)
+    .filter(({ raw }) => raw?.anchor?.kind === 'candidate' && cleanAnnotation(raw, null) !== null && !inScope(raw.anchor, allowed))
+    .map(({ raw, index }) => `entry ${index}: ${JSON.stringify(raw.anchor.name)} is not a candidate of this run's overview`);
+  return problems.length > 0 ? problems.join('; ') : null;
 }

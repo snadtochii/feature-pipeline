@@ -136,7 +136,7 @@ async function annotate(argv) {
       readSource: (path) => readSource(root, path),
       relist: () => listFiles(root, scope, own),
       onSave: save,
-      onSend: () => sendRound(session),
+      onSend: (candidates) => sendRound(session, candidates),
       onReply: (body) => postReplies(session, body),
       onEnd: (status) => finishRun(session, status),
       overview,

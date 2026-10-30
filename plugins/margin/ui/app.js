@@ -58,6 +58,7 @@ const el = {
   overviewBody: $('#overview-body'),
   code: $('#code'),
   list: $('#list'),
+  notesNotice: $('#notes-notice'),
   overall: $('#overall'),
   overallReplies: $('#overall-replies'),
   composer: $('#composer'),
@@ -143,8 +144,12 @@ function anchorLabel(anchor) {
       return anchor.path;
     case 'folder':
       return `${anchor.path}/`;
-    default:
+    case 'candidate':
+      return `candidate ${anchor.name}`;
+    case 'scope':
       return 'whole scope';
+    default:
+      return anchor.kind;
   }
 }
 
@@ -152,6 +157,8 @@ function anchorLabel(anchor) {
 
 async function load() {
   const [session, overview] = await Promise.all([rounds.load(), loadOverview()]);
+  rounds.setCandidates(overview?.doc ? overview.doc.candidates.map((candidate) => candidate.name) : []);
+  state.overview = overview;
   el.scope.textContent = `${session.root} · ${session.scope.join(', ') || '.'}`;
   el.overall.value = session.overall || '';
   applyDefaultCollapse();
@@ -159,7 +166,6 @@ async function load() {
   renderList();
   renderStatus();
   if (overview) {
-    state.overview = overview;
     el.tabs.classList.remove('hidden');
     showSurface('overview');
   }
@@ -253,7 +259,7 @@ function renderOverview() {
     outline = { doc, model, box, nodes };
   }
   const { scrollTop } = el.overview;
-  el.overviewBody.replaceChildren(candidateSection(doc), filesHead, outline ? outline.box : emptyLine('No files in this overview.'));
+  el.overviewBody.replaceChildren(candidateSection(doc, counts), filesHead, outline ? outline.box : emptyLine('No files in this overview.'));
   el.overview.scrollTop = scrollTop;
   state.outline = outline;
   if (state.detail !== null && !placeDetail(state.detail, { reveal: false })) {
@@ -273,18 +279,18 @@ function barLegend() {
   return legend;
 }
 
-function candidateSection(doc) {
+function candidateSection(doc, counts) {
   const section = document.createElement('section');
   section.className = 'cands';
   section.append(textNode('h3', 'ov-head', `Candidates (${doc.candidates.length})`));
   if (doc.candidates.length === 0) {
     section.append(textNode('p', 'ov-none muted', 'No candidates.'));
   }
-  doc.candidates.forEach((candidate, index) => section.append(candidateCard(candidate, index)));
+  doc.candidates.forEach((candidate, index) => section.append(candidateCard(candidate, index, counts)));
   return section;
 }
 
-function candidateCard(candidate, index) {
+function candidateCard(candidate, index, counts) {
   const card = document.createElement('article');
   card.className = 'cand';
   card.dataset.name = candidate.name;
@@ -328,6 +334,15 @@ function candidateCard(candidate, index) {
     }
     card.append(sites);
   }
+  const notes = counts.get(`candidate:${candidate.name}`) ?? 0;
+  const actions = document.createElement('div');
+  actions.className = 'cand-actions';
+  actions.append(
+    enableUnless(textNode('button', '', notes ? `Note on candidate (${notes})` : 'Note on candidate'), '', () => {
+      openComposer({ kind: 'candidate', name: candidate.name });
+    }),
+  );
+  card.append(actions);
   return card;
 }
 
@@ -393,7 +408,7 @@ function outlineBars(row) {
   return stack;
 }
 
-function outlineFlags(row, doc) {
+function outlineFlags(row, doc, counts) {
   const { file } = row;
   const flags = document.createElement('span');
   flags.className = 'o-flags';
@@ -403,13 +418,15 @@ function outlineFlags(row, doc) {
     flags.append(mix);
   }
   for (const index of row.candidates) {
+    const { name } = doc.candidates[index];
+    const notes = counts.get(`candidate:${name}`) ?? 0;
     const dot = document.createElement('i');
-    dot.className = 'dot';
+    dot.className = notes ? 'dot has-note' : 'dot';
     dot.style.setProperty('--c', candidateColour(index));
-    dot.title = doc.candidates[index].name;
+    dot.title = notes ? `${name} · ${plural(notes, 'note')}` : name;
     dot.addEventListener('click', (event) => {
       event.stopPropagation();
-      revealCandidate(doc.candidates[index].name);
+      revealCandidate(name);
     });
     flags.append(dot);
   }
@@ -436,7 +453,7 @@ function outlineFileRow(row, doc, counts) {
     outlineBars(row),
     textNode('span', 'o-lines', file.lines === null ? '–' : String(file.lines)),
     textNode('span', 'o-kind', file.kind ?? ''),
-    outlineFlags(row, doc),
+    outlineFlags(row, doc, counts),
     role,
     outlineNoteButton(counts.get(`file:${row.path}`) ?? 0, 'file', row.listed ? '' : "This file is not in this review's listing", { kind: 'file', path: row.path }),
   );
@@ -994,7 +1011,12 @@ function openComposer(anchor, { existing = null, intent = existing?.intent ?? 'c
 
   const body = document.createElement('textarea');
   body.rows = 5;
-  body.placeholder = anchor.kind === 'scope' ? 'Something about the scope as a whole.' : 'What should change here, or what do you want to know?';
+  body.placeholder =
+    anchor.kind === 'scope'
+      ? 'Something about the scope as a whole.'
+      : anchor.kind === 'candidate'
+        ? 'Accept, reject or reshape this candidate — and why.'
+        : 'What should change here, or what do you want to know?';
   body.value = existing?.body ?? '';
 
   const actions = document.createElement('div');
@@ -1080,13 +1102,20 @@ function afterChange() {
 
 // ---- notes list ----------------------------------------------------------
 
-const KIND_ORDER = { scope: 0, folder: 1, file: 2, range: 3 };
+const KIND_ORDER = { scope: 0, candidate: 1, folder: 2, file: 3, range: 4 };
+const SORT_GROUP = { scope: 0, candidate: 1 };
+const PATH_GROUP = 2;
+const sortGroup = (anchor) => SORT_GROUP[anchor.kind] ?? PATH_GROUP;
 
 function sortedAnnotations() {
   return [...annotations()].sort((a, b) => {
-    const pathDiff = (a.anchor.path ?? '').localeCompare(b.anchor.path ?? '');
-    if (pathDiff !== 0) {
-      return pathDiff;
+    const groupDiff = sortGroup(a.anchor) - sortGroup(b.anchor);
+    if (groupDiff !== 0) {
+      return groupDiff;
+    }
+    const nameDiff = (a.anchor.name ?? a.anchor.path ?? '').localeCompare(b.anchor.name ?? b.anchor.path ?? '');
+    if (nameDiff !== 0) {
+      return nameDiff;
     }
     const kindDiff = KIND_ORDER[a.anchor.kind] - KIND_ORDER[b.anchor.kind];
     return kindDiff !== 0 ? kindDiff : (a.anchor.start ?? 0) - (b.anchor.start ?? 0);
@@ -1096,7 +1125,7 @@ function sortedAnnotations() {
 // Send is offered when the server's rule holds or when the open composer holds a note Send would
 // add first (rounds.sendRound commits it before checking the rule).
 function updateSend() {
-  const count = rounds.unsent().length;
+  const count = rounds.sendable().length;
   el.send.textContent = count ? `Send ${count}` : 'Send';
   el.send.disabled = rounds.busy || rounds.ended || !(rounds.canSend() || Boolean(state.composer?.dirty()));
 }
@@ -1114,7 +1143,26 @@ function renderList() {
   el.count.textContent = rounds.session.round ? `${noun} · ${all.filter(isSent).length} sent` : noun;
   updateSend();
   el.list.replaceChildren(...all.map(noteItem));
+  renderNotesNotice();
   renderOverallReplies();
+}
+
+function readOnlyNotice() {
+  if (state.overview === null) {
+    return 'The overview is missing: candidate notes are read-only.';
+  }
+  if (state.overview.error) {
+    return 'The overview could not be loaded: candidate notes are read-only.';
+  }
+  return 'Some candidate notes name no candidate of this overview and are read-only.';
+}
+
+function renderNotesNotice() {
+  const shown = annotations().some((a) => a.anchor.kind === 'candidate' && !rounds.listed(a.anchor));
+  const text = shown ? readOnlyNotice() : '';
+  el.notesNotice.textContent = text;
+  el.notesNotice.title = text;
+  el.notesNotice.classList.toggle('hidden', !shown);
 }
 
 // Replies render as text only, under the note or the overall direction they answer.
@@ -1206,7 +1254,11 @@ function noteItem(a) {
     thread.append(...replyItems(a.replies));
     item.append(thread);
   }
-  item.append(sent ? lockedOps(a) : editOps(a));
+  if (sent) {
+    item.append(lockedOps(a));
+  } else {
+    item.append(rounds.withheld(a) ? withheldOps() : editOps(a));
+  }
   return item;
 }
 
@@ -1232,6 +1284,15 @@ function editOps(a) {
   return ops;
 }
 
+function withheldOps() {
+  const ops = document.createElement('div');
+  ops.className = 'ops';
+  const label = textNode('span', 'muted', 'read-only');
+  label.title = "This candidate is not in this run's overview: the note cannot be edited, deleted or sent";
+  ops.append(label);
+  return ops;
+}
+
 // A sent note is read-only; its one action starts a follow-up note on the same anchor, offered
 // while the anchor still passes the anchor rule against the current listing.
 function lockedOps(a) {
@@ -1244,7 +1305,10 @@ function lockedOps(a) {
     reply.addEventListener('click', () => replyTo(a));
   } else {
     reply.disabled = true;
-    reply.title = `${a.anchor.path} is no longer in this review's listing`;
+    reply.title =
+      a.anchor.kind === 'candidate'
+        ? `${anchorLabel(a.anchor)} is not a candidate of this run's overview`
+        : `${a.anchor.path} is no longer in this review's listing`;
   }
   ops.append(reply);
   return ops;
@@ -1259,6 +1323,12 @@ async function replyTo(a) {
   renderStatus();
   if (anchor.kind === 'scope') {
     openComposer({ kind: 'scope' }, options);
+    return;
+  }
+  if (anchor.kind === 'candidate') {
+    showSurface('overview');
+    revealCandidate(anchor.name);
+    openComposer({ kind: 'candidate', name: anchor.name }, options);
     return;
   }
   if (anchor.kind === 'folder') {
@@ -1316,6 +1386,11 @@ function revealAnchor(anchor) {
     expandTo(anchor.path, { self: true });
     renderTree();
     showPanel('tree');
+  } else if (anchor.kind === 'candidate') {
+    if (rounds.listed(anchor)) {
+      showSurface('overview');
+      revealCandidate(anchor.name);
+    }
   } else {
     el.overall.focus();
   }
