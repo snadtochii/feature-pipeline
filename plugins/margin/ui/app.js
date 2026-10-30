@@ -1,9 +1,11 @@
-// margin viewer. One page, no build step. Renders the tree, the code pane, the composer and the
-// notes with their replies; ./rounds.js holds the session and talks to ../server/lib/server.mjs
-// for it, and this file reads files through GET /api/file.
+// margin viewer. One page, no build step. Renders the tree, the code pane, the Overview tab, the
+// composer and the notes with their replies; ./rounds.js holds the session and talks to
+// ../server/lib/server.mjs for it, ./overview.js turns GET /api/overview's document into the
+// outline, and this file reads files through GET /api/file.
 
 import { highlightLines } from './syntax.js';
 import { createRounds, isSent } from './rounds.js';
+import { CANDIDATE_COLOURS, buildOutline, noteCounts } from './overview.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -29,12 +31,31 @@ const state = {
   fileSeq: 0,
   // A message from the last action, { text, error }, or null.
   notice: null,
+  // The center pane shown: 'code', or 'overview' on a run with an overview.
+  surface: 'code',
+  // The run's overview: null without one, { doc } once read, { error } when the read failed.
+  overview: null,
+  // The outline needs rendering the next time the Overview tab is shown.
+  overviewDirty: true,
+  // The path whose detail card is open in the outline, or null.
+  detail: null,
+  // The rendered outline: { doc, model, box, nodes: path → file row node }, or null.
+  outline: null,
 };
 
 const el = {
   status: $('#status'),
+  layout: $('.layout'),
   treeRows: $('#tree-rows'),
   filter: $('#filter'),
+  tabs: $('#tabs'),
+  tabOverview: $('#tab-overview'),
+  tabCode: $('#tab-code'),
+  toggleFiles: $('#toggle-files'),
+  toggleNotes: $('#toggle-notes'),
+  overview: $('#overview'),
+  overviewNotice: $('#overview-notice'),
+  overviewBody: $('#overview-body'),
   code: $('#code'),
   list: $('#list'),
   overall: $('#overall'),
@@ -102,6 +123,7 @@ const rounds = createRounds({
     renderControls,
     refreshed: async () => {
       renderTree();
+      renderOverview();
       renderStatus();
       await refreshOpenFile();
       renderList();
@@ -129,14 +151,414 @@ function anchorLabel(anchor) {
 // ---- loading -------------------------------------------------------------
 
 async function load() {
-  const session = await rounds.load();
+  const [session, overview] = await Promise.all([rounds.load(), loadOverview()]);
   el.scope.textContent = `${session.root} · ${session.scope.join(', ') || '.'}`;
   el.overall.value = session.overall || '';
   applyDefaultCollapse();
   renderTree();
   renderList();
   renderStatus();
+  if (overview) {
+    state.overview = overview;
+    el.tabs.classList.remove('hidden');
+    showSurface('overview');
+  }
   rounds.watchChanges();
+}
+
+async function loadOverview() {
+  try {
+    return { doc: await api('GET', '/api/overview') };
+  } catch (err) {
+    return err.status === 404 ? null : { error: err.message };
+  }
+}
+
+// ---- center tabs and side panels ----------------------------------------
+
+function showSurface(name) {
+  if (!state.overview || state.surface === name) {
+    return;
+  }
+  state.surface = name;
+  const overview = name === 'overview';
+  el.overview.classList.toggle('off', !overview);
+  el.code.classList.toggle('off', overview);
+  el.tabOverview.classList.toggle('on', overview);
+  el.tabCode.classList.toggle('on', !overview);
+  el.tabOverview.setAttribute('aria-selected', String(overview));
+  el.tabCode.setAttribute('aria-selected', String(!overview));
+  if (!overview) {
+    closeDetail();
+  } else if (state.overviewDirty) {
+    renderOverview();
+  }
+}
+
+function setPanel(className, button, shown) {
+  el.layout.classList.toggle(className, !shown);
+  button.setAttribute('aria-pressed', String(shown));
+}
+
+const togglePanel = (className, button) => setPanel(className, button, el.layout.classList.contains(className));
+
+function showPanel(name) {
+  if (!state.overview) {
+    return;
+  }
+  if (name === 'notes') {
+    setPanel('hide-notes', el.toggleNotes, true);
+  } else {
+    setPanel('hide-tree', el.toggleFiles, true);
+  }
+}
+
+// ---- overview ------------------------------------------------------------
+
+function renderOverview() {
+  if (!state.overview || state.surface !== 'overview') {
+    state.overviewDirty = true;
+    return;
+  }
+  state.overviewDirty = false;
+  if (state.overview.error) {
+    state.outline = null;
+    state.detail = null;
+    setNotice('');
+    el.overviewBody.replaceChildren(emptyLine(`Could not load the overview: ${state.overview.error}`));
+    return;
+  }
+  const { doc } = state.overview;
+  setNotice(doc.notices.join(' · '));
+  const model = buildOutline(doc, { listed: rounds.listed });
+  const counts = noteCounts(annotations());
+  const filesHead = textNode('h3', 'ov-head', `Files (${doc.files.length})`);
+  filesHead.append(barLegend());
+  let outline = null;
+  if (doc.files.length) {
+    const box = document.createElement('div');
+    box.className = 'outline';
+    const nodes = new Map();
+    for (const group of model.groups) {
+      for (const row of group.rows) {
+        if (row.type === 'folder') {
+          box.append(outlineFolderRow(row, counts));
+        } else {
+          const node = outlineFileRow(row, doc, counts);
+          nodes.set(row.path, node);
+          box.append(node);
+        }
+      }
+    }
+    outline = { doc, model, box, nodes };
+  }
+  const { scrollTop } = el.overview;
+  el.overviewBody.replaceChildren(candidateSection(doc), filesHead, outline ? outline.box : emptyLine('No files in this overview.'));
+  el.overview.scrollTop = scrollTop;
+  state.outline = outline;
+  if (state.detail !== null && !placeDetail(state.detail, { reveal: false })) {
+    state.detail = null;
+  }
+}
+
+function setNotice(text) {
+  el.overviewNotice.textContent = text;
+  el.overviewNotice.title = text;
+}
+
+function barLegend() {
+  const legend = document.createElement('span');
+  legend.className = 'legend';
+  legend.append(textNode('i', 'churn', ''), 'churn', textNode('i', 'tangle', ''), 'tangle');
+  return legend;
+}
+
+function candidateSection(doc) {
+  const section = document.createElement('section');
+  section.className = 'cands';
+  section.append(textNode('h3', 'ov-head', `Candidates (${doc.candidates.length})`));
+  if (doc.candidates.length === 0) {
+    section.append(textNode('p', 'ov-none muted', 'No candidates.'));
+  }
+  doc.candidates.forEach((candidate, index) => section.append(candidateCard(candidate, index)));
+  return section;
+}
+
+function candidateCard(candidate, index) {
+  const card = document.createElement('article');
+  card.className = 'cand';
+  card.dataset.name = candidate.name;
+  card.style.setProperty('--c', candidateColour(index));
+
+  const head = document.createElement('div');
+  head.className = 'cand-head';
+  head.append(
+    textNode('span', 'cand-name', candidate.name),
+    textNode('span', 'tier', candidate.tier),
+    textNode('span', 'muted', candidate.category),
+    textNode('span', 'muted', `~${candidate.est_diff_lines} lines`),
+  );
+  const field = (label, text) => {
+    const line = document.createElement('p');
+    line.className = 'cand-field';
+    line.append(textNode('b', '', `${label}: `), text);
+    return line;
+  };
+  card.append(
+    head,
+    textNode('p', 'cand-next', candidate.next_change),
+    field('friction', candidate.friction),
+    field('deletion test', candidate.deletion_test),
+    field('files', candidate.files.join(', ')),
+  );
+  if (candidate.next_sites.length) {
+    const sites = document.createElement('ul');
+    sites.className = 'sites';
+    for (const site of candidate.next_sites) {
+      const link = textNode('button', 'link', `${site.path}:${site.line} — ${site.what}`);
+      const listed = rounds.listed({ kind: 'file', path: site.path });
+      enableUnless(link, listed ? '' : `${site.path} is not in this review's listing`, () => {
+        showSurface('code');
+        expandTo(site.path);
+        openFile(site.path, site.line);
+      });
+      const item = document.createElement('li');
+      item.append(link);
+      sites.append(item);
+    }
+    card.append(sites);
+  }
+  return card;
+}
+
+const candidateColour = (index) => CANDIDATE_COLOURS[index % CANDIDATE_COLOURS.length];
+const reading = (value, unit) => (value === null ? 'not measured' : `${value} ${unit}`);
+const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+const NO_ROOT_FOLDER = 'A file at the root has no folder to annotate; use a general note';
+
+function textNode(tag, className, text) {
+  const node = document.createElement(tag);
+  node.className = className;
+  node.textContent = text;
+  return node;
+}
+
+function enableUnless(button, why, onClick) {
+  const reason = rounds.ended ? 'The review has ended' : why;
+  if (reason) {
+    button.disabled = true;
+    button.title = reason;
+  } else {
+    button.addEventListener('click', onClick);
+  }
+  return button;
+}
+
+function outlineNoteButton(count, noun, why, anchor) {
+  const btn = textNode('button', `note-btn${count ? ' has' : ''}`, count ? String(count) : '+');
+  btn.title = `Annotate this ${noun}`;
+  return enableUnless(btn, why, (event) => {
+    event.stopPropagation();
+    openComposer(anchor);
+  });
+}
+
+function outlineFolderRow(row, counts) {
+  const node = document.createElement('div');
+  node.className = 'o-row o-folder';
+  node.style.setProperty('--d', String(row.depth));
+  const name = textNode('span', 'o-name', row.path === '.' ? '.' : `${row.name}/`);
+  name.title = row.path;
+  const contents = row.folders ? `${plural(row.files, 'file')} · ${plural(row.folders, 'folder')}` : plural(row.files, 'file');
+  node.append(name, textNode('span', 'o-count muted', contents), textNode('span', 'spacer', ''));
+  let why = row.listed ? '' : "This folder is not in this review's listing";
+  if (row.path === '.') {
+    why = NO_ROOT_FOLDER;
+  }
+  node.append(outlineNoteButton(counts.get(`folder:${row.path}`) ?? 0, 'folder', why, { kind: 'folder', path: row.path }));
+  return node;
+}
+
+function outlineBars(row) {
+  const { file } = row;
+  const stack = document.createElement('span');
+  stack.className = row.churnBar === null && row.tangleBar === null ? 'stack none' : 'stack';
+  stack.title = `churn ${reading(file.churn, 'commits in 6 months')} · tangle ${reading(file.indentation, 'summed indentation')}`;
+  for (const [className, fraction] of [['churn', row.churnBar], ['tangle', row.tangleBar]]) {
+    const bar = document.createElement('i');
+    bar.className = className;
+    bar.style.width = fraction === null ? '0' : `${Math.max(4, fraction * 100)}%`;
+    stack.append(bar);
+  }
+  return stack;
+}
+
+function outlineFlags(row, doc) {
+  const { file } = row;
+  const flags = document.createElement('span');
+  flags.className = 'o-flags';
+  for (const kind of file.mixes ?? []) {
+    const mix = textNode('i', 'mix', Array.from(kind)[0]);
+    mix.title = `also ${kind}`;
+    flags.append(mix);
+  }
+  for (const index of row.candidates) {
+    const dot = document.createElement('i');
+    dot.className = 'dot';
+    dot.style.setProperty('--c', candidateColour(index));
+    dot.title = doc.candidates[index].name;
+    dot.addEventListener('click', (event) => {
+      event.stopPropagation();
+      revealCandidate(doc.candidates[index].name);
+    });
+    flags.append(dot);
+  }
+  if (file.outside.length) {
+    const out = textNode('span', 'o-out', `↗${file.outside.length}`);
+    out.title = `${plural(file.outside.length, 'import')} from outside the overview`;
+    flags.append(out);
+  }
+  return flags;
+}
+
+function outlineFileRow(row, doc, counts) {
+  const { file } = row;
+  const node = document.createElement('div');
+  node.className = 'o-row o-file';
+  node.dataset.path = row.path;
+  node.style.setProperty('--d', String(row.depth));
+  const name = textNode('span', 'o-name', row.name);
+  name.title = row.path;
+  const role = textNode('span', 'o-role', file.role ?? '');
+  role.title = file.role ?? '';
+  node.append(
+    name,
+    outlineBars(row),
+    textNode('span', 'o-lines', file.lines === null ? '–' : String(file.lines)),
+    textNode('span', 'o-kind', file.kind ?? ''),
+    outlineFlags(row, doc),
+    role,
+    outlineNoteButton(counts.get(`file:${row.path}`) ?? 0, 'file', row.listed ? '' : "This file is not in this review's listing", { kind: 'file', path: row.path }),
+  );
+  node.addEventListener('click', () => toggleDetail(row.path));
+  return node;
+}
+
+function revealCandidate(name) {
+  const card = [...el.overviewBody.querySelectorAll('.cand')].find((c) => c.dataset.name === name);
+  card?.scrollIntoView({ block: 'nearest' });
+}
+
+// ---- the outline's detail card ----------------------------------------------
+
+function toggleDetail(path) {
+  const same = state.detail === path;
+  closeDetail();
+  if (!same && placeDetail(path, { reveal: true })) {
+    state.detail = path;
+  }
+}
+
+function closeDetail() {
+  state.detail = null;
+  state.outline?.box.querySelector('.o-pop')?.remove();
+  state.outline?.box.querySelector('.o-file.open')?.classList.remove('open');
+}
+
+function placeDetail(path, { reveal }) {
+  const node = state.outline?.nodes.get(path);
+  if (!node) {
+    return false;
+  }
+  const row = state.outline.model.groups.flatMap((g) => g.rows).find((r) => r.path === path && r.type === 'file');
+  const card = detailCard(row, state.outline);
+  state.outline.box.append(card);
+  node.classList.add('open');
+  card.style.top = `${node.offsetTop + node.offsetHeight + 2}px`;
+  if (reveal) {
+    card.scrollIntoView({ block: 'nearest' });
+  }
+  return true;
+}
+
+function detailCard(row, { doc, model }) {
+  const { file, path, folder } = row;
+  const counts = noteCounts(annotations());
+  const card = document.createElement('div');
+  card.className = 'o-pop';
+  card.style.setProperty('--d', String(row.depth));
+
+  const head = document.createElement('div');
+  head.className = 'pop-head';
+  const close = textNode('button', 'ghost small', '×');
+  close.title = 'Close (Esc)';
+  close.addEventListener('click', closeDetail);
+  head.append(textNode('span', 'pop-path', path), textNode('span', 'spacer', ''), close);
+
+  const role = textNode('p', file.role === null ? 'pop-role muted' : 'pop-role', file.role ?? 'No role recorded.');
+
+  const facts = document.createElement('dl');
+  facts.className = 'pop-facts';
+  const fact = (label, ...value) => {
+    const dd = document.createElement('dd');
+    dd.append(...value);
+    facts.append(textNode('dt', '', label), dd);
+  };
+  const list = (paths) => (paths.length ? paths.join(', ') : 'none');
+  fact('kind', [file.kind ?? 'not recorded', ...(file.mixes ?? []).map((kind) => `also ${kind}`)].join(', '));
+  fact('lines', file.lines === null ? 'not measured' : String(file.lines));
+  fact('churn', reading(file.churn, 'commits in 6 months'));
+  fact('tangle', reading(file.indentation, 'summed indentation'));
+  fact('exports', file.exports === null ? 'not recorded' : list(file.exports));
+  fact('imports', list(file.imports));
+  fact('imported by', list(model.importedBy.get(path)));
+  if (row.candidates.length) {
+    const links = row.candidates.flatMap((index, i) => {
+      const { name } = doc.candidates[index];
+      const link = textNode('button', 'link', name);
+      link.style.color = candidateColour(index);
+      link.addEventListener('click', () => revealCandidate(name));
+      return i ? [', ', link] : [link];
+    });
+    fact('candidates', ...links);
+  }
+  if (file.outside.length) {
+    fact('outside imports', file.outside.join(', '));
+  }
+
+  const generated = textNode('p', 'pop-gen muted', `Overview generated ${new Date(doc.generatedAt).toLocaleString()}`);
+
+  const actions = document.createElement('div');
+  actions.className = 'pop-actions';
+  const unlisted = `${path} is not in this review's listing`;
+  const fileNotes = counts.get(`file:${path}`) ?? 0;
+  const folderNotes = counts.get(`folder:${folder}`) ?? 0;
+  actions.append(
+    enableUnless(textNode('button', 'primary', 'Open code'), row.listed ? '' : unlisted, () => {
+      showSurface('code');
+      expandTo(path);
+      openFile(path);
+    }),
+    enableUnless(textNode('button', '', fileNotes ? `Note on file (${fileNotes})` : 'Note on file'), row.listed ? '' : unlisted, () => {
+      openComposer({ kind: 'file', path });
+    }),
+  );
+  if (folder === '') {
+    const rootFolder = textNode('button', '', 'Note on folder');
+    rootFolder.disabled = true;
+    rootFolder.title = NO_ROOT_FOLDER;
+    actions.append(rootFolder);
+  } else {
+    const label = `Note on ${folder}/${folderNotes ? ` (${folderNotes})` : ''}`;
+    actions.append(
+      enableUnless(textNode('button', '', label), row.folderListed ? '' : `${folder}/ is not in this review's listing`, () => {
+        openComposer({ kind: 'folder', path: folder });
+      }),
+    );
+  }
+
+  card.append(head, role, facts, generated, actions);
+  return card;
 }
 
 // ---- tree ----------------------------------------------------------------
@@ -198,18 +620,6 @@ function applyDefaultCollapse() {
   }
 }
 
-// Note counts per tree row: `folder:<path>` counts folder notes, `file:<path>` file and range notes.
-function noteCounts() {
-  const counts = new Map();
-  for (const a of annotations()) {
-    if (a.anchor.path) {
-      const key = `${a.anchor.kind === 'folder' ? 'folder' : 'file'}:${a.anchor.path}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-  }
-  return counts;
-}
-
 const matchesFilter = (path) => path.toLowerCase().includes(state.filter);
 
 // While the filter is on, the tree holds only the matching files and the folders above
@@ -225,7 +635,7 @@ function renderTree() {
     el.treeRows.replaceChildren(empty);
     return;
   }
-  const view = { counts: noteCounts(), filtering };
+  const view = { counts: noteCounts(annotations()), filtering };
   el.treeRows.replaceChildren(renderDir(buildTree(paths), 0, view));
 }
 
@@ -257,6 +667,7 @@ function treeRow(kind, node, depth, view) {
   name.title = node.path;
   name.addEventListener('click', () => {
     if (kind === 'file') {
+      showSurface('code');
       openFile(node.path);
     } else if (!view.filtering) {
       toggleDir(node.path);
@@ -301,11 +712,15 @@ function splitLines(text) {
   return lines;
 }
 
-function showEmpty(text) {
+function emptyLine(text) {
   const note = document.createElement('div');
   note.className = 'empty';
   note.textContent = text;
-  el.code.replaceChildren(note);
+  return note;
+}
+
+function showEmpty(text) {
+  el.code.replaceChildren(emptyLine(text));
 }
 
 // Says why a file cannot be shown and drops its cached text, so nothing stale stays on screen.
@@ -555,6 +970,7 @@ function applySelection() {
 
 // `existing` is the unsent note being edited; `intent` presets the intent of a new note.
 function openComposer(anchor, { existing = null, intent = existing?.intent ?? 'change' } = {}) {
+  showPanel('notes');
   state.editing = existing?.id ?? null;
   el.composer.classList.remove('hidden');
   el.composer.replaceChildren();
@@ -654,6 +1070,7 @@ function afterChange() {
   rounds.scheduleSave();
   renderList();
   renderTree();
+  renderOverview();
   // Patch the open file in place; commit clears the selection, so repaint it too.
   if (state.view) {
     refreshMarks();
@@ -847,10 +1264,12 @@ async function replyTo(a) {
   if (anchor.kind === 'folder') {
     expandTo(anchor.path, { self: true });
     renderTree();
+    showPanel('tree');
     openComposer({ kind: 'folder', path: anchor.path }, options);
     return;
   }
   const label = anchorLabel(anchor);
+  showSurface('code');
   expandTo(anchor.path);
   let shown = await openFile(anchor.path, anchor.start);
   // A refresh re-opening the same file supersedes this fetch; fetch it once more.
@@ -887,13 +1306,16 @@ function revealAnchor(anchor) {
   if (anchor.path && !matchesFilter(anchor.path)) {
     el.filter.value = '';
     setFilter('');
+    showPanel('tree');
   }
   if (anchor.kind === 'range' || anchor.kind === 'file') {
+    showSurface('code');
     expandTo(anchor.path);
     openFile(anchor.path, anchor.start);
   } else if (anchor.kind === 'folder') {
     expandTo(anchor.path, { self: true });
     renderTree();
+    showPanel('tree');
   } else {
     el.overall.focus();
   }
@@ -993,18 +1415,39 @@ el.cancel.addEventListener('click', rounds.cancelRun);
 
 el.filter.addEventListener('input', () => setFilter(el.filter.value));
 
+el.tabOverview.addEventListener('click', () => showSurface('overview'));
+el.tabCode.addEventListener('click', () => showSurface('code'));
+el.toggleFiles.addEventListener('click', () => togglePanel('hide-tree', el.toggleFiles));
+el.toggleNotes.addEventListener('click', () => togglePanel('hide-notes', el.toggleNotes));
+
 el.addScope.addEventListener('click', () => openComposer({ kind: 'scope' }));
 el.overall.addEventListener('input', () => {
   rounds.scheduleSave();
   updateSend();
 });
+// Read from the path the event was dispatched along, which still holds the ancestors of a target
+// that a handler removed, as the composer does with its own Add button.
+const eventInside = (event, selector) => event.composedPath().some((node) => node instanceof Element && node.matches(selector));
+
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && el.composer.classList.contains('hidden') && state.selection) {
+  if (event.key !== 'Escape') {
+    return;
+  }
+  if (state.detail !== null && !eventInside(event, 'textarea, input')) {
+    closeDetail();
+    return;
+  }
+  if (el.composer.classList.contains('hidden') && state.selection) {
     state.selection = null;
     applySelection();
   }
 });
+document.addEventListener('click', (event) => {
+  if (state.detail !== null && !eventInside(event, '.o-pop, .o-file, .notes, .composer')) {
+    closeDetail();
+  }
+});
 
 load().catch((err) => {
-  el.code.replaceChildren(Object.assign(document.createElement('div'), { className: 'empty', textContent: `Could not load: ${err.message}` }));
+  showEmpty(`Could not load: ${err.message}`);
 });
