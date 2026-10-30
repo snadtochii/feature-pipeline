@@ -2,7 +2,7 @@
 // margin annotation server: `cli.mjs`.
 //
 // Usage:
-//   cli.mjs annotate --root <abs-dir> [--scope <path>]... [--out <abs-file>] [--port <n>] [--token <hex>] [--no-open]
+//   cli.mjs annotate --root <abs-dir> [--scope <path>]... [--out <abs-file>] [--overview <file>] [--port <n>] [--token <hex>] [--no-open]
 //   cli.mjs wait <url> [--after <n>]
 //   cli.mjs --self-test
 //
@@ -16,6 +16,7 @@
 // its root and scope apply unless --root / --scope are given.
 // Every /api call must carry the per-run token; it is random unless --token sets it, which
 // lets a caller know the viewer URL before this process prints it.
+// --overview names an overview document, checked when the run starts and served to the viewer.
 //
 // `wait` takes the URL `annotate` printed on stderr, blocks until the next round is sent or
 // the run ends, and prints one wait document. --after is the last round the caller has seen.
@@ -28,12 +29,13 @@ import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { listFiles, readSource, revision } from './lib/files.mjs';
+import { readOverview } from './lib/overview.mjs';
 import { startServer } from './lib/server.mjs';
 import { RunError, createSession, finishRun, postReplies, readStored, saveSession, scopePath, sendRound } from './lib/session.mjs';
 import { TOKEN_PATTERN, parseRunUrl, waitForRound } from './lib/wait.mjs';
 
 const WAIT_USAGE = 'usage: cli.mjs wait <url> [--after <n>]';
-const USAGE = `usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--port <n>] [--token <hex>] [--no-open]\n       ${WAIT_USAGE.slice('usage: '.length)}`;
+const USAGE = `usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--overview <file>] [--port <n>] [--token <hex>] [--no-open]\n       ${WAIT_USAGE.slice('usage: '.length)}`;
 
 function writeDoc(doc) {
   process.stdout.write(`${JSON.stringify(doc, null, 2)}\n`);
@@ -68,6 +70,7 @@ async function annotate(argv) {
         root: { type: 'string' },
         scope: { type: 'string', multiple: true, default: [] },
         out: { type: 'string' },
+        overview: { type: 'string' },
         port: { type: 'string', default: '0' },
         token: { type: 'string' },
         'no-open': { type: 'boolean', default: false },
@@ -87,6 +90,10 @@ async function annotate(argv) {
   if (values.token !== undefined && !TOKEN_PATTERN.test(values.token)) {
     fail('bad --token: 16-128 characters of [A-Za-z0-9_-]', 2);
   }
+  if (values.overview === '') {
+    fail('bad --overview: empty', 2);
+  }
+  const overviewFile = values.overview === undefined ? null : resolve(values.overview);
 
   // On a resume the notes file is the record of what was being reviewed: its root and scope
   // apply unless the caller names them explicitly.
@@ -95,12 +102,14 @@ async function annotate(argv) {
   const scopeArgs = values.scope.length > 0 ? values.scope : Array.isArray(stored?.scope) ? stored.scope : [];
   const scope = scopeArgs.map((raw) => scopePath(root, raw));
   const out = resolve(values.out ?? join(root, 'claudedocs', 'margin', `${stamp()}.json`));
-  const files = listFiles(root, scope, out);
+  const own = overviewFile ? [out, overviewFile] : [out];
+  const files = listFiles(root, scope, own);
   if (files.length === 0) {
     fail(`no files under ${scope.join(', ') || root}`, 1);
   }
 
   const session = createSession({ stored, out, root, scope, revision: revision(root) });
+  const overview = overviewFile ? readOverview(overviewFile) : null;
   const save = () => saveSession(session);
 
   let run;
@@ -111,11 +120,12 @@ async function annotate(argv) {
       session,
       files,
       readSource: (path) => readSource(root, path),
-      relist: () => listFiles(root, scope, out),
+      relist: () => listFiles(root, scope, own),
       onSave: save,
       onSend: () => sendRound(session),
       onReply: (body) => postReplies(session, body),
       onEnd: (status) => finishRun(session, status),
+      overview,
     });
   } catch (err) {
     fail(`could not listen on port ${port}: ${err.code ?? err.message}`, 1);
