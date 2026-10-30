@@ -5,7 +5,9 @@
 // checks the viewer's round controller over a fake server and a fake view: the anchor rule
 // against the listing, the Send rule, writes running one at a time with the newest session, a
 // refresh merging the server copy by ownership, Send, Finish and Cancel with each refusal, and
-// the change wait's backoff, reconnection and end. It checks the note rules (the anchor rule per kind, range validity, the excerpt cap), resuming a
+// the change wait's backoff, reconnection and end. It checks the viewer's outline model: rows
+// grouped by scope entry and folder, imported-by, candidate membership, bars, the anchor rule per
+// row, note counts, and the route serving it. It checks the note rules (the anchor rule per kind, range validity, the excerpt cap), resuming a
 // notes file (a stored note keeps its anchor; rounds and note rounds restore; a file without
 // rounds is round 0; the refusals), the atomic save, the sent-note lock, the agent's replies
 // (kept through a viewer write and a resume, each resume refusal for them, a reply post whose
@@ -427,6 +429,7 @@ function expectedOverview(root) {
 // Imported per case rather than at the top, so a broken module fails its cases by name. The
 // import itself proves the module touches no DOM when it loads: Node has none.
 const loadRounds = () => import('../../ui/rounds.js');
+const loadOverviewModel = () => import('../../ui/overview.js');
 
 // An error the way the viewer's `api` throws one.
 function apiError(status, message) {
@@ -895,6 +898,101 @@ const CASES = [
       'the status events of the change wait',
     );
     assert(h.rounds.ended && h.rounds.connection === '', `the state after the end: ended ${h.rounds.ended}, connection "${h.rounds.connection}"`);
+  }],
+  ['viewer overview: the outline model groups rows, counts notes and serves its module', async () => {
+    const { buildOutline, noteCounts, CANDIDATE_COLOURS } = await loadOverviewModel();
+    const entry = (p, churn, indentation, imports = []) => ({ path: p, lines: 10, churn, indentation, kind: null, role: null, exports: null, mixes: null, imports, outside: [] });
+    const candidate = (name, files) => ({ name, tier: 'strong', category: 'in-process', files, next_change: 'x', next_sites: [], est_diff_lines: 1, deletion_test: 'x', friction: 'x' });
+    const doc = checkOverview({
+      version: 1,
+      root: OVERVIEW_ROOT,
+      scope: ['src'],
+      generatedAt: '2026-10-30T12:00:00Z',
+      files: [
+        entry('src/a.js', 8, 20, ['src/b.js', 'src/lib/c.js']),
+        entry('src/b.js', 2, 5),
+        entry('src/lib/c.js', 4, 10, ['src/b.js']),
+        entry('src/lib/deep/d.js', null, null),
+        entry('tools/x.js', 0, 0),
+        entry('notes.md', 0, 0),
+      ],
+      candidates: [candidate('one', ['src/a.js', 'src/b.js']), candidate('two', ['src/lib/c.js', 'src/a.js'])],
+      notices: [],
+    });
+    const listing = ['notes.md', 'src/a.js', 'src/b.js', 'src/lib/c.js', 'src/lib/deep/d.js'];
+    const listed = (anchor) => (anchor.kind === 'folder' ? anchor.path !== '' && anchor.path !== '.' && listing.some((p) => p.startsWith(`${anchor.path}/`)) : listing.includes(anchor.path));
+    const shape = (row) =>
+      row.type === 'folder'
+        ? [row.type, row.path, row.name, row.depth, row.files, row.folders, row.listed]
+        : [row.type, row.path, row.name, row.depth, row.folder, row.candidates, row.churnBar, row.tangleBar, row.listed, row.folderListed];
+    const outline = buildOutline(doc, { listed });
+    assertEqual(outline.groups.map((g) => g.entry), ['src', '.'], 'the groups');
+    assertEqual(
+      outline.groups[0].rows.map(shape),
+      [
+        ['folder', 'src', 'src', 0, 2, 1, true],
+        ['file', 'src/a.js', 'a.js', 1, 'src', [0, 1], 1, 1, true, true],
+        ['file', 'src/b.js', 'b.js', 1, 'src', [0], 0.25, 0.25, true, true],
+        ['folder', 'src/lib', 'lib', 1, 1, 1, true],
+        ['file', 'src/lib/c.js', 'c.js', 2, 'src/lib', [1], 0.5, 0.5, true, true],
+        ['folder', 'src/lib/deep', 'deep', 2, 1, 0, true],
+        ['file', 'src/lib/deep/d.js', 'd.js', 3, 'src/lib/deep', [], null, null, true, true],
+      ],
+      'the rows under src',
+    );
+    assertEqual(
+      outline.groups[1].rows.map(shape),
+      [
+        ['folder', '.', '.', 0, 1, 1, false],
+        ['file', 'notes.md', 'notes.md', 1, '', [], 0, 0, true, false],
+        ['folder', 'tools', 'tools', 1, 1, 0, false],
+        ['file', 'tools/x.js', 'x.js', 2, 'tools', [], 0, 0, false, false],
+      ],
+      'the rows under no scope entry',
+    );
+    assert(outline.groups[0].rows[1].file === doc.files[0] && outline.byPath.get('src/lib/c.js') === doc.files[2], 'a row does not carry its document entry');
+    assertEqual(outline.importedBy.get('src/b.js'), ['src/a.js', 'src/lib/c.js'], 'imported-by of src/b.js');
+    assertEqual(outline.importedBy.get('src/a.js'), [], 'imported-by of src/a.js');
+    assertEqual(outline.candidatesOf('src/a.js'), [0, 1], 'the candidates touching src/a.js');
+    assertEqual([outline.maxChurn, outline.maxIndent], [8, 20], 'the bar scales');
+    assertEqual(
+      buildOutline({ ...doc, scope: ['.'] }, { listed }).groups.map((g) => [g.entry, g.rows.map((r) => r.path)]),
+      [['.', ['.', 'notes.md', 'src', 'src/a.js', 'src/b.js', 'src/lib', 'src/lib/c.js', 'src/lib/deep', 'src/lib/deep/d.js', 'tools', 'tools/x.js']]],
+      'a scope of the root',
+    );
+    assertEqual(
+      buildOutline({ ...doc, scope: ['src', 'src/lib'] }, { listed }).groups.map((g) => [g.entry, g.rows.map((r) => r.path)]),
+      [['src', ['src', 'src/a.js', 'src/b.js']], ['src/lib', ['src/lib', 'src/lib/c.js', 'src/lib/deep', 'src/lib/deep/d.js']], ['.', ['.', 'notes.md', 'tools', 'tools/x.js']]],
+      'a file under nested scope entries belongs to the longer one',
+    );
+    assertEqual(
+      buildOutline({ ...doc, scope: ['src/a.js', 'src/lib'] }, { listed }).groups.map((g) => [g.entry, g.rows.map((r) => r.path)]),
+      [['src/lib', ['src/lib', 'src/lib/c.js', 'src/lib/deep', 'src/lib/deep/d.js']], ['.', ['.', 'notes.md', 'src', 'src/a.js', 'src/b.js', 'tools', 'tools/x.js']]],
+      'a file scope entry is grouped under its folder, not as a folder of its own',
+    );
+    const unmeasured = buildOutline({ ...doc, files: [entry('src/a.js', null, null)], candidates: [] }, { listed });
+    assertEqual([unmeasured.maxChurn, unmeasured.groups[0].rows[1].churnBar], [1, null], 'a document without readings');
+    assertEqual(buildOutline({ ...doc, files: [], candidates: [] }, { listed }).groups.map((g) => g.rows.map(shape)), [[['folder', 'src', 'src', 0, 0, 0, true]]], 'a document without files');
+    const fixture = buildOutline(expectedOverview(OVERVIEW_ROOT), { listed: () => true });
+    assertEqual(
+      fixture.groups.map((g) => g.rows.map(shape)),
+      [[['folder', 'src', 'src', 0, 2, 0, true], ['file', 'src/a.js', 'a.js', 1, 'src', [0], 1, 1, true, true], ['file', 'src/b.js', 'b.js', 1, 'src', [0], null, null, true, true]]],
+      'the shape-check fixture',
+    );
+    assert(CANDIDATE_COLOURS.length > 1 && CANDIDATE_COLOURS.every((c) => /^#[0-9a-f]{6}$/.test(c)), 'the candidate palette is not a list of colours');
+    const note = (anchor) => ({ id: 'n', anchor, intent: 'change', body: 'b', createdAt: 't' });
+    const counts = noteCounts([
+      note({ kind: 'scope' }),
+      note({ kind: 'folder', path: 'src' }),
+      note({ kind: 'file', path: 'src/a.js' }),
+      note({ kind: 'range', path: 'src/b.js', start: 1, end: 1 }),
+      note({ kind: 'range', path: 'src/b.js', start: 2, end: 3 }),
+    ]);
+    assertEqual(Object.fromEntries(counts), { 'folder:src': 1, 'file:src/a.js': 1, 'file:src/b.js': 2 }, 'the note counts');
+    await withServer(async ({ port, host }) => {
+      const reply = await request(port, { target: '/overview.js', headers: { host } });
+      assert(reply.status === 200 && reply.type.startsWith('text/javascript'), `/overview.js got ${reply.status} ${reply.type}`);
+    });
   }],
   ['annotations: anchor rule per kind', () => {
     const keep = (anchor) => cleanAnnotation({ anchor, body: 'b' }, ALLOWED) !== null;

@@ -362,7 +362,7 @@ request passes the guards of §9 first. Eleven routes:
 
 | Route | Token | Request | Response |
 |---|---|---|---|
-| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/rounds.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
+| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/rounds.js`, `/overview.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
 | `GET /api/overview` | yes | — | 200 with the overview document as checked (§13). 404 `{"error": "no overview"}` when the run has none. Served until the process exits. |
 | `GET /api/session` | yes | — | 200 `{"session": <the notes file object, §6>, "files": [<the current listing, §10>], "changes": <the run's change count>}`. The change count is `0` when the process starts, is kept in memory only, and goes up by one on every accepted reply post. |
 | `GET /api/file?path=<p>` | yes | — | `<p>` not in the current listing: 404 `{"error": "<p> is not in scope"}`. A listed path that no longer exists — removed, or a parent folder replaced by a file: 404 `{"error": "<p> no longer exists"}`. Otherwise 200 with `{"path", "text"}` or a refusal `{"path", "binary": true, "reason"}` (§10). |
@@ -533,8 +533,11 @@ the Send rule of §8, writes sent one at a time each carrying the session as it 
 starts, the server's copy merged by ownership after a change (sent notes and round fields from
 the server, unsent notes and the overall text from the viewer, an unsent note whose anchor left
 the listing removed), Send, Finish and Cancel with each refusal and the end raised once, and the
-change wait's backoff from 1 s doubling, its reconnection check and its end; the anchor
-rule of §7 for every kind, range validity and the excerpt cap; resume (§5) — a stored note
+change wait's backoff from 1 s doubling, its reconnection check and its end; the viewer's
+outline model in Node — rows grouped by scope entry and folder from an overview document
+(§13), imported-by, candidate membership, bars scaled per reading with unmeasured files left
+empty, each row's anchor rule against the listing, and note counts per file and folder; the
+anchor rule of §7 for every kind, range validity and the excerpt cap; resume (§5) — a stored note
 keeps its anchor through a write, a new note outside the listing is dropped, rounds and note
 rounds restore, a file without `rounds` resumes as round 0, an absent `--out` starts fresh, and
 each refusal; the atomic save of §6, which leaves no temporary file behind, and a failed save;
