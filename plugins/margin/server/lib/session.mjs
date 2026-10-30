@@ -119,21 +119,25 @@ export function createSession({ stored, out, root, scope, revision }) {
   return Object.assign(session, { status: 'draft', root, scope, out, revision, updatedAt: now });
 }
 
-// Writes the session to its notes file, stamping `updatedAt` first. The content goes to a
-// temporary file in the same directory, which is then renamed over the notes file; a failed
-// write or rename removes the temporary file and rethrows.
-export function saveSession(session) {
-  session.updatedAt = new Date().toISOString();
-  const dir = dirname(session.out);
+// Writes `text` to a temporary file in the same directory as `file`, then renames it over
+// `file`; a failed write or rename removes the temporary file and rethrows.
+export function writeAtomic(file, text) {
+  const dir = dirname(file);
   mkdirSync(dir, { recursive: true });
-  const tmp = join(dir, `.${basename(session.out)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
+  const tmp = join(dir, `.${basename(file)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
   try {
-    writeFileSync(tmp, `${JSON.stringify(session, null, 2)}\n`);
-    renameSync(tmp, session.out);
+    writeFileSync(tmp, text);
+    renameSync(tmp, file);
   } catch (err) {
     rmSync(tmp, { force: true });
     throw err;
   }
+}
+
+// Writes the session to its notes file, stamping `updatedAt` first.
+export function saveSession(session) {
+  session.updatedAt = new Date().toISOString();
+  writeAtomic(session.out, `${JSON.stringify(session, null, 2)}\n`);
 }
 
 // A Send: stamps every unsent note with the next round number, records the round with the

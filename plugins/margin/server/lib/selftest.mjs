@@ -18,10 +18,15 @@
 // wait returning on a reply and on the end. It checks the overview document: a document accepted
 // with its unknown fields dropped, each shape refusal, each reading refusal and the size limit,
 // the overview route behind the token and its 404 without an overview, and a listing that never
-// lists the overview file. Through `cli.mjs` children it checks the command's own
-// refusals (children that must exit before serving, `wait`'s invocation refusals, and each
-// `--overview` refusal leaving `--out` as it was) and end-to-end runs: a submit, a `wait` child,
-// finish, and exactly one result document, a run ended by SIGTERM, and a run serving its overview.
+// lists the overview file. It checks the overview data: the import scan and its resolution
+// against the listing and tsconfig `paths`, the line count, indent width and indentation, churn
+// from dated commits in a temporary repository, the hotspot table, explorer blocks parsed and
+// dropped, roles merged, each notice, and the size limit. Through `cli.mjs` children it checks
+// the command's own refusals (children that must exit before serving, `wait`'s invocation
+// refusals, each `--overview` refusal leaving `--out` as it was, and the `measure` and
+// `assemble` refusals writing nothing) and end-to-end runs: a submit, a `wait` child, finish,
+// and exactly one result document, a run ended by SIGTERM, a run serving its overview, and
+// `measure` then `assemble` writing an overview the shape check accepts.
 // Every fixture is a real file in a temp directory, and every expectation is written by hand,
 // never computed by the code under test. Requests go to 127.0.0.1 only. A failing case throws
 // a RunError naming it.
@@ -38,6 +43,9 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { listFiles, readSource } from './files.mjs';
 import { applyEdits, cleanAnnotation } from './annotations.mjs';
+import { assembleOverview, readMeasurement, readOptional, serialiseOverview } from './assemble.mjs';
+import { createResolver, parseJsonc, scanSpecifiers } from './imports.mjs';
+import { countLines, detectWidth, indentation, measureScope } from './measure.mjs';
 import { MAX_OVERVIEW_BYTES, checkOverview, readOverview } from './overview.mjs';
 import { startServer } from './server.mjs';
 import { RunError, createSession, finishRun, postReplies, readStored, restoreSession, saveSession, scopePath, sendRound } from './session.mjs';
@@ -178,7 +186,102 @@ function runCli(args) {
   } catch {
     doc = null;
   }
-  return { status: res.status, signal: res.signal, stdout: res.stdout, doc };
+  return { status: res.status, signal: res.signal, stdout: res.stdout, stderr: res.stderr, doc };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HOTSPOT_HEADER_LINE = 'path\tchurn\tlines\tindentation\tchurn_x_lines\tchurn_x_indentation\n';
+
+function commitAll(root, message, daysAgo) {
+  const date = `${Math.floor((Date.now() - daysAgo * DAY_MS) / 1000)} +0000`;
+  execFileSync('git', ['add', '-A'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.name=margin', '-c', 'user.email=margin@example.invalid', 'commit', '-q', '-m', message], {
+    cwd: root,
+    stdio: 'ignore',
+    env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+  });
+}
+
+const FIXTURE_A_TS = [
+  "import { b } from './b';",
+  "import { c } from '@/c';",
+  "import React from 'react';",
+  "import { m } from './missing';",
+  "import { x } from '../other/x';",
+  '',
+  'export function a() {',
+  '  if (b) {',
+  '    return c;',
+  '  }',
+  '  return m;',
+  '}',
+  '',
+].join('\n');
+const FIXTURE_B_TS = 'export const b = {\n  one: 1,\n};\n';
+
+function measureFixture(root) {
+  execFileSync('git', ['init', '-q'], { cwd: root, stdio: 'ignore' });
+  write(root, 'tsconfig.json', '{\n  // the alias the app uses\n  "compilerOptions": {\n    "paths": { "@/*": ["./src/lib/*"] },\n  },\n}\n');
+  write(root, 'src/a.ts', 'old\n');
+  write(root, 'src/b.ts', 'old\n');
+  write(root, 'src/lib/c.ts', 'export const c = 1;\n');
+  write(root, 'src/img.bin', Buffer.from('x\0y'));
+  write(root, 'other/x.ts', 'export const x = 1;\n');
+  commitAll(root, 'old', 240);
+  write(root, 'src/a.ts', 'interim\n');
+  write(root, 'src/b.ts', FIXTURE_B_TS);
+  commitAll(root, 'interim', 2);
+  write(root, 'src/a.ts', FIXTURE_A_TS);
+  write(root, 'other/x.ts', 'export const x = 2;\n');
+  commitAll(root, 'recent', 1);
+}
+
+function measuredFixture(root) {
+  return {
+    version: 1,
+    root,
+    scope: ['src'],
+    prefix: '',
+    files: [
+      { path: 'src/a.ts', lines: 12, churn: 2, indentation: 5, imports: ['src/b.ts', 'src/lib/c.ts'], outside: ['react', './missing', '../other/x'] },
+      { path: 'src/b.ts', lines: 3, churn: 1, indentation: 1, imports: [], outside: [] },
+      { path: 'src/img.bin', lines: null, churn: 0, indentation: null, imports: [], outside: [] },
+      { path: 'src/lib/c.ts', lines: 1, churn: 0, indentation: 0, imports: [], outside: [] },
+    ],
+  };
+}
+
+const MEASURED_FIXTURE_TSV = `${HOTSPOT_HEADER_LINE}src/a.ts\t2\t12\t5\t24\t10\nsrc/b.ts\t1\t3\t1\t3\t1\nsrc/lib/c.ts\t0\t1\t0\t0\t0\n`;
+
+function handMeasurement() {
+  return {
+    version: 1,
+    root: OVERVIEW_ROOT,
+    scope: ['src'],
+    prefix: 'apps/web/',
+    files: [
+      { path: 'src/a.ts', lines: 3, churn: 1, indentation: 0, imports: ['src/b.ts'], outside: ['react'] },
+      { path: 'src/b.ts', lines: 1, churn: 0, indentation: 0, imports: [], outside: [] },
+    ],
+  };
+}
+
+function explorerBlock(name, { tier = 'speculative', files = 'src/a.ts', sites = [], est = '3' } = {}) {
+  return [
+    `name: ${name}`,
+    `tier: ${tier}`,
+    'category: in-process',
+    `files: ${files}`,
+    'next_change: x',
+    ...sites.map((site) => `next_sites: ${site}`),
+    `est_diff_lines: ${est}`,
+    'deletion_test: x',
+    'friction: y',
+  ];
+}
+
+function explorerText(blocks) {
+  return blocks.map((block) => block.join('\n')).join('\n\n');
 }
 
 function assertErrorDoc(res, exitCode, fragment, what) {
@@ -1549,6 +1652,303 @@ const CASES = [
     assertEqual((await within(ahead, 'the change wait on finish')).json, { status: 'finished', changes: 1 }, 'change document on finish');
     assertEqual((await changesAfter(5)).json, { status: 'finished', changes: 1 }, 'a change wait after the end');
     await finished();
+  })],
+  ['imports: specifiers scanned from every import form, in order', () => {
+    const text = [
+      "import a from './a';",
+      'import {',
+      '  b,',
+      '  c,',
+      '} from "./bc";',
+      "export { d } from './d';",
+      "export * from './e';",
+      "import type { T } from './types';",
+      "import './side-effect';",
+      "const f = await import('./lazy');",
+      'const g = require("./g");',
+      "x.import('./not-this');",
+      "const s = 'from nowhere';",
+    ].join('\r\n');
+    assertEqual(scanSpecifiers(text), ['./a', './bc', './d', './e', './types', './side-effect', './lazy', './g'], 'scanned specifiers');
+  }],
+  ['imports: relative, extension, index and .js to .ts resolution against the listing', () => withTemp((root) => {
+    const resolver = createResolver(root, ['src/a.ts', 'src/b.ts', 'src/dir/index.tsx', 'src/js.ts', 'src/raw.css', 'lib.mjs']);
+    const text = ["./b", "./dir", "./js.js", "./raw.css?raw", "./a", "../lib.mjs", "../../up", "./b.ts", "./missing", "pkg/sub", "node:fs", "#internal"]
+      .map((spec) => `import '${spec}';`).join('\n');
+    assertEqual(resolver.resolveImports('src/a.ts', text), {
+      imports: ['src/b.ts', 'src/dir/index.tsx', 'src/js.ts', 'src/raw.css', 'lib.mjs'],
+      outside: ['../../up', './missing', 'pkg/sub', 'node:fs', '#internal'],
+    }, 'resolved imports');
+    assertEqual(resolver.warnings, [], 'warnings without a tsconfig');
+  })],
+  ['imports: tsconfig paths with and without baseUrl, extends, comments and trailing commas', () => withTemp((root) => {
+    assertEqual(parseJsonc('{"a": "x//y /* z */", /* c */ "b": [1, 2,], // end\n "c": "q\\"//", "d": ",}",}'), { a: 'x//y /* z */', b: [1, 2], c: 'q"//', d: ',}' }, 'parsed JSONC');
+    write(root, 'tsconfig.json', '{\n  // root\n  "compilerOptions": {\n    /* aliases */\n    "paths": {\n      "@/*": ["./src/*"],\n      "@/lib/*": ["./missing/*", "./fallback/*"],\n      "exact": ["./src/exact.ts"],\n    },\n  },\n}\n');
+    write(root, 'web/tsconfig.json', '{"extends": "../tsconfig", "compilerOptions": {"baseUrl": "."}}');
+    write(root, 'cycle/tsconfig.json', '{"extends": "./tsconfig.json", "compilerOptions": {"paths": {"~/*": ["./*"]}}}');
+    write(root, 'broken/tsconfig.json', '{ nope');
+    write(root, 'escape/tsconfig.json', '{"extends": "../../elsewhere.json"}');
+    const resolver = createResolver(root, ['src/a.ts', 'src/exact.ts', 'src/lib/l.ts', 'fallback/f.ts', 'web/k.ts', 'web/src/w.ts', 'cycle/c.ts', 'cycle/d.ts', 'broken/x.ts', 'escape/e.ts']);
+    const imports = (specs) => specs.map((spec) => `import '${spec}';`).join('\n');
+    assertEqual(resolver.resolveImports('src/a.ts', imports(['@/exact', '@/lib/f', '@/lib/l', 'exact', 'exact/more'])), {
+      imports: ['src/exact.ts', 'fallback/f.ts'],
+      outside: ['@/lib/l', 'exact/more'],
+    }, 'the root config: longest prefix, targets in order, exact pattern');
+    assertEqual(resolver.resolveImports('web/k.ts', imports(['@/w'])), { imports: ['web/src/w.ts'], outside: [] }, 'an inherited paths under the extending config baseUrl');
+    assertEqual(resolver.resolveImports('cycle/c.ts', imports(['~/d'])), { imports: ['cycle/d.ts'], outside: [] }, 'a config whose extends is a cycle keeps its own paths');
+    assertEqual(resolver.resolveImports('broken/x.ts', imports(['@/exact'])), { imports: ['src/exact.ts'], outside: [] }, 'an unparseable config counts as absent');
+    assertEqual(resolver.resolveImports('escape/e.ts', imports(['@/exact'])), { imports: [], outside: ['@/exact'] }, 'a config without paths');
+    const expected = [
+      'tsconfig cycle/tsconfig.json: extends ./tsconfig.json skipped, it forms a cycle',
+      'tsconfig broken/tsconfig.json: ignored, it could not be parsed',
+      'tsconfig escape/tsconfig.json: extends ../../elsewhere.json skipped, it resolves outside the root',
+    ];
+    assert(resolver.warnings.length === expected.length && expected.every((fragment, i) => resolver.warnings[i].startsWith(fragment)), `tsconfig warnings: ${JSON.stringify(resolver.warnings)}`);
+  })],
+  ['imports: an extends through a symlinked folder out of the root is skipped', () => withTemp((root) => withTemp((outside) => {
+    write(outside, 'base.json', '{"compilerOptions": {"paths": {"@/*": ["./*"]}}}');
+    fs.symlinkSync(outside, path.join(root, 'cfg'));
+    write(root, 'tsconfig.json', '{"extends": "./cfg/base.json"}');
+    const resolver = createResolver(root, ['a.ts', 'b.ts']);
+    assertEqual(resolver.resolveImports('a.ts', "import '@/b';"), { imports: [], outside: ['@/b'] }, 'no alias read from out of the root');
+    assertEqual(resolver.warnings, ['tsconfig tsconfig.json: extends ./cfg/base.json skipped, it resolves outside the root'], 'the skipped extends');
+  }))],
+  ['measure: line count, indent width and indentation', () => {
+    assertEqual(['', 'a', 'a\n', 'a\n\n', 'a\r\nb'].map(countLines), [0, 1, 1, 2, 2], 'line counts');
+    assertEqual(detectWidth(['  a\n    b\n    c\n']), 2, 'a width halved while the half occurs');
+    assertEqual(detectWidth(['    a\n        b\n']), 4, 'a tie won by the smaller width');
+    assertEqual(detectWidth(['a\n\tb\n   \n']), 1, 'no space-indented line');
+    assertEqual(indentation('a\n\t  x\n\n    \n    y\r\n', 2), 4, 'tabs plus spaces over the width, blank lines skipped');
+  }],
+  ['measure: lines, churn in a six-month window, imports and the hotspot table on a git repository', () => withTemp((root) => {
+    measureFixture(root);
+    const measured = measureScope({ root, scope: ['src'] });
+    assertEqual(measured.document, measuredFixture(root), 'the measurement document');
+    assertEqual(measured.tsv, MEASURED_FIXTURE_TSV, 'the hotspot table');
+    assertEqual(measured.warnings, [], 'warnings');
+    assertEqual(measured.summary, { files: 4, churn: 'git' }, 'the summary');
+    throwsRun(() => measureScope({ root, scope: ['nothing'] }), 1, 'no files under nothing');
+  })],
+  ['measure: a root below the git top level, outside git, and without commits', () => withTemp((dir) => {
+    const repo = path.join(dir, 'repo');
+    fs.mkdirSync(repo);
+    measureFixture(repo);
+    const below = measureScope({ root: path.join(repo, 'src'), scope: [] }).document;
+    assertEqual(below.prefix, 'src/', 'the prefix below the top level');
+    assertEqual(below.scope, ['.'], 'the scope of a run without --scope');
+    assertEqual(below.files.map((file) => [file.path, file.churn]), [['a.ts', 2], ['b.ts', 1], ['img.bin', 0], ['lib/c.ts', 0]], 'churn below the top level');
+    assertEqual(below.files[0].outside, ['@/c', 'react', './missing', '../other/x'], 'a tsconfig above the root is not read');
+
+    const plain = path.join(dir, 'plain');
+    write(plain, 'a.txt', 'x\n  y\n');
+    write(plain, 'b.js', "require('./a.txt');\n");
+    assert(!isRepository(plain), `${plain} is inside a git repository, so the walk is not what runs`);
+    const outside = measureScope({ root: plain, scope: [] });
+    assertEqual(outside.document, {
+      version: 1,
+      root: plain,
+      scope: ['.'],
+      prefix: null,
+      files: [
+        { path: 'a.txt', lines: 2, churn: null, indentation: 1, imports: [], outside: [] },
+        { path: 'b.js', lines: 1, churn: null, indentation: 0, imports: ['a.txt'], outside: [] },
+      ],
+    }, 'the measurement outside git');
+    assertEqual(outside.tsv, `${HOTSPOT_HEADER_LINE}a.txt\t0\t2\t1\t0\t0\nb.js\t0\t1\t0\t0\t0\n`, 'the hotspot table outside git');
+    assertEqual(outside.summary, { files: 2, churn: null }, 'the summary outside git');
+
+    execFileSync('git', ['init', '-q'], { cwd: plain, stdio: 'ignore' });
+    const fresh = measureScope({ root: plain, scope: [] }).document;
+    assertEqual([fresh.prefix, fresh.files.map((file) => file.churn)], ['', [0, 0]], 'a repository with no commits');
+  })],
+  ['assemble: explorer blocks parsed, malformed ones dropped with their names', () => {
+    const good = [
+      'name: split-a',
+      'tier: strong',
+      'category: in-process',
+      'files: apps/web/src/a.ts, ./src/b.ts,src/a.ts',
+      'structural_key: a',
+      'next_change: add a mode',
+      'next_sites: apps/web/src/a.ts:2 — the switch',
+      'next_sites: src/b.ts:1 – the export',
+      'est_diff_lines: 40',
+      'deletion_test: vanishes',
+      'friction: tangled',
+      'adr_conflict: none',
+    ];
+    const blocks = [
+      good,
+      explorerBlock('bad-site', { sites: ['src/a.ts line 2'] }),
+      explorerBlock('stranger', { files: 'other/x.ts' }),
+      explorerBlock('wrong-case', { tier: 'Strong' }),
+      good,
+      explorerBlock('approx', { est: '~200' }),
+      explorerBlock('off-files', { sites: ['src/b.ts:1 — x'] }),
+      ['name: lonely'],
+      ['pin: none — nothing pinned', 'notes: none'],
+    ];
+    const text = ['```', explorerText(blocks), '```'].join('\n').replaceAll('\n', '\r\n');
+    const { document, warnings, dropped } = assembleOverview({ measurement: handMeasurement(), rolesText: '{}', explorerText: text });
+    assertEqual(document.candidates, [{
+      name: 'split-a',
+      tier: 'strong',
+      category: 'in-process',
+      files: ['src/a.ts', 'src/b.ts'],
+      next_change: 'add a mode',
+      next_sites: [{ path: 'src/a.ts', line: 2, what: 'the switch' }, { path: 'src/b.ts', line: 1, what: 'the export' }],
+      est_diff_lines: 40,
+      deletion_test: 'vanishes',
+      friction: 'tangled',
+    }], 'the parsed candidates');
+    assertEqual(warnings, [
+      'dropped explorer block "bad-site": next_sites line 1 is not <path>:<line> — <what>',
+      'dropped explorer block "stranger": names other/x.ts, which is not in the scope',
+      'dropped explorer block "wrong-case": tier is not one of strong, worth-exploring, speculative',
+      'dropped explorer block "split-a": repeats the name of an earlier block',
+      'dropped explorer block "approx": est_diff_lines ~200 is not a whole number',
+      'dropped explorer block "off-files": next_sites[0].path is not one of the candidate\'s files',
+      'dropped explorer block "lonely": missing tier',
+    ], 'the drop warnings');
+    assertEqual(dropped, 7, 'the dropped count');
+    assertEqual(document.notices, [], 'notices when a candidate survives');
+    assertEqual(document.files.map((file) => [file.kind, file.role, file.exports, file.mixes]), [[null, null, null, null], [null, null, null, null]], 'role fields from an empty roles object');
+  }],
+  ['assemble: roles merged; missing or malformed inputs give notices', () => withTemp((dir) => {
+    const roles = '```json\n{"src/a.ts": {"kind": "module", "role": "entry", "exports": ["a", "a"], "mixes": "io"}, "apps/web/src/b.ts": {"kind": ""}, "nowhere.ts": {}, "__proto__": {"kind": "x"}}\n```';
+    const merged = assembleOverview({ measurement: handMeasurement(), rolesText: roles, explorerText: 'notes: none' });
+    assertEqual(merged.document.files, [
+      { path: 'src/a.ts', lines: 3, churn: 1, indentation: 0, kind: 'module', role: 'entry', exports: ['a'], mixes: null, imports: ['src/b.ts'], outside: ['react'] },
+      { path: 'src/b.ts', lines: 1, churn: 0, indentation: 0, kind: null, role: null, exports: null, mixes: null, imports: [], outside: [] },
+    ], 'the merged files');
+    assertEqual(merged.warnings, [
+      'roles: src/a.ts.mixes is not an array of non-empty strings, set to null',
+      'roles: src/b.ts.kind is not a non-empty string, set to null',
+      'roles: ignored nowhere.ts, which is not in the scope',
+      'roles: ignored __proto__, which is not in the scope',
+    ], 'the roles warnings');
+    assertEqual(merged.document.notices, [], 'notes: none gives no notice');
+    assert(merged.document.files.every((file) => Object.getPrototypeOf(file) === Object.prototype), 'a roles __proto__ key reached a file entry');
+
+    const notices = (inputs) => assembleOverview({ measurement: handMeasurement(), ...inputs }).document.notices;
+    assertEqual(notices({ rolesReason: 'no roles file was given', explorerReason: 'no explorer file was given' }), [
+      'File roles are unavailable: no roles file was given.',
+      'No deepening candidates: no explorer file was given.',
+    ], 'notices for missing inputs');
+    assertEqual(notices({ rolesText: '[1]', explorerText: 'notes: scope too small' }), [
+      'File roles are unavailable: the roles input is not a JSON object.',
+      'Explorer: scope too small',
+    ], 'notices for a roles array and explorer notes');
+    const unparsed = notices({ rolesText: 'nope', explorerText: '' });
+    assert(unparsed.length === 1 && unparsed[0].startsWith('File roles are unavailable: the roles input is not valid JSON ('), `notices for roles that do not parse: ${JSON.stringify(unparsed)}`);
+    assertEqual(notices({ rolesText: '{}', explorerText: explorerText([explorerBlock('stranger', { files: 'other/x.ts' })]) }), ['1 explorer candidate dropped as malformed.'], 'one block, dropped');
+    assertEqual(notices({ rolesText: '{}', explorerText: explorerText([['name: a'], ['name: b']]) }), ['2 explorer candidates dropped as malformed.'], 'two blocks, both dropped');
+
+    const tampered = handMeasurement();
+    tampered.files[0].imports = ['src/zz.ts'];
+    throwsRun(() => assembleOverview({ measurement: tampered, rolesText: '{}', explorerText: '' }), 1, 'assembled overview: files[0].imports[0] is not an overview file');
+    const big = assembleOverview({ measurement: handMeasurement(), rolesText: JSON.stringify({ 'src/a.ts': { role: 'r'.repeat(MAX_OVERVIEW_BYTES) } }), explorerText: '' }).document;
+    throwsRun(() => serialiseOverview(big, '/x/overview.json'), 1, 'overview /x/overview.json: 2.0 MB is above the 2 MB overview limit');
+
+    const missing = path.join(dir, 'missing.json');
+    assertEqual(readOptional(undefined, 'roles'), { reason: 'no roles file was given' }, 'an optional input not given');
+    assertEqual(readOptional(missing, 'explorer'), { reason: `explorer file ${missing}: not found` }, 'an optional input not found');
+    assertEqual(readOptional(write(dir, 'e.txt', 'notes: none\n'), 'explorer'), { text: 'notes: none\n' }, 'an optional input read');
+    throwsRun(() => readMeasurement(missing), 1, `measurements ${missing}: not found`);
+    for (const [content, fragment] of [
+      ['{', 'not valid JSON'],
+      ['[]', 'not a JSON object'],
+      ['{"version": 2}', 'version is not 1'],
+      ['{"version": 1, "root": "rel", "scope": [], "files": []}', 'root is not an absolute path'],
+      [`{"version": 1, "root": ${JSON.stringify(dir)}, "scope": [], "files": [{}]}`, 'files[0] is not an object with a string path'],
+    ]) {
+      throwsRun(() => readMeasurement(write(dir, 'm.json', content)), 1, fragment);
+    }
+  })],
+  ['cli: measure then assemble writes an overview the shape check accepts', () => withTemp((dir) => {
+    const root = path.join(dir, 'repo');
+    fs.mkdirSync(root);
+    measureFixture(root);
+    const measurements = path.join(dir, 'out', 'measurements.json');
+    const hotspots = path.join(dir, 'out', 'hotspots.tsv');
+    const measured = runCli(['measure', '--root', root, '--scope', 'src', '--out', measurements, '--hotspots', hotspots]);
+    assert(measured.status === 0, `measure exited ${measured.status}: ${measured.stdout}`);
+    assertEqual(measured.doc, { status: 'ok', out: measurements, hotspots, files: 4, churn: 'git' }, 'the measure document');
+    assertEqual(measured.stderr, '', 'measure stderr');
+    assertEqual(JSON.parse(fs.readFileSync(measurements, 'utf8')), measuredFixture(root), 'the measurement file');
+    assertEqual(fs.readFileSync(hotspots, 'utf8'), MEASURED_FIXTURE_TSV, 'the hotspot file');
+
+    const explorer = write(dir, 'explorer.txt', `${explorerText([
+      explorerBlock('split-a', { tier: 'strong', files: 'src/a.ts,src/b.ts', sites: ['src/a.ts:8 — the branch', 'src/b.ts:2 — the field'], est: '30' }),
+      explorerBlock('stranger', { files: 'other/x.ts' }),
+      ['notes: none'],
+    ])}\n`);
+    const roles = write(dir, 'roles.json', '{"src/a.ts": {"kind": "module", "role": "entry", "exports": ["a"], "mixes": []}}');
+    const out = path.join(dir, 'out', 'overview.json');
+    const assembled = runCli(['assemble', '--measurements', measurements, '--roles', roles, '--explorer', explorer, '--out', out]);
+    assert(assembled.status === 0, `assemble exited ${assembled.status}: ${assembled.stdout}`);
+    assertEqual(assembled.doc, { status: 'ok', out, files: 4, candidates: 1, dropped: 1, notices: 0 }, 'the assemble document');
+    assertEqual(assembled.stderr, 'margin: assemble: dropped explorer block "stranger": names other/x.ts, which is not in the scope\n', 'assemble stderr');
+    const overview = readOverview(out);
+    assert(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(overview.generatedAt), `generatedAt is not toISOString output: ${overview.generatedAt}`);
+    const nulls = { kind: null, role: null, exports: null, mixes: null };
+    const files = measuredFixture(root).files.map((file) => ({ ...file, ...nulls }));
+    Object.assign(files[0], { kind: 'module', role: 'entry', exports: ['a'], mixes: [] });
+    assertEqual(overview, {
+      version: 1,
+      root,
+      scope: ['src'],
+      generatedAt: overview.generatedAt,
+      files,
+      candidates: [{
+        name: 'split-a',
+        tier: 'strong',
+        category: 'in-process',
+        files: ['src/a.ts', 'src/b.ts'],
+        next_change: 'x',
+        next_sites: [{ path: 'src/a.ts', line: 8, what: 'the branch' }, { path: 'src/b.ts', line: 2, what: 'the field' }],
+        est_diff_lines: 30,
+        deletion_test: 'x',
+        friction: 'y',
+      }],
+      notices: [],
+    }, 'the assembled overview');
+
+    const bare = path.join(dir, 'out', 'bare.json');
+    const fallback = runCli(['assemble', '--measurements', measurements, '--out', bare]);
+    assertEqual(fallback.doc, { status: 'ok', out: bare, files: 4, candidates: 0, dropped: 0, notices: 2 }, 'assemble without roles or explorer');
+    assertEqual(readOverview(bare).notices, ['File roles are unavailable: no roles file was given.', 'No deepening candidates: no explorer file was given.'], 'the notices without roles or explorer');
+  })],
+  ['cli: measure and assemble refusals write nothing', () => withTemp((dir) => {
+    const root = path.join(dir, 'root');
+    write(root, 'a.txt', 'a\n');
+    const out = path.join(dir, 'out.json');
+    const hotspots = path.join(dir, 'hotspots.tsv');
+    for (const [args, code, fragment] of [
+      [['measure', '--out', out, '--hotspots', hotspots], 2, 'measure needs --root'],
+      [['measure', '--root', root, '--out', out], 2, 'measure needs --hotspots'],
+      [['measure', '--root', root, '--out=', '--hotspots', hotspots], 2, 'bad --out: empty'],
+      [['measure', 'extra', '--root', root, '--out', out, '--hotspots', hotspots], 2, 'usage: cli.mjs measure'],
+      [['measure', '--root', root, '--out', out, '--hotspots', out], 2, 'bad --hotspots: same file as --out'],
+      [['measure', '--root', root, '--scope', '../x', '--out', out, '--hotspots', hotspots], 2, 'is outside'],
+      [['measure', '--root', root, '--scope', 'nothing', '--out', out, '--hotspots', hotspots], 1, 'no files under nothing'],
+      [['assemble', '--out', out], 2, 'assemble needs --measurements'],
+      [['assemble', '--measurements', path.join(dir, 'm.json'), '--roles=', '--out', out], 2, 'bad --roles: empty'],
+      [['assemble', '--measurements', path.join(dir, 'missing.json'), '--out', out], 1, 'missing.json: not found'],
+    ]) {
+      assertErrorDoc(runCli(args), code, fragment, args.join(' '));
+      assert(!fs.existsSync(out) && !fs.existsSync(hotspots), `${args.join(' ')} wrote an output`);
+    }
+    const kept = '{"kept": true}\n';
+    fs.writeFileSync(out, kept);
+    const notJson = write(dir, 'broken.json', '{');
+    assertErrorDoc(runCli(['assemble', '--measurements', notJson, '--out', out]), 1, 'not valid JSON', 'a measurement file that is not JSON');
+    const tampered = handMeasurement();
+    tampered.root = root;
+    tampered.files[0].imports = ['src/zz.ts'];
+    const dangling = write(dir, 'dangling.json', JSON.stringify(tampered));
+    assertErrorDoc(runCli(['assemble', '--measurements', dangling, '--out', out]), 1, 'assembled overview: files[0].imports[0] is not an overview file', 'a measurement with a dangling import');
+    assert(fs.readFileSync(out, 'utf8') === kept, 'a refused assemble rewrote --out');
+    assertEqual(fs.readdirSync(root), ['a.txt'], 'files under the root after the refusals');
   })],
   ['cli: a run survives a submit and prints one document on finish', () => withTemp(async (dir) => {
     const root = path.join(dir, 'root');

@@ -4,6 +4,8 @@
 // Usage:
 //   cli.mjs annotate --root <abs-dir> [--scope <path>]... [--out <abs-file>] [--overview <file>] [--port <n>] [--token <hex>] [--no-open]
 //   cli.mjs wait <url> [--after <n>]
+//   cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>
+//   cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file>] --out <file>
 //   cli.mjs --self-test
 //
 // `annotate` serves a read-only code viewer for the files under the scope paths and collects
@@ -21,21 +23,34 @@
 // `wait` takes the URL `annotate` printed on stderr, blocks until the next round is sent or
 // the run ends, and prints one wait document. --after is the last round the caller has seen.
 //
-// Exit: 0 the run ended (finished, cancelled or interrupted) or the wait returned, 1 could not
+// `measure` lists and measures the files under the scope paths and writes the measurement
+// document to --out and the hotspot table to --hotspots. `assemble` turns a measurement
+// document, a roles JSON and a deepen explorer's output into the overview document --overview
+// reads. Both print one success document on stdout and their warnings on stderr.
+//
+// Exit: 0 the run ended (finished, cancelled or interrupted), the wait returned, or the files
+// were written, 1 could not
 // run or the server was unreachable, 2 bad invocation.
 // Zero dependencies: Node 22+ built-ins only. Everything under lib/ is private.
 
 import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
+import { assembleOverview, readMeasurement, readOptional, serialiseOverview } from './lib/assemble.mjs';
 import { listFiles, readSource, revision } from './lib/files.mjs';
+import { measureScope } from './lib/measure.mjs';
 import { readOverview } from './lib/overview.mjs';
 import { startServer } from './lib/server.mjs';
-import { RunError, createSession, finishRun, postReplies, readStored, saveSession, scopePath, sendRound } from './lib/session.mjs';
+import { RunError, createSession, finishRun, postReplies, readStored, saveSession, scopePath, sendRound, writeAtomic } from './lib/session.mjs';
 import { TOKEN_PATTERN, parseRunUrl, waitForRound } from './lib/wait.mjs';
 
 const WAIT_USAGE = 'usage: cli.mjs wait <url> [--after <n>]';
-const USAGE = `usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--overview <file>] [--port <n>] [--token <hex>] [--no-open]\n       ${WAIT_USAGE.slice('usage: '.length)}`;
+const MEASURE_USAGE = 'usage: cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>';
+const ASSEMBLE_USAGE = 'usage: cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file>] --out <file>';
+const USAGE = [
+  'usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--overview <file>] [--port <n>] [--token <hex>] [--no-open]',
+  ...[WAIT_USAGE, MEASURE_USAGE, ASSEMBLE_USAGE].map((line) => `       ${line.slice('usage: '.length)}`),
+].join('\n');
 
 function writeDoc(doc) {
   process.stdout.write(`${JSON.stringify(doc, null, 2)}\n`);
@@ -173,6 +188,93 @@ async function waitCmd(argv) {
   process.exit(0);
 }
 
+function parseVerb(argv, verb, usage, options) {
+  let parsed;
+  try {
+    parsed = parseArgs({ args: argv, allowPositionals: true, options });
+  } catch (err) {
+    fail(`${err.message}\n${usage}`, 2);
+  }
+  if (parsed.positionals.length !== 1 || parsed.positionals[0] !== verb) {
+    fail(usage, 2);
+  }
+  return parsed.values;
+}
+
+function fileFlag(values, name, verb, required) {
+  if (values[name] === undefined) {
+    if (required) {
+      fail(`${verb} needs --${name}`, 2);
+    }
+    return undefined;
+  }
+  if (values[name] === '') {
+    fail(`bad --${name}: empty`, 2);
+  }
+  return resolve(values[name]);
+}
+
+function writeOutput(file, text) {
+  try {
+    writeAtomic(file, text);
+  } catch (err) {
+    throw new RunError(`could not write ${file}: ${err?.code ?? err?.message}`, 1);
+  }
+}
+
+function printWarnings(verb, warnings) {
+  for (const warning of warnings) {
+    process.stderr.write(`margin: ${verb}: ${warning}\n`);
+  }
+}
+
+function measureCmd(argv) {
+  const values = parseVerb(argv, 'measure', MEASURE_USAGE, {
+    root: { type: 'string' },
+    scope: { type: 'string', multiple: true, default: [] },
+    out: { type: 'string' },
+    hotspots: { type: 'string' },
+  });
+  const root = fileFlag(values, 'root', 'measure', true);
+  const out = fileFlag(values, 'out', 'measure', true);
+  const hotspots = fileFlag(values, 'hotspots', 'measure', true);
+  if (hotspots === out) {
+    fail('bad --hotspots: same file as --out', 2);
+  }
+  const scope = values.scope.map((raw) => scopePath(root, raw));
+  const { document, tsv, warnings, summary } = measureScope({ root, scope, ownFiles: [out, hotspots] });
+  writeOutput(out, `${JSON.stringify(document, null, 2)}\n`);
+  writeOutput(hotspots, tsv);
+  printWarnings('measure', warnings);
+  writeDoc({ status: 'ok', out, hotspots, ...summary });
+  process.exit(0);
+}
+
+function assembleCmd(argv) {
+  const values = parseVerb(argv, 'assemble', ASSEMBLE_USAGE, {
+    measurements: { type: 'string' },
+    roles: { type: 'string' },
+    explorer: { type: 'string' },
+    out: { type: 'string' },
+  });
+  const measurements = fileFlag(values, 'measurements', 'assemble', true);
+  const out = fileFlag(values, 'out', 'assemble', true);
+  const roles = readOptional(fileFlag(values, 'roles', 'assemble', false), 'roles');
+  const explorer = readOptional(fileFlag(values, 'explorer', 'assemble', false), 'explorer');
+  const measurement = readMeasurement(measurements);
+  const { document, warnings, dropped } = assembleOverview({
+    measurement,
+    rolesText: roles.text,
+    rolesReason: roles.reason,
+    explorerText: explorer.text,
+    explorerReason: explorer.reason,
+  });
+  writeOutput(out, serialiseOverview(document, out));
+  printWarnings('assemble', warnings);
+  writeDoc({ status: 'ok', out, files: document.files.length, candidates: document.candidates.length, dropped, notices: document.notices.length });
+  process.exit(0);
+}
+
 // `--self-test` is recognised only on its own; with any other argument it falls through to
 // the argument parser and is a bad invocation. A rule that refuses throws a RunError, and
 // this is the one place that turns it into the error document and the exit code.
@@ -184,6 +286,14 @@ async function main(argv) {
     }
     if (argv[0] === 'wait') {
       await waitCmd(argv);
+      return;
+    }
+    if (argv[0] === 'measure') {
+      measureCmd(argv);
+      return;
+    }
+    if (argv[0] === 'assemble') {
+      assembleCmd(argv);
       return;
     }
     await annotate(argv);
