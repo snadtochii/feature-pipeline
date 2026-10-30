@@ -36,6 +36,7 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     session: null,
     files: [], // repo-relative paths in scope, sorted
     fileSet: new Set(), // state.files as a set, rebuilt with it
+    candidates: new Set(), // the names of the run's overview candidates; null while unknown
     saveTimer: null,
     // The last write sent to the server. Writes run one after another, so an older snapshot can
     // never land after a newer one; each sends the session as it stands when its turn comes.
@@ -58,14 +59,22 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     state.fileSet = new Set(files);
   }
 
-  // The contract's anchor rule (CONTRACT.md §7) against the current listing: whether the server
-  // would accept a new note on this anchor now.
+  // The names of the run's overview candidates; none for a run without an overview, and null when
+  // the overview could not be loaded, so the names the server holds are unknown.
+  function setCandidates(names) {
+    state.candidates = names === null ? null : new Set(names);
+  }
+
+  // The contract's anchor rule (CONTRACT.md §7) against the current listing and the run's
+  // overview candidates: whether the server would accept a new note on this anchor now.
   function listed(anchor) {
     switch (anchor.kind) {
       case 'scope':
         return true;
       case 'folder':
         return anchor.path !== '' && anchor.path !== '.' && state.files.some((path) => path.startsWith(`${anchor.path}/`));
+      case 'candidate':
+        return state.candidates?.has(anchor.name) ?? false;
       default:
         return state.fileSet.has(anchor.path);
     }
@@ -73,13 +82,25 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
 
   const unsent = () => annotations().filter((a) => !isSent(a));
 
+  // An unsent candidate note whose candidate the run's overview does not name: the server
+  // withholds it at every Send, so it is never sent, and the viewer shows it read-only. While the
+  // names are unknown, every unsent candidate note is shown read-only.
+  const withheld = (a) => !isSent(a) && a.anchor.kind === 'candidate' && !listed(a.anchor);
+
+  const sendable = () => unsent().filter((a) => !withheld(a));
+
+  // While the names are unknown, the viewer cannot tell which unsent candidate notes a Send would
+  // stamp, so Send is held as long as one exists: no Send stamps a note shown as read-only.
+  const sendHeld = () => state.candidates === null && unsent().some((a) => a.anchor.kind === 'candidate');
+
   // Whether the overall text, trimmed, differs from the text the last round sent.
   function overallChanged() {
     return view.overall().trim() !== (state.session.rounds?.at(-1)?.overall ?? '').trim();
   }
 
-  // The server's rule for a Send: an unsent note, or an overall text the last round did not send.
-  const canSend = () => unsent().length > 0 || overallChanged();
+  // The server's rule for a Send: an unsent note it does not withhold, or an overall text the last
+  // round did not send — unless Send is held.
+  const canSend = () => !sendHeld() && (sendable().length > 0 || overallChanged());
 
   // ---- the viewer's own notes ----------------------------------------------
 
@@ -162,7 +183,8 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
   // replies and `out` come from the server; the unsent notes and the overall text stay as the
   // viewer holds them. When the two copies disagree on what is unsent, a save levels the server.
   // A local note the server does not hold whose anchor fails the anchor rule against the current
-  // listing is one the server drops on every write, so it is removed here and returned.
+  // listing is one the server drops on every write, so it is removed here and returned; a stored
+  // candidate note is kept whatever the overview names.
   function mergeSession(server) {
     const sent = server.annotations.filter(isSent);
     const sentIds = new Set(sent.map((a) => a.id));
@@ -396,8 +418,12 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     get ended() {
       return state.ended;
     },
+    setCandidates,
     listed,
     unsent,
+    withheld,
+    sendable,
+    sendHeld,
     overallChanged,
     canSend,
     addNote,

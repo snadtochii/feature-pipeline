@@ -7,13 +7,13 @@
 
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import { CANDIDATE_NAME } from './annotations.mjs';
 import { RunError } from './session.mjs';
 
 export const MAX_OVERVIEW_BYTES = 2 * 1024 * 1024;
 
 const TIERS = ['strong', 'worth-exploring', 'speculative'];
 const CATEGORIES = ['in-process', 'local-substitutable', 'remote-owned', 'true-external'];
-const CANDIDATE_NAME = /^[a-z0-9][a-z0-9-]*$/;
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 
 class ShapeViolation extends Error {}
@@ -230,4 +230,10 @@ export function readOverview(file) {
     throw new RunError(`${label}: not valid JSON (${err.message})`, 1);
   }
   return checkOverview(parsed, label);
+}
+
+// The names of a checked overview's candidates, the set a candidate anchor is checked against;
+// empty for a run without an overview.
+export function candidateNames(overview) {
+  return new Set(overview ? overview.candidates.map((candidate) => candidate.name) : []);
 }

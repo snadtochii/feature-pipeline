@@ -3,13 +3,16 @@
 // Exercises what no browser session proves, without a browser. It checks the viewer's colouring
 // seam over the vendored highlight.js on a fixed TSX sample, and the routes that serve both. It
 // checks the viewer's round controller over a fake server and a fake view: the anchor rule
-// against the listing, the Send rule, writes running one at a time with the newest session, a
+// against the listing and the overview's candidate names, the Send rule with withheld candidate
+// notes left out, writes running one at a time with the newest session, a
 // refresh merging the server copy by ownership, Send, Finish and Cancel with each refusal, and
 // the change wait's backoff, reconnection and end. It checks the viewer's outline model: rows
 // grouped by scope entry and folder, imported-by, candidate membership, bars, the anchor rule per
-// row, note counts, and the route serving it. It checks the note rules (the anchor rule per kind, range validity, the excerpt cap), resuming a
-// notes file (a stored note keeps its anchor; rounds and note rounds restore; a file without
-// rounds is round 0; the refusals), the atomic save, the sent-note lock, the agent's replies
+// row, note counts, and the route serving it. It checks the note rules (the anchor rule per kind,
+// a new candidate note outside the overview refusing the write, range validity, the excerpt cap),
+// resuming a notes file (a stored note keeps its anchor; rounds and note rounds restore; a file
+// without rounds is round 0; the refusals), the atomic save, the sent-note lock, a Send withholding
+// the candidate notes the overview does not name, the agent's replies
 // (kept through a viewer write and a resume, each resume refusal for them, a reply post whose
 // save fails changing nothing), the scope rule, file listing that never lists a symlink, and
 // the reading refusals and limits. Against a server on port 0 inside this process it checks the
@@ -19,7 +22,8 @@
 // (a new file accepted as a `file` anchor, a deleted listed file answering 404), and the change
 // wait returning on a reply and on the end. It checks the overview document: a document accepted
 // with its unknown fields dropped, each shape refusal, each reading refusal and the size limit,
-// the overview route behind the token and its 404 without an overview, and a listing that never
+// the overview route behind the token and its 404 without an overview, candidate notes accepted
+// for the overview's names and refused on every write route otherwise, and a listing that never
 // lists the overview file. It checks the overview data: the import scan and its resolution
 // against the listing and tsconfig `paths`, the line count, indent width and indentation, churn
 // from dated commits in a temporary repository, the hotspot table, explorer blocks parsed and
@@ -27,7 +31,8 @@
 // the command's own refusals (children that must exit before serving, `wait`'s invocation
 // refusals, each `--overview` refusal leaving `--out` as it was, and the `measure` and
 // `assemble` refusals writing nothing) and end-to-end runs: a submit, a `wait` child, finish,
-// and exactly one result document, a run ended by SIGTERM, a run serving its overview, and
+// and exactly one result document, a run ended by SIGTERM, a run serving its overview and
+// sending a candidate note, and
 // `measure` then `assemble` writing an overview the shape check accepts.
 // Every fixture is a real file in a temp directory, and every expectation is written by hand,
 // never computed by the code under test. Requests go to 127.0.0.1 only. A failing case throws
@@ -44,7 +49,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import { listFiles, readSource } from './files.mjs';
-import { applyEdits, cleanAnnotation } from './annotations.mjs';
+import { applyEdits, cleanAnnotation, refuseCandidates } from './annotations.mjs';
 import { assembleOverview, readMeasurement, readOptional, serialiseOverview } from './assemble.mjs';
 import { createResolver, parseJsonc, scanSpecifiers } from './imports.mjs';
 import { countLines, detectWidth, indentation, measureScope } from './measure.mjs';
@@ -162,7 +167,7 @@ function withServer(fn, { overview = null } = {}) {
       readSource: (p) => readSource(root, p),
       relist: () => listFiles(root, [], [out]),
       onSave: save,
-      onSend: () => sendRound(session),
+      onSend: (candidates) => sendRound(session, candidates),
       onReply: (body) => postReplies(session, body),
       onEnd: (status) => finishRun(session, status),
       overview,
@@ -533,7 +538,7 @@ function roundsRoutes(session, files = ['src/a.js', 'src/b/c.js'], extra = {}) {
 
 const bodyIds = (call) => call[2].annotations.map((a) => a.id);
 
-const ALLOWED = new Set(['src/a.js', 'src/b/c.js']);
+const ALLOWED = { paths: new Set(['src/a.js', 'src/b/c.js']), candidates: new Set(['split-parsing']) };
 
 const CASES = [
   ['highlight: the vendored highlight.js loads and colours TSX across lines', async () => {
@@ -605,6 +610,51 @@ const CASES = [
       const reply = await request(port, { target: '/rounds.js', headers: { host } });
       assert(reply.status === 200 && reply.type.startsWith('text/javascript'), `/rounds.js got ${reply.status} ${reply.type}`);
     });
+  }],
+  ["viewer rounds: candidate notes follow the overview's names", async () => {
+    const candidate = (id, name, extra) => viewerNote(id, { kind: 'candidate', name }, extra);
+    const server = viewerSession([candidate('withheld', 'merge-io')]);
+    const h = await roundsHarness(
+      roundsRoutes(viewerSession(), undefined, {
+        'GET /api/session': () => ({ session: structuredClone(server), files: ['src/a.js'], changes: 1 }),
+      }),
+    );
+    await h.rounds.load();
+    assert(!h.rounds.listed({ kind: 'candidate', name: 'split-parsing' }), 'a candidate is listed before the names are set');
+    h.rounds.setCandidates(['split-parsing']);
+    assert(h.rounds.listed({ kind: 'candidate', name: 'split-parsing' }), 'an overview candidate is not listed');
+    assert(!h.rounds.listed({ kind: 'candidate', name: 'merge-io' }), 'a candidate outside the overview is listed');
+    assert(!h.rounds.listed({ kind: 'candidate' }), 'a candidate anchor without a name is listed');
+    assertEqual(h.rounds.unsent().map((a) => a.id), ['withheld'], 'the unsent notes');
+    assert(h.rounds.withheld(h.rounds.session.annotations[0]), 'the stored note outside the overview is not withheld');
+    assertEqual(h.rounds.sendable(), [], 'the sendable notes with only a withheld note');
+    assert(!h.rounds.canSend(), 'Send is allowed with only a withheld note');
+    assert(!h.rounds.withheld(candidate('sent', 'merge-io', { round: 1 })), 'a sent candidate note is withheld');
+    h.rounds.addNote(candidate('local', 'split-parsing'));
+    h.rounds.addNote(candidate('stray', 'cache-layer'));
+    assertEqual(h.rounds.sendable().map((a) => a.id), ['local'], 'the sendable notes');
+    assert(h.rounds.canSend(), 'Send is refused with a note on an overview candidate');
+    h.take();
+    await h.rounds.refresh();
+    assertEqual(h.rounds.session.annotations.map((a) => a.id), ['withheld', 'local'], 'the notes after a refresh');
+    assertEqual(h.take().filter((e) => Array.isArray(e) && e[0] === 'dropped'), [['dropped', ['stray']]], 'the notes a refresh dropped');
+    h.rounds.setCandidates([]);
+    assert(!h.rounds.listed({ kind: 'candidate', name: 'split-parsing' }), 'a candidate is listed once the names are cleared');
+    assert(!h.rounds.sendHeld(), 'Send is held for a run without an overview');
+    h.rounds.setCandidates(null);
+    assert(!h.rounds.listed({ kind: 'candidate', name: 'split-parsing' }), 'a candidate is listed while the names are unknown');
+    assert(h.rounds.sendHeld(), 'Send is not held while the names are unknown and candidate notes are unsent');
+    assertEqual(h.rounds.sendable(), [], 'the sendable notes while the names are unknown');
+    h.overall = 'direction';
+    assert(!h.rounds.canSend(), 'Send is allowed for a new overall text while the names are unknown');
+    h.take();
+    await h.rounds.sendRound();
+    assert(!h.requests().includes('POST /api/submit'), 'a held Send posted a round');
+    h.rounds.addNote(viewerNote('scoped'));
+    assert(!h.rounds.canSend(), 'Send is allowed for a scope note while candidate notes are unsent and the names unknown');
+    h.rounds.deleteNote('withheld');
+    h.rounds.deleteNote('local');
+    assert(!h.rounds.sendHeld() && h.rounds.canSend(), 'Send stays held once no candidate note is unsent');
   }],
   ['viewer rounds: writes run one at a time, each carrying the session as it stands at its turn', async () => {
     let release;
@@ -987,8 +1037,9 @@ const CASES = [
       note({ kind: 'file', path: 'src/a.js' }),
       note({ kind: 'range', path: 'src/b.js', start: 1, end: 1 }),
       note({ kind: 'range', path: 'src/b.js', start: 2, end: 3 }),
+      note({ kind: 'candidate', name: 'split-parsing' }),
     ]);
-    assertEqual(Object.fromEntries(counts), { 'folder:src': 1, 'file:src/a.js': 1, 'file:src/b.js': 2 }, 'the note counts');
+    assertEqual(Object.fromEntries(counts), { 'folder:src': 1, 'file:src/a.js': 1, 'file:src/b.js': 2, 'candidate:split-parsing': 1 }, 'the note counts');
     await withServer(async ({ port, host }) => {
       const reply = await request(port, { target: '/overview.js', headers: { host } });
       assert(reply.status === 200 && reply.type.startsWith('text/javascript'), `/overview.js got ${reply.status} ${reply.type}`);
@@ -1023,6 +1074,56 @@ const CASES = [
     );
     assertEqual(stripped, { id: 'n1', anchor: { kind: 'file', path: 'src/a.js' }, intent: 'question', body: 'b', createdAt: 't' }, 'cleaned note');
     assertEqual(Object.keys(stripped), ['id', 'anchor', 'intent', 'body', 'createdAt'], 'cleaned note keys');
+
+    assertEqual(
+      cleanAnnotation({ id: 'c1', anchor: { kind: 'candidate', name: 'split-parsing', path: 'src/a.js', start: 1 }, body: 'b', intent: 'change', createdAt: 't' }, ALLOWED),
+      { id: 'c1', anchor: { kind: 'candidate', name: 'split-parsing' }, intent: 'change', body: 'b', createdAt: 't' },
+      'cleaned candidate note',
+    );
+    assert(!keep({ kind: 'candidate', name: 'merge-io' }), 'a candidate note on a name outside the overview was kept');
+    for (const name of [undefined, '', '-x', 'Split', 'a b', 42]) {
+      assert(!keep({ kind: 'candidate', name }), `a candidate note named ${JSON.stringify(name)} was kept`);
+    }
+    assertEqual(
+      cleanAnnotation({ id: 'c2', anchor: { kind: 'candidate', name: 'merge-io' }, body: 'b', createdAt: 't' }, null)?.anchor,
+      { kind: 'candidate', name: 'merge-io' },
+      'a candidate note read back from the file, outside the overview',
+    );
+    assert(cleanAnnotation({ anchor: { kind: 'candidate', name: 'Merge' }, body: 'b' }, null) === null, 'a candidate note read back with a bad name was kept');
+  }],
+  ['annotations: a new candidate note outside the overview refuses the write', () => {
+    const session = {
+      annotations: [
+        { id: 's1', anchor: { kind: 'candidate', name: 'gone' }, intent: 'change', body: 'sent', createdAt: 't', round: 1 },
+        { id: 'u1', anchor: { kind: 'candidate', name: 'gone' }, intent: 'change', body: 'unsent', createdAt: 't' },
+      ],
+    };
+    const refuse = (annotations, allowed = ALLOWED) => refuseCandidates(session, { annotations }, allowed);
+    const candidate = (name, extra = {}) => ({ anchor: { kind: 'candidate', name }, body: 'b', ...extra });
+    assert(refuse([candidate('split-parsing'), { anchor: { kind: 'file', path: 'src/x.js' }, body: 'b' }]) === null, 'a known candidate and an unlisted file refused the write');
+    assertEqual(refuse([{ anchor: { kind: 'scope' }, body: 'b' }, candidate('merge-io')]), 'entry 1: "merge-io" is not a candidate of this run\'s overview', 'one unknown candidate');
+    assertEqual(
+      refuse([candidate('merge-io'), candidate('split-parsing'), candidate('cache-layer', { id: 'n9' })]),
+      'entry 0: "merge-io" is not a candidate of this run\'s overview; entry 2: "cache-layer" is not a candidate of this run\'s overview',
+      'two unknown candidates',
+    );
+    assert(refuse([candidate('gone', { id: 'u1' })]) === null, 'a revision of a stored unsent candidate note refused the write');
+    assert(refuse([candidate('gone', { id: 's1' })]) === null, 'an entry carrying a sent note id refused the write');
+    for (const [name, shown] of [['Merge', '"Merge"'], ['', '""'], ['-x', '"-x"'], [42, '42'], [undefined, 'null']]) {
+      assertEqual(refuse([candidate(name)]), `entry 0: ${shown} is not a candidate of this run's overview`, `a candidate name ${shown} that breaks the name rule`);
+    }
+    assert(refuse([{ anchor: { kind: 'candidate', name: 'split-parsing' }, body: 7 }]) === null, 'a known candidate with a malformed body refused the write');
+    assertEqual(
+      refuse([{ anchor: { kind: 'candidate', name: 'merge-io' }, body: 7 }]),
+      'entry 0: "merge-io" is not a candidate of this run\'s overview',
+      'an unknown candidate with a malformed body',
+    );
+    assert(refuseCandidates(session, { overall: 'o' }, ALLOWED) === null, 'a write without annotations was refused');
+    assertEqual(
+      refuse([candidate('split-parsing')], { paths: ALLOWED.paths, candidates: new Set() }),
+      'entry 0: "split-parsing" is not a candidate of this run\'s overview',
+      'a candidate note in a run without an overview',
+    );
   }],
   ['annotations: range validity and excerpt cap', () => {
     const range = (fields) => cleanAnnotation({ anchor: { kind: 'range', path: 'src/a.js', ...fields }, body: 'b' }, ALLOWED);
@@ -1096,6 +1197,18 @@ const CASES = [
       () => restoreSession({ annotations: [{ anchor: { kind: 'scope' }, body: 'ok' }, { anchor: { kind: 'bogus' }, body: 'x' }] }, out),
       1,
       '1 of 2 notes are malformed (indices 1)',
+    );
+    throwsRun(
+      () => restoreSession({ annotations: [{ anchor: { kind: 'candidate' }, body: 'x' }, { anchor: { kind: 'scope' }, body: 'ok' }] }, out),
+      1,
+      '1 of 2 notes are malformed (indices 0)',
+    );
+    const resumed = restoreSession({ annotations: [{ id: 'c1', anchor: { kind: 'candidate', name: 'merge-io' }, body: 'kept', createdAt: 't' }] }, out);
+    applyEdits(resumed, { annotations: [{ id: 'c1', body: 'kept, revised' }] }, { paths: ALLOWED.paths, candidates: new Set() });
+    assertEqual(
+      resumed.annotations,
+      [{ id: 'c1', anchor: { kind: 'candidate', name: 'merge-io' }, intent: 'change', body: 'kept, revised', createdAt: 't' }],
+      'a resumed candidate note outside the overview after a write',
     );
     const absent = path.join(dir, 'absent.json');
     assert(readStored(absent) === null, 'an absent notes file did not start fresh');
@@ -1253,6 +1366,37 @@ const CASES = [
       assertEqual(none.json, { error: 'no overview' }, 'the reply without an overview');
     });
   }],
+  ["server: candidate notes against the run's overview", async () => {
+    const candidate = (id, name) => ({ id, anchor: { kind: 'candidate', name }, body: id });
+    await withServer(async ({ port, host, out, session }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const put = await request(port, { method: 'PUT', target: '/api/session', headers, body: { annotations: [candidate('c1', 'split-parsing')] } });
+      assert(put.status === 200, `a known candidate note got ${put.status}`);
+      assertEqual(session.annotations.map((a) => a.anchor), [{ kind: 'candidate', name: 'split-parsing' }], 'stored anchors after a known candidate note');
+      const saved = fs.readFileSync(out, 'utf8');
+      const body = { annotations: [candidate('c1', 'split-parsing'), candidate('c2', 'merge-io'), { id: 'f1', anchor: { kind: 'file', path: 'a.txt' }, body: 'f1' }] };
+      for (const target of ['/api/session', '/api/submit', '/api/cancel', '/api/finish']) {
+        const refused = await request(port, { method: target === '/api/session' ? 'PUT' : 'POST', target, headers, body });
+        assert(refused.status === 400, `${target} with an unknown candidate got ${refused.status}`);
+        assertEqual(refused.json, { error: 'entry 1: "merge-io" is not a candidate of this run\'s overview' }, `${target} refusal`);
+        assertEqual(session.annotations.map((a) => a.id), ['c1'], `notes after ${target} was refused`);
+        assert(fs.readFileSync(out, 'utf8') === saved, `a refused ${target} rewrote the notes file`);
+      }
+      assert(session.round === 0, `a refused submit moved the round count to ${session.round}`);
+      const sent = await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: [candidate('c1', 'split-parsing')] } });
+      assertEqual(sent.json, { ok: true, round: 1 }, 'a submit with a known candidate note');
+      assertEqual(session.annotations.map((a) => [a.id, a.round]), [['c1', 1]], 'notes after the submit');
+      const file = await request(port, { target: '/api/file?path=a.txt', headers });
+      assert(file.status === 200, `a listed file on an overview run got ${file.status}`);
+    }, { overview: checkOverview(overviewFixture(OVERVIEW_ROOT)) });
+    await withServer(async ({ port, host, session }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const refused = await request(port, { method: 'PUT', target: '/api/session', headers, body: { annotations: [candidate('c1', 'split-parsing')] } });
+      assert(refused.status === 400, `a candidate note without an overview got ${refused.status}`);
+      assertEqual(refused.json, { error: 'entry 0: "split-parsing" is not a candidate of this run\'s overview' }, 'the refusal without an overview');
+      assertEqual(session.annotations, [], 'notes after the refusal without an overview');
+    });
+  }],
   ["listing: the run's overview file is never listed", () => withTemp((root) => withTemp((outside) => {
     write(root, 'a.txt', 'a\n');
     const notes = write(root, 'claudedocs/margin/notes.json', '{}\n');
@@ -1364,7 +1508,7 @@ const CASES = [
     const before = JSON.stringify({ round: blocked.round, rounds: blocked.rounds, annotations: blocked.annotations });
     let sendThrew = false;
     try {
-      sendRound(blocked);
+      sendRound(blocked, new Set());
     } catch {
       sendThrew = true;
     }
@@ -1396,6 +1540,38 @@ const CASES = [
     applyEdits(session, { annotations: [] }, ALLOWED);
     assertEqual(session.annotations, [note('s1', 'sent', { round: 1 })], 'notes after a write that leaves the sent note out');
   }],
+  ['rounds: a Send withholds candidate notes the overview does not name', () => withTemp((dir) => {
+    const note = (id, anchor) => ({ id, anchor, intent: 'change', body: id, createdAt: `c-${id}` });
+    const session = createSession({ stored: null, out: path.join(dir, 'notes.json'), root: dir, scope: [], revision: null });
+    session.annotations = [
+      note('h1', { kind: 'candidate', name: 'merge-io' }),
+      note('k1', { kind: 'candidate', name: 'split-parsing' }),
+      note('f1', { kind: 'file', path: 'src/a.js' }),
+    ];
+    assert(sendRound(session, new Set(['split-parsing'])) === 1, 'the Send did not send round 1');
+    assertEqual(session.annotations.map((a) => [a.id, a.round]), [['k1', 1], ['f1', 1], ['h1', undefined]], 'notes after a Send withholding one');
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, 'notes.json'), 'utf8'));
+    assertEqual(saved.annotations.map((a) => [a.id, a.round ?? null]), [['k1', 1], ['f1', 1], ['h1', null]], 'saved notes after a Send withholding one');
+    assert(sendRound(session, new Set(['split-parsing'])) === null, 'a Send with only a withheld note and the same overall sent a round');
+    assert(session.round === 1, `a Send with only a withheld note moved the round count to ${session.round}`);
+    const bare = createSession({ stored: null, out: path.join(dir, 'bare.json'), root: dir, scope: [], revision: null });
+    bare.annotations = [note('k2', { kind: 'candidate', name: 'split-parsing' }), note('s2', { kind: 'scope' })];
+    assert(sendRound(bare, new Set()) === 1, 'a Send without candidate names did not send the scope note');
+    assertEqual(bare.annotations.map((a) => [a.id, a.round]), [['s2', 1], ['k2', undefined]], 'notes after a Send without candidate names');
+    const taken = path.join(dir, 'taken');
+    fs.mkdirSync(taken);
+    const failing = createSession({ stored: null, out: taken, root: dir, scope: [], revision: null });
+    failing.annotations = [note('h3', { kind: 'candidate', name: 'merge-io' }), note('f3', { kind: 'file', path: 'src/a.js' })];
+    let threw = false;
+    try {
+      sendRound(failing, new Set(['split-parsing']));
+    } catch {
+      threw = true;
+    }
+    assert(threw, 'a Send whose save fails did not throw');
+    assertEqual(failing.annotations.map((a) => [a.id, a.round]), [['h3', undefined], ['f3', undefined]], 'notes after a Send withholding one whose save failed');
+    assert(failing.round === 0 && failing.rounds.length === 0, `a Send whose save failed left round ${failing.round} and ${failing.rounds.length} rounds`);
+  })],
   ['rounds: a submit keeps the server alive and sends the next round', () => withServer(async ({ port, host, out, ended }) => {
     const headers = { host, 'x-margin-token': TOKEN };
     const submit = (body) => request(port, { method: 'POST', target: '/api/submit', headers, body });
@@ -2181,8 +2357,14 @@ const CASES = [
       assert(served.status === 200, `the overview route got ${served.status}`);
       assertEqual(served.json, expectedOverview(root), 'the served overview');
       assertEqual((await request(port, { headers })).json.files, ['a.txt'], 'listing on an overview run');
-      const sent = await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: [{ id: 'n1', anchor: { kind: 'scope' }, body: 'one' }] } });
+      const notes = [
+        { id: 'n1', anchor: { kind: 'scope' }, body: 'one' },
+        { id: 'c1', anchor: { kind: 'candidate', name: 'split-parsing' }, body: 'take it' },
+      ];
+      const sent = await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: notes } });
       assertEqual(sent.json, { ok: true, round: 1 }, 'submit reply');
+      const stored = JSON.parse(fs.readFileSync(out, 'utf8')).annotations.map((a) => [a.id, a.anchor, a.round]);
+      assertEqual(stored, [['n1', { kind: 'scope' }, 1], ['c1', { kind: 'candidate', name: 'split-parsing' }, 1]], 'notes file after a submit with a candidate note');
       const replied = await request(port, { method: 'POST', target: '/api/reply', headers, body: { round: 1, replies: [{ id: 'n1', body: 'noted' }] } });
       assertEqual(replied.json, { ok: true, replied: 1 }, 'reply answer');
       assertEqual((await request(port, { headers })).json.files, ['a.txt'], 'listing after a reply on an overview run');
@@ -2190,7 +2372,7 @@ const CASES = [
       assertEqual(finish.json, { ok: true, status: 'finished' }, 'finish reply');
       const exit = await server.exited();
       assert(exit.code === 0, `the server exited ${exit.code ?? exit.signal}: ${exit.stdout}`);
-      assertEqual(JSON.parse(exit.stdout), { status: 'finished', out, annotations: 1, rounds: 1, root, scope: [] }, 'result document on an overview run');
+      assertEqual(JSON.parse(exit.stdout), { status: 'finished', out, annotations: 2, rounds: 1, root, scope: [] }, 'result document on an overview run');
     } finally {
       server.child.kill('SIGKILL');
     }

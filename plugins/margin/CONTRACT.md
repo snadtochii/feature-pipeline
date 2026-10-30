@@ -286,7 +286,7 @@ on the order of its keys.
 | `overallReplies` | The agent's overall replies, oldest first, each in the reply shape of §7 — `{"body", "round", "createdAt"}`, `round` from 1 to the number of rounds. Written only through `POST /api/reply` (§8); `[]` before the first. |
 | `round` | The number of rounds sent; `0` before the first Send. Always the length of `rounds`. |
 | `rounds` | The sent rounds, oldest first: `{"round": <n>, "sentAt": "<ISO 8601 UTC timestamp>", "overall": "<the overall text the round sent>"}`, entry `i` holding round `i + 1`. |
-| `annotations` | The notes (§7), in the order they were created. The viewer sorts them for display only. |
+| `annotations` | The notes (§7), in the order they were created, except that a Send moves the notes it withholds after the notes it stamps (§7). The viewer sorts them for display only. |
 
 `status: "error"` never appears in a notes file; it exists only in the stdout document (§2).
 
@@ -320,18 +320,24 @@ Each note has exactly these fields; any other field on a note or on its anchor i
 | `folder` | `kind`, `path` | A folder. |
 | `file` | `kind`, `path` | A file. |
 | `range` | `kind`, `path`, `start`, `end`, `excerpt` | Lines `start` to `end` of a file, inclusive and 1-based. `start` and `end` are integers with `start ≥ 1` and `end ≥ start`; a numeric string is accepted and stored as a number. `excerpt` is the text of those lines as the viewer showed them, joined with `\n`, capped at 4000 characters (UTF-16 code units) — a longer one is truncated — and `""` when absent. |
+| `candidate` | `kind`, `name` | A deepening candidate of the run's overview (§13), named by its `name`, which follows §13's name rule. |
 
 `path` is root-relative with `/` separators, as the listing writes it (§10). An anchor of any
-other kind, or a `folder`, `file` or `range` anchor without a string `path`, is rejected.
+other kind, a `folder`, `file` or `range` anchor without a string `path`, or a `candidate`
+anchor whose `name` is not a string that follows §13's name rule, is rejected. A `candidate`
+anchor carries no `path`.
 
-**The anchor rule.** An anchor is checked against the listed paths (§10) once, when the
-server first accepts the note — one rule per kind:
+**The anchor rule.** An anchor is checked against the listed paths (§10) and the names of the
+run's overview candidates (§13) once, when the server first accepts the note — one rule per
+kind:
 
 - `scope` always passes.
 - `folder` passes when at least one listed file lies beneath `<path>/`. A `path` of `.`, an
   empty `path` or one ending in `/` therefore never passes; a remark about the whole scope is
   a `scope` note.
 - `file` and `range` pass when `path` is itself a listed file.
+- `candidate` passes when `name` is the `name` of a candidate in the run's overview; a run
+  without an overview has none, so no `candidate` anchor passes.
 
 A note whose anchor fails is rejected. The anchor never changes afterwards:
 
@@ -339,7 +345,8 @@ A note whose anchor fails is rejected. The anchor never changes afterwards:
   `intent` (when it is one of the two values) and `body` (when it is a string) only. Its
   anchor and `createdAt` stay as stored, whatever the write sends.
 - A note loaded from a resumed file is checked for shape only (§5) and keeps its anchor even
-  when its file has moved, been deleted or fallen outside this run's scope.
+  when its file has moved, been deleted or fallen outside this run's scope, or its candidate
+  is not in this run's overview.
 
 A range's `excerpt` is fixed with its anchor, so a reader compares it with the file as it is
 now to detect drift.
@@ -347,12 +354,22 @@ now to detect drift.
 **Saves carry the whole list.** A write that includes `annotations` replaces the list of
 unsent notes: a stored unsent note whose `id` is absent from the write is deleted, and a note
 whose `id` matches no stored note is a new note and goes through the checks above. A new note
-that fails them is left out of the list, and the write still answers `{"ok": true}` (§15).
+that fails them is left out of the list, and the write still answers `{"ok": true}` (§15) —
+except a new `candidate` note whose `name` is not the `name` of a candidate in the run's
+overview, a `name` that is missing, not a string or breaks §13's name rule included: it
+refuses the whole write, which answers 400 `{"error": "<problems joined by '; '>"}`, one
+problem per such entry, `entry <i>: <name> is not a candidate of this run's overview` — `<i>`
+the entry's index in `annotations`, `<name>` the name as JSON, `null` when it is missing — and
+applies and saves nothing. A new `candidate` note that names a candidate of the overview but
+fails another check, such as a `body` that is not a string, is left out like any other.
 
 **Sent notes are locked.** No write revises or deletes a note that carries `round`: a write
 entry carrying a sent note's `id` is ignored, and a sent note absent from the write is kept,
-so a write never changes a note's `replies` either. Every note present at a Send is stamped, so sent notes all predate unsent ones; the list stays
-in creation order, sent notes first.
+so a write never changes a note's `replies` either. Every note present at a Send is stamped,
+except a withheld note — an unsent `candidate` note whose candidate the run's overview does not
+name, as when a file is resumed under another overview or none. A withheld note stays unsent, does
+not count as something to send (§8), and moves after the notes the Send stamps, so sent notes
+all predate unsent ones; the list otherwise stays in creation order, sent notes first.
 
 ## §8 HTTP routes
 
@@ -368,11 +385,11 @@ request passes the guards of §9 first. Eleven routes:
 | `GET /api/file?path=<p>` | yes | — | `<p>` not in the current listing: 404 `{"error": "<p> is not in scope"}`. A listed path that no longer exists — removed, or a parent folder replaced by a file: 404 `{"error": "<p> no longer exists"}`. Otherwise 200 with `{"path", "text"}` or a refusal `{"path", "binary": true, "reason"}` (§10). |
 | `GET /api/changes?after=<n>` | yes | — | `after` absent or not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`, `<value>` empty when absent. Once the end of the run has begun: 200 `{"status": <the end's status>, "changes": <count>}`, at once. When the change count exceeds `<n>`: 200 `{"status": "changed", "changes": <count>}`, at once. Otherwise the reply is held until an accepted reply post brings the count above `<n>`, which answers it `changed` with the new count, or the end of the run answers it. |
 | `GET /api/wait?after=<n>` | yes | — | `after` present and not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`. Without `after`, `<n>` is the round count the run started with (§4). Once the end of the run has begun: 200 with that end's wait document (§2), at once. When the round count exceeds `<n>`: 200 `{"status": "sent", "round": <count>, "out"}`, at once. Otherwise the reply is held until a Send brings the round count above `<n>`, which answers it with `sent` and the new round, or the end of the run answers it. |
-| `PUT /api/session` | yes | `{"overall"?, "annotations"?}` | Applies the edits (§7), saves the file, 200 `{"ok": true, "updatedAt"}`. |
-| `POST /api/submit` | yes | as `PUT` | Applies the edits and sends a round: every note without `round` is stamped with the next round number, the round is appended to `rounds` with the current `overall`, the file is saved, the reply is 200 `{"ok": true, "round": <n>}`, and every held wait whose `<n>` is below the new round is answered `sent`. The server keeps serving. With nothing to send — no unsent note, and an `overall` that, trimmed, equals the `overall` the last round sent, trimmed (`""` before any round) — the edits are still saved, the round count does not move, no wait is answered, and the reply is 409 `{"error": "nothing to send"}`. |
+| `PUT /api/session` | yes | `{"overall"?, "annotations"?}` | Applies the edits (§7), saves the file, 200 `{"ok": true, "updatedAt"}`. A new `candidate` note that names no candidate of the run's overview answers 400 `{"error"}` with nothing applied or saved (§7). |
+| `POST /api/submit` | yes | as `PUT` | Applies the edits, refused like `PUT`, and sends a round: every note without `round` except a withheld note (§7) is stamped with the next round number, the round is appended to `rounds` with the current `overall`, the file is saved, the reply is 200 `{"ok": true, "round": <n>}`, and every held wait whose `<n>` is below the new round is answered `sent`. The server keeps serving. With nothing to send — no unsent note other than withheld ones, and an `overall` that, trimmed, equals the `overall` the last round sent, trimmed (`""` before any round) — the edits are still saved, the round count does not move, no wait is answered, and the reply is 409 `{"error": "nothing to send"}`. |
 | `POST /api/reply` | yes | `{"round": <n>, "replies"?: [{"id", "body"}], "overall"?: "<text>"}` | The agent's replies for sent round `<n>`; it carries no viewer edits. The whole request is checked before anything is applied: `round` is an integer from 1 to the round count (`bad round: <value>`, `none` when absent); `replies`, when present, is an array (`replies is not a list`); `overall`, when present, is a string that is not blank (`overall reply is blank or not a string`); there is at least one entry or an `overall` (`nothing to reply`); and each entry `i` has a string `id` (`entry <i>: id is not a string`), a string `body` that is not blank (`entry <i>: body is blank or not a string`), and at least one stored note carrying that `id` that was sent in round `<n>` or earlier (otherwise `entry <i>: no note <id>`, `entry <i>: note <id> is not sent`, or `entry <i>: note <id> was sent after round <n>`). The request-level checks — `round`, `replies`, `overall`, at least one entry or an `overall` — run in that order, and the first that fails is the whole error; once they pass, each entry reports its first problem, in the order listed. Any problem answers 400 `{"error": "<the request-level problem, or every entry's first problem, joined by '; '>"}` and applies nothing. Otherwise each entry appends a reply `{"body", "round": <n>, "createdAt"}` (§7) to every stored note carrying its `id` that was sent in round `<n>` or earlier — an `id` given twice appends twice, and an unsent note sharing the `id` gets none — and `overall` appends one to `overallReplies` (§6), all with one `createdAt`. Then the file is saved, the listing is recomputed (§10), the change count goes up by one, the reply is 200 `{"ok": true, "replied": <the number of note replies appended>}`, and every held change wait is answered `changed`. A save that fails appends nothing and answers 500 `{"error"}`. |
-| `POST /api/cancel` | yes | as `PUT` | Applies the edits without sending a round and ends the run as `cancelled`, with the deletion rule of §6; once the notes file has taken its final status, answers 200 `{"ok": true, "status": "cancelled"}`. |
-| `POST /api/finish` | yes | as `PUT` | Applies the edits without sending a round and ends the run as `finished`; once the notes file has taken its final status, answers 200 `{"ok": true, "status": "finished"}`. Unsent notes stay in the file without `round`. |
+| `POST /api/cancel` | yes | as `PUT` | Applies the edits, refused like `PUT`, without sending a round and ends the run as `cancelled`, with the deletion rule of §6; once the notes file has taken its final status, answers 200 `{"ok": true, "status": "cancelled"}`. |
+| `POST /api/finish` | yes | as `PUT` | Applies the edits, refused like `PUT`, without sending a round and ends the run as `finished`; once the notes file has taken its final status, answers 200 `{"ok": true, "status": "finished"}`. Unsent notes stay in the file without `round`. |
 
 **The end of the run.** Finish, Cancel and `SIGINT` / `SIGTERM` end the run once, whichever
 comes first. The notes file takes its final status (§6), every held wait is answered with the
@@ -529,19 +546,26 @@ loading in Node and the viewer's colouring seam on a fixed TSX sample (a block c
 template literal coloured on every line they span, a file with no matching language rendered
 plain, a `Dockerfile` coloured by its name), and the viewer's static routes of §8; the viewer's
 round controller in Node against a fake server — the anchor rule of §7 against the listing and
-the Send rule of §8, writes sent one at a time each carrying the session as it stands when it
-starts, the server's copy merged by ownership after a change (sent notes and round fields from
-the server, unsent notes and the overall text from the viewer, an unsent note whose anchor left
+the overview's candidate names, and the Send rule of §8 with withheld candidate notes left out
+and Send held while the overview could not be loaded and a candidate note is unsent, writes
+sent one at a time each carrying the session as it stands when it starts, the server's copy
+merged by ownership after a change (sent notes and round fields from the server, unsent notes and the overall text from the viewer, an unsent note whose anchor left
 the listing removed), Send, Finish and Cancel with each refusal and the end raised once, and the
 change wait's backoff from 1 s doubling, its reconnection check and its end; the viewer's
 outline model in Node — rows grouped by scope entry and folder from an overview document
 (§13), imported-by, candidate membership, bars scaled per reading with unmeasured files left
-empty, each row's anchor rule against the listing, and note counts per file and folder; the
-anchor rule of §7 for every kind, range validity and the excerpt cap; resume (§5) — a stored note
+empty, each row's anchor rule against the listing, and note counts per file, folder and
+candidate; the anchor rule of §7 for every kind — a `candidate` anchor kept for a name of the
+run's overview, dropped for any other name or a name that breaks §13's rule, and checked for
+shape only when read back — a new candidate note outside the overview, a name that breaks
+§13's rule or is missing included, refusing the write with each failing entry named, while a
+revision, a sent id or a known candidate with a malformed body does not, range
+validity and the excerpt cap; resume (§5) — a stored note
 keeps its anchor through a write, a new note outside the listing is dropped, rounds and note
 rounds restore, a file without `rounds` resumes as round 0, an absent `--out` starts fresh, and
 each refusal; the atomic save of §6, which leaves no temporary file behind, and a failed save;
-the sent-note lock of §7; replies (§7) kept through a viewer write that echoes or forges them
+the sent-note lock of §7, and a Send withholding the candidate notes the overview does not name;
+replies (§7) kept through a viewer write that echoes or forges them
 and through a save and a resume, a file without them resuming with none, each resume refusal
 for them (§5), and a reply post whose save fails leaving the session as it was; the scope
 check (§4); a listing that never lists a symbolic link, on both the git and the walk path,
@@ -576,15 +600,19 @@ twice, and a reply after the end refused 409 — re-listing after a reply post (
 created mid-run listed and accepted as a `file` anchor only after it and a listed file that is
 deleted, or whose parent folder becomes a file, answering 404 `no longer exists` and then
 `not in scope` once a re-list drops it, and the change wait of §8 returning on a reply post and
-on Finish, held past a refused reply post, and refusing a missing or malformed `after`, and the
-overview route of §8 behind the token, with its 404 without an overview. A few cases run
+on Finish, held past a refused reply post, and refusing a missing or malformed `after`, the
+overview route of §8 behind the token, with its 404 without an overview, and candidate notes
+against the run's overview — a known one accepted and sent, an unknown one beside valid notes
+refused 400 on `PUT /api/session`, submit, cancel and finish with nothing applied or saved and
+the run still serving, and every candidate note refused on a run without an overview. A few cases run
 `cli.mjs` itself: each refusal of §5, the scope check and each `--overview` refusal of §13 exit
 with the error document and leave an existing `--out` file byte for byte as it was, and an
 empty `--overview` exits 2; `wait`'s invocation
 refusals exit 2, and a `wait` child, let go once the server holds its request, returns on a
 Send and on Finish; one run serves a Send, keeps serving, and ends on Finish with exactly one
 result document; another run ends `interrupted` on `SIGTERM`; a run given `--overview`
-serves the document and keeps the file out of the listing, after a reply post included;
+serves the document, keeps the file out of the listing, after a reply post included, and
+sends a candidate note;
 `measure` refusals of §3 (a missing or empty flag, an extra positional, `--hotspots` equal to
 `--out`, a scope outside the root or listing no file) and `assemble` refusals (a missing or
 empty flag, and a measurement file that is missing, not JSON or holds a dangling import) exit
@@ -638,7 +666,7 @@ entry's other fields hold.
 
 | Field | Value |
 |---|---|
-| `name` | Lowercase letters, digits and hyphens, starting with a letter or digit; unique across `candidates`. |
+| `name` | Lowercase letters, digits and hyphens, starting with a letter or digit; unique across `candidates`. A `candidate` note (§7) names one. |
 | `tier` | `strong`, `worth-exploring` or `speculative`. |
 | `category` | `in-process`, `local-substitutable`, `remote-owned` or `true-external`. |
 | `files` | A non-empty array; each is the `path` of a `files` entry, and none appears twice. |
@@ -800,9 +828,10 @@ What this contract leaves undecided, each as a question.
 - **A resume under another root.** When `--out` names an existing file whose `root` differs
   from `--root`, should the run refuse, warn, or re-resolve the stored scope under the new
   root?
-- **Silently dropped notes.** A new note that fails §7's checks is left out of the list while
-  the viewer receives `{"ok": true}` and keeps showing the note. Should the server refuse the
-  write or report the drop?
+- **Silently dropped notes.** A new `folder`, `file`, `range` or `scope` note that fails §7's
+  checks, and a `candidate` note that names an overview candidate but fails another check, is
+  left out of the list while the viewer receives `{"ok": true}` and keeps showing the note.
+  Should the server refuse the write or report the drop?
 - **Duplicate note ids.** Two notes may share an id, and a later write then revises both
   from one stored note (§7). Should the server refuse a write or a resumed file that repeats
   an id, or give the repeat a fresh one?

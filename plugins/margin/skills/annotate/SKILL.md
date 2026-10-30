@@ -188,13 +188,16 @@ shape; [CONTRACT.md](../../CONTRACT.md) §6 and §7 define every field:
     { "id": "<uuid>", "anchor": { "kind": "folder", "path": "src/features/orders" },
       "intent": "change", "body": "…", "createdAt": "…" },
     { "id": "<uuid>", "anchor": { "kind": "scope" },
-      "intent": "question", "body": "…", "createdAt": "…" }
+      "intent": "question", "body": "…", "createdAt": "…" },
+    { "id": "<uuid>", "anchor": { "kind": "candidate", "name": "split-parsing" },
+      "intent": "change", "body": "…", "createdAt": "…" }
   ]
 }
 ```
 
 `revision` is `null` when the root is not in a git repository. `annotations` are stored in the
-order they were created; §3 sorts them. Ids are not guaranteed unique, so the table and the
+order they were created, except that a Send moves the candidate notes it withholds after the
+notes it stamps; §3 sorts them. Ids are not guaranteed unique, so the table and the
 drift check never key on them; §6's reply post must, so notes that share an id are named
 wherever they occur.
 
@@ -206,8 +209,8 @@ wherever they occur.
   node -e '
   const notes = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
   const after = Number(process.argv[2]), upto = Number(process.argv[3]);
-  const span = ({ kind, path, start, end }) => (kind === "scope" ? "scope" : kind === "range" ? `range ${path}:${start}-${end}` : `${kind} ${path}`);
-  const same = (x, y) => x.kind === y.kind && x.path === y.path && x.start === y.start && x.end === y.end;
+  const span = ({ kind, path, start, end, name }) => (kind === "scope" ? "scope" : kind === "candidate" ? `candidate ${name}` : kind === "range" ? `range ${path}:${start}-${end}` : `${kind} ${path}`);
+  const same = (x, y) => x.kind === y.kind && x.path === y.path && x.name === y.name && x.start === y.start && x.end === y.end;
   for (let r = after + 1; r <= upto; r += 1) {
     const sent = notes.rounds[r - 1].overall, before = r > 1 ? notes.rounds[r - 2].overall : "";
     if (sent !== before || r === upto) { console.log(`overall (round ${r})${sent === before ? " (unchanged)" : ""}: ${JSON.stringify(sent)}`); }
@@ -231,8 +234,8 @@ wherever they occur.
   before, and always round `<R>`'s, marked `(unchanged)` when the human left it as it was;
   then one line per note of the round, in the file's order — its position in
   `annotations`, round, id (with the other sent notes sharing it), span, intent and body —
-  and under each, every note sent in an earlier round on the same anchor (kind, path, and for
-  a range the same lines) with the agent's last reply to it; then the count. Earlier notes
+  and under each, every note sent in an earlier round on the same anchor (kind, path or
+  candidate name, and for a range the same lines) with the agent's last reply to it; then the count. Earlier notes
   are context for the round, never part of it. Excerpts stay out of it; the drift check
   reads them.
 - Read the round's `overall` first; it is the human's framing for every note below it.
@@ -250,7 +253,7 @@ wherever they occur.
   const show = (line, none) => (line === undefined ? none : JSON.stringify(line));
   let drifted = 0;
   notes.annotations.forEach(({ anchor: { kind, path, start, end, excerpt }, round }, i) => {
-    if (!(round > after && round <= upto) || kind === "scope") { return; }
+    if (!(round > after && round <= upto) || kind === "scope" || kind === "candidate") { return; }
     const span = kind === "range" ? `${path}:${start}-${end}` : path;
     const report = (why) => { drifted += 1; console.log(`note ${i + 1}, ${kind} ${span}: ${why}`); };
     const stat = fs.statSync(join(notes.root, path), { throwIfNoEntry: false });
@@ -276,12 +279,14 @@ wherever they occur.
   line endings. Equal text holds, an empty excerpt included; an excerpt of exactly 4000
   characters was truncated by the server's cap, so it holds when the current text starts with
   it. Different text, an `end` past the file's last line, or a missing file has drifted, and so
-  has a `file` or `folder` anchor whose path is missing. It prints one line per drifted
+  has a `file` or `folder` anchor whose path is missing. A `scope` or `candidate` note points
+  at no code, so it has nothing to drift. It prints one line per drifted
   anchor — the note's position in `annotations`, its span, and the first line that differs,
   quoted from the excerpt and from the current file — then `<n> drifted` or `no drift`.
   Drifted anchors go into §3's Reading list; never guess which version the note meant.
 - A `folder` note is about the folder's shape (what lives in it, how it is split), not about
   any one file. A `file` note is about the file as a unit. A `scope` note is about everything.
+  A `candidate` note is about the overview's deepening candidate of that name.
 
 ## §3 Plan before touching anything
 
@@ -289,9 +294,9 @@ Open with the count: "N notes read (round <R>)", or "(rounds <last+1>–<R>)" wh
 covered more than one Send — the same N as the round view's count, so the human can see
 nothing was dropped. Then one table for the round, **one row per note of the round**; notes of
 earlier rounds are context and never become rows. Rows are sorted as the viewer
-lists them: scope notes first, then by path, then folder before file before range on the same
-path, then by start line; notes that tie keep the file's order. Paths compare as the viewer
-compares them, with JavaScript's `localeCompare`, not by code point: case only breaks ties
+lists them: scope notes first, then candidate notes by name, then by path, then folder before
+file before range on the same path, then by start line; notes that tie keep the file's order.
+Names and paths compare as the viewer compares them, with JavaScript's `localeCompare`, not by code point: case only breaks ties
 and punctuation sorts before digits and letters, so `a.ts` precedes `B.ts`. When two paths
 differ in case or punctuation, settle their order with `node -p '"<a>".localeCompare("<b>")'`.
 
@@ -371,6 +376,7 @@ The anchors travel into the ticket so the implementer finds the places the human
      the row says so.
    - `file` and `folder`: the path still exists → as stored; §4 moved it → `moved to
      <new-path> (was <path>)`; §4 deleted it → `removed (was <path>)`.
+   - `candidate`: as stored — it names a candidate, not code.
    - A row whose anchor drifted in §2 keeps its stored span marked `drifted`, unless the search
      finds its excerpt.
 
@@ -400,7 +406,7 @@ The anchors travel into the ticket so the implementer finds the places the human
    - `Overall:` is the `overall` text round `<R>` sent (its entry in `rounds`), and only when
      it is not empty.
    - `<anchor>` is the row's anchor as step 1 wrote it — `path:start-end`, `path` for a file or
-     folder, `scope` for a scope note.
+     folder, `candidate <name>` for a candidate note, `scope` for a scope note.
    - Every body, and `overall`, sits inside double quotes with each `\` in it escaped as `\\`
      first, then each `"` as `\"`, and each newline collapsed to ` / `, so a literal `--id` or `--explore` inside a note stays
      text and is never read as a flag.
@@ -480,7 +486,7 @@ Reached from §1 step 8 (a wait reporting the end), step 9 (Finish from chat) or
    ```bash
    node -e '
    const notes = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-   const span = ({ kind, path, start, end }) => (kind === "scope" ? "scope" : kind === "range" ? `${path}:${start}-${end}` : path);
+   const span = ({ kind, path, start, end, name }) => (kind === "scope" ? "scope" : kind === "candidate" ? `candidate ${name}` : kind === "range" ? `${path}:${start}-${end}` : path);
    const first = (text) => JSON.stringify(text.split("\n")[0]);
    const tickets = new Set();
    notes.rounds.forEach(({ round }) => {
