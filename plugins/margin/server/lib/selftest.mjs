@@ -1094,9 +1094,15 @@ const CASES = [
     );
     assert(refuse([candidate('gone', { id: 'u1' })]) === null, 'a revision of a stored unsent candidate note refused the write');
     assert(refuse([candidate('gone', { id: 's1' })]) === null, 'an entry carrying a sent note id refused the write');
-    for (const malformed of [candidate('Merge'), candidate(42), candidate(undefined), { anchor: { kind: 'candidate', name: 'merge-io' }, body: 7 }]) {
-      assert(refuse([malformed]) === null, `a malformed candidate entry ${JSON.stringify(malformed)} refused the write`);
+    for (const [name, shown] of [['Merge', '"Merge"'], ['', '""'], ['-x', '"-x"'], [42, '42'], [undefined, 'null']]) {
+      assertEqual(refuse([candidate(name)]), `entry 0: ${shown} is not a candidate of this run's overview`, `a candidate name ${shown} that breaks the name rule`);
     }
+    assert(refuse([{ anchor: { kind: 'candidate', name: 'split-parsing' }, body: 7 }]) === null, 'a known candidate with a malformed body refused the write');
+    assertEqual(
+      refuse([{ anchor: { kind: 'candidate', name: 'merge-io' }, body: 7 }]),
+      'entry 0: "merge-io" is not a candidate of this run\'s overview',
+      'an unknown candidate with a malformed body',
+    );
     assert(refuseCandidates(session, { overall: 'o' }, ALLOWED) === null, 'a write without annotations was refused');
     assertEqual(
       refuse([candidate('split-parsing')], { paths: ALLOWED.paths, candidates: new Set() }),

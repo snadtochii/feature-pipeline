@@ -4,7 +4,7 @@
 // A sent note may carry the agent's `replies`, which are server-owned like `round`: a viewer
 // write never sets or changes them.
 // A new candidate note that names no candidate of the run's overview refuses the whole write
-// (`refuseCandidates`); any other new note that fails the anchor rule is left out of it.
+// (`refuseCandidates`); any other new note that fails its checks is left out of it.
 // Shared by the HTTP surface (`server.mjs`) and the session rules (`session.mjs`); it depends
 // on neither.
 
@@ -154,14 +154,15 @@ export function applyEdits(session, body, allowed) {
 }
 
 // Checks a write before `applyEdits` runs, deciding which entries are new the same way: every
-// new entry with a well-formed candidate anchor whose name is not in `allowed.candidates`
-// fails, and the result is one message naming each failing entry, or null when none fails.
+// new entry with a candidate anchor whose name is not in `allowed.candidates` fails — a name
+// that is missing, not a string or breaks the name rule included, since no candidate carries
+// one — and the result is one message naming each failing entry, or null when none fails.
 export function refuseCandidates(session, body, allowed) {
   if (!Array.isArray(body.annotations)) {
     return null;
   }
   const problems = newEntries(session, body.annotations)
-    .filter(({ raw }) => raw?.anchor?.kind === 'candidate' && cleanAnnotation(raw, null) !== null && !inScope(raw.anchor, allowed))
-    .map(({ raw, index }) => `entry ${index}: ${JSON.stringify(raw.anchor.name)} is not a candidate of this run's overview`);
+    .filter(({ raw }) => raw?.anchor?.kind === 'candidate' && !inScope(raw.anchor, allowed))
+    .map(({ raw, index }) => `entry ${index}: ${JSON.stringify(raw.anchor.name ?? null)} is not a candidate of this run's overview`);
   return problems.length > 0 ? problems.join('; ') : null;
 }

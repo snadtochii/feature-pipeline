@@ -355,11 +355,13 @@ now to detect drift.
 unsent notes: a stored unsent note whose `id` is absent from the write is deleted, and a note
 whose `id` matches no stored note is a new note and goes through the checks above. A new note
 that fails them is left out of the list, and the write still answers `{"ok": true}` (§15) —
-except a new `candidate` note that passes the shape checks and fails only the anchor rule: it
+except a new `candidate` note whose `name` is not the `name` of a candidate in the run's
+overview, a `name` that is missing, not a string or breaks §13's name rule included: it
 refuses the whole write, which answers 400 `{"error": "<problems joined by '; '>"}`, one
 problem per such entry, `entry <i>: <name> is not a candidate of this run's overview` — `<i>`
-the entry's index in `annotations`, `<name>` the name as a JSON string — and applies and saves
-nothing.
+the entry's index in `annotations`, `<name>` the name as JSON, `null` when it is missing — and
+applies and saves nothing. A new `candidate` note that names a candidate of the overview but
+fails another check, such as a `body` that is not a string, is left out like any other.
 
 **Sent notes are locked.** No write revises or deletes a note that carries `round`: a write
 entry carrying a sent note's `id` is ignored, and a sent note absent from the write is kept,
@@ -383,7 +385,7 @@ request passes the guards of §9 first. Eleven routes:
 | `GET /api/file?path=<p>` | yes | — | `<p>` not in the current listing: 404 `{"error": "<p> is not in scope"}`. A listed path that no longer exists — removed, or a parent folder replaced by a file: 404 `{"error": "<p> no longer exists"}`. Otherwise 200 with `{"path", "text"}` or a refusal `{"path", "binary": true, "reason"}` (§10). |
 | `GET /api/changes?after=<n>` | yes | — | `after` absent or not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`, `<value>` empty when absent. Once the end of the run has begun: 200 `{"status": <the end's status>, "changes": <count>}`, at once. When the change count exceeds `<n>`: 200 `{"status": "changed", "changes": <count>}`, at once. Otherwise the reply is held until an accepted reply post brings the count above `<n>`, which answers it `changed` with the new count, or the end of the run answers it. |
 | `GET /api/wait?after=<n>` | yes | — | `after` present and not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`. Without `after`, `<n>` is the round count the run started with (§4). Once the end of the run has begun: 200 with that end's wait document (§2), at once. When the round count exceeds `<n>`: 200 `{"status": "sent", "round": <count>, "out"}`, at once. Otherwise the reply is held until a Send brings the round count above `<n>`, which answers it with `sent` and the new round, or the end of the run answers it. |
-| `PUT /api/session` | yes | `{"overall"?, "annotations"?}` | Applies the edits (§7), saves the file, 200 `{"ok": true, "updatedAt"}`. A new `candidate` note that fails the anchor rule answers 400 `{"error"}` with nothing applied or saved (§7). |
+| `PUT /api/session` | yes | `{"overall"?, "annotations"?}` | Applies the edits (§7), saves the file, 200 `{"ok": true, "updatedAt"}`. A new `candidate` note that names no candidate of the run's overview answers 400 `{"error"}` with nothing applied or saved (§7). |
 | `POST /api/submit` | yes | as `PUT` | Applies the edits, refused like `PUT`, and sends a round: every note without `round` except a withheld note (§7) is stamped with the next round number, the round is appended to `rounds` with the current `overall`, the file is saved, the reply is 200 `{"ok": true, "round": <n>}`, and every held wait whose `<n>` is below the new round is answered `sent`. The server keeps serving. With nothing to send — no unsent note other than withheld ones, and an `overall` that, trimmed, equals the `overall` the last round sent, trimmed (`""` before any round) — the edits are still saved, the round count does not move, no wait is answered, and the reply is 409 `{"error": "nothing to send"}`. |
 | `POST /api/reply` | yes | `{"round": <n>, "replies"?: [{"id", "body"}], "overall"?: "<text>"}` | The agent's replies for sent round `<n>`; it carries no viewer edits. The whole request is checked before anything is applied: `round` is an integer from 1 to the round count (`bad round: <value>`, `none` when absent); `replies`, when present, is an array (`replies is not a list`); `overall`, when present, is a string that is not blank (`overall reply is blank or not a string`); there is at least one entry or an `overall` (`nothing to reply`); and each entry `i` has a string `id` (`entry <i>: id is not a string`), a string `body` that is not blank (`entry <i>: body is blank or not a string`), and at least one stored note carrying that `id` that was sent in round `<n>` or earlier (otherwise `entry <i>: no note <id>`, `entry <i>: note <id> is not sent`, or `entry <i>: note <id> was sent after round <n>`). The request-level checks — `round`, `replies`, `overall`, at least one entry or an `overall` — run in that order, and the first that fails is the whole error; once they pass, each entry reports its first problem, in the order listed. Any problem answers 400 `{"error": "<the request-level problem, or every entry's first problem, joined by '; '>"}` and applies nothing. Otherwise each entry appends a reply `{"body", "round": <n>, "createdAt"}` (§7) to every stored note carrying its `id` that was sent in round `<n>` or earlier — an `id` given twice appends twice, and an unsent note sharing the `id` gets none — and `overall` appends one to `overallReplies` (§6), all with one `createdAt`. Then the file is saved, the listing is recomputed (§10), the change count goes up by one, the reply is 200 `{"ok": true, "replied": <the number of note replies appended>}`, and every held change wait is answered `changed`. A save that fails appends nothing and answers 500 `{"error"}`. |
 | `POST /api/cancel` | yes | as `PUT` | Applies the edits, refused like `PUT`, without sending a round and ends the run as `cancelled`, with the deletion rule of §6; once the notes file has taken its final status, answers 200 `{"ok": true, "status": "cancelled"}`. |
@@ -554,8 +556,9 @@ outline model in Node — rows grouped by scope entry and folder from an overvie
 empty, each row's anchor rule against the listing, and note counts per file, folder and
 candidate; the anchor rule of §7 for every kind — a `candidate` anchor kept for a name of the
 run's overview, dropped for any other name or a name that breaks §13's rule, and checked for
-shape only when read back — a new candidate note outside the overview refusing the write with
-each failing entry named, while a revision, a sent id or a malformed candidate does not, range
+shape only when read back — a new candidate note outside the overview, a name that breaks
+§13's rule or is missing included, refusing the write with each failing entry named, while a
+revision, a sent id or a known candidate with a malformed body does not, range
 validity and the excerpt cap; resume (§5) — a stored note
 keeps its anchor through a write, a new note outside the listing is dropped, rounds and note
 rounds restore, a file without `rounds` resumes as round 0, an absent `--out` starts fresh, and
@@ -825,9 +828,9 @@ What this contract leaves undecided, each as a question.
   from `--root`, should the run refuse, warn, or re-resolve the stored scope under the new
   root?
 - **Silently dropped notes.** A new `folder`, `file`, `range` or `scope` note that fails §7's
-  checks, and a `candidate` note that fails its shape checks, is left out of the list while
-  the viewer receives `{"ok": true}` and keeps showing the note. Should the server refuse the
-  write or report the drop?
+  checks, and a `candidate` note that names an overview candidate but fails another check, is
+  left out of the list while the viewer receives `{"ok": true}` and keeps showing the note.
+  Should the server refuse the write or report the drop?
 - **Duplicate note ids.** Two notes may share an id, and a later write then revises both
   from one stored note (§7). Should the server refuse a write or a resumed file that repeats
   an id, or give the repeat a fresh one?
