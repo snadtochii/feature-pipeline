@@ -4,7 +4,7 @@ Authoritative surface between `server/cli.mjs`, the `annotate` skill and the hum
 reviews code in the viewer. The contract fixes the verbs, their flags, the stdout and stderr
 output, the exit codes, resume, the notes-file schema, the anchor rule, the HTTP routes and
 their guards, the file-listing and reading rules, the seam between the skill and the
-server, the self-test, and the overview document. The implementation under `server/` and `ui/` is private and may change without
+server, the self-test, the overview document, and the overview data verbs that produce it. The implementation under `server/` and `ui/` is private and may change without
 changing this file. Header comments in `server/` and `ui/` explain mechanics only; where one
 restates a fact this file fixes and disagrees with it, this file governs.
 
@@ -21,13 +21,15 @@ sees a whole file.
 ```text
 node <plugin-root>/server/cli.mjs annotate [--root <dir>] [--scope <path>]... [--out <file>] [--overview <file>] [--port <n>] [--token <token>] [--no-open]
 node <plugin-root>/server/cli.mjs wait <url> [--after <n>]
+node <plugin-root>/server/cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>
+node <plugin-root>/server/cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file>] --out <file>
 node <plugin-root>/server/cli.mjs --self-test
 ```
 
 | Part | Meaning |
 |---|---|
 | `<plugin-root>` | The installed `margin` plugin directory. The skill runs it as `${CLAUDE_PLUGIN_ROOT}`. |
-| `annotate`, `wait` | The two verbs. `wait` is recognised only as the first argument, and its positional arguments must be exactly `wait <url>`. Otherwise the first positional argument must be `annotate`; further positional arguments are ignored. |
+| `annotate`, `wait`, `measure`, `assemble` | The four verbs. `wait`, `measure` and `assemble` are recognised only as the first argument, and their positional arguments must be exactly the verb — `wait <url>` for `wait`. Otherwise the first positional argument must be `annotate`; further positional arguments are ignored. |
 | flags | §4. |
 | `--self-test` | Runs the self-test (§12) instead of a review. It takes no verb and no other argument; given with anything else it is a bad invocation (§3). |
 
@@ -58,10 +60,21 @@ holds it open until the next round is sent or the run ends. It then prints the w
 (§2) and exits 0. It never polls and reads nothing from disk: the run URL carries the port and
 the token.
 
+`measure` validates its arguments (§3), lists the files under the scope (§10), measures each
+(§14), and writes the measurement document to `--out` and the hotspot table to `--hotspots`.
+It then prints the measure document (§2) and exits 0. It binds no port and reads only the
+listed files, the `tsconfig.json` files at or below the root with the configs they extend, and
+`git`'s output.
+
+`assemble` validates its arguments (§3), reads the measurement document `measure` wrote and
+the roles file and the explorer output when given, builds the overview document of §13 from
+them (§14), checks it, and writes it to `--out`. It then prints the assemble document (§2) and
+exits 0. The file it writes is the one `annotate --overview` reads.
+
 ## §2 Output rules
 
 **stdout** carries exactly one JSON document on every handled exit, with two-space
-indentation and one trailing newline, and nothing else. It has one of four shapes.
+indentation and one trailing newline, and nothing else. It has one of six shapes.
 
 The result document, on exit 0 from `annotate`, printed once, when the run ends, with its keys
 in this order:
@@ -90,6 +103,27 @@ newline.
 The self-test document, on exit 0 from `--self-test` (§12): `{"cases": <n>, "ok": true}`, where
 `<n>` is the number of cases run. A failing self-test prints the error document.
 
+The measure document, on exit 0 from `measure`, with its keys in this order:
+
+| Key | Value |
+|---|---|
+| `status` | `ok`. |
+| `out` | The absolute path of the measurement document written (§14). |
+| `hotspots` | The absolute path of the hotspot table written (§14). |
+| `files` | The number of files measured. |
+| `churn` | `git` when the root is in a git repository, so churn was counted from it; `null` when it is not, so every `churn` is `null` (§14). |
+
+The assemble document, on exit 0 from `assemble`, with its keys in this order:
+
+| Key | Value |
+|---|---|
+| `status` | `ok`. |
+| `out` | The absolute path of the overview document written (§13). |
+| `files` | The number of file entries. |
+| `candidates` | The number of candidates kept. |
+| `dropped` | The number of explorer blocks dropped (§14). |
+| `notices` | The number of notices. |
+
 The notes themselves never appear on stdout; the reader opens `out` (§11).
 
 **stderr** carries one block, written once, after the port is bound and the first draft is
@@ -107,13 +141,19 @@ one line a caller may parse (§11); its URL is the one `wait` takes (§4). The r
 is for the human; a caller may show it but does not parse it. `wait` and `--self-test` print
 no stderr block.
 
+`measure` and `assemble` print no stderr block either. On exit 0, after their files are
+written, they print one line per warning, `margin: <verb>: <warning>` — a skipped or
+unparseable `tsconfig.json` for `measure`, a dropped explorer block or a roles field set to
+`null` for `assemble` (§14). The lines are for the human; a caller may show them but does not
+parse them. A refused run prints none.
+
 ## §3 Exit codes
 
 | Code | Meaning | Document |
 |---|---|---|
-| `0` | `annotate`: the run ended — Finish (`finished`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). `wait`: a round was sent or the run ended. Or every self-test case passed (§12). | Result, wait, or self-test |
-| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), the `--overview` file is refused (§13), the port cannot be bound (`could not listen on port <n>: <code>`), or the end of the run cannot save the notes file. `wait`: the server is unreachable — the connection is refused, or it drops before the reply ends (`server unreachable at <origin>: <code>`) — or it answers with an error (`wait: <status> <error>`). Or a self-test case failed (§12). | Error |
-| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), an empty `--overview` (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. For `wait`: no URL or another positional argument, a URL that is not a run URL (§4), or an `--after` that is not a whole number of decimal digits. | Error |
+| `0` | `annotate`: the run ended — Finish (`finished`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). `wait`: a round was sent or the run ended. `measure` and `assemble`: their files were written. Or every self-test case passed (§12). | Result, wait, measure, assemble, or self-test |
+| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), the `--overview` file is refused (§13), the port cannot be bound (`could not listen on port <n>: <code>`), or the end of the run cannot save the notes file. `wait`: the server is unreachable — the connection is refused, or it drops before the reply ends (`server unreachable at <origin>: <code>`) — or it answers with an error (`wait: <status> <error>`). `measure`: no files are listed under the scope (`no files under <scope>`), or an output cannot be written (`could not write <file>: <code>`). `assemble`: the measurement file is refused (§14), the assembled document fails the shape check of §13 (`assembled overview: <violation>`), it is above 2 MiB once serialised (`overview <out>: <x.y> MB is above the 2 MB overview limit`), or `--out` cannot be written. Or a self-test case failed (§12). | Error |
+| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), an empty `--overview` (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. For `wait`: no URL or another positional argument, a URL that is not a run URL (§4), or an `--after` that is not a whole number of decimal digits. For `measure`: another positional argument, a missing or empty `--root`, `--out` or `--hotspots` (`measure needs --<flag>`, `bad --<flag>: empty`), a `--hotspots` that names the same file as `--out`, or a `--scope` outside the root. For `assemble`: another positional argument, a missing or empty `--measurements` or `--out`, or an empty `--roles` or `--explorer`. | Error |
 
 `annotate`'s checks run in this order, and the first failure is the one reported: arguments
 and verb, then `--port`, then `--token`, then an empty `--overview`, then the resumed file's
@@ -126,6 +166,19 @@ writes nothing: an existing `--out` file is left exactly as it was.
 `wait <url>`, the URL is a run URL, then `--after`. Every one of them happens before its one
 request.
 
+`measure`'s checks run in this order: its arguments parse, its positional arguments are
+exactly `measure`, `--root`, `--out` and `--hotspots` are each given and non-empty, `--hotspots`
+is not `--out`, then the scope paths, then the listing. Every one of them happens before the
+first write. It writes `--out` before `--hotspots`, so a failure writing `--out` leaves
+`--hotspots` unwritten.
+
+`assemble`'s checks run in this order: its arguments parse, its positional arguments are
+exactly `assemble`, `--measurements` and `--out` are each given and non-empty, `--roles` and
+`--explorer` are non-empty when given, then the measurement file, the shape check and the size
+limit. Every one of them happens before its one write, so a refused run leaves an existing
+`--out` file exactly as it was. A roles file or explorer output that is missing or unreadable
+is not a refusal (§14).
+
 ## §4 Flags
 
 Long flags only. Both `--flag value` and `--flag=value` are accepted for a flag that takes a
@@ -137,9 +190,9 @@ value. A flag other than `--scope` given twice keeps its last value.
 | `--scope <path>` | none | Repeatable. A file or folder, relative to the root (an absolute path inside the root is accepted). Each is normalised to a root-relative path, and the root itself becomes `.`. A path outside the root exits 2; the check compares path text and resolves no symbolic link (§10). With no `--scope`, a resumed file's `scope` applies when it is an array; otherwise the scope is empty and the whole root is listed. |
 | `--out <file>` | `<root>/claudedocs/margin/<stamp>.json` | The notes file. `<stamp>` is the start time in UTC as `YYYY-MM-DDTHH-MM-SS`. A relative value resolves against the working directory. When the file exists, the run is a resume (§5). Missing parent directories are created on the first save. |
 | `--overview <file>` | none | An overview document (§13), served at `GET /api/overview` (§8). A relative value resolves against the working directory. The file is read and checked once, when the run starts and before the port is bound; a refused file exits 1 and writes nothing (§3), and an empty value exits 2. The file is never listed (§10). It applies on a fresh run and on a resume alike, and the notes file does not record it. |
-| `--port <n>` | `0` | An integer from 0 to 65535 after the value is converted with JavaScript's `Number()`: an empty or all-whitespace value becomes `0`, and `1e3` and `0x10` are accepted as `1000` and `16` (§14). `0` lets the operating system assign a free port; the bound port is the one in the stderr URL. |
+| `--port <n>` | `0` | An integer from 0 to 65535 after the value is converted with JavaScript's `Number()`: an empty or all-whitespace value becomes `0`, and `1e3` and `0x10` are accepted as `1000` and `16` (§15). `0` lets the operating system assign a free port; the bound port is the one in the stderr URL. |
 | `--token <token>` | minted | 16 to 128 characters from `[A-Za-z0-9_-]`. When absent, the server mints 32 lowercase hexadecimal characters (16 random bytes). Setting it lets a caller know the viewer URL's fragment before the server prints it. |
-| `--no-open` | off | Do not open the viewer. Without it, the server opens the URL with the platform opener (`open` on macOS, `start` on Windows, `xdg-open` elsewhere). An opener that starts and fails is ignored, since the URL is on stderr; an opener command that is not installed ends the run with exit 1 and no stdout document, after the draft is saved and the stderr block is printed (§14). |
+| `--no-open` | off | Do not open the viewer. Without it, the server opens the URL with the platform opener (`open` on macOS, `start` on Windows, `xdg-open` elsewhere). An opener that starts and fails is ignored, since the URL is on stderr; an opener command that is not installed ends the run with exit 1 and no stdout document, after the draft is saved and the stderr block is printed (§15). |
 
 **`wait`** takes one positional argument and one flag:
 
@@ -147,6 +200,30 @@ value. A flag other than `--scope` given twice keeps its last value.
 |---|---|---|
 | `<url>` | required | The run URL: the URL on the stderr block's first line (§2), `http://127.0.0.1:<port>/#<token>`, fragment included. A URL with another host or scheme, no explicit port, a path other than `/`, a query, credentials, or a fragment outside the `--token` class above is refused with exit 2 before any request is made; the refusal does not echo the URL, since it carries the token. The token is sent only in the `x-margin-token` header, and only to that origin. |
 | `--after <n>` | the round count the run started with | The last round the caller has seen, as a whole number of decimal digits. The wait returns at once when the run has sent more rounds than `<n>` or its end has begun, and holds otherwise. The default is `0` on a fresh run and the restored count on a resume (§5), so a first wait on a resumed file does not return for rounds an earlier run sent. |
+
+**`measure`** takes four flags:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--root <dir>` | required | The directory measured. |
+| `--scope <path>` | none | Repeatable, as for `annotate`: normalised the same way, a path outside the root exits 2, and with no `--scope` the whole root is measured. |
+| `--out <file>` | required | Where the measurement document (§14) is written. |
+| `--hotspots <file>` | required | Where the hotspot table (§14) is written; not the same file as `--out`. |
+
+**`assemble`** takes four flags:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--measurements <file>` | required | The measurement document `measure` wrote. |
+| `--roles <file>` | none | The roles JSON (§14). When it is not given, missing or unreadable, every role field is `null` and a notice says why. |
+| `--explorer <file>` | none | A deepen explorer's text output (§14). When it is not given, missing or unreadable, there are no candidates and a notice says why. |
+| `--out <file>` | required | Where the overview document (§13) is written. It may name the `--measurements` file, which is read in full first. |
+
+For both verbs a relative path resolves against the working directory, missing parent
+directories are created, and each output is written to a temporary file in its directory and
+renamed over the target, as the notes file is (§6), so a reader never sees a partial file. A
+`measure` run never lists its own two outputs (§14), but a later run lists them when they lie
+under its root and scope, so they belong outside the root.
 
 ## §5 Resume
 
@@ -229,7 +306,7 @@ Each note has exactly these fields; any other field on a note or on its anchor i
 
 | Field | Value |
 |---|---|
-| `id` | A string. A note that arrives without one gets a fresh UUID when the server accepts it; the viewer mints UUIDs for the notes it creates. It is the identity a later write revises the note by. Ids are not checked for uniqueness: a write or a resumed file may hold two notes with one id, and both are kept; a later write then revises each note carrying that id from the last stored note with it (§14). |
+| `id` | A string. A note that arrives without one gets a fresh UUID when the server accepts it; the viewer mints UUIDs for the notes it creates. It is the identity a later write revises the note by. Ids are not checked for uniqueness: a write or a resumed file may hold two notes with one id, and both are kept; a later write then revises each note carrying that id from the last stored note with it (§15). |
 | `anchor` | Where the note sits, by kind (below). |
 | `intent` | `change` or `question`. Any other value becomes `change`. |
 | `body` | The human's text. Required: a note without a string `body` is rejected. The server accepts an empty string; the viewer does not create empty notes. |
@@ -270,7 +347,7 @@ now to detect drift.
 **Saves carry the whole list.** A write that includes `annotations` replaces the list of
 unsent notes: a stored unsent note whose `id` is absent from the write is deleted, and a note
 whose `id` matches no stored note is a new note and goes through the checks above. A new note
-that fails them is left out of the list, and the write still answers `{"ok": true}` (§14).
+that fails them is left out of the list, and the write still answers `{"ok": true}` (§15).
 
 **Sent notes are locked.** No write revises or deletes a note that carries `round`: a write
 entry carrying a sent note's `id` is ignored, and a sent note absent from the write is kept,
@@ -370,7 +447,7 @@ keeps the previous listing, and one that finds no files is served as an empty li
 - Either way, only regular files present on disk are listed. A symbolic link is never listed,
   and so never read, and the walk never descends into one. A scope path whose leading part is
   a linked directory is not resolved: git lists nothing beneath it, while the walk lists the
-  files beneath it even when they lie outside the root (§14). Reading still refuses them.
+  files beneath it even when they lie outside the root (§15). Reading still refuses them.
 - The run's own notes file (§6) and the overview file `--overview` names (§13) are never
   listed, whatever their paths, so the notes file's first save under the root leaves the
   listing unchanged. The exclusion compares root-relative path text, so a file outside the
@@ -424,7 +501,7 @@ longer exists — removed, or a parent folder replaced by a file — answers 404
 7. **Reply.** After acting on the round, it sends one `POST /api/reply` (§8) with that
    `round`, one entry per distinct note `id` of the round, and an overall reply. A 400 or 500
    applied nothing and may be sent again; a request whose outcome is unknown is not sent
-   again, since a repeat appends twice (§14, retried replies). A 409 means the run has ended
+   again, since a repeat appends twice (§15, retried replies). A 409 means the run has ended
    → step 9. Otherwise step 5, with `<n>` that round.
 8. **Finish.** When the human ends the review in the session rather than in the viewer, the
    skill calls `POST /api/finish` (§8) with the run's token, and starts no further wait.
@@ -437,6 +514,9 @@ under the root, the overview file `--overview` names (§13), and the requests of
 whole input from the server is the stdout result document, the wait documents, the answers to
 its reply and Finish requests, the URL on the stderr block's first line, and the notes file —
 between rounds and after exit; the rest of the stderr block is for the human.
+
+The overview file `--overview` names is produced by `measure` and then `assemble` (§14), each
+run as its own command before `annotate` starts; `annotate` never runs them.
 
 ## §12 `--self-test`
 
@@ -464,7 +544,23 @@ for them (§5), and a reply post whose save fails leaving the session as it was;
 check (§4); a listing that never lists a symbolic link, on both the git and the walk path,
 nor the run's notes file or overview file (§10); the reading refusals and limits (§10); the
 overview document of §13 — a document accepted with its unknown fields dropped, each shape
-refusal, each reading refusal and the size limit; and, against a server on port 0 inside the
+refusal, each reading refusal and the size limit; the overview data of §14 — the import scan
+over every form, past comments inside an import, with commented-out imports ignored and
+comment markers inside strings kept, resolution against the listing with the extension, `index` and `.js`-to-`.ts`
+probes, `tsconfig.json` `paths` with and without `baseUrl`, through `extends`, past comments
+and trailing commas, with an `extends` cycle, an `extends` outside the root (a symbolic-link
+folder included) and an unparseable config warned; the line count, the
+indent width, a half-length on a stray line or under doc-comment lines left unhalved, and the
+indentation sum; churn counted from dated commits in a temporary
+repository with a commit older than six months left out, a root below the repository's top
+level, a root outside git and a repository without commits; the hotspot table; explorer
+blocks parsed, a block with its fields out of order included, and dropped for a malformed site
+line, a file outside the scope, a tier the shape check refuses, a repeated name, a
+non-numeric `est_diff_lines`, a site outside the block's files, a missing field, and a name
+field written capitalised, bulleted or in bold; roles merged, with wrong-typed fields set to `null` and
+unknown paths ignored; each notice; the measurement-file refusals for a missing file, invalid
+JSON, a non-object, and a bad `version`, `root` or `files` entry; the overview size limit; and,
+against a server on port 0 inside the
 process, the three guards of §9 (the finish, wait, reply and change routes included), a Send
 that keeps the server serving and sends the next round, a Send with nothing to send, Finish
 with its result document and a write after the end refused, a Finish whose save fails answered
@@ -484,14 +580,23 @@ with the error document and leave an existing `--out` file byte for byte as it w
 empty `--overview` exits 2; `wait`'s invocation
 refusals exit 2, and a `wait` child, let go once the server holds its request, returns on a
 Send and on Finish; one run serves a Send, keeps serving, and ends on Finish with exactly one
-result document; another run ends `interrupted` on `SIGTERM`; and a run given `--overview`
-serves the document and keeps the file out of the listing, after a reply post included.
+result document; another run ends `interrupted` on `SIGTERM`; a run given `--overview`
+serves the document and keeps the file out of the listing, after a reply post included;
+`measure` refusals of §3 (a missing or empty flag, an extra positional, `--hotspots` equal to
+`--out`, a scope outside the root or listing no file) and `assemble` refusals (a missing or
+empty flag, and a measurement file that is missing, not JSON or holds a dangling import) exit
+with the error document and write nothing, the last two leaving an existing `--out` file byte
+for byte as it was; and `measure` then `assemble` on a
+temporary repository write the measurement document, the hotspot table and an overview the
+shape check of §13 accepts, with the dropped block's warning on stderr, and an `assemble`
+given neither roles nor explorer output writes an overview with both notices.
 
 It opens no browser, sends requests to `127.0.0.1` only, and binds no fixed port. It prints
 `{"cases": <n>, "ok": true}` and exits 0 when every case passes; otherwise it prints
 `{"status": "error", "error": "self-test: <case> — <detail>"}` for the first failing case and
-exits 1. Unlike a review, it needs `git` on `PATH`: one listing case builds a repository. It
-runs on every change in the repository's validation workflow.
+exits 1. Unlike a review, it needs `git` on `PATH`: the listing and measurement cases build
+repositories, and the measurement cases commit to them. It runs on every change in the
+repository's validation workflow.
 
 ## §13 Overview document
 
@@ -553,7 +658,136 @@ reason begins `overview <file>:`, `<file>` the absolute path, and goes on with o
 its location in the document — `missing key <location>`, `<location> is not <what it must be>`,
 `<location> duplicates <location>`, `<location> is not an overview file`.
 
-## §14 Open questions
+## §14 Overview data
+
+`measure` and `assemble` (§1) produce the overview document of §13 in two steps with files
+between them: `measure` writes the measurement document and the hotspot table, which a deepen
+explorer reads, and `assemble` merges the measurements with a roles JSON and the explorer's
+output. The measurements are mechanical; the roles and the candidates are model-written and
+reach `assemble` as files.
+
+**Listing.** `measure` lists the files under its root and scope by the rule of §10, with its
+own `--out` and `--hotspots` files left out. Every listed file has one entry.
+
+**Measurements.** Per file:
+
+| Field | Value |
+|---|---|
+| `lines` | The viewer's line count: the text split on `\n`, an unterminated last line counted, an empty file `0`. |
+| `churn` | The number of commits in the last six months that touch the file, from `git log --since="6 months ago" --no-renames --relative -- <scope>` run in the root: the window is on committer date, and a renamed file counts only the commits since the rename. `0` in a repository with no commits; `null` for every file when the root is not in a git repository. |
+| `indentation` | The sum, over the file's non-blank lines, of its leading tabs plus its leading spaces divided by the indent width, rounded down. |
+| `imports` | The listed files the file imports (below), root-relative, each once, in the order first imported; never the file itself. |
+| `outside` | The import specifiers, exactly as written, each once in the order first seen, that resolve to no listed file: a package, a `node:` builtin, a relative path that names no listed file or leaves the root, or a file outside the scope. |
+
+The **indent width** is detected once over every listed text file: the most frequent length of
+a leading run of spaces on a non-blank line, the smaller length on a tie, halved while it is
+even and its half starts at least half as many lines as that most frequent length does, so a
+few stray lines never narrow it; `1` when no line starts with a space. A file the reading rule
+of §10 refuses — binary, larger than 2 MiB, or no longer a regular file inside the root — has
+`lines` and `indentation` `null` and empty `imports` and `outside`, and keeps its `churn`.
+
+**Imports.** Only a file ending in `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.tsx`, `.mts` or
+`.cts` is scanned; every other file has empty `imports` and `outside`. The scan is a heuristic
+over the source text, not a parser. It first removes `//` and `/* */` comments, skipping over
+`'`, `"` and `` ` `` strings, a `'` or `"` string ending at the end of its line; then it takes
+the string literal of `import … from`, `export … from`, a bare `import '<x>'`, `import('<x>')`
+and `require('<x>')` wherever they appear, so `import type` counts and an import inside a
+comment does not. A specifier is
+resolved with any `?…` or `#…` suffix removed:
+
+- A relative specifier (`.`, `..`, `./…`, `../…`) is joined to the importing file's folder.
+- Any other specifier goes through the `paths` of the nearest `tsconfig.json`, looked up from
+  the importing file's folder up to the root and never above it; a config that cannot be
+  parsed counts as absent, so the lookup goes on upward. A config is read with `//` and
+  `/* */` comments and trailing commas removed outside strings. Its `extends`, a string or an
+  array whose entries start with `.`, is followed with `.json` appended when missing, later
+  entries winning; an entry that resolves outside the root, forms a cycle, lies more than 8
+  levels deep or is not found is skipped. A package `extends` and `references` are not read.
+  A `paths` pattern is an exact string or holds one `*`: an exact match wins, else the
+  matching pattern with the longest prefix, and its targets are tried in order with no
+  fallback to a shorter pattern. Targets resolve against the effective `baseUrl` when one is
+  set, else against the folder of the config that declares `paths`; a config's own `paths`
+  replaces an inherited one whole. A target outside the root never matches. A specifier no
+  pattern matches is not resolved through `baseUrl`, and `jsconfig.json` is not read.
+- The resolved base is then probed against the listing, never the disk: for a `.js`, `.jsx`,
+  `.mjs` or `.cjs` base, first its TypeScript sibling (`.ts` then `.tsx`, `.tsx` then `.ts`,
+  `.mts`, `.cts`); then the base itself; then the base with `.ts`, `.tsx`, `.mts`, `.cts`,
+  `.js`, `.jsx`, `.mjs` and `.cjs` added; then `<base>/index` with each of them. The first
+  listed path wins.
+
+**The hotspot table** is tab-separated text: the header line
+`path churn lines indentation churn_x_lines churn_x_indentation`, tab-separated, then one row
+per listed file with text, sorted by `churn_x_indentation` descending and then by path in
+code-unit order, every line ending in `\n`. A `null` churn is written `0`, so every column
+after `path` is an integer. A path holding a tab or a newline is left out of the table. There
+is no row cap.
+
+**The measurement document** is one JSON object, two-space indentation, one trailing newline:
+
+| Field | Value |
+|---|---|
+| `version` | `1`. |
+| `root` | The absolute root. |
+| `scope` | The scope as root-relative paths, `["."]` when none was given. |
+| `prefix` | The root's path inside its repository (`git rev-parse --show-prefix`): `""` at the top level, `null` outside git. |
+| `files` | One `{"path", "lines", "churn", "indentation", "imports", "outside"}` per listed file, in listing order. |
+
+**Assembly.** `assemble` refuses a measurement file that is missing, not a regular file, larger
+than 2 MiB, not valid JSON, or not an object with `version` `1`, an absolute `root`, a
+`scope` array and a `files` array of objects with a string `path`; the reason begins
+`measurements <file>:`. It builds each file entry from the measured fields and the four role
+fields only, writes `generatedAt` as the current time in `toISOString` form, and checks the
+document by §13 twice: first with no candidates, so a fault in the measured files refuses the
+run as `assembled overview: <violation>`, then complete. It writes the checked document, which
+must be at most 2 MiB.
+
+**Paths in model-written input.** A path from the roles file or the explorer output is taken
+with any leading `./` removed and, when it is not a listed path and begins with the
+measurement's `prefix`, with that prefix removed, so a repository-relative path names the same
+file as a root-relative one. It is accepted only when it then equals a listed path.
+
+**Roles.** The roles file is one JSON object, optionally inside one fenced code block, mapping
+a path to `{"kind", "role", "exports", "mixes"}`. `kind` and `role` must be non-empty strings,
+`exports` and `mixes` arrays of non-empty strings, each kept once. A field of another type
+becomes `null` with a warning; an absent field is `null`. An entry that is not an object, and
+a path that is not listed, is ignored with a warning. A listed file with no entry has `null`
+role fields.
+
+**Explorer output.** The deepen explorer's return format: candidate blocks of
+`<field>: <value>` lines separated by blank lines, then optional `pin:` and `notes:` lines.
+Lines that open or close a code fence are dropped, and `\r\n` reads as `\n`. A chunk is a
+block when one of its lines names a block field — `name`, `tier`, `category`, `files`,
+`structural_key`, `next_change`, `next_sites`, `est_diff_lines`, `deletion_test`, `friction` or
+`adr_conflict` — followed by `:`, in any case and behind an optional list marker or `*`/`_`
+emphasis. Only a line that reads exactly `<field>: <value>`, the field in lowercase, gives the
+block a field, so a block written in another case or decorated is dropped for the field it
+lacks. Fields may come in any order. Its fields `name`, `tier`, `category`, `files`
+(comma-separated, each path kept once), `next_change`, `est_diff_lines` (decimal digits),
+`deletion_test` and `friction` each appear exactly once, and each `next_sites` line reads
+`<path>:<line> — <what>`, where a hyphen or an en dash also separates. `structural_key`,
+`adr_conflict`, `pin` and unknown fields are ignored, and fewer than two `next_sites` lines are
+accepted. A block is dropped, with the warning
+`dropped explorer block "<name>": <reason>` (`block <n>` when its name is empty), when a field
+is missing or repeated, a `next_sites` line does not read as above, a file is not listed,
+`est_diff_lines` is not decimal digits, the block on its own fails §13's candidate rules, or
+an earlier block kept the same name.
+
+**Notices**, in this order:
+
+- `File roles are unavailable: <reason>.` — the roles file is not given, cannot be read, is
+  not valid JSON, or is not a JSON object.
+- `No deepening candidates: <reason>.` — the explorer output is not given or cannot be read,
+  or holds neither a block nor a `notes:` line (`the explorer output holds no candidate block
+  and no notes: line`).
+- `Explorer: <notes>` — the output holds no block and its `notes:` is neither empty nor `none`.
+- `<n> explorer candidate dropped as malformed.` (`candidates` when `<n>` is above 1) — the
+  output holds blocks and every one was dropped.
+
+**What refuses.** Only the measurement file, the shape check and the size limit exit 1.
+Nothing in the roles file or the explorer output does: it degrades to `null` fields, dropped
+blocks, warnings and notices.
+
+## §15 Open questions
 
 What this contract leaves undecided, each as a question.
 

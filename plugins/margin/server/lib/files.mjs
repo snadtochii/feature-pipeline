@@ -10,7 +10,7 @@ import { join, relative, resolve, sep } from 'node:path';
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.turbo', 'target']);
 const MAX_BYTES = 2 * 1024 * 1024;
 
-function git(root, args) {
+export function git(root, args) {
   return execFileSync('git', args, { cwd: root, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 }).toString('utf8');
 }
 
@@ -31,7 +31,7 @@ export function listFiles(root, scope, ownFiles = []) {
 
 // A symlink is never listed or read: a link pointing outside the root would otherwise
 // serve files the scope never named.
-function isRegularFile(abs) {
+export function isRegularFile(abs) {
   try {
     return lstatSync(abs).isFile();
   } catch {
