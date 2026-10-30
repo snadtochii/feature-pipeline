@@ -286,7 +286,7 @@ on the order of its keys.
 | `overallReplies` | The agent's overall replies, oldest first, each in the reply shape of §7 — `{"body", "round", "createdAt"}`, `round` from 1 to the number of rounds. Written only through `POST /api/reply` (§8); `[]` before the first. |
 | `round` | The number of rounds sent; `0` before the first Send. Always the length of `rounds`. |
 | `rounds` | The sent rounds, oldest first: `{"round": <n>, "sentAt": "<ISO 8601 UTC timestamp>", "overall": "<the overall text the round sent>"}`, entry `i` holding round `i + 1`. |
-| `annotations` | The notes (§7), in the order they were created. The viewer sorts them for display only. |
+| `annotations` | The notes (§7), in the order they were created, except that a Send moves the notes it withholds after the notes it stamps (§7). The viewer sorts them for display only. |
 
 `status: "error"` never appears in a notes file; it exists only in the stdout document (§2).
 

@@ -196,7 +196,8 @@ shape; [CONTRACT.md](../../CONTRACT.md) §6 and §7 define every field:
 ```
 
 `revision` is `null` when the root is not in a git repository. `annotations` are stored in the
-order they were created; §3 sorts them. Ids are not guaranteed unique, so the table and the
+order they were created, except that a Send moves the candidate notes it withholds after the
+notes it stamps; §3 sorts them. Ids are not guaranteed unique, so the table and the
 drift check never key on them; §6's reply post must, so notes that share an id are named
 wherever they occur.
 
