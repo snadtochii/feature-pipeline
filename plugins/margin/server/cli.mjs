@@ -29,8 +29,7 @@
 // reads. Both print one success document on stdout and their warnings on stderr.
 //
 // Exit: 0 the run ended (finished, cancelled or interrupted), the wait returned, or the files
-// were written, 1 could not
-// run or the server was unreachable, 2 bad invocation.
+// were written, 1 could not run or the server was unreachable, 2 bad invocation.
 // Zero dependencies: Node 22+ built-ins only. Everything under lib/ is private.
 
 import { parseArgs } from 'node:util';

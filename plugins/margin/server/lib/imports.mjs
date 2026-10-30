@@ -8,7 +8,7 @@ import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:p
 
 import { isRegularFile } from './files.mjs';
 
-const JS_EXTENSIONS =['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts'];
+const JS_EXTENSIONS = ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts'];
 
 const PROBE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
 const TS_SIBLINGS = { '.js': ['.ts', '.tsx'], '.jsx': ['.tsx', '.ts'], '.mjs': ['.mts'], '.cjs': ['.cts'] };

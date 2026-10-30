@@ -8,7 +8,7 @@ import { createResolver, isScriptPath } from './imports.mjs';
 import { RunError } from './session.mjs';
 
 const CHURN_WINDOW = '6 months ago';
-const HOTSPOT_HEADER =['path', 'churn', 'lines', 'indentation', 'churn_x_lines', 'churn_x_indentation'];
+const HOTSPOT_HEADER = ['path', 'churn', 'lines', 'indentation', 'churn_x_lines', 'churn_x_indentation'];
 
 export function countLines(text) {
   const lines = text.split('\n');
