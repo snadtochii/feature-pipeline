@@ -1785,6 +1785,10 @@ const CASES = [
       explorerBlock('approx', { est: '~200' }),
       explorerBlock('off-files', { sites: ['src/b.ts:1 — x'] }),
       ['name: lonely'],
+      (([first, ...rest]) => [...rest, first])(explorerBlock('out-of-order', { files: 'src/b.ts' })),
+      (([, ...rest]) => ['Name: capital', ...rest])(explorerBlock('capital')),
+      explorerBlock('bulleted').map((line) => `- ${line}`),
+      (([, ...rest]) => ['**name:** bold', ...rest])(explorerBlock('bold')),
       ['pin: none — nothing pinned', 'notes: none'],
     ];
     const text = ['```', explorerText(blocks), '```'].join('\n').replaceAll('\n', '\r\n');
@@ -1799,6 +1803,16 @@ const CASES = [
       est_diff_lines: 40,
       deletion_test: 'vanishes',
       friction: 'tangled',
+    }, {
+      name: 'out-of-order',
+      tier: 'speculative',
+      category: 'in-process',
+      files: ['src/b.ts'],
+      next_change: 'x',
+      next_sites: [],
+      est_diff_lines: 3,
+      deletion_test: 'x',
+      friction: 'y',
     }], 'the parsed candidates');
     assertEqual(warnings, [
       'dropped explorer block "bad-site": next_sites line 1 is not <path>:<line> — <what>',
@@ -1808,8 +1822,11 @@ const CASES = [
       'dropped explorer block "approx": est_diff_lines ~200 is not a whole number',
       'dropped explorer block "off-files": next_sites[0].path is not one of the candidate\'s files',
       'dropped explorer block "lonely": missing tier',
+      'dropped explorer block block 10: missing name',
+      'dropped explorer block block 11: missing name',
+      'dropped explorer block block 12: missing name',
     ], 'the drop warnings');
-    assertEqual(dropped, 7, 'the dropped count');
+    assertEqual(dropped, 10, 'the dropped count');
     assertEqual(document.notices, [], 'notices when a candidate survives');
     assertEqual(document.files.map((file) => [file.kind, file.role, file.exports, file.mixes]), [[null, null, null, null], [null, null, null, null]], 'role fields from an empty roles object');
   }],
@@ -1838,8 +1855,10 @@ const CASES = [
       'File roles are unavailable: the roles input is not a JSON object.',
       'Explorer: scope too small',
     ], 'notices for a roles array and explorer notes');
+    const noBlock = 'No deepening candidates: the explorer output holds no candidate block and no notes: line.';
     const unparsed = notices({ rolesText: 'nope', explorerText: '' });
-    assert(unparsed.length === 1 && unparsed[0].startsWith('File roles are unavailable: the roles input is not valid JSON ('), `notices for roles that do not parse: ${JSON.stringify(unparsed)}`);
+    assert(unparsed.length === 2 && unparsed[0].startsWith('File roles are unavailable: the roles input is not valid JSON (') && unparsed[1] === noBlock, `notices for roles that do not parse and an empty explorer output: ${JSON.stringify(unparsed)}`);
+    assertEqual(notices({ rolesText: '{}', explorerText: 'Here are my findings.\n\n- notes: none' }), [noBlock], 'explorer output with neither a block nor a notes: line');
     assertEqual(notices({ rolesText: '{}', explorerText: explorerText([explorerBlock('stranger', { files: 'other/x.ts' })]) }), ['1 explorer candidate dropped as malformed.'], 'one block, dropped');
     assertEqual(notices({ rolesText: '{}', explorerText: explorerText([['name: a'], ['name: b']]) }), ['2 explorer candidates dropped as malformed.'], 'two blocks, both dropped');
 

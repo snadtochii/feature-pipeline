@@ -11,7 +11,9 @@ import { RunError } from './session.mjs';
 
 const LIMIT_MB = MAX_OVERVIEW_BYTES / 1024 / 1024;
 const BLOCK_FIELDS = ['name', 'tier', 'category', 'files', 'next_change', 'est_diff_lines', 'deletion_test', 'friction'];
+const BLOCK_KEYS = [...BLOCK_FIELDS, 'next_sites', 'structural_key', 'adr_conflict'];
 const FIELD_LINE = /^([a-z_]+):\s?(.*)$/;
+const LOOSE_FIELD_LINE = /^(?:[-*+]\s+)?[*_]*([A-Za-z_]+)[*_]*\s*:/;
 const SITE_LINE = /^(\S+?):(\d+)\s+[—–-]\s+(.+)$/;
 const FENCE_LINE = /^\s*```/;
 const ROLE_FIELDS = ['kind', 'role', 'exports', 'mixes'];
@@ -163,12 +165,21 @@ function parseRoles(text, prefix, known) {
   return { roles, warnings, reason: null };
 }
 
+function namesBlockField(line) {
+  const match = LOOSE_FIELD_LINE.exec(line.trim());
+  return match !== null && BLOCK_KEYS.includes(match[1].toLowerCase());
+}
+
 function explorerChunks(text) {
   const lines = text.replace(/\r\n?/g, '\n').split('\n').filter((line) => !FENCE_LINE.test(line));
-  return lines.join('\n').split(/\n\s*\n/).map((chunk) => chunk.split('\n').flatMap((line) => {
-    const match = FIELD_LINE.exec(line.trim());
-    return match === null ? [] : [[match[1], match[2].trim()]];
-  }));
+  return lines.join('\n').split(/\n\s*\n/).map((chunk) => {
+    const chunkLines = chunk.split('\n');
+    const fields = chunkLines.flatMap((line) => {
+      const match = FIELD_LINE.exec(line.trim());
+      return match === null ? [] : [[match[1], match[2].trim()]];
+    });
+    return { fields, isBlock: chunkLines.some(namesBlockField) };
+  });
 }
 
 function parseBlock(fields, number, prefix, known) {
@@ -233,17 +244,17 @@ function parseExplorer(text, prefix, base) {
   const dropped = [];
   let notes = null;
   let blocks = 0;
-  for (const fields of explorerChunks(text)) {
+  for (const { fields, isBlock } of explorerChunks(text)) {
     for (const [key, value] of fields) {
       if (key === 'notes') {
         notes = value;
       }
     }
-    const blockFields = fields.filter(([key]) => key !== 'notes' && key !== 'pin');
-    if (blockFields.length === 0 || blockFields[0][0] !== 'name') {
+    if (!isBlock) {
       continue;
     }
     blocks += 1;
+    const blockFields = fields.filter(([key]) => key !== 'notes' && key !== 'pin');
     const parsed = parseBlock(blockFields, blocks, prefix, known);
     if (parsed.candidate === undefined) {
       dropped.push(parsed);
@@ -317,6 +328,9 @@ export function assembleOverview({ measurement, rolesText, rolesReason, explorer
     const parsed = parseExplorer(explorerText, prefix, base);
     candidates = parsed.candidates;
     dropped = parsed.dropped;
+    if (parsed.blocks === 0 && parsed.notes === null) {
+      notices.push('No deepening candidates: the explorer output holds no candidate block and no notes: line.');
+    }
     if (parsed.blocks === 0 && parsed.notes !== null && parsed.notes !== '' && parsed.notes.toLowerCase() !== 'none') {
       notices.push(`Explorer: ${parsed.notes}`);
     }

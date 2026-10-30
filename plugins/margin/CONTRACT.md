@@ -552,9 +552,10 @@ folder included) and an unparseable config warned; the line count, the
 indent width and the indentation sum; churn counted from dated commits in a temporary
 repository with a commit older than six months left out, a root below the repository's top
 level, a root outside git and a repository without commits; the hotspot table; explorer
-blocks parsed, and dropped for a malformed site line, a file outside the scope, a tier the
-shape check refuses, a repeated name, a non-numeric `est_diff_lines`, a site outside the
-block's files and a missing field; roles merged, with wrong-typed fields set to `null` and
+blocks parsed, a block with its fields out of order included, and dropped for a malformed site
+line, a file outside the scope, a tier the shape check refuses, a repeated name, a
+non-numeric `est_diff_lines`, a site outside the block's files, a missing field, and a name
+field written capitalised, bulleted or in bold; roles merged, with wrong-typed fields set to `null` and
 unknown paths ignored; each notice; the measurement-file refusals for a missing file, invalid
 JSON, a non-object, and a bad `version`, `root` or `files` entry; the overview size limit; and,
 against a server on port 0 inside the
@@ -749,8 +750,13 @@ role fields.
 
 **Explorer output.** The deepen explorer's return format: candidate blocks of
 `<field>: <value>` lines separated by blank lines, then optional `pin:` and `notes:` lines.
-Lines that open or close a code fence are dropped, and `\r\n` reads as `\n`. A chunk whose
-first field is `name` is a block. Its fields `name`, `tier`, `category`, `files`
+Lines that open or close a code fence are dropped, and `\r\n` reads as `\n`. A chunk is a
+block when one of its lines names a block field — `name`, `tier`, `category`, `files`,
+`structural_key`, `next_change`, `next_sites`, `est_diff_lines`, `deletion_test`, `friction` or
+`adr_conflict` — followed by `:`, in any case and behind an optional list marker or `*`/`_`
+emphasis. Only a line that reads exactly `<field>: <value>`, the field in lowercase, gives the
+block a field, so a block written in another case or decorated is dropped for the field it
+lacks. Fields may come in any order. Its fields `name`, `tier`, `category`, `files`
 (comma-separated, each path kept once), `next_change`, `est_diff_lines` (decimal digits),
 `deletion_test` and `friction` each appear exactly once, and each `next_sites` line reads
 `<path>:<line> — <what>`, where a hyphen or an en dash also separates. `structural_key`,
@@ -765,7 +771,9 @@ an earlier block kept the same name.
 
 - `File roles are unavailable: <reason>.` — the roles file is not given, cannot be read, is
   not valid JSON, or is not a JSON object.
-- `No deepening candidates: <reason>.` — the explorer output is not given or cannot be read.
+- `No deepening candidates: <reason>.` — the explorer output is not given or cannot be read,
+  or holds neither a block nor a `notes:` line (`the explorer output holds no candidate block
+  and no notes: line`).
 - `Explorer: <notes>` — the output holds no block and its `notes:` is neither empty nor `none`.
 - `<n> explorer candidate dropped as malformed.` (`candidates` when `<n>` is above 1) — the
   output holds blocks and every one was dropped.
