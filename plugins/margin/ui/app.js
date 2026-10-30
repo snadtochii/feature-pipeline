@@ -157,7 +157,11 @@ function anchorLabel(anchor) {
 
 async function load() {
   const [session, overview] = await Promise.all([rounds.load(), loadOverview()]);
-  rounds.setCandidates(overview?.doc ? overview.doc.candidates.map((candidate) => candidate.name) : []);
+  if (overview === null) {
+    rounds.setCandidates([]);
+  } else {
+    rounds.setCandidates(overview.doc ? overview.doc.candidates.map((candidate) => candidate.name) : null);
+  }
   state.overview = overview;
   el.scope.textContent = `${session.root} · ${session.scope.join(', ') || '.'}`;
   el.overall.value = session.overall || '';
@@ -1122,12 +1126,16 @@ function sortedAnnotations() {
   });
 }
 
+const SEND_TITLE = el.send.title;
+
 // Send is offered when the server's rule holds or when the open composer holds a note Send would
-// add first (rounds.sendRound commits it before checking the rule).
+// add first (rounds.sendRound commits it before checking the rule), and never while Send is held.
 function updateSend() {
   const count = rounds.sendable().length;
+  const held = rounds.sendHeld();
   el.send.textContent = count ? `Send ${count}` : 'Send';
-  el.send.disabled = rounds.busy || rounds.ended || !(rounds.canSend() || Boolean(state.composer?.dirty()));
+  el.send.title = held ? 'The overview could not be loaded: reload the page to send' : SEND_TITLE;
+  el.send.disabled = rounds.busy || rounds.ended || held || !(rounds.canSend() || Boolean(state.composer?.dirty()));
 }
 
 // Finish and Cancel are disabled while a lifecycle request is in flight and once the run is over.
@@ -1152,7 +1160,9 @@ function readOnlyNotice() {
     return 'The overview is missing: candidate notes are read-only.';
   }
   if (state.overview.error) {
-    return 'The overview could not be loaded: candidate notes are read-only.';
+    return rounds.sendHeld()
+      ? 'The overview could not be loaded: candidate notes are read-only, and Send waits for a reload.'
+      : 'The overview could not be loaded: candidate notes are read-only.';
   }
   return 'Some candidate notes name no candidate of this overview and are read-only.';
 }

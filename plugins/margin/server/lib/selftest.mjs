@@ -640,6 +640,21 @@ const CASES = [
     assertEqual(h.take().filter((e) => Array.isArray(e) && e[0] === 'dropped'), [['dropped', ['stray']]], 'the notes a refresh dropped');
     h.rounds.setCandidates([]);
     assert(!h.rounds.listed({ kind: 'candidate', name: 'split-parsing' }), 'a candidate is listed once the names are cleared');
+    assert(!h.rounds.sendHeld(), 'Send is held for a run without an overview');
+    h.rounds.setCandidates(null);
+    assert(!h.rounds.listed({ kind: 'candidate', name: 'split-parsing' }), 'a candidate is listed while the names are unknown');
+    assert(h.rounds.sendHeld(), 'Send is not held while the names are unknown and candidate notes are unsent');
+    assertEqual(h.rounds.sendable(), [], 'the sendable notes while the names are unknown');
+    h.overall = 'direction';
+    assert(!h.rounds.canSend(), 'Send is allowed for a new overall text while the names are unknown');
+    h.take();
+    await h.rounds.sendRound();
+    assert(!h.requests().includes('POST /api/submit'), 'a held Send posted a round');
+    h.rounds.addNote(viewerNote('scoped'));
+    assert(!h.rounds.canSend(), 'Send is allowed for a scope note while candidate notes are unsent and the names unknown');
+    h.rounds.deleteNote('withheld');
+    h.rounds.deleteNote('local');
+    assert(!h.rounds.sendHeld() && h.rounds.canSend(), 'Send stays held once no candidate note is unsent');
   }],
   ['viewer rounds: writes run one at a time, each carrying the session as it stands at its turn', async () => {
     let release;
