@@ -667,7 +667,9 @@ diagram edits — each edit giving a document §15 accepts as it is and leaving 
 unchanged, an edit that does not apply returning its input, a removed box taking its arrows,
 self-loops and parallels included, and a removed arrow leaving every walkthrough step in place
 without it, new ids never repeating, a dropped box taking the last group frame holding its
-centre and keeping its group outside every frame, and the re-layout — and the save ordering:
+centre and keeping its group outside every frame, the re-layout, an edit that places no box
+changing only its own element's line and positioning no box, and a move, an added box or a
+re-layout positioning every box — and the save ordering:
 one save in flight, the newest document sent next, a 4xx dropping the waiting document and any
 other failure keeping it for a retry; the anchor rule of §7 for every kind — a `candidate` anchor kept for a name of the
 run's overview, dropped for any other name or a name that breaks §13's rule, and checked for
@@ -1069,9 +1071,14 @@ above, for the label; a group with no members has no frame. Positions are intege
 same document always gives the same layout. The spacing between ranks and rows is not part of
 this contract.
 
-The viewer edits the laid-out document and saves every box's position, so after its first
-save every box carries `x` and `y`. Its re-layout writes the layout that ignores stored
-positions — the one computed when no box is positioned.
+The viewer draws the saved document laid out, and saves only the positions a human set. An
+edit that places no box — a rename, a kind or group change, a new arrow, a relabel, a
+deletion — leaves a box the file holds without `x` and `y` without them, so the save differs
+from the file by the lines of the elements it changed, and the viewer then draws that box
+where the layout of the saved document puts it. An edit that places a box — a move, an added
+box, a re-layout — writes `x` and `y` into every box: the positions on screen become the
+file's. The re-layout writes the layout that ignores stored positions — the one computed when
+no box is positioned.
 
 **Refusals.** The first violation refuses the file with exit 1 (§3). The reason begins
 `diagram <file>:`, `<file>` the absolute path, and goes on with one of `not found`,

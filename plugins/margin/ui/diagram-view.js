@@ -1,8 +1,11 @@
 // The viewer's Diagram tab: GET /api/diagram's document drawn as SVG — group frames, boxes styled
 // by kind and labelled arrows — with pan, zoom and fit, a detail card for the box or arrow
 // selected, and walkthroughs stepped with J and K. Given a save (setEditable), it is editable:
-// every finished edit is one ./diagram-edit.js call on the laid-out document, redrawn in place
-// and handed whole to the save, at most one request in flight. Every position comes from
+// every finished edit is one ./diagram-edit.js call, handed whole to the save, at most one
+// request in flight, and redrawn in place from that document laid out. An edit that places a
+// box — a move, an added box, a re-layout — runs on the laid-out document, so the positions on
+// screen become the file's; every other edit runs on the saved one, so a box the file leaves
+// unpositioned stays unpositioned. Every position comes from
 // ./diagram.js's model, and diagram text reaches the page through textContent only. It owns its
 // nodes, the open card and the keys and clicks that drive them; leaving the tab goes through the
 // callbacks createDiagramView takes.
@@ -75,7 +78,8 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     result: null,
     send: null, // the save setEditable was given: document → promise, or null
     editable: false, // edits are made and saved: a save was given, and no 409 has turned them off
-    doc: null, // the document drawn: the served one with every box positioned, then each edit's result
+    stored: null, // the document as saved: the served one, then each edit's result
+    doc: null, // the document drawn: `stored` with every box positioned, or a gesture's preview of it
     saver: null, // the save ordering of ./diagram-edit.js while editable
     ids: null, // the session's id allocator, seeded from the served document
     bar: null, // the save bar's message: { text, retry }, or null
@@ -128,19 +132,25 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
 
   const canEdit = () => state.editable && !ended();
 
+  // The document saved, and the one drawn from it.
+  function setStored(stored) {
+    state.stored = stored;
+    state.doc = freeze(stored);
+  }
+
   // One finished edit: drawn at once and saved; an edit that changed nothing is not saved.
   function commit(next) {
-    if (!canEdit() || next === state.doc) {
+    if (!canEdit() || next === state.stored || next === state.doc) {
       return;
     }
-    state.doc = next;
+    setStored(next);
     paint();
     state.saver.save(next);
   }
 
   function deleteSelected() {
     const { type, id } = state.selected;
-    commit(type === 'box' ? removeBox(state.doc, id) : removeArrow(state.doc, id));
+    commit(type === 'box' ? removeBox(state.stored, id) : removeArrow(state.stored, id));
   }
 
   function relayoutAll() {
@@ -170,7 +180,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       return;
     }
     abandonGestures();
-    state.doc = saved.saved;
+    setStored(saved.saved);
     if (saved.status === 409) {
       state.editable = false;
       showBar({ text: saved.error === SESSION_ENDED ? 'The session has ended.' : 'The diagram file changed on disk, so edits are off. Restart the session to edit it.' });
@@ -460,8 +470,8 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       return;
     }
     const id = state.ids.next('arrow');
-    const next = connect(state.doc, { id, from: press.box, to: target.id });
-    if (next !== state.doc) {
+    const next = connect(state.stored, { id, from: press.box, to: target.id });
+    if (next !== state.stored) {
       state.selected = { type: 'arrow', id };
       commit(next);
     }
@@ -591,7 +601,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       return;
     }
     if (keep) {
-      commit(rename.type === 'box' ? renameBox(state.doc, rename.id, value) : relabelArrow(state.doc, rename.id, value));
+      commit(rename.type === 'box' ? renameBox(state.stored, rename.id, value) : relabelArrow(state.stored, rename.id, value));
     }
   }
 
@@ -810,10 +820,10 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     const parts = [head];
     if (state.editable) {
       const edit = html('div', 'd-card-edit');
-      edit.append(picker('Kind', KINDS.map((kind) => [kind, kind]), box.kind, (kind) => commit(setKind(state.doc, box.id, kind))));
+      edit.append(picker('Kind', KINDS.map((kind) => [kind, kind]), box.kind, (kind) => commit(setKind(state.stored, box.id, kind))));
       if (state.doc.groups.length > 0) {
         const groups = [['', 'No group'], ...state.doc.groups.map((group) => [group.id, group.label])];
-        edit.append(picker('Group', groups, box.group ?? '', (group) => commit(setGroup(state.doc, box.id, group === '' ? null : group))));
+        edit.append(picker('Group', groups, box.group ?? '', (group) => commit(setGroup(state.stored, box.id, group === '' ? null : group))));
       }
       edit.append(renameButton(), deleteButton());
       parts.push(edit);
@@ -996,10 +1006,15 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     },
     setDiagram(result) {
       state.result = result;
-      state.doc = result?.doc ? freeze(result.doc.document) : null;
+      if (result?.doc) {
+        setStored(result.doc.document);
+      } else {
+        state.stored = null;
+        state.doc = null;
+      }
       state.ids = result?.doc ? createIds(result.doc.document) : null;
       state.editable = Boolean(result?.doc) && state.send !== null;
-      state.saver = state.editable ? createSaver(state.send, { saved: state.doc, onChange: saveChanged }) : null;
+      state.saver = state.editable ? createSaver(state.send, { saved: state.stored, onChange: saveChanged }) : null;
       state.bar = null;
       state.dirty = true;
       state.walkthrough = 0;

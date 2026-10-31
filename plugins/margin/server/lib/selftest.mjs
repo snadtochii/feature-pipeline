@@ -17,7 +17,7 @@
 // opposite arrows spread apart, nested self-loops), the bounds and the fit transform, and a
 // diagram session's listing of linked regular files only. It checks the viewer's diagram edits:
 // each edit checked and its input untouched, removals cleaning walkthrough steps, ids, the group
-// a dropped box lands in, the layouts, and the save ordering with its failures. It checks the note rules (the anchor rule per kind,
+// a dropped box lands in, the layouts, the positions an edit writes, and the save ordering with its failures. It checks the note rules (the anchor rule per kind,
 // a new candidate note outside the overview refusing the write, range validity, the excerpt cap),
 // resuming a notes file (a stored note keeps its anchor; rounds and note rounds restore; a file
 // without rounds is round 0; the refusals), the atomic save keeping the file's mode, the sent-note lock, a Send withholding
@@ -1962,6 +1962,40 @@ const CASES = [
     assertEqual([frozen.boxes[0].x, frozen.boxes[0].y], [900, 900], 'freeze moved a positioned box');
     assertEqual(edit.relayout(loose), layoutDiagram(loose, { all: true }), 'the re-layout');
     assertEqual(edit.freeze(diagramOf({})), diagramOf({}), 'freezing an empty diagram');
+  }],
+  ['diagram edit: an edit that places no box writes no position, and a placing edit on the laid-out document writes every one', async () => {
+    const { checkDiagram, serializeDiagram } = await loadDiagramModel();
+    const edit = await loadDiagramEdit();
+    const stored = checkDiagram(diagramOf({
+      groups: [{ id: 'g', label: 'G' }],
+      boxes: [diagramBox('a', { group: 'g' }), diagramBox('b'), diagramBox('c', { x: 600, y: 40 })],
+      arrows: [diagramArrow('ab', 'a', 'b')],
+    }));
+    const lines = (doc) => serializeDiagram(doc).split('\n');
+    const changed = (doc) => {
+      const [before, after] = [lines(stored), lines(doc)];
+      assertEqual(after.length, before.length, 'an edit that places no box changed the line count');
+      return after.flatMap((line, i) => (line === before[i] ? [] : [line]));
+    };
+    for (const [result, what, line] of [
+      [edit.renameBox(stored, 'a', 'Alpha'), 'a rename', '{"id":"a","label":"Alpha","kind":"module","files":[],"group":"g"},'],
+      [edit.setKind(stored, 'b', 'store'), 'a kind change', '{"id":"b","label":"B","kind":"store","files":[]},'],
+      [edit.setGroup(stored, 'b', 'g'), 'a group change', '{"id":"b","label":"B","kind":"module","files":[],"group":"g"},'],
+      [edit.relabelArrow(stored, 'ab', 'calls'), 'a relabel', '{"id":"ab","from":"a","to":"b","label":"calls","why":""}'],
+    ]) {
+      assertEqual(changed(result).map((text) => text.trim()), [line], `the lines ${what} changed`);
+    }
+    const joined = edit.connect(stored, { id: 'arrow-1', from: 'b', to: 'c' });
+    assertEqual(joined.boxes, stored.boxes, 'a new arrow positioned a box');
+    assertEqual(edit.removeBox(stored, 'b').boxes, stored.boxes.filter((box) => box.id !== 'b'), 'a deletion positioned a box');
+
+    const laid = edit.freeze(stored);
+    const placed = (doc) => doc.boxes.every((box) => Number.isSafeInteger(box.x) && Number.isSafeInteger(box.y));
+    const moved = edit.moveBox(laid, 'a', 10, 20);
+    assert(placed(moved), 'a move left a box unpositioned');
+    assertEqual(moved.boxes.map((box) => [box.x, box.y]), laid.boxes.map((box) => (box.id === 'a' ? [10, 20] : [box.x, box.y])), 'a move wrote positions other than the ones drawn');
+    assert(placed(edit.addBox(laid, { id: 'box-1', x: 0, y: 300, label: 'New' })), 'an added box left a box unpositioned');
+    assert(placed(edit.relayout(stored)), 'a re-layout left a box unpositioned');
   }],
   ['diagram edit: the saver keeps one save in flight and sends the newest document next', async () => {
     const { createSaver } = await loadDiagramEdit();
