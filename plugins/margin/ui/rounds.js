@@ -52,7 +52,7 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     ended: false, // true once the end-of-run overlay is up
     // A diagram session: the server holds no notes session, so nothing is saved or merged, and
     // `session` is an empty one the renderers read.
-    readOnly: false,
+    standalone: false,
   };
 
   const annotations = () => state.session.annotations;
@@ -136,7 +136,7 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
   }
 
   function scheduleSave() {
-    if (state.readOnly || state.ending || state.ended) {
+    if (state.standalone || state.ending || state.ended) {
       return;
     }
     clearTimeout(state.saveTimer);
@@ -176,7 +176,7 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
   // Reads the session the page opens with. The caller renders it, then starts watchChanges.
   async function load() {
     const data = await api('GET', '/api/session');
-    state.readOnly = data.session === null;
+    state.standalone = data.session === null;
     state.session = data.session ?? { root: '', scope: [], out: null, overall: '', round: 0, rounds: [], overallReplies: [], annotations: [] };
     setFiles(data.files);
     state.changes = data.changes;
@@ -216,7 +216,7 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
   // Flushes a pending save, reads the session behind every queued write, merges it, and has the
   // view re-render what depends on it.
   async function refresh() {
-    if (state.readOnly) {
+    if (state.standalone) {
       return;
     }
     const pending = state.saveTimer !== null;
@@ -365,7 +365,7 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
   // Finish adds a note still open in the composer, then asks before ending the run. Unsent work
   // stays in the notes file without a round, and the dialog names it.
   async function finishRun() {
-    if (state.readOnly) {
+    if (state.standalone) {
       await endRun('/api/finish', 'finished');
       return;
     }
@@ -429,8 +429,8 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     get ended() {
       return state.ended;
     },
-    get readOnly() {
-      return state.readOnly;
+    get standalone() {
+      return state.standalone;
     },
     setCandidates,
     listed,

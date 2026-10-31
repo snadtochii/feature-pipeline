@@ -11,7 +11,7 @@
 // rule in-process.
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { cleanAnnotation, cleanReply } from './annotations.mjs';
 
@@ -120,13 +120,17 @@ export function createSession({ stored, out, root, scope, revision }) {
 }
 
 // Writes `text` to a temporary file in the same directory as `file`, then renames it over
-// `file`; a failed write or rename removes the temporary file and rethrows.
+// `file`, keeping an existing file's permission bits; a failed write, chmod or rename removes
+// the temporary file and rethrows.
 export function writeAtomic(file, text) {
   const dir = dirname(file);
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `.${basename(file)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
   try {
     writeFileSync(tmp, text);
+    if (existsSync(file)) {
+      chmodSync(tmp, statSync(file).mode & 0o7777);
+    }
     renameSync(tmp, file);
   } catch (err) {
     rmSync(tmp, { force: true });

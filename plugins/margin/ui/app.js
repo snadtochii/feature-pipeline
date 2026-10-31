@@ -2,8 +2,8 @@
 // notes with their replies, and switches between the surfaces the run serves — Overview, Diagram
 // and Code; ./rounds.js holds the session and talks to ../server/lib/server.mjs for it,
 // ./overview-view.js renders the Overview tab, ./diagram-view.js the Diagram tab, and this file
-// reads files through GET /api/file. In a diagram session the page is read-only: every notes
-// control leaves it.
+// reads files through GET /api/file. A diagram session is standalone: it keeps no notes, so every
+// notes control leaves the page, and the Diagram tab saves the human's edits to the diagram file.
 
 import { highlightLines } from './syntax.js';
 import { createRounds, isSent } from './rounds.js';
@@ -153,6 +153,10 @@ const diagramView = createDiagramView({
     expandTo(path);
     openFile(path);
   },
+  ended: () => rounds.ended,
+  saveState: (text) => {
+    el.saveState.textContent = text;
+  },
 });
 
 // The center panes the run serves, in tab order — Overview, Diagram, Code — each
@@ -189,9 +193,12 @@ async function load() {
     rounds.setCandidates(overview.doc ? overview.doc.candidates.map((candidate) => candidate.name) : null);
   }
   overviewView.setOverview(overview);
+  if (rounds.standalone && diagram?.doc) {
+    diagramView.setEditable((edited) => api('PUT', '/api/diagram', { document: edited }));
+  }
   diagramView.setDiagram(diagram);
-  if (rounds.readOnly) {
-    enterReadOnly(diagram);
+  if (rounds.standalone) {
+    enterStandalone(diagram);
   } else {
     el.scope.textContent = `${session.root} · ${session.scope.join(', ') || '.'}`;
     el.overall.value = session.overall || '';
@@ -214,8 +221,8 @@ async function loadOptional(url) {
 }
 
 // A diagram session keeps no notes, so Send, Cancel and the notes panel leave the page.
-function enterReadOnly(diagram) {
-  document.body.classList.add('read-only');
+function enterStandalone(diagram) {
+  document.body.classList.add('standalone');
   for (const control of [el.send, el.cancel, el.toggleNotes]) {
     control.classList.add('hidden');
   }
@@ -391,7 +398,7 @@ function treeRow(kind, node, depth, view) {
   });
 
   row.append(name);
-  if (rounds.readOnly) {
+  if (rounds.standalone) {
     return row;
   }
   const count = view.counts.get(`${kind}:${node.path}`) ?? 0;
@@ -446,9 +453,9 @@ function showEmpty(text) {
 // Says why a file cannot be shown and drops its cached text, so nothing stale stays on screen.
 function showFileError(path, err) {
   if (err.status === 404 && /no longer exists/.test(err.message)) {
-    showEmpty(rounds.readOnly ? `${path} no longer exists.` : `${path} no longer exists. Its notes are kept.`);
+    showEmpty(rounds.standalone ? `${path} no longer exists.` : `${path} no longer exists. Its notes are kept.`);
   } else if (err.status === 404) {
-    showEmpty(rounds.readOnly ? `${path} is not a file this diagram can open.` : `${path} is not in this review's listing. Its notes are kept.`);
+    showEmpty(rounds.standalone ? `${path} is not a file this diagram can open.` : `${path} is not in this review's listing. Its notes are kept.`);
   } else {
     showEmpty(`Could not read ${path}: ${err.message}`);
   }
@@ -461,7 +468,7 @@ function showBinary(path, reason) {
   state.current = { path, lines: null };
   state.selection = null;
   state.view = null;
-  showEmpty(rounds.readOnly ? `${path}: ${reason}.` : `${path}: ${reason}. Annotate it as a file from the tree.`);
+  showEmpty(rounds.standalone ? `${path}: ${reason}.` : `${path}: ${reason}. Annotate it as a file from the tree.`);
 }
 
 // Reads a file. `fresh` is false when a newer file fetch began before this one answered.
@@ -574,7 +581,7 @@ function renderCode() {
   const box = document.createElement('div');
   box.className = 'lines';
   // One delegated listener for every gutter, however long the file.
-  if (!rounds.readOnly) {
+  if (!rounds.standalone) {
     box.addEventListener('click', (event) => {
       const gutter = event.target.closest('.gutter');
       if (gutter) {
@@ -692,7 +699,7 @@ function applySelection() {
 
 // `existing` is the unsent note being edited; `intent` presets the intent of a new note.
 function openComposer(anchor, { existing = null, intent = existing?.intent ?? 'change' } = {}) {
-  if (rounds.readOnly) {
+  if (rounds.standalone) {
     return;
   }
   showPanel('notes');
@@ -1138,8 +1145,8 @@ function renderStatus() {
   } else if (state.notice) {
     text = state.notice.text;
     kind = state.notice.error ? 'error' : '';
-  } else if (rounds.readOnly) {
-    text = 'Read-only diagram: no notes are taken in this session.';
+  } else if (rounds.standalone) {
+    text = 'Edits save to the diagram file as you make them; no notes are taken in this session.';
   } else if (round === 0) {
     text = 'Notes go out when you press Send.';
   } else if (waiting()) {
@@ -1168,7 +1175,7 @@ function notifyDropped(dropped) {
 
 // Disables every control and raises the end-of-run overlay; rounds.js calls it once per run.
 function showEnd(status) {
-  for (const control of document.querySelectorAll('button, textarea, input')) {
+  for (const control of document.querySelectorAll('button, textarea, input, select')) {
     control.disabled = true;
   }
   const count = rounds.session.round ?? 0;
@@ -1177,7 +1184,7 @@ function showEnd(status) {
   card.className = 'card';
   const title = document.createElement('h2');
   const text = document.createElement('p');
-  if (rounds.readOnly) {
+  if (rounds.standalone) {
     const interrupted = status === 'interrupted';
     title.textContent = interrupted ? 'Diagram session interrupted' : 'Diagram session finished';
     text.textContent = interrupted ? 'The server stopped. You can close this tab.' : 'You can close this tab.';
@@ -1207,8 +1214,20 @@ function showEnd(status) {
   document.body.append(overlay);
 }
 
+// A diagram session ends once the last diagram edit has reached the server, or once the human
+// accepts that it did not.
+async function finish() {
+  if (rounds.standalone) {
+    const saved = await diagramView.flush();
+    if (saved?.phase === 'failed' && !window.confirm('The last diagram edit was not saved. Finish anyway?')) {
+      return;
+    }
+  }
+  await rounds.finishRun();
+}
+
 el.send.addEventListener('click', rounds.sendRound);
-el.finish.addEventListener('click', rounds.finishRun);
+el.finish.addEventListener('click', finish);
 el.cancel.addEventListener('click', rounds.cancelRun);
 
 el.filter.addEventListener('input', () => setFilter(el.filter.value));

@@ -32,9 +32,10 @@
 //
 // `diagram --check` reads and checks one diagram file, prints one document saying whether its
 // text is canonical with its entry counts, and writes nothing. `diagram <file>` without --check
-// is a diagram session: the same viewer, read-only, with no notes file and no rounds, showing
-// the diagram and the files it links under --root (default: the git top level of the file's
-// directory, else that directory). It ends on Finish or SIGINT/SIGTERM and writes nothing.
+// is a diagram session: the same viewer with no notes file and no rounds, showing the diagram
+// and the files it links under --root (default: the git top level of the file's directory, else
+// that directory), and saving the human's edits to the diagram file as they are made. It ends
+// on Finish or SIGINT/SIGTERM and writes nothing but the diagram file.
 //
 // Exit: 0 the run or the diagram session ended (finished, cancelled or interrupted), the wait
 // returned, the files were written or the diagram passed, 1 could not run or the server was
@@ -45,7 +46,7 @@ import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { assembleOverview, readMeasurement, readOptional, serialiseOverview } from './lib/assemble.mjs';
-import { diagramSessionInputs, readDiagram } from './lib/diagram.mjs';
+import { diagramSessionInputs, diagramWriter, readDiagram } from './lib/diagram.mjs';
 import { listFiles, readSource, revision } from './lib/files.mjs';
 import { measureScope } from './lib/measure.mjs';
 import { readOverview } from './lib/overview.mjs';
@@ -330,11 +331,12 @@ function assembleCmd(argv) {
 const SESSION_FLAGS = ['root', 'port', 'token', 'no-open'];
 
 // A diagram session (CONTRACT §1): the file is read and checked, the root resolved and the
-// linked files listed, all before the port is bound. Writes nothing.
+// linked files listed, all before the port is bound. Writes only the diagram file, on a save.
 async function diagramSession(values, raw) {
   const port = checkedPort(values.port ?? '0', values.token);
   const givenRoot = fileFlag(values, 'root', 'diagram', false);
-  const { document, file, root, files } = diagramSessionInputs(resolve(raw), givenRoot);
+  const { document, text, file, root, files } = diagramSessionInputs(resolve(raw), givenRoot);
+  const writer = diagramWriter(file, text);
   await serve(
     {
       port,
@@ -345,6 +347,7 @@ async function diagramSession(values, raw) {
       relist: () => files,
       onEnd: (status) => ({ status, file }),
       diagram: { file, root, document },
+      saveDiagram: (edited) => writer.save(edited),
     },
     {
       noOpen: values['no-open'],

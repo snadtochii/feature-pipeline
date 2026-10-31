@@ -2,14 +2,14 @@
 // a file, checks it with the shared model in `ui/diagram.js`, and reports whether its text is
 // already canonical. Every refusal is a `RunError` with exit 1, so `cli.mjs` stays the only
 // place that exits; the model stays free of Node so the viewer can load it too. `linkedFiles`
-// is a diagram session's listing (CONTRACT §10), and `diagramSessionInputs` everything a
-// diagram session reads before its port is bound (CONTRACT §1).
+// is a diagram session's listing (CONTRACT §10), `diagramSessionInputs` everything a diagram
+// session reads before its port is bound (CONTRACT §1), and `diagramWriter` its save.
 
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DiagramViolation, checkDiagram, serializeDiagram } from '../../ui/diagram.js';
 import { gitRoot, listPaths } from './files.mjs';
-import { RunError } from './session.mjs';
+import { RunError, writeAtomic } from './session.mjs';
 
 export const MAX_DIAGRAM_BYTES = 2 * 1024 * 1024;
 
@@ -51,7 +51,50 @@ export function readDiagram(file) {
     }
     throw err;
   }
-  return { document, canonical: text === serializeDiagram(document) };
+  return { document, text, canonical: text === serializeDiagram(document) };
+}
+
+const CHANGED_ON_DISK = { status: 409, error: 'the diagram file changed on disk' };
+
+// The save of a diagram session (CONTRACT §8, `PUT /api/diagram`). `text` is the file's text as
+// the session read it; every successful save replaces it with the text written, and a save
+// finding any other text on disk writes nothing. `save(document)` returns
+// `{ status: 200, document }` with the checked document once its canonical text is written, or
+// `{ status: 400 | 409, error }` with the file untouched; a failed write throws.
+export function diagramWriter(file, text) {
+  let last = text;
+  return {
+    save(document) {
+      if (document === null || typeof document !== 'object' || Array.isArray(document)) {
+        return { status: 400, error: 'document is not an object' };
+      }
+      let checked;
+      try {
+        checked = checkDiagram(document);
+      } catch (err) {
+        if (err instanceof DiagramViolation) {
+          return { status: 400, error: err.message };
+        }
+        throw err;
+      }
+      const canonical = serializeDiagram(checked);
+      if (Buffer.byteLength(canonical) > MAX_DIAGRAM_BYTES) {
+        return { status: 400, error: 'diagram too large' };
+      }
+      let onDisk;
+      try {
+        onDisk = readFileSync(file, 'utf8');
+      } catch {
+        return CHANGED_ON_DISK;
+      }
+      if (onDisk !== last) {
+        return CHANGED_ON_DISK;
+      }
+      writeAtomic(file, canonical);
+      last = canonical;
+      return { status: 200, document: checked };
+    },
+  };
 }
 
 // Every path a box of `document` links that is a regular file under `root`, without `ownFiles`.
@@ -71,7 +114,7 @@ function isDirectory(dir) {
 // directory, else that directory. `file` and the root are real paths, so the own-file exclusion
 // compares like with like.
 export function diagramSessionInputs(file, givenRoot) {
-  const { document } = readDiagram(file);
+  const { document, text } = readDiagram(file);
   const real = realpathSync(file);
   let root;
   if (givenRoot === undefined) {
@@ -81,5 +124,5 @@ export function diagramSessionInputs(file, givenRoot) {
   } else {
     throw new RunError(`root ${givenRoot} is not a directory`, 1);
   }
-  return { document, file: real, root, files: linkedFiles(root, document, [real]) };
+  return { document, text, file: real, root, files: linkedFiles(root, document, [real]) };
 }
