@@ -4,7 +4,8 @@ Authoritative surface between `server/cli.mjs`, the `annotate` skill and the hum
 reviews code in the viewer. The contract fixes the verbs, their flags, the stdout and stderr
 output, the exit codes, resume, the notes-file schema, the anchor rule, the HTTP routes and
 their guards, the file-listing and reading rules, the seam between the skill and the
-server, the self-test, the overview document, and the overview data verbs that produce it. The implementation under `server/` and `ui/` is private and may change without
+server, the self-test, the overview document, the overview data verbs that produce it, and the
+diagram document with the `diagram` verb that checks it. The implementation under `server/` and `ui/` is private and may change without
 changing this file. Header comments in `server/` and `ui/` explain mechanics only; where one
 restates a fact this file fixes and disagrees with it, this file governs.
 
@@ -23,13 +24,14 @@ node <plugin-root>/server/cli.mjs annotate [--root <dir>] [--scope <path>]... [-
 node <plugin-root>/server/cli.mjs wait <url> [--after <n>]
 node <plugin-root>/server/cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>
 node <plugin-root>/server/cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file> | --explorer-unavailable <reason>] --out <file>
+node <plugin-root>/server/cli.mjs diagram --check <file>
 node <plugin-root>/server/cli.mjs --self-test
 ```
 
 | Part | Meaning |
 |---|---|
 | `<plugin-root>` | The installed `margin` plugin directory. The skill runs it as `${CLAUDE_PLUGIN_ROOT}`. |
-| `annotate`, `wait`, `measure`, `assemble` | The four verbs. `wait`, `measure` and `assemble` are recognised only as the first argument, and their positional arguments must be exactly the verb — `wait <url>` for `wait`. Otherwise the first positional argument must be `annotate`; further positional arguments are ignored. |
+| `annotate`, `wait`, `measure`, `assemble`, `diagram` | The five verbs. `wait`, `measure`, `assemble` and `diagram` are recognised only as the first argument, and their positional arguments must be exactly the verb — `wait <url>` for `wait`, `diagram <file>` for `diagram`. Otherwise the first positional argument must be `annotate`; further positional arguments are ignored. |
 | flags | §4. |
 | `--self-test` | Runs the self-test (§12) instead of a review. It takes no verb and no other argument; given with anything else it is a bad invocation (§3). |
 
@@ -72,10 +74,13 @@ gives in place of the explorer output — builds the overview document of §13 f
 checks it, and writes it to `--out`. It then prints the assemble document (§2) and
 exits 0. The file it writes is the one `annotate --overview` reads.
 
+`diagram --check` validates its arguments (§3), reads and checks the diagram file (§15),
+prints the diagram document (§2) and exits 0. It binds no port and writes nothing.
+
 ## §2 Output rules
 
 **stdout** carries exactly one JSON document on every handled exit, with two-space
-indentation and one trailing newline, and nothing else. It has one of six shapes.
+indentation and one trailing newline, and nothing else. It has one of seven shapes.
 
 The result document, on exit 0 from `annotate`, printed once, when the run ends, with its keys
 in this order:
@@ -125,6 +130,15 @@ The assemble document, on exit 0 from `assemble`, with its keys in this order:
 | `dropped` | The number of explorer blocks dropped (§14). |
 | `notices` | The number of notices. |
 
+The diagram document, on exit 0 from `diagram --check`, with its keys in this order:
+
+| Key | Value |
+|---|---|
+| `status` | `ok`. |
+| `file` | The absolute path of the diagram file checked. |
+| `canonical` | `true` when the file's text is exactly the canonical form of its document (§15), `false` otherwise. |
+| `groups`, `boxes`, `arrows`, `walkthroughs` | The number of entries in each. |
+
 The notes themselves never appear on stdout; the reader opens `out` (§11).
 
 **stderr** carries one block, written once, after the port is bound and the first draft is
@@ -146,15 +160,15 @@ no stderr block.
 written, they print one line per warning, `margin: <verb>: <warning>` — a skipped or
 unparseable `tsconfig.json` for `measure`, a dropped explorer block or a roles field set to
 `null` for `assemble` (§14). The lines are for the human; a caller may show them but does not
-parse them. A refused run prints none.
+parse them. A refused run prints none. `diagram` prints nothing on stderr.
 
 ## §3 Exit codes
 
 | Code | Meaning | Document |
 |---|---|---|
-| `0` | `annotate`: the run ended — Finish (`finished`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). `wait`: a round was sent or the run ended. `measure` and `assemble`: their files were written. Or every self-test case passed (§12). | Result, wait, measure, assemble, or self-test |
-| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), the `--overview` file is refused (§13), the port cannot be bound (`could not listen on port <n>: <code>`), or the end of the run cannot save the notes file. `wait`: the server is unreachable — the connection is refused, or it drops before the reply ends (`server unreachable at <origin>: <code>`) — or it answers with an error (`wait: <status> <error>`). `measure`: no files are listed under the scope (`no files under <scope>`), or an output cannot be written (`could not write <file>: <code>`). `assemble`: the measurement file is refused (§14), the assembled document fails the shape check of §13 (`assembled overview: <violation>`), it is above 2 MiB once serialised (`overview <out>: <x.y> MB is above the 2 MB overview limit`), or `--out` cannot be written. Or a self-test case failed (§12). | Error |
-| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), an empty `--overview` (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. For `wait`: no URL or another positional argument, a URL that is not a run URL (§4), or an `--after` that is not a whole number of decimal digits. For `measure`: another positional argument, a missing or empty `--root`, `--out` or `--hotspots` (`measure needs --<flag>`, `bad --<flag>: empty`), a `--hotspots` that names the same file as `--out`, or a `--scope` outside the root. For `assemble`: another positional argument, a missing or empty `--measurements` or `--out`, an empty `--roles` or `--explorer`, or an `--explorer-unavailable` given together with `--explorer` (`--explorer and --explorer-unavailable are exclusive`), holding a control character such as a line break (`bad --explorer-unavailable: not one line`), or blank once trimmed and stripped of one trailing `.` (`bad --explorer-unavailable: empty`). | Error |
+| `0` | `annotate`: the run ended — Finish (`finished`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). `wait`: a round was sent or the run ended. `measure` and `assemble`: their files were written. `diagram --check`: the file passed the check (§15). Or every self-test case passed (§12). | Result, wait, measure, assemble, diagram, or self-test |
+| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), the `--overview` file is refused (§13), the port cannot be bound (`could not listen on port <n>: <code>`), or the end of the run cannot save the notes file. `wait`: the server is unreachable — the connection is refused, or it drops before the reply ends (`server unreachable at <origin>: <code>`) — or it answers with an error (`wait: <status> <error>`). `measure`: no files are listed under the scope (`no files under <scope>`), or an output cannot be written (`could not write <file>: <code>`). `assemble`: the measurement file is refused (§14), the assembled document fails the shape check of §13 (`assembled overview: <violation>`), it is above 2 MiB once serialised (`overview <out>: <x.y> MB is above the 2 MB overview limit`), or `--out` cannot be written. `diagram`: the file is refused (§15). Or a self-test case failed (§12). | Error |
+| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), an empty `--overview` (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. For `wait`: no URL or another positional argument, a URL that is not a run URL (§4), or an `--after` that is not a whole number of decimal digits. For `measure`: another positional argument, a missing or empty `--root`, `--out` or `--hotspots` (`measure needs --<flag>`, `bad --<flag>: empty`), a `--hotspots` that names the same file as `--out`, or a `--scope` outside the root. For `assemble`: another positional argument, a missing or empty `--measurements` or `--out`, an empty `--roles` or `--explorer`, or an `--explorer-unavailable` given together with `--explorer` (`--explorer and --explorer-unavailable are exclusive`), holding a control character such as a line break (`bad --explorer-unavailable: not one line`), or blank once trimmed and stripped of one trailing `.` (`bad --explorer-unavailable: empty`). For `diagram`: no `<file>` or another positional argument, `--check` absent (`diagram needs --check`) or given a value, or an empty `<file>` (`bad <file>: empty`). | Error |
 
 `annotate`'s checks run in this order, and the first failure is the one reported: arguments
 and verb, then `--port`, then `--token`, then an empty `--overview`, then the resumed file's
@@ -181,6 +195,11 @@ Every one of them happens before its one write, so a refused run leaves an exist
 file exactly as it was. A roles file or explorer output that is missing or unreadable
 is not a refusal (§14).
 
+`diagram`'s checks run in this order: its arguments parse, its positional arguments are
+exactly `diagram` and one `<file>`, `--check` is given, `<file>` is non-empty, then the read —
+not found, not a regular file, the size limit, the read itself, the JSON — and then the shape
+check (§15). It writes nothing, so a refused file is left exactly as it was.
+
 ## §4 Flags
 
 Long flags only. Both `--flag value` and `--flag=value` are accepted for a flag that takes a
@@ -192,9 +211,9 @@ value. A flag other than `--scope` given twice keeps its last value.
 | `--scope <path>` | none | Repeatable. A file or folder, relative to the root (an absolute path inside the root is accepted). Each is normalised to a root-relative path, and the root itself becomes `.`. A path outside the root exits 2; the check compares path text and resolves no symbolic link (§10). With no `--scope`, a resumed file's `scope` applies when it is an array; otherwise the scope is empty and the whole root is listed. |
 | `--out <file>` | `<root>/claudedocs/margin/<stamp>.json` | The notes file. `<stamp>` is the start time in UTC as `YYYY-MM-DDTHH-MM-SS`. A relative value resolves against the working directory. When the file exists, the run is a resume (§5). Missing parent directories are created on the first save. |
 | `--overview <file>` | none | An overview document (§13), served at `GET /api/overview` (§8). A relative value resolves against the working directory. The file is read and checked once, when the run starts and before the port is bound; a refused file exits 1 and writes nothing (§3), and an empty value exits 2. The file is never listed (§10). It applies on a fresh run and on a resume alike, and the notes file does not record it. |
-| `--port <n>` | `0` | An integer from 0 to 65535 after the value is converted with JavaScript's `Number()`: an empty or all-whitespace value becomes `0`, and `1e3` and `0x10` are accepted as `1000` and `16` (§15). `0` lets the operating system assign a free port; the bound port is the one in the stderr URL. |
+| `--port <n>` | `0` | An integer from 0 to 65535 after the value is converted with JavaScript's `Number()`: an empty or all-whitespace value becomes `0`, and `1e3` and `0x10` are accepted as `1000` and `16` (§16). `0` lets the operating system assign a free port; the bound port is the one in the stderr URL. |
 | `--token <token>` | minted | 16 to 128 characters from `[A-Za-z0-9_-]`. When absent, the server mints 32 lowercase hexadecimal characters (16 random bytes). Setting it lets a caller know the viewer URL's fragment before the server prints it. |
-| `--no-open` | off | Do not open the viewer. Without it, the server opens the URL with the platform opener (`open` on macOS, `start` on Windows, `xdg-open` elsewhere). An opener that starts and fails is ignored, since the URL is on stderr; an opener command that is not installed ends the run with exit 1 and no stdout document, after the draft is saved and the stderr block is printed (§15). |
+| `--no-open` | off | Do not open the viewer. Without it, the server opens the URL with the platform opener (`open` on macOS, `start` on Windows, `xdg-open` elsewhere). An opener that starts and fails is ignored, since the URL is on stderr; an opener command that is not installed ends the run with exit 1 and no stdout document, after the draft is saved and the stderr block is printed (§16). |
 
 **`wait`** takes one positional argument and one flag:
 
@@ -227,6 +246,13 @@ directories are created, and each output is written to a temporary file in its d
 renamed over the target, as the notes file is (§6), so a reader never sees a partial file. A
 `measure` run never lists its own two outputs (§14), but a later run lists them when they lie
 under its root and scope, so they belong outside the root.
+
+**`diagram`** takes one positional argument and one flag, in any order after the verb:
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `<file>` | required | The diagram file (§15). A relative path resolves against the working directory. |
+| `--check` | required | Check the file and print the diagram document (§2). It takes no value. |
 
 ## §5 Resume
 
@@ -309,7 +335,7 @@ Each note has exactly these fields; any other field on a note or on its anchor i
 
 | Field | Value |
 |---|---|
-| `id` | A string. A note that arrives without one gets a fresh UUID when the server accepts it; the viewer mints UUIDs for the notes it creates. It is the identity a later write revises the note by. Ids are not checked for uniqueness: a write or a resumed file may hold two notes with one id, and both are kept; a later write then revises each note carrying that id from the last stored note with it (§15). |
+| `id` | A string. A note that arrives without one gets a fresh UUID when the server accepts it; the viewer mints UUIDs for the notes it creates. It is the identity a later write revises the note by. Ids are not checked for uniqueness: a write or a resumed file may hold two notes with one id, and both are kept; a later write then revises each note carrying that id from the last stored note with it (§16). |
 | `anchor` | Where the note sits, by kind (below). |
 | `intent` | `change` or `question`. Any other value becomes `change`. |
 | `body` | The human's text. Required: a note without a string `body` is rejected. The server accepts an empty string; the viewer does not create empty notes. |
@@ -357,7 +383,7 @@ now to detect drift.
 **Saves carry the whole list.** A write that includes `annotations` replaces the list of
 unsent notes: a stored unsent note whose `id` is absent from the write is deleted, and a note
 whose `id` matches no stored note is a new note and goes through the checks above. A new note
-that fails them is left out of the list, and the write still answers `{"ok": true}` (§15) —
+that fails them is left out of the list, and the write still answers `{"ok": true}` (§16) —
 except a new `candidate` note whose `name` is not the `name` of a candidate in the run's
 overview, a `name` that is missing, not a string or breaks §13's name rule included: it
 refuses the whole write, which answers 400 `{"error": "<problems joined by '; '>"}`, one
@@ -467,7 +493,7 @@ keeps the previous listing, and one that finds no files is served as an empty li
 - Either way, only regular files present on disk are listed. A symbolic link is never listed,
   and so never read, and the walk never descends into one. A scope path whose leading part is
   a linked directory is not resolved: git lists nothing beneath it, while the walk lists the
-  files beneath it even when they lie outside the root (§15). Reading still refuses them.
+  files beneath it even when they lie outside the root (§16). Reading still refuses them.
 - The run's own notes file (§6) and the overview file `--overview` names (§13) are never
   listed, whatever their paths, so the notes file's first save under the root leaves the
   listing unchanged. The exclusion compares root-relative path text, so a file outside the
@@ -526,7 +552,7 @@ longer exists — removed, or a parent folder replaced by a file — answers 404
 7. **Reply.** After acting on the round, it sends one `POST /api/reply` (§8) with that
    `round`, one entry per distinct note `id` of the round, and an overall reply. A 400 or 500
    applied nothing and may be sent again; a request whose outcome is unknown is not sent
-   again, since a repeat appends twice (§15, retried replies). A 409 means the run has ended
+   again, since a repeat appends twice (§16, retried replies). A 409 means the run has ended
    → step 9. Otherwise step 5, with `<n>` that round.
 8. **Finish.** When the human ends the review in the session rather than in the viewer, the
    skill calls `POST /api/finish` (§8) with the run's token, and starts no further wait.
@@ -566,7 +592,15 @@ change wait's backoff from 1 s doubling, its reconnection check and its end; the
 outline model in Node — rows grouped by scope entry and folder from an overview document
 (§13), imported-by, candidate membership, bars scaled per reading with unmeasured files left
 empty, each row's anchor rule against the listing, and note counts per file, folder and
-candidate; the anchor rule of §7 for every kind — a `candidate` anchor kept for a name of the
+candidate; the diagram model of §15 in Node — a document accepted with its keys rebuilt in
+canonical order, each refusal (an unknown key at every level, a duplicate id or walkthrough
+name, a dangling `from`, `to`, `group` or step arrow, a bad kind, id, label or diagram path, a
+non-integer position and a position given half), the canonical text of a fixed document and
+its byte-identical round trip, a layout that is deterministic and places every box when none
+is positioned, never moves a positioned box and keeps placed boxes clear of it, ranks through
+cycles and self-loops, keeps each group's members contiguous with frames that are their
+members' bounds and never overlap, and leaves its input unchanged — and the diagram file's
+reading refusals and size limit; the anchor rule of §7 for every kind — a `candidate` anchor kept for a name of the
 run's overview, dropped for any other name or a name that breaks §13's rule, and checked for
 shape only when read back — a new candidate note outside the overview, a name that breaks
 §13's rule or is missing included, refusing the write with each failing entry named, while a
@@ -635,7 +669,9 @@ given neither roles nor explorer output writes an overview with both notices; an
 given `--explorer-unavailable` writes its reason as the candidates notice, with roles merged
 beside it, and its refusals — an empty or blank reason, a reason with a line break, and the
 flag given with `--explorer` — exit 2 before the measurement file is read, leaving an existing
-`--out` file byte for byte as it was.
+`--out` file byte for byte as it was; and `diagram --check` exits 0 with the diagram document
+for a valid file, 1 with the error document for a missing or refused one, and 2 for each
+invocation refusal of §3, leaving the file byte for byte as it was.
 
 It opens no browser, sends requests to `127.0.0.1` only, and binds no fixed port. It prints
 `{"cases": <n>, "ok": true}` and exits 0 when every case passes; otherwise it prints
@@ -834,7 +870,123 @@ an earlier block kept the same name.
 Nothing in the roles file or the explorer output does: it degrades to `null` fields, dropped
 blocks, warnings and notices.
 
-## §15 Open questions
+## §15 Diagram document
+
+A diagram file holds one diagram document: a JSON object, UTF-8, at most 2 MiB (2,097,152
+bytes), describing part of a system as boxes joined by arrows. Agents write it, and the viewer
+writes it back when a human edits it. `cli.mjs diagram --check` (§1) checks one. The
+`.diagram.json` extension is the convention; it is not checked. The format below is fixed;
+which module under `ui/` or `server/` implements it is private.
+
+**Top level.** Exactly the four keys `groups`, `boxes`, `arrows` and `walkthroughs`, each a
+required array that may be empty.
+
+**A `groups[]` entry.** Groups store no geometry: a group's frame is computed from its members
+(Layout, below).
+
+| Field | Value |
+|---|---|
+| `id` | An id (below), unique across `groups`. |
+| `label` | A non-empty string. |
+
+**A `boxes[]` entry.**
+
+| Field | Value |
+|---|---|
+| `id` | An id, unique across `boxes`. |
+| `label` | A non-empty string. |
+| `kind` | `module`, `process`, `agent`, `actor`, `store` or `concept`. |
+| `files` | An array of diagram paths (below), none appearing twice; may be empty. |
+| `group` | Optional. The `id` of a `groups` entry. |
+| `x`, `y` | Optional, and given together or not at all. Safe integers; negative values are allowed. A box without them is placed by the layout. |
+
+**An `arrows[]` entry.**
+
+| Field | Value |
+|---|---|
+| `id` | An id, unique across `arrows`. |
+| `from`, `to` | The `id` of a `boxes` entry each. They may name the same box, and two arrows may join the same pair. |
+| `label` | A string; may be empty. |
+| `why` | A string; may be empty. |
+
+**A `walkthroughs[]` entry.**
+
+| Field | Value |
+|---|---|
+| `name` | A non-empty string, unique across `walkthroughs`. |
+| `steps` | A non-empty array of `{"arrows", "text"}`: `arrows` an array, may be empty, of the `id`s of `arrows` entries; `text` a non-empty string. |
+
+**Ids.** A string matching `^[A-Za-z0-9][A-Za-z0-9_.-]*$`. Group, box and arrow ids are each
+unique within their own collection.
+
+**Diagram paths.** Relative to the root of the run that shows the diagram, with `/` separators:
+a non-empty string with no `\`, not starting with `/` or with a drive letter and `:`, and with
+no empty, `.` or `..` segment, so none ends in `/`. The form is checked as text; whether the
+file exists is not.
+
+**Unknown keys** are refused at every level — the document, every entry and every step —
+unlike the overview document's (§13). Numbers are never read from strings.
+
+**Canonical form.** Every save writes the document in one text layout, so two versions of a
+diagram differ line for line by the elements that changed. The top-level object is indented
+two spaces, with its keys in the order `groups`, `boxes`, `arrows`, `walkthroughs`. Each group,
+box and arrow is one line: the compact JSON of the entry, with its keys in the order of its
+table above and an absent optional key left out, never written as `null`. Each walkthrough is
+a block with `name` on its own line and one compact line per step. An empty array is written
+`[]` on its key's line. Arrays keep their order and are never sorted, and the text ends with
+one newline:
+
+```json
+{
+  "groups": [
+    {"id":"server","label":"Server"}
+  ],
+  "boxes": [
+    {"id":"cli","label":"cli.mjs","kind":"process","files":["server/cli.mjs"],"group":"server","x":60,"y":84},
+    {"id":"skill","label":"annotate skill","kind":"agent","files":[]}
+  ],
+  "arrows": [
+    {"id":"starts","from":"skill","to":"cli","label":"starts","why":"The skill runs the server as a background command."}
+  ],
+  "walkthroughs": [
+    {
+      "name": "Starting a review",
+      "steps": [
+        {"arrows":["starts"],"text":"The skill starts the server."}
+      ]
+    }
+  ]
+}
+```
+
+A document that is valid but not in canonical form is accepted; `diagram --check` reports
+whether a file is canonical (§2) and never rewrites it.
+
+**Layout.** Boxes without a position are placed; when no box has one, every box is placed. A
+positioned box never moves. Ranks run left to right and follow the arrows: an arrow that closes
+a cycle is reversed for ranking, and an arrow from a box to itself is ignored. When no box is
+positioned, the boxes of one group occupy one contiguous band in every rank, and the bands of
+two groups never overlap; in a partly positioned diagram a placed box keeps clear of every
+positioned box, and group contiguity is not promised. A box's size is never stored: its height
+is 46 and its width `min(230, max(120, round(n × 7.4 + 34)))`, `n` the number of code points in
+its label. A group's frame is the bounds of its members' boxes plus 20 on each side and 24 more
+above, for the label; a group with no members has no frame. Positions are integers, and the
+same document always gives the same layout. The spacing between ranks and rows is not part of
+this contract.
+
+**Refusals.** The first violation refuses the file with exit 1 (§3). The reason begins
+`diagram <file>:`, `<file>` the absolute path, and goes on with one of `not found`,
+`not a regular file`, `<x.y> MB is above the 2 MB diagram limit`, `could not be read (<code>)`,
+`not valid JSON (<detail>)`, or the violation itself, named by its location in the document —
+`missing key <location>`, `<location> is not <what it must be>`,
+`<location> has unknown key <key>`, `<location> duplicates <location>`,
+`<location> names no <box|group|arrow> <id>`, or `<location>.x and <location>.y must be given
+together`. The document is checked in this order, which fixes which violation is first: the
+top level, then every group, every box, every arrow and every walkthrough in turn, each entry's
+keys before its fields, then duplicates in each collection, then the references — every box's
+`group`, every arrow's `from` and `to`, every step's `arrows`.
+
+## §16 Open questions
 
 What this contract leaves undecided, each as a question.
 

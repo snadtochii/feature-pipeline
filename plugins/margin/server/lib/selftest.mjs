@@ -8,7 +8,11 @@
 // refresh merging the server copy by ownership, Send, Finish and Cancel with each refusal, and
 // the change wait's backoff, reconnection and end. It checks the viewer's outline model: rows
 // grouped by scope entry and folder, imported-by, candidate membership, bars, the anchor rule per
-// row, note counts, and the route serving it. It checks the note rules (the anchor rule per kind,
+// row, note counts, and the route serving it. It checks the diagram model: a document rebuilt in
+// canonical key order, each refusal, the canonical text and its byte-identical round trip, a
+// layout that is deterministic, never moves a positioned box, ranks through cycles and keeps each
+// group's members contiguous inside frames that are their bounds, and the diagram file's reading
+// refusals and size limit. It checks the note rules (the anchor rule per kind,
 // a new candidate note outside the overview refusing the write, range validity, the excerpt cap),
 // resuming a notes file (a stored note keeps its anchor; rounds and note rounds restore; a file
 // without rounds is round 0; the refusals), the atomic save, the sent-note lock, a Send withholding
@@ -29,8 +33,9 @@
 // from dated commits in a temporary repository, the hotspot table, explorer blocks parsed and
 // dropped, roles merged, each notice, and the size limit. Through `cli.mjs` children it checks
 // the command's own refusals (children that must exit before serving, `wait`'s invocation
-// refusals, each `--overview` refusal leaving `--out` as it was, and the `measure` and
-// `assemble` refusals writing nothing) and end-to-end runs: a submit, a `wait` child, finish,
+// refusals, each `--overview` refusal leaving `--out` as it was, the `measure` and
+// `assemble` refusals writing nothing, and `diagram --check` exiting 0, 1 and 2 with the file
+// left as it was) and end-to-end runs: a submit, a `wait` child, finish,
 // and exactly one result document, a run ended by SIGTERM, a run serving its overview and
 // sending a candidate note, and
 // `measure` then `assemble` writing an overview the shape check accepts.
@@ -435,6 +440,74 @@ function expectedOverview(root) {
 // import itself proves the module touches no DOM when it loads: Node has none.
 const loadRounds = () => import('../../ui/rounds.js');
 const loadOverviewModel = () => import('../../ui/overview.js');
+const loadDiagramModel = () => import('../../ui/diagram.js');
+const loadDiagramReader = () => import('./diagram.mjs');
+
+// ---- the diagram model (ui/diagram.js) --------------------------------------------------------
+
+const diagramBox = (id, extra = {}) => ({ id, label: id.toUpperCase(), kind: 'module', files: [], ...extra });
+const diagramArrow = (id, from, to) => ({ id, from, to, label: '', why: '' });
+const diagramOf = (parts) => ({ groups: [], boxes: [], arrows: [], walkthroughs: [], ...parts });
+
+// Every field present somewhere, every entry's keys written out of canonical order, one box with
+// both optional fields and one with neither, and a group with no members.
+function diagramFixture() {
+  return {
+    walkthroughs: [{ steps: [{ text: 'The skill starts the server.', arrows: ['starts'] }, { arrows: [], text: 'It waits.' }], name: 'Starting a review' }],
+    arrows: [{ why: 'The skill runs it in the background.', label: 'starts', to: 'cli', from: 'skill', id: 'starts' }],
+    boxes: [
+      { y: 84, x: 60, group: 'server', files: ['server/cli.mjs'], kind: 'process', label: 'cli.mjs', id: 'cli' },
+      { files: [], kind: 'agent', label: 'annotate skill', id: 'skill' },
+    ],
+    groups: [{ label: 'Server', id: 'server' }, { label: 'Empty', id: 'empty' }],
+  };
+}
+
+const DIAGRAM_FIXTURE_TEXT = [
+  '{',
+  '  "groups": [',
+  '    {"id":"server","label":"Server"},',
+  '    {"id":"empty","label":"Empty"}',
+  '  ],',
+  '  "boxes": [',
+  '    {"id":"cli","label":"cli.mjs","kind":"process","files":["server/cli.mjs"],"group":"server","x":60,"y":84},',
+  '    {"id":"skill","label":"annotate skill","kind":"agent","files":[]}',
+  '  ],',
+  '  "arrows": [',
+  '    {"id":"starts","from":"skill","to":"cli","label":"starts","why":"The skill runs it in the background."}',
+  '  ],',
+  '  "walkthroughs": [',
+  '    {',
+  '      "name": "Starting a review",',
+  '      "steps": [',
+  '        {"arrows":["starts"],"text":"The skill starts the server."},',
+  '        {"arrows":[],"text":"It waits."}',
+  '      ]',
+  '    }',
+  '  ]',
+  '}',
+  '',
+].join('\n');
+
+async function assertDiagramRefuses(value, message, what) {
+  const { DiagramViolation, checkDiagram } = await loadDiagramModel();
+  try {
+    checkDiagram(value);
+  } catch (err) {
+    assert(err instanceof DiagramViolation, `${what}: expected a DiagramViolation, got ${err.constructor.name}: ${err.message}`);
+    assertEqual(err.message, message, what);
+    return;
+  }
+  throw new CaseFailure(`${what}: expected "${message}", nothing was thrown`);
+}
+
+const positionsOf = (doc) => doc.boxes.map((box) => [box.id, box.x, box.y]);
+
+function gapBetween(a, b) {
+  const dx = Math.max(b.x - (a.x + a.w), a.x - (b.x + b.w));
+  const dy = Math.max(b.y - (a.y + a.h), a.y - (b.y + b.h));
+  return Math.max(dx, dy);
+}
 
 // An error the way the viewer's `api` throws one.
 function apiError(status, message) {
@@ -1350,6 +1423,250 @@ const CASES = [
     const good = write(dir, 'good.json', JSON.stringify(overviewFixture(OVERVIEW_ROOT)));
     assertEqual(readOverview(good), expectedOverview(OVERVIEW_ROOT), 'a valid overview file');
   })],
+  ['diagram: the check accepts a document and rebuilds it in canonical key order', async () => {
+    const { checkDiagram } = await loadDiagramModel();
+    const input = diagramFixture();
+    const checked = checkDiagram(input);
+    assertEqual(checked, {
+      groups: [{ id: 'server', label: 'Server' }, { id: 'empty', label: 'Empty' }],
+      boxes: [
+        { id: 'cli', label: 'cli.mjs', kind: 'process', files: ['server/cli.mjs'], group: 'server', x: 60, y: 84 },
+        { id: 'skill', label: 'annotate skill', kind: 'agent', files: [] },
+      ],
+      arrows: [{ id: 'starts', from: 'skill', to: 'cli', label: 'starts', why: 'The skill runs it in the background.' }],
+      walkthroughs: [{ name: 'Starting a review', steps: [{ arrows: ['starts'], text: 'The skill starts the server.' }, { arrows: [], text: 'It waits.' }] }],
+    }, 'the checked document');
+    assertEqual(Object.keys(checked), ['groups', 'boxes', 'arrows', 'walkthroughs'], 'top-level key order');
+    assertEqual(Object.keys(checked.groups[0]), ['id', 'label'], 'group key order');
+    assertEqual(Object.keys(checked.boxes[0]), ['id', 'label', 'kind', 'files', 'group', 'x', 'y'], 'positioned box key order');
+    assertEqual(Object.keys(checked.boxes[1]), ['id', 'label', 'kind', 'files'], 'a box without the optional keys');
+    assertEqual(Object.keys(checked.arrows[0]), ['id', 'from', 'to', 'label', 'why'], 'arrow key order');
+    assertEqual(Object.keys(checked.walkthroughs[0]), ['name', 'steps'], 'walkthrough key order');
+    assertEqual(Object.keys(checked.walkthroughs[0].steps[0]), ['arrows', 'text'], 'step key order');
+    input.boxes[0].files.push('other.js');
+    input.walkthroughs[0].steps[0].arrows.push('starts');
+    assertEqual(checked.boxes[0].files, ['server/cli.mjs'], 'the checked files alias the input');
+    assertEqual(checked.walkthroughs[0].steps[0].arrows, ['starts'], 'the checked step arrows alias the input');
+    assertEqual(checkDiagram(diagramOf({})), diagramOf({}), 'an empty diagram');
+    const loops = diagramOf({ boxes: [diagramBox('a'), diagramBox('b', { x: -40, y: 0 })], arrows: [diagramArrow('1', 'a', 'a'), diagramArrow('2', 'a', 'b'), diagramArrow('3', 'a', 'b')] });
+    assertEqual(checkDiagram(structuredClone(loops)), loops, 'a self-loop, parallel arrows and a negative position');
+  }],
+  ['diagram: the check refuses each violation', async () => {
+    const cases = [
+      [() => null, 'the document is not an object'],
+      [(d) => [d], 'the document is not an object'],
+      [(d) => { d.title = 'x'; }, 'the document has unknown key title'],
+      [(d) => { delete d.arrows; }, 'missing key arrows'],
+      [(d) => { d.boxes = {}; }, 'boxes is not an array'],
+      [(d) => { d.groups[0].frame = {}; }, 'groups[0] has unknown key frame'],
+      [(d) => { d.boxes[1].width = 120; }, 'boxes[1] has unknown key width'],
+      [(d) => { d.boxes[0] = { bogus: 1 }; }, 'boxes[0] has unknown key bogus'],
+      [(d) => { d.arrows[0].kind = 'call'; }, 'arrows[0] has unknown key kind'],
+      [(d) => { d.walkthroughs[0].id = 'w'; }, 'walkthroughs[0] has unknown key id'],
+      [(d) => { d.walkthroughs[0].steps[1].box = 'cli'; }, 'walkthroughs[0].steps[1] has unknown key box'],
+      [(d) => { d.boxes[1] = 'skill'; }, 'boxes[1] is not an object'],
+      [(d) => { d.walkthroughs[0].steps[0] = null; }, 'walkthroughs[0].steps[0] is not an object'],
+      [(d) => { d.groups[1].id = 'server'; }, 'groups[1].id duplicates groups[0].id'],
+      [(d) => { d.boxes[1].id = 'cli'; }, 'boxes[1].id duplicates boxes[0].id'],
+      [(d) => { d.arrows.push(structuredClone(d.arrows[0])); }, 'arrows[1].id duplicates arrows[0].id'],
+      [(d) => { d.walkthroughs.push(structuredClone(d.walkthroughs[0])); }, 'walkthroughs[1].name duplicates walkthroughs[0].name'],
+      [(d) => { d.arrows[0].from = 'nobody'; }, 'arrows[0].from names no box nobody'],
+      [(d) => { d.arrows[0].to = 'nowhere'; }, 'arrows[0].to names no box nowhere'],
+      [(d) => { d.boxes[1].group = 'ghost'; }, 'boxes[1].group names no group ghost'],
+      [(d) => { d.walkthroughs[0].steps[0].arrows = ['starts', 'gone']; }, 'walkthroughs[0].steps[0].arrows[1] names no arrow gone'],
+      [(d) => { d.boxes[0].kind = 'service'; }, 'boxes[0].kind is not one of module, process, agent, actor, store, concept'],
+      [(d) => { d.boxes[0].x = 1.5; }, 'boxes[0].x is not a safe integer'],
+      [(d) => { d.boxes[0].y = '84'; }, 'boxes[0].y is not a safe integer'],
+      [(d) => { d.boxes[0].x = 2 ** 53; }, 'boxes[0].x is not a safe integer'],
+      [(d) => { delete d.boxes[0].y; }, 'boxes[0].x and boxes[0].y must be given together'],
+      [(d) => { d.boxes[1].y = 3; }, 'boxes[1].x and boxes[1].y must be given together'],
+      [(d) => { d.boxes[1].id = '-skill'; }, 'boxes[1].id is not an id'],
+      [(d) => { d.arrows[0].id = 'a b'; }, 'arrows[0].id is not an id'],
+      [(d) => { d.groups[0].id = 3; }, 'groups[0].id is not an id'],
+      [(d) => { d.groups[0].label = ''; }, 'groups[0].label is not a non-empty string'],
+      [(d) => { delete d.boxes[0].label; }, 'missing key boxes[0].label'],
+      [(d) => { d.arrows[0].why = null; }, 'arrows[0].why is not a string'],
+      [(d) => { d.boxes[0].files = 'server/cli.mjs'; }, 'boxes[0].files is not an array'],
+      [(d) => { d.boxes[0].files = ['/abs/cli.mjs']; }, 'boxes[0].files[0] is not a diagram path'],
+      [(d) => { d.boxes[0].files = ['a.js', 'server/../cli.mjs']; }, 'boxes[0].files[1] is not a diagram path'],
+      [(d) => { d.boxes[0].files = ['server\\cli.mjs']; }, 'boxes[0].files[0] is not a diagram path'],
+      [(d) => { d.boxes[0].files = ['C:/server/cli.mjs']; }, 'boxes[0].files[0] is not a diagram path'],
+      [(d) => { d.boxes[0].files = ['server/']; }, 'boxes[0].files[0] is not a diagram path'],
+      [(d) => { d.boxes[0].files = ['./cli.mjs']; }, 'boxes[0].files[0] is not a diagram path'],
+      [(d) => { d.boxes[0].files = ['']; }, 'boxes[0].files[0] is not a diagram path'],
+      [(d) => { d.boxes[0].files = ['a.js', 'b.js', 'a.js']; }, 'boxes[0].files[2] duplicates boxes[0].files[0]'],
+      [(d) => { d.walkthroughs[0].steps = []; }, 'walkthroughs[0].steps is not a non-empty array'],
+      [(d) => { d.walkthroughs[0].name = ''; }, 'walkthroughs[0].name is not a non-empty string'],
+      [(d) => { d.walkthroughs[0].steps[1].text = ''; }, 'walkthroughs[0].steps[1].text is not a non-empty string'],
+      [(d) => { d.walkthroughs[0].steps[0].arrows = [3]; }, 'walkthroughs[0].steps[0].arrows[0] is not an id'],
+      [(d) => { d.groups[0].label = ''; d.boxes[0].kind = 'service'; }, 'groups[0].label is not a non-empty string'],
+      [(d) => { d.boxes[1].group = 'ghost'; d.groups[1].id = 'server'; }, 'groups[1].id duplicates groups[0].id'],
+    ];
+    for (const [mutate, message] of cases) {
+      const doc = diagramFixture();
+      const replaced = mutate(doc);
+      await assertDiagramRefuses(replaced === undefined ? doc : replaced, message, message);
+    }
+    const text = JSON.stringify(diagramFixture());
+    await assertDiagramRefuses(JSON.parse(`{"__proto__": {"polluted": true}, ${text.slice(1)}`), 'the document has unknown key __proto__', 'a top-level __proto__ key');
+    await assertDiagramRefuses(JSON.parse(text.replace('"files":[],', '"__proto__":{},"files":[],')), 'boxes[1] has unknown key __proto__', 'a __proto__ key on a box');
+  }],
+  ['diagram: canonical serialization is fixed and round-trips byte for byte', async () => {
+    const { checkDiagram, serializeDiagram } = await loadDiagramModel();
+    assertEqual(serializeDiagram(checkDiagram(diagramFixture())), DIAGRAM_FIXTURE_TEXT, 'the canonical text of the fixture');
+    assertEqual(serializeDiagram(diagramOf({})), '{\n  "groups": [],\n  "boxes": [],\n  "arrows": [],\n  "walkthroughs": []\n}\n', 'an empty diagram');
+    const awkward = checkDiagram(diagramOf({
+      groups: [{ id: 'g', label: 'Group "one"' }],
+      boxes: [
+        { label: 'Ünïcode\nbox', id: 'a', kind: 'store', files: ['b.js', 'a.js'], group: 'g' },
+        { id: 'b', label: 'B', kind: 'actor', files: [], x: -5, y: 0 },
+      ],
+      walkthroughs: [{ name: 'W', steps: [{ arrows: [], text: 'one' }, { text: 'two', arrows: [] }] }, { name: 'V', steps: [{ arrows: [], text: 'v' }] }],
+    }));
+    const expected = [
+      '{',
+      '  "groups": [',
+      String.raw`    {"id":"g","label":"Group \"one\""}`,
+      '  ],',
+      '  "boxes": [',
+      String.raw`    {"id":"a","label":"Ünïcode\nbox","kind":"store","files":["b.js","a.js"],"group":"g"},`,
+      '    {"id":"b","label":"B","kind":"actor","files":[],"x":-5,"y":0}',
+      '  ],',
+      '  "arrows": [],',
+      '  "walkthroughs": [',
+      '    {',
+      '      "name": "W",',
+      '      "steps": [',
+      '        {"arrows":[],"text":"one"},',
+      '        {"arrows":[],"text":"two"}',
+      '      ]',
+      '    },',
+      '    {',
+      '      "name": "V",',
+      '      "steps": [',
+      '        {"arrows":[],"text":"v"}',
+      '      ]',
+      '    }',
+      '  ]',
+      '}',
+      '',
+    ].join('\n');
+    const text = serializeDiagram(awkward);
+    assertEqual(text, expected, 'quotes, a line break, non-ASCII, unsorted files and two walkthroughs');
+    assertEqual(serializeDiagram(checkDiagram(JSON.parse(text))), text, 'serialize → parse → serialize');
+    assertEqual(serializeDiagram(checkDiagram(JSON.parse(DIAGRAM_FIXTURE_TEXT))), DIAGRAM_FIXTURE_TEXT, 'the fixture text round trip');
+    const moved = { ...awkward, boxes: [{ y: 2, x: 1, group: 'g', files: [], kind: 'module', label: 'L', id: 'z' }] };
+    assert(serializeDiagram(moved).includes('\n    {"id":"z","label":"L","kind":"module","files":[],"group":"g","x":1,"y":2}\n'), 'the serializer did not write a box in canonical key order');
+  }],
+  ['diagram: layout is deterministic and places every box when none is positioned', async () => {
+    const { boxSize, checkDiagram, layoutDiagram } = await loadDiagramModel();
+    assertEqual(boxSize({ label: 'ab' }), { w: 120, h: 46 }, 'a short label');
+    assertEqual(boxSize({ label: 'x'.repeat(20) }), { w: 182, h: 46 }, 'a 20-character label');
+    assertEqual(boxSize({ label: 'x'.repeat(30) }), { w: 230, h: 46 }, 'a long label');
+    assertEqual(boxSize({ label: '😀'.repeat(20) }), { w: 182, h: 46 }, 'a label counted in code points');
+    const chain = checkDiagram(diagramOf({
+      boxes: ['a', 'b', 'c', 'd'].map((id) => diagramBox(id)),
+      arrows: [diagramArrow('1', 'a', 'b'), diagramArrow('2', 'b', 'c'), diagramArrow('3', 'c', 'd')],
+    }));
+    const before = structuredClone(chain);
+    const laid = layoutDiagram(chain);
+    assertEqual(positionsOf(laid), [['a', 60, 84], ['b', 390, 84], ['c', 720, 84], ['d', 1050, 84]], 'a four-box chain');
+    assertEqual(chain, before, 'the layout changed its input');
+    assertEqual(layoutDiagram(chain), laid, 'a second layout of the same document');
+    assertEqual(Object.keys(laid.boxes[0]), ['id', 'label', 'kind', 'files', 'x', 'y'], 'a placed box keeps canonical key order');
+    const diamond = checkDiagram(diagramOf({
+      boxes: ['a', 'b', 'c', 'd'].map((id) => diagramBox(id)),
+      arrows: [diagramArrow('1', 'a', 'b'), diagramArrow('2', 'a', 'c'), diagramArrow('3', 'b', 'd'), diagramArrow('4', 'c', 'd'), diagramArrow('5', 'a', 'd')],
+    }));
+    const placed = layoutDiagram(diamond);
+    assertEqual(positionsOf(placed), [['a', 60, 84], ['b', 390, 84], ['c', 390, 164], ['d', 720, 84]], 'a diamond with an arrow spanning two ranks');
+    assert(placed.boxes.every((box) => Number.isInteger(box.x) && Number.isInteger(box.y)), 'a position is not an integer');
+    assertEqual(layoutDiagram(diagramOf({})), diagramOf({}), 'an empty diagram');
+  }],
+  ['diagram: layout never moves a positioned box', async () => {
+    const { boxSize, checkDiagram, layoutDiagram } = await loadDiagramModel();
+    const mixed = checkDiagram(diagramOf({
+      boxes: [diagramBox('a', { x: 60, y: 150 }), diagramBox('b'), diagramBox('c'), diagramBox('d', { x: 2000, y: 2000 })],
+      arrows: [diagramArrow('1', 'a', 'b')],
+    }));
+    const laid = layoutDiagram(mixed);
+    assertEqual(positionsOf(laid), [['a', 60, 150], ['b', 390, 84], ['c', 60, 244], ['d', 2000, 2000]], 'a partly positioned diagram');
+    const rect = (box) => ({ x: box.x, y: box.y, ...boxSize(box) });
+    for (const placedBox of laid.boxes.filter((_, i) => mixed.boxes[i].x === undefined)) {
+      for (const fixed of laid.boxes.filter((_, i) => mixed.boxes[i].x !== undefined)) {
+        assert(gapBetween(rect(placedBox), rect(fixed)) >= 24, `${placedBox.id} is within 24 of the positioned ${fixed.id}`);
+      }
+    }
+    assertEqual(positionsOf(layoutDiagram(mixed, { all: true })), [['a', 60, 84], ['b', 390, 84], ['c', 60, 164], ['d', 60, 244]], 'all: true lays out every box');
+    const fixed = checkDiagram(diagramOf({ boxes: [diagramBox('a', { x: 5, y: -7 }), diagramBox('b', { x: 5, y: -7 })], arrows: [diagramArrow('1', 'a', 'b')] }));
+    const kept = layoutDiagram(fixed);
+    assertEqual(kept, fixed, 'a fully positioned diagram');
+    assert(kept !== fixed && kept.boxes[0] !== fixed.boxes[0], 'the layout returned its input rather than a copy');
+  }],
+  ['diagram: layout ranks through cycles and self-loops', async () => {
+    const { checkDiagram, layoutDiagram } = await loadDiagramModel();
+    const two = checkDiagram(diagramOf({
+      boxes: [diagramBox('a'), diagramBox('b')],
+      arrows: [diagramArrow('1', 'a', 'b'), diagramArrow('2', 'b', 'a'), diagramArrow('3', 'a', 'b')],
+    }));
+    assertEqual(positionsOf(layoutDiagram(two)), [['a', 60, 84], ['b', 390, 84]], 'a two-cycle with a parallel arrow');
+    const three = checkDiagram(diagramOf({
+      boxes: [diagramBox('a'), diagramBox('b'), diagramBox('c')],
+      arrows: [diagramArrow('1', 'a', 'b'), diagramArrow('2', 'b', 'c'), diagramArrow('3', 'c', 'a'), diagramArrow('4', 'c', 'c')],
+    }));
+    assertEqual(positionsOf(layoutDiagram(three)), [['a', 60, 84], ['b', 390, 84], ['c', 720, 84]], 'a three-cycle with a self-loop');
+    const alone = checkDiagram(diagramOf({ boxes: [diagramBox('a')], arrows: [diagramArrow('1', 'a', 'a')] }));
+    assertEqual(positionsOf(layoutDiagram(alone)), [['a', 60, 84]], 'a box whose only arrow is to itself');
+  }],
+  ['diagram: group members stay contiguous and frames are their bounds', async () => {
+    const { checkDiagram, groupFrames, layoutDiagram } = await loadDiagramModel();
+    const grouped = checkDiagram(diagramOf({
+      groups: [{ id: 'g1', label: 'One' }, { id: 'g2', label: 'Two' }, { id: 'g3', label: 'Empty' }],
+      boxes: [diagramBox('a', { group: 'g2' }), diagramBox('b', { group: 'g1' }), diagramBox('c', { group: 'g2' }), diagramBox('d'), diagramBox('e', { group: 'g1' })],
+      arrows: [diagramArrow('1', 'a', 'b'), diagramArrow('2', 'a', 'c'), diagramArrow('3', 'd', 'e'), diagramArrow('4', 'c', 'e')],
+    }));
+    const laid = layoutDiagram(grouped);
+    assertEqual(positionsOf(laid), [['a', 60, 244], ['b', 390, 84], ['c', 390, 244], ['d', 60, 404], ['e', 720, 84]], 'two groups across three ranks and an ungrouped box');
+    const columns = new Map();
+    for (const box of laid.boxes) {
+      columns.set(box.x, [...(columns.get(box.x) ?? []), box]);
+    }
+    for (const [x, column] of columns) {
+      const runs = column.sort((p, q) => p.y - q.y).map((box) => box.group ?? '-').filter((group, i, all) => i === 0 || all[i - 1] !== group);
+      assert(new Set(runs).size === runs.length, `the column at x ${x} splits a group: ${runs.join(' ')}`);
+    }
+    const frames = groupFrames(laid);
+    assertEqual(frames, [{ id: 'g1', x: 370, y: 40, w: 490, h: 110 }, { id: 'g2', x: 40, y: 200, w: 490, h: 110 }], 'the frames, the empty group without one');
+    const [one, two] = frames;
+    assert(gapBetween(one, two) > 0, 'two group frames overlap');
+    assertEqual(groupFrames(diagramOf({ groups: [{ id: 'g', label: 'G' }] })), [], 'a diagram without boxes');
+  }],
+  ['diagram: reading refusals, the size limit and the canonical flag', () => withTemp(async (dir) => {
+    const { checkDiagram } = await loadDiagramModel();
+    const { MAX_DIAGRAM_BYTES, readDiagram } = await loadDiagramReader();
+    assert(MAX_DIAGRAM_BYTES === 2097152, `the diagram limit is ${MAX_DIAGRAM_BYTES} bytes`);
+    const missing = path.join(dir, 'missing.json');
+    throwsRun(() => readDiagram(missing), 1, `diagram ${missing}: not found`);
+    throwsRun(() => readDiagram(path.join(dir, 'missing', 'x.json')), 1, 'not found');
+    fs.mkdirSync(path.join(dir, 'folder'));
+    throwsRun(() => readDiagram(path.join(dir, 'folder')), 1, 'folder: not a regular file');
+    const big = write(dir, 'big.json', Buffer.alloc(MAX_DIAGRAM_BYTES + 1, ' '));
+    throwsRun(() => readDiagram(big), 1, 'big.json: 2.0 MB is above the 2 MB diagram limit');
+    const broken = write(dir, 'broken.json', '{');
+    throwsRun(() => readDiagram(broken), 1, `diagram ${broken}: not valid JSON`);
+    const shape = write(dir, 'shape.json', '[]');
+    throwsRun(() => readDiagram(shape), 1, `diagram ${shape}: the document is not an object`);
+    const unknown = diagramFixture();
+    unknown.boxes[0].w = 120;
+    const refused = write(dir, 'refused.json', JSON.stringify(unknown));
+    throwsRun(() => readDiagram(refused), 1, `diagram ${refused}: boxes[0] has unknown key w`);
+    const canonical = write(dir, 'canonical.diagram.json', DIAGRAM_FIXTURE_TEXT);
+    assertEqual(readDiagram(canonical), { document: checkDiagram(diagramFixture()), canonical: true }, 'a canonical file');
+    const pretty = write(dir, 'pretty.diagram.json', `${JSON.stringify(checkDiagram(diagramFixture()), null, 2)}\n`);
+    assertEqual(readDiagram(pretty).canonical, false, 'a two-space JSON file');
+    const bare = write(dir, 'bare.diagram.json', DIAGRAM_FIXTURE_TEXT.slice(0, -1));
+    assertEqual(readDiagram(bare).canonical, false, 'canonical text without its trailing newline');
+  })],
   ['overview: the route serves the document behind the token, 404 without one', async () => {
     await withServer(async ({ port, host }) => {
       const noToken = await request(port, { target: '/api/overview', headers: { host } });
@@ -2255,6 +2572,38 @@ const CASES = [
     assertErrorDoc(runCli(['assemble', '--measurements', dangling, '--out', out]), 1, 'assembled overview: files[0].imports[0] is not an overview file', 'a measurement with a dangling import');
     assert(fs.readFileSync(out, 'utf8') === kept, 'a refused assemble rewrote --out');
     assertEqual(fs.readdirSync(root), ['a.txt'], 'files under the root after the refusals');
+  })],
+  ['cli: diagram --check exits 0, 1 and 2 and leaves the file as it was', () => withTemp((dir) => {
+    const good = write(dir, 'good.diagram.json', DIAGRAM_FIXTURE_TEXT);
+    const expected = { status: 'ok', file: good, canonical: true, groups: 2, boxes: 2, arrows: 1, walkthroughs: 1 };
+    for (const args of [['diagram', '--check', good], ['diagram', good, '--check']]) {
+      const res = runCli(args);
+      assert(res.status === 0, `${args.join(' ')} exited ${res.status}: ${res.stdout}`);
+      assertEqual(res.doc, expected, `the diagram document for ${args.join(' ')}`);
+      assertEqual(Object.keys(res.doc), ['status', 'file', 'canonical', 'groups', 'boxes', 'arrows', 'walkthroughs'], 'diagram document key order');
+      assert(res.stdout.endsWith('}\n') && !res.stdout.endsWith('\n\n'), 'the diagram document has not one trailing newline');
+      assertEqual(res.stderr, '', 'diagram stderr');
+    }
+    const pretty = write(dir, 'pretty.diagram.json', `${JSON.stringify(JSON.parse(DIAGRAM_FIXTURE_TEXT), null, 2)}\n`);
+    assertEqual(runCli(['diagram', '--check', pretty]).doc, { ...expected, file: pretty, canonical: false }, 'a valid file that is not canonical');
+    const missing = path.join(dir, 'missing.diagram.json');
+    assertErrorDoc(runCli(['diagram', '--check', missing]), 1, `diagram ${missing}: not found`, 'a missing diagram file');
+    const unknown = diagramFixture();
+    unknown.arrows[0].weight = 2;
+    const refused = write(dir, 'refused.diagram.json', JSON.stringify(unknown));
+    assertErrorDoc(runCli(['diagram', '--check', refused]), 1, `diagram ${refused}: arrows[0] has unknown key weight`, 'a refused diagram file');
+    for (const [args, fragment] of [
+      [['diagram', good], 'diagram needs --check'],
+      [['diagram', '--check'], 'usage: cli.mjs diagram --check <file>'],
+      [['diagram', '--check', good, good], 'usage: cli.mjs diagram --check <file>'],
+      [['diagram', '--check', ''], 'bad <file>: empty'],
+      [['diagram', '--check=yes', good], "'--check' does not take an argument"],
+      [['diagram', '--check', '--wide', good], "'--wide'"],
+    ]) {
+      assertErrorDoc(runCli(args), 2, fragment, args.join(' '));
+    }
+    assert(fs.readFileSync(good, 'utf8') === DIAGRAM_FIXTURE_TEXT, 'diagram --check changed the file');
+    assertEqual(fs.readdirSync(dir).sort(), ['good.diagram.json', 'pretty.diagram.json', 'refused.diagram.json'], 'files after diagram --check');
   })],
   ['cli: --explorer-unavailable gives its reason as the candidates notice; its refusals write nothing', () => withTemp((dir) => {
     const root = path.join(dir, 'repo');
