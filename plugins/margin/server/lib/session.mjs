@@ -112,11 +112,12 @@ function restoreRounds(stored, out) {
 }
 
 // The session a run serves: the resumed notes, or a fresh record at round 0, as a `draft` over
-// `root` and `scope` that saves to `out`.
-export function createSession({ stored, out, root, scope, revision }) {
+// `root` and `scope` that saves to `out`. `diagram` is the absolute path of the run's diagram
+// file, or null; a resume reads it back from the stored file (CONTRACT §5).
+export function createSession({ stored, out, root, scope, revision, diagram = null }) {
   const now = new Date().toISOString();
   const session = stored ? restoreSession(stored, out) : { version: 1, createdAt: now, overall: '', overallReplies: [], round: 0, rounds: [], annotations: [] };
-  return Object.assign(session, { status: 'draft', root, scope, out, revision, updatedAt: now });
+  return Object.assign(session, { status: 'draft', root, scope, diagram, out, revision, updatedAt: now });
 }
 
 // Writes `text` to a temporary file in the same directory as `file`, then renames it over

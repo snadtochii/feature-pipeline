@@ -2,13 +2,14 @@
 // a file, checks it with the shared model in `ui/diagram.js`, and reports whether its text is
 // already canonical. Every refusal is a `RunError` with exit 1, so `cli.mjs` stays the only
 // place that exits; the model stays free of Node so the viewer can load it too. `linkedFiles`
-// is a diagram session's listing (CONTRACT §10), `diagramSessionInputs` everything a diagram
-// session reads before its port is bound (CONTRACT §1), and `diagramWriter` its save.
+// is a diagram session's listing (CONTRACT §10), `runListing` an `annotate` run's,
+// `diagramSessionInputs` everything a diagram session reads before its port is bound
+// (CONTRACT §1), and `diagramWriter` its save.
 
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DiagramViolation, checkDiagram, serializeDiagram } from '../../ui/diagram.js';
-import { gitRoot, listPaths } from './files.mjs';
+import { gitRoot, listFiles, listPaths } from './files.mjs';
 import { RunError, writeAtomic } from './session.mjs';
 
 export const MAX_DIAGRAM_BYTES = 2 * 1024 * 1024;
@@ -100,6 +101,20 @@ export function diagramWriter(file, text) {
 // Every path a box of `document` links that is a regular file under `root`, without `ownFiles`.
 export function linkedFiles(root, document, ownFiles = []) {
   return listPaths(root, document.boxes.flatMap((box) => box.files), ownFiles);
+}
+
+// An `annotate` run's listing (CONTRACT §10). Without a diagram it is the scope's; with one, an
+// empty scope lists the diagram's linked files instead of the whole root, and a scope lists its
+// files and the linked ones together.
+export function runListing(root, scope, ownFiles, document) {
+  if (document === null) {
+    return listFiles(root, scope, ownFiles);
+  }
+  const linked = linkedFiles(root, document, ownFiles);
+  if (scope.length === 0) {
+    return linked;
+  }
+  return [...new Set([...listFiles(root, scope, ownFiles), ...linked])].sort();
 }
 
 function isDirectory(dir) {

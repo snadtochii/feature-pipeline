@@ -2,7 +2,7 @@
 // margin annotation server: `cli.mjs`.
 //
 // Usage:
-//   cli.mjs annotate --root <abs-dir> [--scope <path>]... [--out <abs-file>] [--overview <file>] [--port <n>] [--token <hex>] [--no-open]
+//   cli.mjs annotate --root <abs-dir> [--scope <path>]... [--out <abs-file>] [--overview <file>] [--diagram <file>] [--port <n>] [--token <hex>] [--no-open]
 //   cli.mjs wait <url> [--after <n>]
 //   cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>
 //   cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file> | --explorer-unavailable <reason>] --out <file>
@@ -21,6 +21,9 @@
 // Every /api call must carry the per-run token; it is random unless --token sets it, which
 // lets a caller know the viewer URL before this process prints it.
 // --overview names an overview document, checked when the run starts and served to the viewer.
+// --diagram names a diagram file, checked when the run starts and shown read-only; its boxes
+// and arrows take notes, the files they link join the listing, and the notes file records its
+// path, so a resume reopens it unless --diagram is given.
 //
 // `wait` takes the URL `annotate` printed on stderr, blocks until the next round is sent or
 // the run ends, and prints one wait document. --after is the last round the caller has seen.
@@ -46,8 +49,8 @@ import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { assembleOverview, readMeasurement, readOptional, serialiseOverview } from './lib/assemble.mjs';
-import { diagramSessionInputs, diagramWriter, readDiagram } from './lib/diagram.mjs';
-import { listFiles, readSource, revision } from './lib/files.mjs';
+import { diagramSessionInputs, diagramWriter, readDiagram, runListing } from './lib/diagram.mjs';
+import { readSource, revision } from './lib/files.mjs';
 import { measureScope } from './lib/measure.mjs';
 import { readOverview } from './lib/overview.mjs';
 import { startServer } from './lib/server.mjs';
@@ -62,7 +65,7 @@ const DIAGRAM_USAGE = [
   '       cli.mjs diagram <file> [--root <dir>] [--port <n>] [--token <hex>] [--no-open]',
 ].join('\n');
 const USAGE = [
-  'usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--overview <file>] [--port <n>] [--token <hex>] [--no-open]',
+  'usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--overview <file>] [--diagram <file>] [--port <n>] [--token <hex>] [--no-open]',
   ...[WAIT_USAGE, MEASURE_USAGE, ASSEMBLE_USAGE, DIAGRAM_USAGE].map((line) => `       ${line.slice('usage: '.length)}`),
 ].join('\n');
 
@@ -111,6 +114,7 @@ async function annotate(argv) {
         scope: { type: 'string', multiple: true, default: [] },
         out: { type: 'string' },
         overview: { type: 'string' },
+        diagram: { type: 'string' },
         port: { type: 'string', default: '0' },
         token: { type: 'string' },
         'no-open': { type: 'boolean', default: false },
@@ -127,24 +131,31 @@ async function annotate(argv) {
   if (values.overview === '') {
     fail('bad --overview: empty', 2);
   }
+  if (values.diagram === '') {
+    fail('bad --diagram: empty', 2);
+  }
   const overviewFile = values.overview === undefined ? null : resolve(values.overview);
 
-  // On a resume the notes file is the record of what was being reviewed: its root and scope
-  // apply unless the caller names them explicitly.
+  // On a resume the notes file is the record of what was being reviewed: its root, scope and
+  // diagram apply unless the caller names them explicitly.
   const stored = values.out ? readStored(resolve(values.out)) : null;
   const root = resolve(values.root ?? (typeof stored?.root === 'string' ? stored.root : process.cwd()));
   const scopeArgs = values.scope.length > 0 ? values.scope : Array.isArray(stored?.scope) ? stored.scope : [];
   const scope = scopeArgs.map((raw) => scopePath(root, raw));
   const out = resolve(values.out ?? join(root, 'claudedocs', 'margin', `${stamp()}.json`));
-  const own = overviewFile ? [out, overviewFile] : [out];
-  const files = listFiles(root, scope, own);
-  if (files.length === 0) {
+  const diagramFile = values.diagram !== undefined ? resolve(values.diagram) : typeof stored?.diagram === 'string' ? stored.diagram : null;
+  const document = diagramFile ? readDiagram(diagramFile).document : null;
+  const own = [out, overviewFile, diagramFile].filter((file) => file !== null);
+  const files = runListing(root, scope, own, document);
+  if (files.length === 0 && document === null) {
     fail(`no files under ${scope.join(', ') || root}`, 1);
   }
 
-  const session = createSession({ stored, out, root, scope, revision: revision(root) });
+  const session = createSession({ stored, out, root, scope, revision: revision(root), diagram: diagramFile });
   const overview = overviewFile ? readOverview(overviewFile) : null;
   const save = () => saveSession(session);
+  const scopeText = scope.length > 0 ? scope.join(', ') : document ? 'diagram links' : '.';
+  const diagramLine = diagramFile ? `  diagram: ${diagramFile}\n` : '';
 
   await serve(
     {
@@ -153,12 +164,13 @@ async function annotate(argv) {
       session,
       files,
       readSource: (path) => readSource(root, path),
-      relist: () => listFiles(root, scope, own),
+      relist: () => runListing(root, scope, own, document),
       onSave: save,
       onSend: (candidates) => sendRound(session, candidates),
       onReply: (body) => postReplies(session, body),
       onEnd: (status) => finishRun(session, status),
       overview,
+      diagram: document ? { file: diagramFile, root, document } : null,
     },
     {
       noOpen: values['no-open'],
@@ -166,7 +178,7 @@ async function annotate(argv) {
         // The first draft is written only once the port is bound, so a failed bind leaves
         // nothing behind.
         save();
-        process.stderr.write(`margin: ${run.url}\n  root:  ${root}\n  scope: ${scope.join(', ') || '.'} (${files.length} files)\n  notes: ${out}\n`);
+        process.stderr.write(`margin: ${run.url}\n  root:  ${root}\n  scope: ${scopeText} (${files.length} files)\n  notes: ${out}\n${diagramLine}`);
       },
     },
   );

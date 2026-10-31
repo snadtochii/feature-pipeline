@@ -38,6 +38,8 @@ const state = {
   // The center pane shown: the name of one of the registered surfaces, 'code' until load()
   // registers them.
   surface: 'code',
+  // The run's diagram document as served, or null: what names an unlabelled arrow's note.
+  diagram: null,
 };
 
 const el = {
@@ -124,6 +126,7 @@ const rounds = createRounds({
     refreshed: async () => {
       renderTree();
       overviewView.render();
+      diagramView.notesChanged();
       renderStatus();
       await refreshOpenFile();
       renderList();
@@ -157,6 +160,7 @@ const diagramView = createDiagramView({
   saveState: (text) => {
     el.saveState.textContent = text;
   },
+  counts: () => noteCounts(annotations()),
 });
 
 // The center panes the run serves, in tab order — Overview, Diagram, Code — each
@@ -176,11 +180,25 @@ function anchorLabel(anchor) {
       return `${anchor.path}/`;
     case 'candidate':
       return `candidate ${anchor.name}`;
+    case 'box':
+      return `box ${anchor.label || anchor.id}`;
+    case 'arrow':
+      return `arrow ${anchor.label || arrowEnds(anchor.id)}`;
     case 'scope':
       return 'whole scope';
     default:
       return anchor.kind;
   }
+}
+
+// An unlabelled arrow by the boxes it joins in the run's diagram, or by its id once it is gone.
+function arrowEnds(id) {
+  const arrow = state.diagram?.arrows.find((entry) => entry.id === id);
+  if (!arrow) {
+    return id;
+  }
+  const boxLabel = (boxId) => state.diagram.boxes.find((box) => box.id === boxId)?.label ?? boxId;
+  return `${boxLabel(arrow.from)} → ${boxLabel(arrow.to)}`;
 }
 
 // ---- loading -------------------------------------------------------------
@@ -193,14 +211,19 @@ async function load() {
     rounds.setCandidates(overview.doc ? overview.doc.candidates.map((candidate) => candidate.name) : null);
   }
   overviewView.setOverview(overview);
+  state.diagram = diagram?.doc?.document ?? null;
+  rounds.setDiagram(state.diagram);
   if (rounds.standalone && diagram?.doc) {
     diagramView.setEditable((edited) => api('PUT', '/api/diagram', { document: edited }));
+  }
+  if (!rounds.standalone) {
+    diagramView.setAnnotate((anchor) => openComposer(anchor));
   }
   diagramView.setDiagram(diagram);
   if (rounds.standalone) {
     enterStandalone(diagram);
   } else {
-    el.scope.textContent = `${session.root} · ${session.scope.join(', ') || '.'}`;
+    el.scope.textContent = `${session.root} · ${session.scope.join(', ') || (state.diagram ? 'diagram links' : '.')}`;
     el.overall.value = session.overall || '';
   }
   applyDefaultCollapse();
@@ -731,7 +754,9 @@ function openComposer(anchor, { existing = null, intent = existing?.intent ?? 'c
       ? 'Something about the scope as a whole.'
       : anchor.kind === 'candidate'
         ? 'Accept, reject or reshape this candidate — and why.'
-        : 'What should change here, or what do you want to know?';
+        : anchor.kind === 'box' || anchor.kind === 'arrow'
+          ? `What should change about this ${anchor.kind}, or what do you want to know?`
+          : 'What should change here, or what do you want to know?';
   body.value = existing?.body ?? '';
 
   const actions = document.createElement('div');
@@ -808,6 +833,7 @@ function afterChange() {
   renderList();
   renderTree();
   overviewView.render();
+  diagramView.notesChanged();
   // Patch the open file in place; commit clears the selection, so repaint it too.
   if (state.view) {
     refreshMarks();
@@ -817,10 +843,11 @@ function afterChange() {
 
 // ---- notes list ----------------------------------------------------------
 
-const KIND_ORDER = { scope: 0, candidate: 1, folder: 2, file: 3, range: 4 };
-const SORT_GROUP = { scope: 0, candidate: 1 };
-const PATH_GROUP = 2;
+const KIND_ORDER = { scope: 0, candidate: 1, box: 2, arrow: 3, folder: 4, file: 5, range: 6 };
+const SORT_GROUP = { scope: 0, candidate: 1, box: 2, arrow: 3 };
+const PATH_GROUP = 4;
 const sortGroup = (anchor) => SORT_GROUP[anchor.kind] ?? PATH_GROUP;
+const sortName = (anchor) => anchor.name ?? anchor.label ?? anchor.path ?? '';
 
 function sortedAnnotations() {
   return [...annotations()].sort((a, b) => {
@@ -828,7 +855,7 @@ function sortedAnnotations() {
     if (groupDiff !== 0) {
       return groupDiff;
     }
-    const nameDiff = (a.anchor.name ?? a.anchor.path ?? '').localeCompare(b.anchor.name ?? b.anchor.path ?? '');
+    const nameDiff = sortName(a.anchor).localeCompare(sortName(b.anchor)) || (a.anchor.id ?? '').localeCompare(b.anchor.id ?? '');
     if (nameDiff !== 0) {
       return nameDiff;
     }
@@ -1029,10 +1056,13 @@ function lockedOps(a) {
     reply.addEventListener('click', () => replyTo(a));
   } else {
     reply.disabled = true;
+    const kind = a.anchor.kind;
     reply.title =
-      a.anchor.kind === 'candidate'
+      kind === 'candidate'
         ? `${anchorLabel(a.anchor)} is not a candidate of this run's overview`
-        : `${a.anchor.path} is no longer in this review's listing`;
+        : kind === 'box' || kind === 'arrow'
+          ? `${anchorLabel(a.anchor)} is not in this run's diagram`
+          : `${a.anchor.path} is no longer in this review's listing`;
   }
   ops.append(reply);
   return ops;
@@ -1053,6 +1083,12 @@ async function replyTo(a) {
     showSurface('overview');
     overviewView.revealCandidate(anchor.name);
     openComposer({ kind: 'candidate', name: anchor.name }, options);
+    return;
+  }
+  if (anchor.kind === 'box' || anchor.kind === 'arrow') {
+    showSurface('diagram');
+    diagramView.reveal(anchor);
+    openComposer({ kind: anchor.kind, id: anchor.id, label: anchor.label }, options);
     return;
   }
   if (anchor.kind === 'folder') {
@@ -1115,6 +1151,9 @@ function revealAnchor(anchor) {
       showSurface('overview');
       overviewView.revealCandidate(anchor.name);
     }
+  } else if (anchor.kind === 'box' || anchor.kind === 'arrow') {
+    showSurface('diagram');
+    diagramView.reveal(anchor);
   } else {
     el.overall.focus();
   }

@@ -340,8 +340,8 @@ wherever they occur.
   node -e '
   const notes = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
   const after = Number(process.argv[2]), upto = Number(process.argv[3]);
-  const span = ({ kind, path, start, end, name }) => (kind === "scope" ? "scope" : kind === "candidate" ? `candidate ${name}` : kind === "range" ? `range ${path}:${start}-${end}` : `${kind} ${path}`);
-  const same = (x, y) => x.kind === y.kind && x.path === y.path && x.name === y.name && x.start === y.start && x.end === y.end;
+  const span = ({ kind, path, start, end, name, label, id }) => (kind === "scope" ? "scope" : kind === "candidate" ? `candidate ${name}` : kind === "box" || kind === "arrow" ? `${kind} ${label || id}` : kind === "range" ? `range ${path}:${start}-${end}` : `${kind} ${path}`);
+  const same = (x, y) => x.kind === y.kind && x.path === y.path && x.name === y.name && x.id === y.id && x.start === y.start && x.end === y.end;
   for (let r = after + 1; r <= upto; r += 1) {
     const sent = notes.rounds[r - 1].overall, before = r > 1 ? notes.rounds[r - 2].overall : "";
     if (sent !== before || r === upto) { console.log(`overall (round ${r})${sent === before ? " (unchanged)" : ""}: ${JSON.stringify(sent)}`); }
@@ -384,7 +384,7 @@ wherever they occur.
   const show = (line, none) => (line === undefined ? none : JSON.stringify(line));
   let drifted = 0;
   notes.annotations.forEach(({ anchor: { kind, path, start, end, excerpt }, round }, i) => {
-    if (!(round > after && round <= upto) || kind === "scope" || kind === "candidate") { return; }
+    if (!(round > after && round <= upto) || kind === "scope" || kind === "candidate" || kind === "box" || kind === "arrow") { return; }
     const span = kind === "range" ? `${path}:${start}-${end}` : path;
     const report = (why) => { drifted += 1; console.log(`note ${i + 1}, ${kind} ${span}: ${why}`); };
     const stat = fs.statSync(join(notes.root, path), { throwIfNoEntry: false });
@@ -673,7 +673,7 @@ Reached from §1 step 8 (a wait reporting the end), step 9 (Finish from chat) or
    ```bash
    node -e '
    const notes = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-   const span = ({ kind, path, start, end, name }) => (kind === "scope" ? "scope" : kind === "candidate" ? `candidate ${name}` : kind === "range" ? `${path}:${start}-${end}` : path);
+   const span = ({ kind, path, start, end, name, label, id }) => (kind === "scope" ? "scope" : kind === "candidate" ? `candidate ${name}` : kind === "box" || kind === "arrow" ? `${kind} ${label || id}` : kind === "range" ? `${path}:${start}-${end}` : path);
    const first = (text) => JSON.stringify(text.split("\n")[0]);
    const tickets = new Set(), offers = new Set();
    notes.rounds.forEach(({ round }) => {

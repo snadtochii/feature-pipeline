@@ -22,7 +22,8 @@
 //   GET  /api/changes?after=  held until the change count exceeds `after` or the run ends, then
 //                             { status: 'changed' | <end status>, changes }
 //   PUT  /api/session         { overall, annotations } -> saved as draft; 400 with nothing
-//                             applied when a new note names no candidate of the run's overview
+//                             applied when a new note names no candidate of the run's overview,
+//                             or no box or arrow of its diagram
 //   POST /api/submit          same body, then a round is sent: { ok, round }; 409 when there is
 //                             nothing to send
 //   POST /api/reply           { round, replies?, overall? } -> the agent's replies are saved,
@@ -39,8 +40,20 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyEdits, refuseCandidates } from './annotations.mjs';
+import { applyEdits, refuseAnchors } from './annotations.mjs';
 import { candidateNames } from './overview.mjs';
+
+// What a new note may point at: the listed paths, the overview's candidate names, and the
+// diagram's box and arrow ids, each mapped to its label for the note's snapshot.
+function anchorsAllowed(files, candidates, diagram) {
+  const labels = (entries) => new Map((entries ?? []).map((entry) => [entry.id, entry.label]));
+  return {
+    paths: new Set(files),
+    candidates,
+    boxes: labels(diagram?.document?.boxes),
+    arrows: labels(diagram?.document?.arrows),
+  };
+}
 
 const UI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'ui');
 const STATIC = {
@@ -141,7 +154,8 @@ function flush(pending) {
 // `watching()` the number of held change waits. `overview` is the run's checked overview
 // document, or null when it has none; it is served as is, and its candidate names are the ones
 // a new candidate note may carry. `diagram` is `{ file, root, document }` for a run that shows a
-// diagram, or null; it is served as is until a save replaces its document. `saveDiagram(document)`
+// diagram, or null; it is served as is until a save replaces its document, and the box and arrow
+// ids of the document it starts with are the ones a new box or arrow note may carry. `saveDiagram(document)`
 // saves an edited diagram and returns `{ status: 200, document }` or `{ status, error }` with
 // nothing written; without it `PUT /api/diagram` answers 404. A null `session` is a diagram
 // session: `onSave`, `onSend` and `onReply` are never called, and the end document carries only
@@ -150,7 +164,7 @@ export function startServer({ port, token: givenToken, session, files: initialFi
   let diagram = givenDiagram;
   let files = initialFiles;
   const candidates = candidateNames(overview);
-  let allowed = { paths: new Set(files), candidates };
+  let allowed = anchorsAllowed(files, candidates, diagram);
   // The run's change count: bumped once per accepted reply post, kept in memory only, so a
   // viewer reads it from `GET /api/session` and waits on `GET /api/changes` for the next one.
   let changes = 0;
@@ -295,7 +309,7 @@ export function startServer({ port, token: givenToken, session, files: initialFi
         }
         try {
           files = relist();
-          allowed = { paths: new Set(files), candidates };
+          allowed = anchorsAllowed(files, candidates, diagram);
         } catch {
           // the replies are saved; the previous listing stays
         }
@@ -304,7 +318,7 @@ export function startServer({ port, token: givenToken, session, files: initialFi
         answerWaiters(watchers, { status: 'changed', changes }, changes);
         return undefined;
       }
-      const refused = refuseCandidates(session, body, allowed);
+      const refused = refuseAnchors(session, body, allowed);
       if (refused) {
         return sendJson(res, { error: refused }, 400);
       }

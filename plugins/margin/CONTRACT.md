@@ -20,7 +20,7 @@ sees a whole file.
 ## §1 Invocation
 
 ```text
-node <plugin-root>/server/cli.mjs annotate [--root <dir>] [--scope <path>]... [--out <file>] [--overview <file>] [--port <n>] [--token <token>] [--no-open]
+node <plugin-root>/server/cli.mjs annotate [--root <dir>] [--scope <path>]... [--out <file>] [--overview <file>] [--diagram <file>] [--port <n>] [--token <token>] [--no-open]
 node <plugin-root>/server/cli.mjs wait <url> [--after <n>]
 node <plugin-root>/server/cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>
 node <plugin-root>/server/cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file> | --explorer-unavailable <reason>] --out <file>
@@ -46,10 +46,12 @@ procedure: `README.md`, "Vendored highlight.js". `git` is optional: it makes the
 git-aware and fills `revision` (§6, §10).
 
 **Lifecycle.** `annotate` validates its arguments, reads the notes file when resuming (§5),
-resolves the root and scope, lists the files (§10), reads and checks the overview file when
+resolves the root and scope, reads and checks the diagram file when `--diagram` names one or
+the resumed file records one (§15), lists the files (§10), reads and checks the overview file when
 `--overview` names one (§13), binds the port, writes the notes file as
-`draft`, prints the stderr block (§2) and opens the viewer unless `--no-open` is given. The run
-then spans rounds. Each Send in the viewer (`POST /api/submit`, §8) ends a round: every note
+`draft`, prints the stderr block (§2) and opens the viewer unless `--no-open` is given. A run
+with a diagram shows it read-only on the viewer's Diagram tab, and its boxes and arrows take
+notes (§7). The run then spans rounds. Each Send in the viewer (`POST /api/submit`, §8) ends a round: every note
 not yet sent is stamped with the new round number, the round is recorded in the notes file
 (§6), and the server keeps serving on the same port with the same token, so the human can go
 on and send the next round. The run ends once, on whichever comes first: Finish
@@ -103,7 +105,7 @@ in this order:
 | `annotations` | The number of notes in the file, sent and unsent — a count, not the notes. |
 | `rounds` | The number of rounds sent — a count, not the rounds. |
 | `root` | The absolute root. |
-| `scope` | The scope as root-relative paths, `.` for the root itself; `[]` when no scope was given and the whole root is listed. |
+| `scope` | The scope as root-relative paths, `.` for the root itself; `[]` when no scope was given, so the whole root is listed — or, in a run with a diagram, the files it links (§10). |
 
 The wait document, on exit 0 from `wait`, with its keys in this order:
 
@@ -168,7 +170,12 @@ margin: http://127.0.0.1:<port>/#<token>
   root:  <root>
   scope: <scope paths joined by ", ", or "."> (<N> files)
   notes: <out>
+  diagram: <file>
 ```
+
+The `diagram:` line is written only in a run with a diagram (§4). In such a run with an empty
+scope the `scope:` line reads `scope: diagram links (<N> files)`, since the listing is the
+diagram's linked files (§10).
 
 A diagram session writes its block once the port is bound, with the number of files it lists
 (§10):
@@ -195,12 +202,14 @@ parse them. A refused run prints none. `diagram --check` prints nothing on stder
 | Code | Meaning | Document |
 |---|---|---|
 | `0` | `annotate`: the run ended — Finish (`finished`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). `wait`: a round was sent or the run ended. `measure` and `assemble`: their files were written. `diagram --check`: the file passed the check (§15). A diagram session: it ended — Finish (`finished`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). Or every self-test case passed (§12). | Result, wait, measure, assemble, diagram, diagram session, or self-test |
-| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), the `--overview` file is refused (§13), the port cannot be bound (`could not listen on port <n>: <code>`), or the end of the run cannot save the notes file. `wait`: the server is unreachable — the connection is refused, or it drops before the reply ends (`server unreachable at <origin>: <code>`) — or it answers with an error (`wait: <status> <error>`). `measure`: no files are listed under the scope (`no files under <scope>`), or an output cannot be written (`could not write <file>: <code>`). `assemble`: the measurement file is refused (§14), the assembled document fails the shape check of §13 (`assembled overview: <violation>`), it is above 2 MiB once serialised (`overview <out>: <x.y> MB is above the 2 MB overview limit`), or `--out` cannot be written. `diagram`: the file is refused (§15); a diagram session also when its `--root` is not a directory (`root <dir> is not a directory`) or the port cannot be bound (`could not listen on port <n>: <code>`). Or a self-test case failed (§12). | Error |
-| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), an empty `--overview` (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. For `wait`: no URL or another positional argument, a URL that is not a run URL (§4), or an `--after` that is not a whole number of decimal digits. For `measure`: another positional argument, a missing or empty `--root`, `--out` or `--hotspots` (`measure needs --<flag>`, `bad --<flag>: empty`), a `--hotspots` that names the same file as `--out`, or a `--scope` outside the root. For `assemble`: another positional argument, a missing or empty `--measurements` or `--out`, an empty `--roles` or `--explorer`, or an `--explorer-unavailable` given together with `--explorer` (`--explorer and --explorer-unavailable are exclusive`), holding a control character such as a line break (`bad --explorer-unavailable: not one line`), or blank once trimmed and stripped of one trailing `.` (`bad --explorer-unavailable: empty`). For `diagram`: no `<file>` or another positional argument, `--check` given a value or given together with `--root`, `--port`, `--token` or `--no-open` (`--check takes no other flag`), an empty `<file>` (`bad <file>: empty`), or, in a diagram session, a `--port` or `--token` refused as for `annotate` or an empty `--root` (`bad --root: empty`). | Error |
+| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), the `--overview` file is refused (§13), the diagram file — named by `--diagram` or recorded in the resumed file — is refused (§15), the port cannot be bound (`could not listen on port <n>: <code>`), or the end of the run cannot save the notes file. `wait`: the server is unreachable — the connection is refused, or it drops before the reply ends (`server unreachable at <origin>: <code>`) — or it answers with an error (`wait: <status> <error>`). `measure`: no files are listed under the scope (`no files under <scope>`), or an output cannot be written (`could not write <file>: <code>`). `assemble`: the measurement file is refused (§14), the assembled document fails the shape check of §13 (`assembled overview: <violation>`), it is above 2 MiB once serialised (`overview <out>: <x.y> MB is above the 2 MB overview limit`), or `--out` cannot be written. `diagram`: the file is refused (§15); a diagram session also when its `--root` is not a directory (`root <dir> is not a directory`) or the port cannot be bound (`could not listen on port <n>: <code>`). Or a self-test case failed (§12). | Error |
+| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), an empty `--overview` or `--diagram` (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. For `wait`: no URL or another positional argument, a URL that is not a run URL (§4), or an `--after` that is not a whole number of decimal digits. For `measure`: another positional argument, a missing or empty `--root`, `--out` or `--hotspots` (`measure needs --<flag>`, `bad --<flag>: empty`), a `--hotspots` that names the same file as `--out`, or a `--scope` outside the root. For `assemble`: another positional argument, a missing or empty `--measurements` or `--out`, an empty `--roles` or `--explorer`, or an `--explorer-unavailable` given together with `--explorer` (`--explorer and --explorer-unavailable are exclusive`), holding a control character such as a line break (`bad --explorer-unavailable: not one line`), or blank once trimmed and stripped of one trailing `.` (`bad --explorer-unavailable: empty`). For `diagram`: no `<file>` or another positional argument, `--check` given a value or given together with `--root`, `--port`, `--token` or `--no-open` (`--check takes no other flag`), an empty `<file>` (`bad <file>: empty`), or, in a diagram session, a `--port` or `--token` refused as for `annotate` or an empty `--root` (`bad --root: empty`). | Error |
 
 `annotate`'s checks run in this order, and the first failure is the one reported: arguments
-and verb, then `--port`, then `--token`, then an empty `--overview`, then the resumed file's
-JSON and its `annotations` array (§5), then the scope paths, then the listing, then the resumed
+and verb, then `--port`, then `--token`, then an empty `--overview`, then an empty
+`--diagram`, then the resumed file's JSON and its `annotations` array (§5), then the scope
+paths, then the diagram file — the one `--diagram` names, else the one the resumed file records
+(§5) — read and checked (§15), then the listing, then the resumed
 rounds, the agent's overall replies and notes (§5), then the overview file (§13), then the port
 binding. Every one of them happens before the first save, so a refused run
 writes nothing: an existing `--out` file is left exactly as it was.
@@ -242,6 +251,7 @@ value. A flag other than `--scope` given twice keeps its last value.
 | `--scope <path>` | none | Repeatable. A file or folder, relative to the root (an absolute path inside the root is accepted). Each is normalised to a root-relative path, and the root itself becomes `.`. A path outside the root exits 2; the check compares path text and resolves no symbolic link (§10). With no `--scope`, a resumed file's `scope` applies when it is an array; otherwise the scope is empty and the whole root is listed. |
 | `--out <file>` | `<root>/claudedocs/margin/<stamp>.json` | The notes file. `<stamp>` is the start time in UTC as `YYYY-MM-DDTHH-MM-SS`. A relative value resolves against the working directory. When the file exists, the run is a resume (§5). Missing parent directories are created on the first save. |
 | `--overview <file>` | none | An overview document (§13), served at `GET /api/overview` (§8). A relative value resolves against the working directory. The file is read and checked once, when the run starts and before the port is bound; a refused file exits 1 and writes nothing (§3), and an empty value exits 2. The file is never listed (§10). It applies on a fresh run and on a resume alike, and the notes file does not record it. |
+| `--diagram <file>` | none | A diagram file (§15), shown read-only on the viewer's Diagram tab and served at `GET /api/diagram` (§8); its boxes and arrows take notes (§7). A relative value resolves against the working directory, and its diagram paths are relative to the run's root (§15). The file is read and checked once, when the run starts and before the listing; a refused file exits 1 and writes nothing (§3), and an empty value exits 2. The files its boxes link join the listing, and the file itself is never listed (§10). The notes file records its path (§6), and a resume reapplies it unless `--diagram` is given (§5). |
 | `--port <n>` | `0` | An integer from 0 to 65535 after the value is converted with JavaScript's `Number()`: an empty or all-whitespace value becomes `0`, and `1e3` and `0x10` are accepted as `1000` and `16` (§16). `0` lets the operating system assign a free port; the bound port is the one in the stderr URL. |
 | `--token <token>` | minted | 16 to 128 characters from `[A-Za-z0-9_-]`. When absent, the server mints 32 lowercase hexadecimal characters (16 random bytes). Setting it lets a caller know the viewer URL's fragment before the server prints it. |
 | `--no-open` | off | Do not open the viewer. Without it, the server opens the URL with the platform opener (`open` on macOS, `start` on Windows, `xdg-open` elsewhere). An opener that starts and fails is ignored, since the URL is on stderr; an opener command that is not installed ends the run with exit 1 and no stdout document, after the draft is saved and the stderr block is printed (§16). |
@@ -313,21 +323,24 @@ fresh run whose notes file is created at that path.
      an entry that is not a reply of §7 answering a round from the note's `round` to the
      number of stored rounds. The reason names the count and the indices:
      `<out>: <k> of <n> notes are malformed (indices <i>, ...)`.
-2. **Root and scope.** The file's `root` (when a string) and `scope` (when an array) apply
-   unless `--root` or `--scope` is given. The two are independent: `--root` given alone keeps
-   the stored scope, resolved under the new root.
+2. **Root, scope and diagram.** The file's `root` (when a string) and `scope` (when an array)
+   apply unless `--root` or `--scope` is given. The two are independent: `--root` given alone
+   keeps the stored scope, resolved under the new root. The file's `diagram` (when a string)
+   applies unless `--diagram` is given; the diagram it names is read and checked as a named
+   one is (§15), so one that is missing or refused exits 1 and writes nothing.
 3. **Notes.** Every stored note is checked for shape by §7 with the anchor check against the
    listing skipped, so a resumed note keeps its anchor (§7). An accepted note is normalised:
    a missing or non-string `id` gets a fresh UUID, an `intent` outside the two values becomes
    `change`, a missing `createdAt` becomes the current time, a `range` excerpt is truncated to
-   the cap or set to `""` when absent, and unknown fields are dropped. A note's `round` and
+   the cap or set to `""` when absent, a `box` or `arrow` label that is not a string becomes
+   `""`, and unknown fields are dropped. A note's `round` and
    `replies` are kept (§7), with any other field on a reply dropped; an empty `replies` list is
    dropped.
 4. **Kept and replaced.** The run keeps `createdAt` (when a string, else the current time),
    `overall` (when a string, else `""`), `overallReplies` (each entry's `body`, `round` and
    `createdAt`), `rounds` (each entry's `round`, `sentAt` and `overall`; any other field on an
    entry is dropped) and the notes. Every other stored field is dropped; `version`, `status`,
-   `round`, `root`, `scope`, `out`, `revision` and `updatedAt` are written fresh for this run
+   `round`, `root`, `scope`, `diagram`, `out`, `revision` and `updatedAt` are written fresh for this run
    (§6), `round` as the number of kept rounds. A file without `rounds` resumes as round 0 with
    every note unsent, and a file without `overallReplies` or `replies` resumes with no
    replies.
@@ -344,6 +357,7 @@ on the order of its keys.
 | `status` | One of four values. `draft`: written when the port is bound and on every save while the server runs, between rounds included — a file read while the server runs, or left by a process that died without a signal, says `draft`, and whether a note has been sent is its `round` (§7). `finished`: the run ended on Finish. `cancelled`: the run ended on Cancel. `interrupted`: the process received `SIGINT` or `SIGTERM`. |
 | `root` | The absolute root of the run that wrote the file. |
 | `scope` | The scope, as in §2. |
+| `diagram` | The absolute path of the run's diagram file (§4), or `null` when the run has none. |
 | `out` | The absolute path of this file. |
 | `revision` | `{"head": "<commit sha>", "dirty": <boolean>}` read from git in the root when the run starts — `dirty` is `true` when `git status --porcelain` lists anything — or `null` when the root is not in a git repository or git is unavailable. |
 | `createdAt` | ISO 8601 UTC timestamp of the run that created the file; kept across resumes. |
@@ -387,15 +401,19 @@ Each note has exactly these fields; any other field on a note or on its anchor i
 | `file` | `kind`, `path` | A file. |
 | `range` | `kind`, `path`, `start`, `end`, `excerpt` | Lines `start` to `end` of a file, inclusive and 1-based. `start` and `end` are integers with `start ≥ 1` and `end ≥ start`; a numeric string is accepted and stored as a number. `excerpt` is the text of those lines as the viewer showed them, joined with `\n`, capped at 4000 characters (UTF-16 code units) — a longer one is truncated — and `""` when absent. |
 | `candidate` | `kind`, `name` | A deepening candidate of the run's overview (§13), named by its `name`, which follows §13's name rule. |
+| `box` | `kind`, `id`, `label` | A box of the run's diagram (§15), named by its `id`, which follows §15's id rule. `label` is the box's label when the server first accepted the note, copied from the run's diagram; a `label` the write sends is ignored. |
+| `arrow` | `kind`, `id`, `label` | An arrow of the run's diagram (§15), named by its `id`, which follows §15's id rule. `label` is the arrow's label when the server first accepted the note, copied from the run's diagram, so `""` for an unlabelled arrow; a `label` the write sends is ignored. |
 
 `path` is root-relative with `/` separators, as the listing writes it (§10). An anchor of any
-other kind, a `folder`, `file` or `range` anchor without a string `path`, or a `candidate`
-anchor whose `name` is not a string that follows §13's name rule, is rejected. A `candidate`
-anchor carries no `path`.
+other kind, a `folder`, `file` or `range` anchor without a string `path`, a `candidate`
+anchor whose `name` is not a string that follows §13's name rule, or a `box` or `arrow` anchor
+whose `id` is not a string that follows §15's id rule, is rejected. `candidate`, `box` and
+`arrow` anchors carry no `path`. A `label` is a snapshot, so the note stays readable when its
+box or arrow is later renamed.
 
-**The anchor rule.** An anchor is checked against the listed paths (§10) and the names of the
-run's overview candidates (§13) once, when the server first accepts the note — one rule per
-kind:
+**The anchor rule.** An anchor is checked against the listed paths (§10), the names of the
+run's overview candidates (§13) and the box and arrow ids of the run's diagram (§15) once, when
+the server first accepts the note — one rule per kind:
 
 - `scope` always passes.
 - `folder` passes when at least one listed file lies beneath `<path>/`. A `path` of `.`, an
@@ -404,6 +422,9 @@ kind:
 - `file` and `range` pass when `path` is itself a listed file.
 - `candidate` passes when `name` is the `name` of a candidate in the run's overview; a run
   without an overview has none, so no `candidate` anchor passes.
+- `box` passes when `id` is the `id` of a box in the run's diagram, and `arrow` when it is the
+  `id` of an arrow in it. A box and an arrow may share an id; each kind is checked against its
+  own collection. A run without a diagram has neither, so no `box` or `arrow` anchor passes.
 
 A note whose anchor fails is rejected. The anchor never changes afterwards:
 
@@ -411,8 +432,8 @@ A note whose anchor fails is rejected. The anchor never changes afterwards:
   `intent` (when it is one of the two values) and `body` (when it is a string) only. Its
   anchor and `createdAt` stay as stored, whatever the write sends.
 - A note loaded from a resumed file is checked for shape only (§5) and keeps its anchor even
-  when its file has moved, been deleted or fallen outside this run's scope, or its candidate
-  is not in this run's overview.
+  when its file has moved, been deleted or fallen outside this run's scope, its candidate
+  is not in this run's overview, or its box or arrow is not in this run's diagram.
 
 A range's `excerpt` is fixed with its anchor, so a reader compares it with the file as it is
 now to detect drift.
@@ -421,19 +442,25 @@ now to detect drift.
 unsent notes: a stored unsent note whose `id` is absent from the write is deleted, and a note
 whose `id` matches no stored note is a new note and goes through the checks above. A new note
 that fails them is left out of the list, and the write still answers `{"ok": true}` (§16) —
-except a new `candidate` note whose `name` is not the `name` of a candidate in the run's
-overview, a `name` that is missing, not a string or breaks §13's name rule included: it
-refuses the whole write, which answers 400 `{"error": "<problems joined by '; '>"}`, one
-problem per such entry, `entry <i>: <name> is not a candidate of this run's overview` — `<i>`
-the entry's index in `annotations`, `<name>` the name as JSON, `null` when it is missing — and
-applies and saves nothing. A new `candidate` note that names a candidate of the overview but
-fails another check, such as a `body` that is not a string, is left out like any other.
+except a new `candidate`, `box` or `arrow` note whose anchor fails the anchor rule: a
+`candidate` whose `name` is not the `name` of a candidate in the run's overview, a `box` whose
+`id` is not the `id` of a box in the run's diagram, or an `arrow` whose `id` is not the `id` of
+an arrow in it — a `name` or `id` that is missing, not a string or breaks its rule included.
+Such a note refuses the whole write, which answers 400 `{"error": "<problems joined by '; '>"}`,
+one problem per such entry in entry order:
+`entry <i>: <name> is not a candidate of this run's overview`,
+`entry <i>: <id> is not a box of this run's diagram` or
+`entry <i>: <id> is not an arrow of this run's diagram` — `<i>` the entry's index in
+`annotations`, `<name>` or `<id>` as JSON, `null` when it is missing — and the write applies and
+saves nothing. A new `candidate`, `box` or `arrow` note whose anchor passes but that fails
+another check, such as a `body` that is not a string, is left out like any other.
 
 **Sent notes are locked.** No write revises or deletes a note that carries `round`: a write
 entry carrying a sent note's `id` is ignored, and a sent note absent from the write is kept,
 so a write never changes a note's `replies` either. Every note present at a Send is stamped,
 except a withheld note — an unsent `candidate` note whose candidate the run's overview does not
-name, as when a file is resumed under another overview or none. A withheld note stays unsent, does
+name, as when a file is resumed under another overview or none; a `box` or `arrow` note is
+never withheld. A withheld note stays unsent, does
 not count as something to send (§8), and moves after the notes the Send stamps, so sent notes
 all predate unsent ones; the list otherwise stays in creation order, sent notes first.
 
@@ -447,13 +474,13 @@ request passes the guards of §9 first. Thirteen routes:
 |---|---|---|---|
 | `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/rounds.js`, `/overview.js`, `/overview-view.js`, `/diagram.js`, `/diagram-edit.js`, `/diagram-view.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
 | `GET /api/overview` | yes | — | 200 with the overview document as checked (§13). 404 `{"error": "no overview"}` when the run has none. Served until the process exits. |
-| `GET /api/diagram` | yes | — | 200 `{"file", "root", "document"}`: the diagram file's absolute path, the session's root, and the diagram document as checked (§15) when the session started or as last saved, not laid out. 404 `{"error": "no diagram"}` when the run has none. Served until the process exits. |
-| `PUT /api/diagram` | yes | `{"document": <diagram>}` | Saves the diagram file, in a diagram session only. The checks run in this order, each answering 400 `{"error"}` with the file untouched: `document` missing or not an object (`document is not an object`); the document fails §15 (the violation, worded as `diagram --check` words it after `diagram <file>:`); its canonical text exceeds 2 MiB (`diagram too large`). The file is then read again: when it is gone, unreadable, or not the text the session last read or wrote, the reply is 409 `{"error": "the diagram file changed on disk"}` and nothing is written. Otherwise the canonical text (§15) is written atomically — to a temporary file in the same directory, renamed over the file, keeping the file's permission bits — becomes the document `GET /api/diagram` serves, and the reply is 200 `{"ok": true, "savedAt": <ISO time>}`. A write that fails answers 500 `{"error"}` and the file keeps its previous text. Outside a diagram session the route answers 404 `{"error": "not found"}`. |
+| `GET /api/diagram` | yes | — | 200 `{"file", "root", "document"}`: the diagram file's absolute path, the run's root, and the diagram document as checked (§15) when the run started or, in a diagram session, as last saved, not laid out. 404 `{"error": "no diagram"}` when the run has none — an `annotate` run without a diagram (§4). Served until the process exits. |
+| `PUT /api/diagram` | yes | `{"document": <diagram>}` | Saves the diagram file, in a diagram session only. The checks run in this order, each answering 400 `{"error"}` with the file untouched: `document` missing or not an object (`document is not an object`); the document fails §15 (the violation, worded as `diagram --check` words it after `diagram <file>:`); its canonical text exceeds 2 MiB (`diagram too large`). The file is then read again: when it is gone, unreadable, or not the text the session last read or wrote, the reply is 409 `{"error": "the diagram file changed on disk"}` and nothing is written. Otherwise the canonical text (§15) is written atomically — to a temporary file in the same directory, renamed over the file, keeping the file's permission bits — becomes the document `GET /api/diagram` serves, and the reply is 200 `{"ok": true, "savedAt": <ISO time>}`. A write that fails answers 500 `{"error"}` and the file keeps its previous text. Outside a diagram session — an `annotate` run included, with or without a diagram — the route answers 404 `{"error": "not found"}`. |
 | `GET /api/session` | yes | — | 200 `{"session": <the notes file object, §6>, "files": [<the current listing, §10>], "changes": <the run's change count>}`. The change count is `0` when the process starts, is kept in memory only, and goes up by one on every accepted reply post. In a diagram session (§1) `session` is `null`. |
 | `GET /api/file?path=<p>` | yes | — | `<p>` not in the current listing: 404 `{"error": "<p> is not in scope"}`. A listed path that no longer exists — removed, or a parent folder replaced by a file: 404 `{"error": "<p> no longer exists"}`. Otherwise 200 with `{"path", "text"}` or a refusal `{"path", "binary": true, "reason"}` (§10). |
 | `GET /api/changes?after=<n>` | yes | — | `after` absent or not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`, `<value>` empty when absent. Once the end of the run has begun: 200 `{"status": <the end's status>, "changes": <count>}`, at once. When the change count exceeds `<n>`: 200 `{"status": "changed", "changes": <count>}`, at once. Otherwise the reply is held until an accepted reply post brings the count above `<n>`, which answers it `changed` with the new count, or the end of the run answers it. |
 | `GET /api/wait?after=<n>` | yes | — | `after` present and not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`. Without `after`, `<n>` is the round count the run started with (§4). Once the end of the run has begun: 200 with that end's wait document (§2), at once. When the round count exceeds `<n>`: 200 `{"status": "sent", "round": <count>, "out"}`, at once. Otherwise the reply is held until a Send brings the round count above `<n>`, which answers it with `sent` and the new round, or the end of the run answers it. |
-| `PUT /api/session` | yes | `{"overall"?, "annotations"?}` | Applies the edits (§7), saves the file, 200 `{"ok": true, "updatedAt"}`. A new `candidate` note that names no candidate of the run's overview answers 400 `{"error"}` with nothing applied or saved (§7). |
+| `PUT /api/session` | yes | `{"overall"?, "annotations"?}` | Applies the edits (§7), saves the file, 200 `{"ok": true, "updatedAt"}`. A new `candidate` note that names no candidate of the run's overview, or a new `box` or `arrow` note that names no box or arrow of its diagram, answers 400 `{"error"}` with nothing applied or saved (§7). |
 | `POST /api/submit` | yes | as `PUT` | Applies the edits, refused like `PUT`, and sends a round: every note without `round` except a withheld note (§7) is stamped with the next round number, the round is appended to `rounds` with the current `overall`, the file is saved, the reply is 200 `{"ok": true, "round": <n>}`, and every held wait whose `<n>` is below the new round is answered `sent`. The server keeps serving. With nothing to send — no unsent note other than withheld ones, and an `overall` that, trimmed, equals the `overall` the last round sent, trimmed (`""` before any round) — the edits are still saved, the round count does not move, no wait is answered, and the reply is 409 `{"error": "nothing to send"}`. |
 | `POST /api/reply` | yes | `{"round": <n>, "replies"?: [{"id", "body"}], "overall"?: "<text>"}` | The agent's replies for sent round `<n>`; it carries no viewer edits. The whole request is checked before anything is applied: `round` is an integer from 1 to the round count (`bad round: <value>`, `none` when absent); `replies`, when present, is an array (`replies is not a list`); `overall`, when present, is a string that is not blank (`overall reply is blank or not a string`); there is at least one entry or an `overall` (`nothing to reply`); and each entry `i` has a string `id` (`entry <i>: id is not a string`), a string `body` that is not blank (`entry <i>: body is blank or not a string`), and at least one stored note carrying that `id` that was sent in round `<n>` or earlier (otherwise `entry <i>: no note <id>`, `entry <i>: note <id> is not sent`, or `entry <i>: note <id> was sent after round <n>`). The request-level checks — `round`, `replies`, `overall`, at least one entry or an `overall` — run in that order, and the first that fails is the whole error; once they pass, each entry reports its first problem, in the order listed. Any problem answers 400 `{"error": "<the request-level problem, or every entry's first problem, joined by '; '>"}` and applies nothing. Otherwise each entry appends a reply `{"body", "round": <n>, "createdAt"}` (§7) to every stored note carrying its `id` that was sent in round `<n>` or earlier — an `id` given twice appends twice, and an unsent note sharing the `id` gets none — and `overall` appends one to `overallReplies` (§6), all with one `createdAt`. Then the file is saved, the listing is recomputed (§10), the change count goes up by one, the reply is 200 `{"ok": true, "replied": <the number of note replies appended>}`, and every held change wait is answered `changed`. A save that fails appends nothing and answers 500 `{"error"}`. |
 | `POST /api/cancel` | yes | as `PUT` | Applies the edits, refused like `PUT`, without sending a round and ends the run as `cancelled`, with the deletion rule of §6; once the notes file has taken its final status, answers 200 `{"ok": true, "status": "cancelled"}`. |
@@ -544,13 +571,18 @@ keeps the previous listing, and one that finds no files is served as an empty li
   and so never read, and the walk never descends into one. A scope path whose leading part is
   a linked directory is not resolved: git lists nothing beneath it, while the walk lists the
   files beneath it even when they lie outside the root (§16). Reading still refuses them.
-- The run's own notes file (§6) and the overview file `--overview` names (§13) are never
-  listed, whatever their paths, so the notes file's first save under the root leaves the
-  listing unchanged. The exclusion compares root-relative path text, so a file outside the
-  root never matches.
+- The run's own notes file (§6), the overview file `--overview` names (§13) and the run's
+  diagram file (§4) are never listed, whatever their paths, so the notes file's first save
+  under the root leaves the listing unchanged. The exclusion compares root-relative path text,
+  so a file outside the root never matches.
 - Paths are root-relative with `/` separators, without duplicates, sorted by code unit. An
-  empty scope lists the whole root. An `annotate` listing with no files when the run starts
-  exits 1 (§3).
+  empty scope lists the whole root, except in a run with a diagram (below). An `annotate`
+  listing with no files when the run starts exits 1 (§3), unless the run has a diagram.
+- An `annotate` run with a diagram (§4) also lists the files its boxes link, by the rule of a
+  diagram session (below): with an empty scope the listing is those linked files alone, not
+  the whole root; with a scope it is the scope's files and the linked files together, without
+  duplicates, sorted by code unit. Every recomputation applies the same rule, to the diagram as
+  read when the run started. A listing with no files is then valid.
 - A diagram session (§1) has no scope. Its listing is every path a box's `files` names (§15)
   that is a regular file under the root — present on disk, not a directory, not a symbolic
   link — without duplicates, sorted by code unit, and without the diagram file itself. The
@@ -638,8 +670,10 @@ Exercises the rules a browser session does not, without a browser: the vendored 
 loading in Node and the viewer's colouring seam on a fixed TSX sample (a block comment and a
 template literal coloured on every line they span, a file with no matching language rendered
 plain, a `Dockerfile` coloured by its name), and the viewer's static routes of §8; the viewer's
-round controller in Node against a fake server — the anchor rule of §7 against the listing and
-the overview's candidate names, and the Send rule of §8 with withheld candidate notes left out
+round controller in Node against a fake server — the anchor rule of §7 against the listing,
+the overview's candidate names and the diagram's box and arrow ids (an id a box and an arrow
+share listed for each, a stored box note outside the diagram kept and never withheld, a local
+one outside it removed on a refresh), and the Send rule of §8 with withheld candidate notes left out
 and Send held while the overview could not be loaded and a candidate note is unsent, writes
 sent one at a time each carrying the session as it stands when it starts, the server's copy
 merged by ownership after a change (sent notes and round fields from the server, unsent notes and the overall text from the viewer, an unsent note whose anchor left
@@ -647,8 +681,8 @@ the listing removed), Send, Finish and Cancel with each refusal and the end rais
 change wait's backoff from 1 s doubling, its reconnection check and its end; the viewer's
 outline model in Node — rows grouped by scope entry and folder from an overview document
 (§13), imported-by, candidate membership, bars scaled per reading with unmeasured files left
-empty, each row's anchor rule against the listing, and note counts per file, folder and
-candidate; the diagram model of §15 in Node — a document accepted with its keys rebuilt in
+empty, each row's anchor rule against the listing, and note counts per file, folder,
+candidate, box and arrow; the diagram model of §15 in Node — a document accepted with its keys rebuilt in
 canonical order, each refusal (an unknown key at every level, a duplicate id or walkthrough
 name, a dangling `from`, `to`, `group` or step arrow, a bad kind, id, label or diagram path, a
 non-integer position and a position given half), the canonical text of a fixed document and
@@ -675,7 +709,13 @@ other failure keeping it for a retry; the anchor rule of §7 for every kind — 
 run's overview, dropped for any other name or a name that breaks §13's rule, and checked for
 shape only when read back — a new candidate note outside the overview, a name that breaks
 §13's rule or is missing included, refusing the write with each failing entry named, while a
-revision, a sent id or a known candidate with a malformed body does not, range
+revision, a sent id or a known candidate with a malformed body does not; a `box` or `arrow`
+anchor kept for an id of its own collection in the run's diagram with the diagram's label in
+place of the one sent, an unlabelled arrow's `""` included, dropped for an id of the other
+collection, an unknown id, an id that breaks §15's rule or a run without a diagram, and read
+back with its stored label, a non-string one becoming `""` — a new box or arrow note outside
+the diagram refusing the write with each failing entry named in entry order beside a failing
+candidate, while a revision or a sent id does not; range
 validity and the excerpt cap; resume (§5) — a stored note
 keeps its anchor through a write, a new note outside the listing is dropped, rounds and note
 rounds restore, a file without `rounds` resumes as round 0, an absent `--out` starts fresh, and
@@ -721,7 +761,11 @@ on Finish, held past a refused reply post, and refusing a missing or malformed `
 overview route of §8 behind the token, with its 404 without an overview, and candidate notes
 against the run's overview — a known one accepted and sent, an unknown one beside valid notes
 refused 400 on `PUT /api/session`, submit, cancel and finish with nothing applied or saved and
-the run still serving, and every candidate note refused on a run without an overview; and a
+the run still serving, and every candidate note refused on a run without an overview; box and
+arrow notes against a run's diagram — known ones stored with the diagram's labels, sent and
+replied to, an unknown arrow beside valid notes refused 400 on `PUT /api/session`, submit,
+cancel and finish with nothing applied or saved, every box note refused on a run without a
+diagram, the diagram route serving the document and `PUT /api/diagram` answering 404; and a
 diagram session's server with no notes session — the diagram route of §8 behind the token,
 `session` `null` on the session route, a listed link read and an unlisted one refused, the
 notes routes and the wait answering 404, Finish ending it with the diagram session document
@@ -740,7 +784,14 @@ refusals exit 2, and a `wait` child, let go once the server holds its request, r
 Send and on Finish; one run serves a Send, keeps serving, and ends on Finish with exactly one
 result document; another run ends `interrupted` on `SIGTERM`; a run given `--overview`
 serves the document, keeps the file out of the listing, after a reply post included, and
-sends a candidate note;
+sends a candidate note; a run given `--diagram` with no scope lists the diagram's linked
+regular files, prints the `diagram links` scope line and the `diagram:` line of §2, serves the
+diagram with its save answering 404, takes a box note and records the diagram in the notes
+file, a resume with `--out` and a scope reopens the recorded diagram, keeps the box note's label
+and lists the scope's files and the linked ones without the diagram file, and a diagram with
+no links starts with an empty listing; a resume whose recorded diagram was deleted exits 1
+leaving `--out` byte for byte as it was, an empty `--diagram` exits 2, and an invalid diagram
+exits 1 before a port is bound, writing nothing;
 `measure` refusals of §3 (a missing or empty flag, an extra positional, `--hotspots` equal to
 `--out`, a scope outside the root or listing no file) and `assemble` refusals (a missing or
 empty flag, and a measurement file that is missing, not JSON or holds a dangling import) exit

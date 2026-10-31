@@ -1,6 +1,7 @@
 // The viewer's Diagram tab: GET /api/diagram's document drawn as SVG — group frames, boxes styled
 // by kind and labelled arrows — with pan, zoom and fit, a detail card for the box or arrow
-// selected, and walkthroughs stepped with J and K. Given a save (setEditable), it is editable:
+// selected, and walkthroughs stepped with J and K. In a run that keeps notes, N and the card's
+// Add note open the composer on the selection, and a badge counts the notes on each element. Given a save (setEditable), it is editable:
 // every finished edit is one ./diagram-edit.js call, handed whole to the save, at most one
 // request in flight, and redrawn in place from that document laid out. An edit that places a
 // box — a move, an added box, a re-layout — runs on the laid-out document, so the positions on
@@ -17,6 +18,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const PAN_THRESHOLD = 4;
 const ARROW_LABEL_CHAR = 6.2;
 const HANDLE_RADIUS = 6;
+const BADGE_HEIGHT = 16;
 // Two clicks this close in time and space are a double-click; it is timed here because a press
 // that ends a drag must never count as half of one.
 const DOUBLE_CLICK_MS = 400;
@@ -67,12 +69,17 @@ const SESSION_ENDED = 'the run has ended';
 //   openCode(path)   shows the file in the Code tab
 //   ended()          true once the run is over: no edit is made or saved
 //   saveState(text)  the header's save indicator
-// F fits, J and K step the walkthrough, only while the tab is shown, with no Ctrl, ⌘ or Alt, and
-// never while typing. While editable, Delete or Backspace deletes the selection and L re-lays
-// out, under the same rules and never with a button focused or a press on the canvas in
-// progress. Escape while a card is open closes it and marks the event handled (defaultPrevented).
-export function createDiagramView({ nodes, listed, openCode, ended = () => false, saveState = () => {} }) {
+//   counts()         the notes per element, keyed `box:<id>` and `arrow:<id>`, drawn as badges
+// F fits, J and K step the walkthrough, and N notes the selection once setAnnotate has been given
+// a composer, only while the tab is shown, with no Ctrl, ⌘ or Alt, and never while typing. While
+// editable, Delete or Backspace deletes the selection and L re-lays out, under the same rules and
+// never with a button focused or a press on the canvas in progress. Escape while a card is open
+// closes it and marks the event handled (defaultPrevented).
+export function createDiagramView({ nodes, listed, openCode, ended = () => false, saveState = () => {}, counts = () => new Map() }) {
   const { pane } = nodes;
+  // Opens the composer on a { kind: 'box' | 'arrow', id, label } anchor; null in a run that keeps
+  // no notes, which then offers no way to add one.
+  let annotate = null;
   const state = {
     // The run's diagram: null without one, { doc: { file, root, document } } once read, { error }.
     result: null,
@@ -225,7 +232,20 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     }
   }
 
-  function drawArrows(laid, layer) {
+  // A count of the notes on a box or an arrow, centred on (x, y); nothing for none.
+  function drawBadge(parent, x, y, count) {
+    if (!count) {
+      return;
+    }
+    const text = count > 99 ? '99+' : String(count);
+    const node = svg('g', { class: 'd-badge', transform: `translate(${x} ${y})` }, parent);
+    svg('rect', { x: -(BADGE_HEIGHT / 2 + (text.length - 1) * 3.5), y: -BADGE_HEIGHT / 2, width: BADGE_HEIGHT + (text.length - 1) * 7, height: BADGE_HEIGHT, rx: BADGE_HEIGHT / 2 }, node);
+    svgText({ x: 0, y: 3.5 }, text, node);
+    const title = svg('title', {}, node);
+    title.textContent = `${count} ${count === 1 ? 'note' : 'notes'}`;
+  }
+
+  function drawArrows(laid, layer, notes) {
     const byId = new Map(laid.arrows.map((arrow) => [arrow.id, arrow]));
     const arrows = new Map();
     for (const shape of arrowGeometry(laid)) {
@@ -234,19 +254,22 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       node.dataset.id = shape.id;
       svg('path', { class: 'd-line', d: shape.d }, node);
       svg('path', { class: 'd-hit', d: shape.d }, node);
+      let badgeX = shape.lx;
       if (arrow.label !== '') {
         const width = [...arrow.label].length * ARROW_LABEL_CHAR + 10;
         svg('rect', { class: 'd-label-bg', x: shape.lx - width / 2, y: shape.ly - 9, width, height: 18, rx: 4 }, node);
         svgText({ class: 'd-label', x: shape.lx, y: shape.ly + 4 }, arrow.label, node);
+        badgeX = shape.lx + width / 2 + BADGE_HEIGHT / 2 + 2;
       }
       const title = svg('title', {}, node);
       title.textContent = [arrow.label, arrow.why].filter((text) => text !== '').join(': ');
+      drawBadge(node, badgeX, shape.ly, notes.get(`arrow:${shape.id}`));
       arrows.set(shape.id, { node, from: shape.from, to: shape.to });
     }
     return arrows;
   }
 
-  function drawBoxes(laid, layer) {
+  function drawBoxes(laid, layer, notes) {
     const boxes = new Map();
     for (const box of laid.boxes) {
       const { w, h } = boxSize(box);
@@ -260,6 +283,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       }
       const title = svg('title', {}, node);
       title.textContent = [box.label, ...box.files].join('\n');
+      drawBadge(node, w, 0, notes.get(`box:${box.id}`));
       boxes.set(box.id, node);
     }
     return boxes;
@@ -272,6 +296,12 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     fitButton.title = 'Fit (F)';
     fitButton.addEventListener('click', fit);
     toolbar.append(fitButton);
+    let noteButton = null;
+    if (annotate) {
+      noteButton = html('button', 'small', 'Note');
+      noteButton.addEventListener('click', noteSelected);
+      toolbar.append(noteButton);
+    }
     let relayoutButton = null;
     let bar = null;
     if (state.saver) {
@@ -298,7 +328,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     // The field goes with the nodes it sat in; its blur must not commit into the new drawing.
     state.rename = null;
     pane.replaceChildren(canvas, ...(hint ? [hint] : []), toolbar, card, ...(caption ? [caption.node] : []));
-    state.drawing = { canvas, world, layers, card, caption, hint, relayout: relayoutButton, bar, arrows: new Map(), boxes: new Map() };
+    state.drawing = { canvas, world, layers, card, caption, hint, note: noteButton, relayout: relayoutButton, bar, arrows: new Map(), boxes: new Map() };
     state.selected = null;
     state.lastClick = null;
     state.pointer = null;
@@ -323,8 +353,9 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     arrows.replaceChildren();
     boxes.replaceChildren();
     drawFrames(state.doc, frames);
-    drawing.arrows = drawArrows(state.doc, arrows);
-    drawing.boxes = drawBoxes(state.doc, boxes);
+    const notes = counts();
+    drawing.arrows = drawArrows(state.doc, arrows, notes);
+    drawing.boxes = drawBoxes(state.doc, boxes, notes);
     drawing.canvas.classList.toggle('editable', state.editable);
     drawing.hint?.classList.toggle('hidden', !state.editable || state.doc.boxes.length > 0);
     showSelection();
@@ -760,6 +791,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       node.classList.remove('open');
     }
     const entry = selectedEntry();
+    updateNoteButton(entry !== null);
     if (entry === null) {
       state.selected = null;
       drawing.card.classList.add('hidden');
@@ -774,6 +806,47 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       drawing.card.replaceChildren(...arrowCard(entry));
     }
     drawing.card.classList.remove('hidden');
+  }
+
+  const canNote = () => annotate !== null && !ended();
+
+  function updateNoteButton(hasSelection) {
+    const button = state.drawing?.note;
+    if (!button) {
+      return;
+    }
+    button.disabled = !hasSelection || !canNote();
+    button.title = ended() ? 'The run has ended' : hasSelection ? 'Add a note (N)' : 'Select a box or arrow';
+  }
+
+  // Opens the composer on the selected box or arrow, its label snapshot taken from the drawing.
+  function noteSelected() {
+    const entry = selectedEntry();
+    if (entry === null || !canNote()) {
+      return;
+    }
+    annotate({ kind: state.selected.type, id: entry.id, label: entry.label });
+  }
+
+  const cardShown = () => state.drawing !== null && !state.drawing.card.classList.contains('hidden');
+
+  // The card for a note whose box or arrow the diagram no longer holds; the view stays as it is.
+  function showMissing(text) {
+    state.selected = null;
+    showSelection();
+    const { card } = state.drawing;
+    card.replaceChildren(cardHead(html('span', 'd-card-label muted', text)));
+    card.classList.remove('hidden');
+  }
+
+  function noteRow() {
+    const row = html('div', 'd-card-edit');
+    const button = html('button', 'small', 'Add note');
+    button.title = 'Add a note (N)';
+    button.disabled = !canNote();
+    button.addEventListener('click', noteSelected);
+    row.append(button);
+    return row;
   }
 
   function cardHead(label, kind) {
@@ -828,6 +901,9 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       edit.append(renameButton(), deleteButton());
       parts.push(edit);
     }
+    if (annotate) {
+      parts.push(noteRow());
+    }
     const files = html('div', 'd-card-files');
     if (box.files.length === 0) {
       files.append(html('div', 'muted', 'No linked files.'));
@@ -861,6 +937,9 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       const edit = html('div', 'd-card-edit');
       edit.append(renameButton(), deleteButton());
       parts.push(edit);
+    }
+    if (annotate) {
+      parts.push(noteRow());
     }
     return parts;
   }
@@ -958,7 +1037,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       if (state.pointer?.mode === 'move' || state.pointer?.mode === 'connect') {
         cancelGesture();
         event.preventDefault();
-      } else if (state.selected !== null) {
+      } else if (cardShown()) {
         closeCard();
         event.preventDefault();
       }
@@ -974,6 +1053,12 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       step(1);
     } else if (key === 'k') {
       step(-1);
+    } else if (key === 'n' && annotate) {
+      // The composer takes focus at once; the key must not type into it.
+      if (state.selected !== null && canNote()) {
+        event.preventDefault();
+        noteSelected();
+      }
     } else if (!canEdit() || focusOnButton() || state.pointer !== null) {
       // A press in progress ends in an edit of the document it started from, so an edit made
       // before its drop would be undone by it.
@@ -993,7 +1078,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       state.justPanned = false;
       return;
     }
-    if (state.selected !== null && !eventInside(event, '.d-card, .d-box, .d-arrow, .d-toolbar, .d-caption, .d-rename')) {
+    if (cardShown() && !eventInside(event, '.d-card, .d-box, .d-arrow, .d-toolbar, .d-caption, .d-rename, .notes, .composer')) {
       closeCard();
     }
   });
@@ -1003,6 +1088,11 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     // rejects with an error carrying the HTTP `status`; with it the next diagram is editable.
     setEditable(send) {
       state.send = send;
+    },
+    // Before setDiagram: `compose(anchor)` opens the composer on a box or arrow anchor; with it the
+    // diagram takes notes.
+    setAnnotate(compose) {
+      annotate = compose;
     },
     setDiagram(result) {
       state.result = result;
@@ -1040,5 +1130,35 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       }
     },
     render,
+    // The notes changed: the badges are repainted in place, keeping the view and the selection.
+    notesChanged() {
+      paint();
+    },
+    // Selects the box or arrow a note sits on and centres it at the current zoom; the tab must
+    // be shown. False, with a card saying so, when the diagram no longer holds it, and false
+    // with nothing done while a notice stands in for the drawing.
+    reveal({ kind, id, label }) {
+      if (!state.drawing) {
+        return false;
+      }
+      const entry = (kind === 'box' ? state.doc.boxes : state.doc.arrows).find((item) => item.id === id);
+      if (!entry) {
+        showMissing(`${kind} ${label || id} is not in this diagram.`);
+        return false;
+      }
+      select({ type: kind, id });
+      let centre;
+      if (kind === 'box') {
+        const { w, h } = boxSize(entry);
+        centre = { x: entry.x + w / 2, y: entry.y + h / 2 };
+      } else {
+        const shape = arrowGeometry(state.doc).find((item) => item.id === id);
+        centre = { x: shape.lx, y: shape.ly };
+      }
+      const { k } = state.view;
+      state.view = { x: pane.clientWidth / 2 - centre.x * k, y: pane.clientHeight / 2 - centre.y * k, k };
+      applyView();
+      return true;
+    },
   };
 }
