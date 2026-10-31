@@ -91,8 +91,9 @@ documents, the routes — replies and Finish included — and the exit codes.
 ## Notes file
 
 [CONTRACT.md](CONTRACT.md) specifies the notes-file schema and the anchor rule. Anchors are
-`range` (path, start, end, excerpt of the lines as seen), `file`, `folder`, `scope`, or
-`candidate` (the name of a candidate in the run's overview). The excerpt lets the reader
+`range` (path, start, end, excerpt of the lines as seen), `file`, `folder`, `scope`,
+`candidate` (the name of a candidate in the run's overview), or `box` and `arrow` (the id of a
+box or arrow in the run's diagram, with its label as it was when the note was made). The excerpt lets the reader
 detect drift when the code has changed since the note was written.
 
 ## Runtime dependencies

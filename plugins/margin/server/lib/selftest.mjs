@@ -3,7 +3,8 @@
 // Exercises what no browser session proves, without a browser. It checks the viewer's colouring
 // seam over the vendored highlight.js on a fixed TSX sample, and the routes that serve both. It
 // checks the viewer's round controller over a fake server and a fake view: the anchor rule
-// against the listing and the overview's candidate names, the Send rule with withheld candidate
+// against the listing, the overview's candidate names and the diagram's box and arrow ids, the
+// Send rule with withheld candidate
 // notes left out, writes running one at a time with the newest session, a
 // refresh merging the server copy by ownership, Send, Finish and Cancel with each refusal, and
 // the change wait's backoff, reconnection and end. It checks the viewer's outline model: rows
@@ -18,7 +19,9 @@
 // diagram session's listing of linked regular files only. It checks the viewer's diagram edits:
 // each edit checked and its input untouched, removals cleaning walkthrough steps, ids, the group
 // a dropped box lands in, the layouts, the positions an edit writes, and the save ordering with its failures. It checks the note rules (the anchor rule per kind,
-// a new candidate note outside the overview refusing the write, range validity, the excerpt cap),
+// a new candidate note outside the overview refusing the write, a box or arrow note taking its
+// label from the diagram and a new one outside it refusing the write, range validity, the
+// excerpt cap),
 // resuming a notes file (a stored note keeps its anchor; rounds and note rounds restore; a file
 // without rounds is round 0; the refusals), the atomic save keeping the file's mode, the sent-note lock, a Send withholding
 // the candidate notes the overview does not name, the agent's replies
@@ -32,8 +35,10 @@
 // wait returning on a reply and on the end. It checks the overview document: a document accepted
 // with its unknown fields dropped, each shape refusal, each reading refusal and the size limit,
 // the overview route behind the token and its 404 without an overview, candidate notes accepted
-// for the overview's names and refused on every write route otherwise, and a listing that never
-// lists the overview file. Against a diagram session's server, with no notes session, it checks
+// for the overview's names and refused on every write route otherwise, box and arrow notes on a
+// run that shows a diagram (accepted with the diagram's label, sent, replied to, refused on every
+// write route for an unknown id and on a run without a diagram, the diagram served and its save
+// answering 404), and a listing that never lists the overview file. Against a diagram session's server, with no notes session, it checks
 // the diagram route, the null session, linked-file reads, the notes routes answering 404 and
 // Finish ending it, and its save route: a canonical write served afterwards, each refusal and a
 // file changed on disk leaving the file as it was, a save after the end, and the 404 without a
@@ -48,7 +53,9 @@
 // a diagram session's stderr block, root default and override, a save writing the canonical
 // text, and its document on Finish and on SIGTERM with nothing else written, a submit, a `wait` child, finish,
 // and exactly one result document, a run ended by SIGTERM, a run serving its overview and
-// sending a candidate note, and
+// sending a candidate note, a run given `--diagram` listing its linked files, taking a box note,
+// recording the diagram and reopening it on resume — a relative recorded path made absolute and
+// kept out of the listing — with its refusals, and
 // `measure` then `assemble` writing an overview the shape check accepts.
 // Every fixture is a real file in a temp directory, and every expectation is written by hand,
 // never computed by the code under test. Requests go to 127.0.0.1 only. A failing case throws
@@ -65,7 +72,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import { listFiles, readSource } from './files.mjs';
-import { applyEdits, cleanAnnotation, refuseCandidates } from './annotations.mjs';
+import { applyEdits, cleanAnnotation, refuseAnchors } from './annotations.mjs';
 import { assembleOverview, readMeasurement, readOptional, serialiseOverview } from './assemble.mjs';
 import { createResolver, parseJsonc, scanSpecifiers } from './imports.mjs';
 import { countLines, detectWidth, indentation, measureScope } from './measure.mjs';
@@ -167,7 +174,9 @@ function request(port, { method = 'GET', target = '/api/session', headers = {}, 
 
 // A server on port 0 over a temp root holding `a.txt`, with the session, save, send and end
 // that `cli.mjs annotate` wires: `finished` settles with the result document the run would print.
-function withServer(fn, { overview = null } = {}) {
+// `diagram` is a checked diagram document the run shows read-only, as `annotate --diagram` serves
+// it: no writer.
+function withServer(fn, { overview = null, diagram = null } = {}) {
   return withTemp(async (root) => {
     write(root, 'a.txt', 'a\n');
     const out = path.join(root, 'claudedocs', 'margin', 'notes.json');
@@ -187,6 +196,7 @@ function withServer(fn, { overview = null } = {}) {
       onReply: (body) => postReplies(session, body),
       onEnd: (status) => finishRun(session, status),
       overview,
+      diagram: diagram ? { file: path.join(root, 'd.diagram.json'), root, document: diagram } : null,
     });
     try {
       const parsed = new URL(url);
@@ -662,7 +672,30 @@ function roundsRoutes(session, files = ['src/a.js', 'src/b/c.js'], extra = {}) {
 
 const bodyIds = (call) => call[2].annotations.map((a) => a.id);
 
-const ALLOWED = { paths: new Set(['src/a.js', 'src/b/c.js']), candidates: new Set(['split-parsing']) };
+const ALLOWED = { paths: new Set(['src/a.js', 'src/b/c.js']), candidates: new Set(['split-parsing']), boxes: new Map(), arrows: new Map() };
+
+// The diagram the box and arrow note cases check against: `shared` names a box and an arrow
+// both, and `quiet` is an unlabelled arrow.
+const NOTE_DIAGRAM = {
+  groups: [],
+  boxes: [
+    { id: 'cli', label: 'cli.mjs', kind: 'process', files: ['src/a.js', 'missing.js'] },
+    { id: 'skill', label: 'annotate skill', kind: 'agent', files: [] },
+    { id: 'shared', label: 'Shared box', kind: 'module', files: [] },
+  ],
+  arrows: [
+    { id: 'starts', from: 'skill', to: 'cli', label: 'starts', why: '' },
+    { id: 'shared', from: 'cli', to: 'shared', label: 'uses', why: '' },
+    { id: 'quiet', from: 'shared', to: 'skill', label: '', why: '' },
+  ],
+  walkthroughs: [],
+};
+
+const DIAGRAM_ALLOWED = {
+  ...ALLOWED,
+  boxes: new Map([['cli', 'cli.mjs'], ['skill', 'annotate skill'], ['shared', 'Shared box']]),
+  arrows: new Map([['starts', 'starts'], ['shared', 'uses'], ['quiet', '']]),
+};
 
 const CASES = [
   ['highlight: the vendored highlight.js loads and colours TSX across lines', async () => {
@@ -779,6 +812,42 @@ const CASES = [
     h.rounds.deleteNote('withheld');
     h.rounds.deleteNote('local');
     assert(!h.rounds.sendHeld() && h.rounds.canSend(), 'Send stays held once no candidate note is unsent');
+  }],
+  ["viewer rounds: box and arrow notes follow the run's diagram", async () => {
+    const box = (id, boxId, extra) => viewerNote(id, { kind: 'box', id: boxId, label: boxId }, extra);
+    const arrow = (id, arrowId, extra) => viewerNote(id, { kind: 'arrow', id: arrowId, label: '' }, extra);
+    const server = viewerSession([box('stored', 'gone')]);
+    const h = await roundsHarness(
+      roundsRoutes(viewerSession(), undefined, {
+        'GET /api/session': () => ({ session: structuredClone(server), files: ['src/a.js'], changes: 1 }),
+      }),
+    );
+    await h.rounds.load();
+    assert(!h.rounds.listed({ kind: 'box', id: 'cli' }), 'a box is listed before the diagram is set');
+    h.rounds.setDiagram(NOTE_DIAGRAM);
+    assert(h.rounds.listed({ kind: 'box', id: 'cli' }) && h.rounds.listed({ kind: 'arrow', id: 'starts' }), 'a diagram element is not listed');
+    assert(h.rounds.listed({ kind: 'box', id: 'shared' }) && h.rounds.listed({ kind: 'arrow', id: 'shared' }), 'an id a box and an arrow share is not listed for both');
+    assert(!h.rounds.listed({ kind: 'box', id: 'starts' }), 'an arrow id is listed as a box');
+    assert(!h.rounds.listed({ kind: 'arrow', id: 'cli' }), 'a box id is listed as an arrow');
+    assert(!h.rounds.listed({ kind: 'box' }) && !h.rounds.listed({ kind: 'arrow', id: 'nope' }), 'an unknown or missing id is listed');
+    assert(!h.rounds.withheld(h.rounds.session.annotations[0]), 'a stored box note outside the diagram is withheld');
+    assertEqual(h.rounds.sendable().map((a) => a.id), ['stored'], 'the sendable notes with only a stored box note');
+    assert(h.rounds.canSend(), 'Send is refused with only a box note');
+    h.rounds.addNote(box('local', 'cli'));
+    h.rounds.addNote(arrow('quiet', 'quiet'));
+    h.rounds.addNote(box('stray', 'nope'));
+    h.take();
+    await h.rounds.refresh();
+    assertEqual(h.rounds.session.annotations.map((a) => a.id), ['stored', 'local', 'quiet'], 'the notes after a refresh');
+    assertEqual(h.take().filter((e) => Array.isArray(e) && e[0] === 'dropped'), [['dropped', ['stray']]], 'the notes a refresh dropped');
+    const { noteCounts } = await loadOverviewModel();
+    assertEqual(
+      Object.fromEntries(noteCounts([box('a', 'cli'), box('b', 'cli'), arrow('c', 'cli'), arrow('d', 'quiet', { round: 1 }), viewerNote('e', { kind: 'file', path: 'src/a.js' })])),
+      { 'box:cli': 2, 'arrow:cli': 1, 'arrow:quiet': 1, 'file:src/a.js': 1 },
+      'the note counts with box and arrow notes',
+    );
+    h.rounds.setDiagram(null);
+    assert(!h.rounds.listed({ kind: 'box', id: 'cli' }) && !h.rounds.listed({ kind: 'arrow', id: 'starts' }), 'an element is listed in a run without a diagram');
   }],
   ['viewer rounds: writes run one at a time, each carrying the session as it stands at its turn', async () => {
     let release;
@@ -1224,7 +1293,7 @@ const CASES = [
         { id: 'u1', anchor: { kind: 'candidate', name: 'gone' }, intent: 'change', body: 'unsent', createdAt: 't' },
       ],
     };
-    const refuse = (annotations, allowed = ALLOWED) => refuseCandidates(session, { annotations }, allowed);
+    const refuse = (annotations, allowed = ALLOWED) => refuseAnchors(session, { annotations }, allowed);
     const candidate = (name, extra = {}) => ({ anchor: { kind: 'candidate', name }, body: 'b', ...extra });
     assert(refuse([candidate('split-parsing'), { anchor: { kind: 'file', path: 'src/x.js' }, body: 'b' }]) === null, 'a known candidate and an unlisted file refused the write');
     assertEqual(refuse([{ anchor: { kind: 'scope' }, body: 'b' }, candidate('merge-io')]), 'entry 1: "merge-io" is not a candidate of this run\'s overview', 'one unknown candidate');
@@ -1244,11 +1313,71 @@ const CASES = [
       'entry 0: "merge-io" is not a candidate of this run\'s overview',
       'an unknown candidate with a malformed body',
     );
-    assert(refuseCandidates(session, { overall: 'o' }, ALLOWED) === null, 'a write without annotations was refused');
+    assert(refuseAnchors(session, { overall: 'o' }, ALLOWED) === null, 'a write without annotations was refused');
     assertEqual(
       refuse([candidate('split-parsing')], { paths: ALLOWED.paths, candidates: new Set() }),
       'entry 0: "split-parsing" is not a candidate of this run\'s overview',
       'a candidate note in a run without an overview',
+    );
+  }],
+  ["annotations: box and arrow notes against the run's diagram", () => {
+    const clean = (anchor, allowed = DIAGRAM_ALLOWED) => cleanAnnotation({ id: 'n', anchor, body: 'b', intent: 'change', createdAt: 't' }, allowed);
+    assertEqual(
+      clean({ kind: 'box', id: 'cli', label: 'forged', path: 'src/a.js', name: 'x' }),
+      { id: 'n', anchor: { kind: 'box', id: 'cli', label: 'cli.mjs' }, intent: 'change', body: 'b', createdAt: 't' },
+      'a box note takes its label from the diagram',
+    );
+    assertEqual(clean({ kind: 'arrow', id: 'starts' })?.anchor, { kind: 'arrow', id: 'starts', label: 'starts' }, 'an arrow note sent without a label');
+    assertEqual(clean({ kind: 'arrow', id: 'quiet', label: 'forged' })?.anchor, { kind: 'arrow', id: 'quiet', label: '' }, 'a note on an unlabelled arrow');
+    assertEqual(clean({ kind: 'box', id: 'shared' })?.anchor, { kind: 'box', id: 'shared', label: 'Shared box' }, 'the box of a shared id');
+    assertEqual(clean({ kind: 'arrow', id: 'shared' })?.anchor, { kind: 'arrow', id: 'shared', label: 'uses' }, 'the arrow of a shared id');
+    assert(clean({ kind: 'box', id: 'starts' }) === null, 'a box note on an arrow id was kept');
+    assert(clean({ kind: 'arrow', id: 'cli' }) === null, 'an arrow note on a box id was kept');
+    for (const id of ['nope', undefined, '', '-x', 'a b', 42]) {
+      assert(clean({ kind: 'box', id }) === null, `a box note on ${JSON.stringify(id)} was kept`);
+      assert(clean({ kind: 'arrow', id }) === null, `an arrow note on ${JSON.stringify(id)} was kept`);
+    }
+    assert(clean({ kind: 'box', id: 'cli' }, ALLOWED) === null, 'a box note in a run without a diagram was kept');
+    assertEqual(clean({ kind: 'box', id: 'gone', label: 'Old name' }, null)?.anchor, { kind: 'box', id: 'gone', label: 'Old name' }, 'a box note read back keeps its label');
+    assertEqual(clean({ kind: 'arrow', id: 'gone', label: 7 }, null)?.anchor, { kind: 'arrow', id: 'gone', label: '' }, 'a non-string label read back');
+    assertEqual(clean({ kind: 'box', id: 'gone' }, null)?.anchor, { kind: 'box', id: 'gone', label: '' }, 'a missing label read back');
+    assert(clean({ kind: 'box', id: 'Bad id' }, null) === null, 'a box note read back with a bad id was kept');
+
+    const session = {
+      annotations: [
+        { id: 's1', anchor: { kind: 'box', id: 'gone', label: 'Gone' }, intent: 'change', body: 'sent', createdAt: 't', round: 1 },
+        { id: 'u1', anchor: { kind: 'arrow', id: 'gone', label: '' }, intent: 'change', body: 'unsent', createdAt: 't' },
+      ],
+    };
+    const refuse = (annotations, allowed = DIAGRAM_ALLOWED) => refuseAnchors(session, { annotations }, allowed);
+    const note = (kind, id, extra = {}) => ({ anchor: { kind, id }, body: 'b', ...extra });
+    assert(refuse([note('box', 'cli'), note('arrow', 'quiet'), { anchor: { kind: 'file', path: 'src/x.js' }, body: 'b' }]) === null, 'known elements and an unlisted file refused the write');
+    assertEqual(
+      refuse([note('box', 'cli'), note('arrow', 'nope'), { anchor: { kind: 'candidate', name: 'merge-io' }, body: 'b' }, note('box', undefined), note('box', '-x'), note('arrow', 42)]),
+      [
+        'entry 1: "nope" is not an arrow of this run\'s diagram',
+        'entry 2: "merge-io" is not a candidate of this run\'s overview',
+        'entry 3: null is not a box of this run\'s diagram',
+        'entry 4: "-x" is not a box of this run\'s diagram',
+        'entry 5: 42 is not an arrow of this run\'s diagram',
+      ].join('; '),
+      'unknown elements and an unknown candidate in one write',
+    );
+    assertEqual(refuse([note('box', 'cli')], ALLOWED), 'entry 0: "cli" is not a box of this run\'s diagram', 'a box note in a run without a diagram');
+    assert(refuse([note('arrow', 'gone', { id: 'u1' })]) === null, 'a revision of a stored unsent arrow note refused the write');
+    assert(refuse([note('box', 'gone', { id: 's1' })]) === null, 'an entry carrying a sent box note id refused the write');
+
+    const resumed = restoreSession({ annotations: [{ id: 'b1', anchor: { kind: 'box', id: 'gone', label: 'Gone' }, body: 'kept', createdAt: 't' }] }, '/notes.json');
+    applyEdits(resumed, { annotations: [{ id: 'b1', anchor: { kind: 'box', id: 'cli', label: 'cli.mjs' }, body: 'kept, revised' }] }, DIAGRAM_ALLOWED);
+    assertEqual(
+      resumed.annotations,
+      [{ id: 'b1', anchor: { kind: 'box', id: 'gone', label: 'Gone' }, intent: 'change', body: 'kept, revised', createdAt: 't' }],
+      'a resumed box note outside the diagram after a write',
+    );
+    throwsRun(
+      () => restoreSession({ annotations: [{ anchor: { kind: 'arrow', id: 'ok' }, body: 'ok' }, { anchor: { kind: 'arrow', id: '.x' }, body: 'x' }] }, '/notes.json'),
+      1,
+      '1 of 2 notes are malformed (indices 1)',
     );
   }],
   ['annotations: range validity and excerpt cap', () => {
@@ -2193,6 +2322,45 @@ const CASES = [
       assert(refused.status === 400, `a candidate note without an overview got ${refused.status}`);
       assertEqual(refused.json, { error: 'entry 0: "split-parsing" is not a candidate of this run\'s overview' }, 'the refusal without an overview');
       assertEqual(session.annotations, [], 'notes after the refusal without an overview');
+    });
+  }],
+  ["server: box and arrow notes against the run's diagram", async () => {
+    const { checkDiagram } = await loadDiagramModel();
+    const document = checkDiagram(structuredClone(NOTE_DIAGRAM));
+    const note = (id, kind, element, label) => ({ id, anchor: { kind, id: element, ...(label === undefined ? {} : { label }) }, body: id });
+    await withServer(async ({ port, host, out, session }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const known = [note('b1', 'box', 'cli', 'forged'), note('a1', 'arrow', 'quiet')];
+      const put = await request(port, { method: 'PUT', target: '/api/session', headers, body: { annotations: known } });
+      assert(put.status === 200, `known box and arrow notes got ${put.status}`);
+      assertEqual(session.annotations.map((a) => a.anchor), [{ kind: 'box', id: 'cli', label: 'cli.mjs' }, { kind: 'arrow', id: 'quiet', label: '' }], 'stored anchors after known box and arrow notes');
+      const saved = fs.readFileSync(out, 'utf8');
+      const body = { annotations: [...known, note('a2', 'arrow', 'gone'), { id: 'f1', anchor: { kind: 'file', path: 'a.txt' }, body: 'f1' }] };
+      for (const target of ['/api/session', '/api/submit', '/api/cancel', '/api/finish']) {
+        const refused = await request(port, { method: target === '/api/session' ? 'PUT' : 'POST', target, headers, body });
+        assert(refused.status === 400, `${target} with an unknown arrow got ${refused.status}`);
+        assertEqual(refused.json, { error: 'entry 2: "gone" is not an arrow of this run\'s diagram' }, `${target} refusal`);
+        assertEqual(session.annotations.map((a) => a.id), ['b1', 'a1'], `notes after ${target} was refused`);
+        assert(fs.readFileSync(out, 'utf8') === saved, `a refused ${target} rewrote the notes file`);
+      }
+      const sent = await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: known } });
+      assertEqual(sent.json, { ok: true, round: 1 }, 'a submit with box and arrow notes');
+      assertEqual(session.annotations.map((a) => [a.id, a.round]), [['b1', 1], ['a1', 1]], 'notes after the submit');
+      const replied = await request(port, { method: 'POST', target: '/api/reply', headers, body: { round: 1, replies: [{ id: 'b1', body: 'renamed it' }, { id: 'a1', body: 'labelled it' }] } });
+      assertEqual(replied.json, { ok: true, replied: 2 }, 'replies to box and arrow notes');
+      const stored = (await request(port, { headers })).json.session.annotations.map((a) => [a.id, a.anchor.label, a.replies.map((r) => [r.body, r.round])]);
+      assertEqual(stored, [['b1', 'cli.mjs', [['renamed it', 1]]], ['a1', '', [['labelled it', 1]]]], 'box and arrow notes with their replies');
+      const served = await request(port, { target: '/api/diagram', headers });
+      assert(served.status === 200, `the diagram route on an annotate run got ${served.status}`);
+      assertEqual(served.json.document, document, 'the served diagram');
+      const save = await request(port, { method: 'PUT', target: '/api/diagram', headers, body: { document } });
+      assertEqual([save.status, save.json], [404, { error: 'not found' }], 'a diagram save on an annotate run');
+    }, { diagram: document });
+    await withServer(async ({ port, host, session }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const refused = await request(port, { method: 'PUT', target: '/api/session', headers, body: { annotations: [note('b1', 'box', 'cli')] } });
+      assertEqual([refused.status, refused.json], [400, { error: 'entry 0: "cli" is not a box of this run\'s diagram' }], 'a box note without a diagram');
+      assertEqual(session.annotations, [], 'notes after the refusal without a diagram');
     });
   }],
   ["listing: the run's overview file is never listed", () => withTemp((root) => withTemp((outside) => {
@@ -3329,6 +3497,77 @@ const CASES = [
     } finally {
       server.child.kill('SIGKILL');
     }
+  })],
+  ['cli: a diagram run lists its linked files, takes box notes and reopens its diagram on resume', () => withTemp(async (dir) => {
+    const root = path.join(dir, 'root');
+    write(root, 'src/a.js', 'a\n');
+    write(root, 'src/b.js', 'b\n');
+    const diagramFile = write(root, 'docs/d.diagram.json', JSON.stringify(NOTE_DIAGRAM));
+    const emptyFile = write(dir, 'empty.diagram.json', JSON.stringify({ groups: [], boxes: [], arrows: [], walkthroughs: [] }));
+    const out = path.join(dir, 'notes.json');
+    const live = async (args, fn) => {
+      const server = spawnCli(['annotate', ...args, '--port', '0', '--token', TOKEN, '--no-open']);
+      try {
+        const url = await serverUrl(server);
+        const port = Number(new URL(url).port);
+        const headers = { host: `127.0.0.1:${port}`, 'x-margin-token': TOKEN };
+        await fn({ port, headers, stderr: server.stderr });
+        const finish = await request(port, { method: 'POST', target: '/api/finish', headers });
+        assertEqual(finish.json, { ok: true, status: 'finished' }, 'finish reply');
+        const exit = await server.exited();
+        assert(exit.code === 0, `the server exited ${exit.code ?? exit.signal}: ${exit.stdout}`);
+        return JSON.parse(exit.stdout);
+      } finally {
+        server.child.kill('SIGKILL');
+      }
+    };
+
+    const first = await live(['--root', root, '--out', out, '--diagram', diagramFile], async ({ port, headers, stderr }) => {
+      assert(stderr().includes('  scope: diagram links (1 files)\n'), `the scope line of a diagram run: ${stderr()}`);
+      assert(stderr().includes(`  diagram: ${diagramFile}\n`), `the diagram line: ${stderr()}`);
+      assertEqual((await request(port, { headers })).json.files, ['src/a.js'], 'listing of a diagram run with no scope');
+      const served = await request(port, { target: '/api/diagram', headers });
+      assertEqual([served.status, served.json.file, served.json.root], [200, diagramFile, root], 'the diagram route of a diagram run');
+      const save = await request(port, { method: 'PUT', target: '/api/diagram', headers, body: { document: NOTE_DIAGRAM } });
+      assert(save.status === 404, `a diagram save on a diagram run got ${save.status}`);
+      const put = await request(port, { method: 'PUT', target: '/api/session', headers, body: { annotations: [{ id: 'b1', anchor: { kind: 'box', id: 'cli' }, body: 'split it' }] } });
+      assert(put.status === 200, `a box note on a diagram run got ${put.status}`);
+      assertEqual(JSON.parse(fs.readFileSync(out, 'utf8')).diagram, diagramFile, 'the diagram the notes file records');
+    });
+    assertEqual(first, { status: 'finished', out, annotations: 1, rounds: 0, root, scope: [] }, 'result document of a diagram run');
+
+    await live(['--out', out, '--scope', '.'], async ({ port, headers, stderr }) => {
+      assert(stderr().includes('  scope: . (2 files)\n') && stderr().includes(`  diagram: ${diagramFile}\n`), `the stderr block of a resumed diagram run: ${stderr()}`);
+      const data = (await request(port, { headers })).json;
+      assertEqual(data.files, ['src/a.js', 'src/b.js'], 'listing of a resumed diagram run over a scope, without the diagram files');
+      assertEqual(data.session.annotations.map((a) => a.anchor), [{ kind: 'box', id: 'cli', label: 'cli.mjs' }], 'the box note after a resume');
+      assertEqual((await request(port, { target: '/api/diagram', headers })).json.file, diagramFile, 'the diagram a resume reopens');
+    });
+
+    const recorded = JSON.parse(fs.readFileSync(out, 'utf8'));
+    fs.writeFileSync(out, `${JSON.stringify({ ...recorded, diagram: path.relative(process.cwd(), diagramFile) }, null, 2)}\n`);
+    await live(['--out', out, '--scope', '.'], async ({ port, headers, stderr }) => {
+      assert(stderr().includes(`  diagram: ${diagramFile}\n`), `the diagram line of a resume recording a relative diagram: ${stderr()}`);
+      assertEqual((await request(port, { headers })).json.files, ['src/a.js', 'src/b.js'], 'listing of a resume recording a relative diagram, without the diagram file');
+      assertEqual((await request(port, { target: '/api/diagram', headers })).json.file, diagramFile, 'the diagram route of a resume recording a relative diagram');
+    });
+    assertEqual(JSON.parse(fs.readFileSync(out, 'utf8')).diagram, diagramFile, 'the diagram path a resume records, made absolute');
+
+    await live(['--root', root, '--out', path.join(dir, 'empty.json'), '--diagram', emptyFile], async ({ port, headers, stderr }) => {
+      assert(stderr().includes('  scope: diagram links (0 files)\n'), `the scope line of a diagram with no links: ${stderr()}`);
+      assertEqual((await request(port, { headers })).json.files, [], 'listing of a diagram with no links');
+    });
+
+    const notes = fs.readFileSync(out);
+    fs.rmSync(diagramFile);
+    assertErrorDoc(runCli(['annotate', '--out', out, '--port', '0', '--no-open']), 1, `diagram ${diagramFile}: not found`, 'a resume whose diagram was deleted');
+    assert(fs.readFileSync(out).equals(notes), 'a refused resume rewrote --out');
+    assertErrorDoc(runCli(['annotate', '--root', root, '--out', out, '--diagram=', '--port', '0', '--no-open']), 2, 'bad --diagram: empty', 'an empty --diagram');
+    const broken = write(dir, 'broken.diagram.json', '{');
+    const refused = runCli(['annotate', '--root', root, '--out', path.join(dir, 'fresh.json'), '--diagram', broken, '--port', '0', '--no-open']);
+    assertErrorDoc(refused, 1, `diagram ${broken}: not valid JSON`, 'a fresh run with an invalid diagram');
+    assert(!refused.stderr.includes('margin: http'), `a refused diagram bound a port: ${refused.stderr}`);
+    assert(!fs.existsSync(path.join(dir, 'fresh.json')), 'a refused diagram wrote --out');
   })],
 ];
 

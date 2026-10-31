@@ -37,6 +37,8 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     files: [], // repo-relative paths in scope, sorted
     fileSet: new Set(), // state.files as a set, rebuilt with it
     candidates: new Set(), // the names of the run's overview candidates; null while unknown
+    boxIds: new Set(), // the box ids of the run's diagram; none for a run without one
+    arrowIds: new Set(), // the arrow ids of the run's diagram
     saveTimer: null,
     // The last write sent to the server. Writes run one after another, so an older snapshot can
     // never land after a newer one; each sends the session as it stands when its turn comes.
@@ -68,8 +70,15 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     state.candidates = names === null ? null : new Set(names);
   }
 
-  // The contract's anchor rule (CONTRACT.md §7) against the current listing and the run's
-  // overview candidates: whether the server would accept a new note on this anchor now.
+  // The box and arrow ids of the run's diagram, as the server reads them from the document the
+  // run started with; none for a run without a diagram (`document` null).
+  function setDiagram(document) {
+    state.boxIds = new Set((document?.boxes ?? []).map((box) => box.id));
+    state.arrowIds = new Set((document?.arrows ?? []).map((arrow) => arrow.id));
+  }
+
+  // The contract's anchor rule (CONTRACT.md §7) against the current listing, the run's overview
+  // candidates and its diagram: whether the server would accept a new note on this anchor now.
   function listed(anchor) {
     switch (anchor.kind) {
       case 'scope':
@@ -78,6 +87,10 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
         return anchor.path !== '' && anchor.path !== '.' && state.files.some((path) => path.startsWith(`${anchor.path}/`));
       case 'candidate':
         return state.candidates?.has(anchor.name) ?? false;
+      case 'box':
+        return state.boxIds.has(anchor.id);
+      case 'arrow':
+        return state.arrowIds.has(anchor.id);
       default:
         return state.fileSet.has(anchor.path);
     }
@@ -433,6 +446,7 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
       return state.standalone;
     },
     setCandidates,
+    setDiagram,
     listed,
     unsent,
     withheld,
