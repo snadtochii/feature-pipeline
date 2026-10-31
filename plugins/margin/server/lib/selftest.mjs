@@ -3,11 +3,16 @@
 // Exercises what no browser session proves, without a browser. It checks the viewer's colouring
 // seam over the vendored highlight.js on a fixed TSX sample, and the routes that serve both. It
 // checks the viewer's round controller over a fake server and a fake view: the anchor rule
-// against the listing, the Send rule, writes running one at a time with the newest session, a
+// against the listing and the overview's candidate names, the Send rule with withheld candidate
+// notes left out, writes running one at a time with the newest session, a
 // refresh merging the server copy by ownership, Send, Finish and Cancel with each refusal, and
-// the change wait's backoff, reconnection and end. It checks the note rules (the anchor rule per kind, range validity, the excerpt cap), resuming a
-// notes file (a stored note keeps its anchor; rounds and note rounds restore; a file without
-// rounds is round 0; the refusals), the atomic save, the sent-note lock, the agent's replies
+// the change wait's backoff, reconnection and end. It checks the viewer's outline model: rows
+// grouped by scope entry and folder, imported-by, candidate membership, bars, the anchor rule per
+// row, note counts, and the route serving it. It checks the note rules (the anchor rule per kind,
+// a new candidate note outside the overview refusing the write, range validity, the excerpt cap),
+// resuming a notes file (a stored note keeps its anchor; rounds and note rounds restore; a file
+// without rounds is round 0; the refusals), the atomic save, the sent-note lock, a Send withholding
+// the candidate notes the overview does not name, the agent's replies
 // (kept through a viewer write and a resume, each resume refusal for them, a reply post whose
 // save fails changing nothing), the scope rule, file listing that never lists a symlink, and
 // the reading refusals and limits. Against a server on port 0 inside this process it checks the
@@ -15,10 +20,20 @@
 // after a sent round), `wait` returning on a submit and on the end of the run, the reply route
 // (sent notes only, its refusals, all or nothing, 409 after the end), re-listing after a reply
 // (a new file accepted as a `file` anchor, a deleted listed file answering 404), and the change
-// wait returning on a reply and on the end. Through `cli.mjs` children it checks the command's own
-// refusals (children that must exit before serving, and `wait`'s invocation refusals) and one
-// end-to-end run: a submit, a `wait` child, finish, and exactly one result document, plus a
-// run ended by SIGTERM.
+// wait returning on a reply and on the end. It checks the overview document: a document accepted
+// with its unknown fields dropped, each shape refusal, each reading refusal and the size limit,
+// the overview route behind the token and its 404 without an overview, candidate notes accepted
+// for the overview's names and refused on every write route otherwise, and a listing that never
+// lists the overview file. It checks the overview data: the import scan and its resolution
+// against the listing and tsconfig `paths`, the line count, indent width and indentation, churn
+// from dated commits in a temporary repository, the hotspot table, explorer blocks parsed and
+// dropped, roles merged, each notice, and the size limit. Through `cli.mjs` children it checks
+// the command's own refusals (children that must exit before serving, `wait`'s invocation
+// refusals, each `--overview` refusal leaving `--out` as it was, and the `measure` and
+// `assemble` refusals writing nothing) and end-to-end runs: a submit, a `wait` child, finish,
+// and exactly one result document, a run ended by SIGTERM, a run serving its overview and
+// sending a candidate note, and
+// `measure` then `assemble` writing an overview the shape check accepts.
 // Every fixture is a real file in a temp directory, and every expectation is written by hand,
 // never computed by the code under test. Requests go to 127.0.0.1 only. A failing case throws
 // a RunError naming it.
@@ -34,7 +49,11 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import { listFiles, readSource } from './files.mjs';
-import { applyEdits, cleanAnnotation } from './annotations.mjs';
+import { applyEdits, cleanAnnotation, refuseCandidates } from './annotations.mjs';
+import { assembleOverview, readMeasurement, readOptional, serialiseOverview } from './assemble.mjs';
+import { createResolver, parseJsonc, scanSpecifiers } from './imports.mjs';
+import { countLines, detectWidth, indentation, measureScope } from './measure.mjs';
+import { MAX_OVERVIEW_BYTES, checkOverview, readOverview } from './overview.mjs';
 import { startServer } from './server.mjs';
 import { RunError, createSession, finishRun, postReplies, readStored, restoreSession, saveSession, scopePath, sendRound } from './session.mjs';
 import { waitForRound } from './wait.mjs';
@@ -132,11 +151,11 @@ function request(port, { method = 'GET', target = '/api/session', headers = {}, 
 
 // A server on port 0 over a temp root holding `a.txt`, with the session, save, send and end
 // that `cli.mjs annotate` wires: `finished` settles with the result document the run would print.
-function withServer(fn) {
+function withServer(fn, { overview = null } = {}) {
   return withTemp(async (root) => {
     write(root, 'a.txt', 'a\n');
     const out = path.join(root, 'claudedocs', 'margin', 'notes.json');
-    const files = listFiles(root, [], out);
+    const files = listFiles(root, [], [out]);
     assertEqual(files, ['a.txt'], 'fixture listing');
     const session = createSession({ stored: null, out, root, scope: [], revision: null });
     const save = () => saveSession(session);
@@ -146,11 +165,12 @@ function withServer(fn) {
       session,
       files,
       readSource: (p) => readSource(root, p),
-      relist: () => listFiles(root, [], out),
+      relist: () => listFiles(root, [], [out]),
       onSave: save,
-      onSend: () => sendRound(session),
+      onSend: (candidates) => sendRound(session, candidates),
       onReply: (body) => postReplies(session, body),
       onEnd: (status) => finishRun(session, status),
+      overview,
     });
     try {
       const parsed = new URL(url);
@@ -173,7 +193,102 @@ function runCli(args) {
   } catch {
     doc = null;
   }
-  return { status: res.status, signal: res.signal, stdout: res.stdout, doc };
+  return { status: res.status, signal: res.signal, stdout: res.stdout, stderr: res.stderr, doc };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HOTSPOT_HEADER_LINE = 'path\tchurn\tlines\tindentation\tchurn_x_lines\tchurn_x_indentation\n';
+
+function commitAll(root, message, daysAgo) {
+  const date = `${Math.floor((Date.now() - daysAgo * DAY_MS) / 1000)} +0000`;
+  execFileSync('git', ['add', '-A'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.name=margin', '-c', 'user.email=margin@example.invalid', 'commit', '-q', '-m', message], {
+    cwd: root,
+    stdio: 'ignore',
+    env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+  });
+}
+
+const FIXTURE_A_TS = [
+  "import { b } from './b';",
+  "import { c } from '@/c';",
+  "import React from 'react';",
+  "import { m } from './missing';",
+  "import { x } from '../other/x';",
+  '',
+  'export function a() {',
+  '  if (b) {',
+  '    return c;',
+  '  }',
+  '  return m;',
+  '}',
+  '',
+].join('\n');
+const FIXTURE_B_TS = 'export const b = {\n  one: 1,\n};\n';
+
+function measureFixture(root) {
+  execFileSync('git', ['init', '-q'], { cwd: root, stdio: 'ignore' });
+  write(root, 'tsconfig.json', '{\n  // the alias the app uses\n  "compilerOptions": {\n    "paths": { "@/*": ["./src/lib/*"] },\n  },\n}\n');
+  write(root, 'src/a.ts', 'old\n');
+  write(root, 'src/b.ts', 'old\n');
+  write(root, 'src/lib/c.ts', 'export const c = 1;\n');
+  write(root, 'src/img.bin', Buffer.from('x\0y'));
+  write(root, 'other/x.ts', 'export const x = 1;\n');
+  commitAll(root, 'old', 240);
+  write(root, 'src/a.ts', 'interim\n');
+  write(root, 'src/b.ts', FIXTURE_B_TS);
+  commitAll(root, 'interim', 2);
+  write(root, 'src/a.ts', FIXTURE_A_TS);
+  write(root, 'other/x.ts', 'export const x = 2;\n');
+  commitAll(root, 'recent', 1);
+}
+
+function measuredFixture(root) {
+  return {
+    version: 1,
+    root,
+    scope: ['src'],
+    prefix: '',
+    files: [
+      { path: 'src/a.ts', lines: 12, churn: 2, indentation: 5, imports: ['src/b.ts', 'src/lib/c.ts'], outside: ['react', './missing', '../other/x'] },
+      { path: 'src/b.ts', lines: 3, churn: 1, indentation: 1, imports: [], outside: [] },
+      { path: 'src/img.bin', lines: null, churn: 0, indentation: null, imports: [], outside: [] },
+      { path: 'src/lib/c.ts', lines: 1, churn: 0, indentation: 0, imports: [], outside: [] },
+    ],
+  };
+}
+
+const MEASURED_FIXTURE_TSV = `${HOTSPOT_HEADER_LINE}src/a.ts\t2\t12\t5\t24\t10\nsrc/b.ts\t1\t3\t1\t3\t1\nsrc/lib/c.ts\t0\t1\t0\t0\t0\n`;
+
+function handMeasurement() {
+  return {
+    version: 1,
+    root: OVERVIEW_ROOT,
+    scope: ['src'],
+    prefix: 'apps/web/',
+    files: [
+      { path: 'src/a.ts', lines: 3, churn: 1, indentation: 0, imports: ['src/b.ts'], outside: ['react'] },
+      { path: 'src/b.ts', lines: 1, churn: 0, indentation: 0, imports: [], outside: [] },
+    ],
+  };
+}
+
+function explorerBlock(name, { tier = 'speculative', files = 'src/a.ts', sites = [], est = '3' } = {}) {
+  return [
+    `name: ${name}`,
+    `tier: ${tier}`,
+    'category: in-process',
+    `files: ${files}`,
+    'next_change: x',
+    ...sites.map((site) => `next_sites: ${site}`),
+    `est_diff_lines: ${est}`,
+    'deletion_test: x',
+    'friction: y',
+  ];
+}
+
+function explorerText(blocks) {
+  return blocks.map((block) => block.join('\n')).join('\n\n');
 }
 
 function assertErrorDoc(res, exitCode, fragment, what) {
@@ -254,11 +369,72 @@ function serverUrl(run) {
   });
 }
 
+// ---- the overview document (lib/overview.mjs) ------------------------------------------------
+
+const OVERVIEW_ROOT = path.join(os.tmpdir(), 'margin-overview-root');
+
+function overviewFixture(root) {
+  return {
+    version: 1,
+    root,
+    scope: ['src'],
+    generatedAt: '2026-10-30T12:00:00Z',
+    producer: 'hand-written',
+    files: [
+      { path: 'src/a.js', lines: 120, churn: 4, indentation: 3, kind: 'module', role: 'entry point', exports: ['main'], mixes: ['io', 'parsing'], imports: ['src/b.js'], outside: ['node:fs'], hotspot: { score: 9 } },
+      { path: 'src/b.js', lines: null, churn: null, indentation: null, kind: null, role: null, exports: null, mixes: null, imports: [], outside: [] },
+    ],
+    candidates: [
+      {
+        name: 'split-parsing',
+        tier: 'strong',
+        category: 'in-process',
+        files: ['src/a.js', 'src/b.js'],
+        next_change: 'add a second input format',
+        next_sites: [{ path: 'src/a.js', line: 12, what: 'the format switch', column: 4 }],
+        est_diff_lines: 80,
+        deletion_test: 'deleting b.js moves its parsing back into a.js',
+        friction: 'a.js mixes io and parsing',
+        structural_key: 'parse:a.js',
+      },
+    ],
+    notices: ['one candidate found'],
+  };
+}
+
+function expectedOverview(root) {
+  return {
+    version: 1,
+    root,
+    scope: ['src'],
+    generatedAt: '2026-10-30T12:00:00Z',
+    files: [
+      { path: 'src/a.js', lines: 120, churn: 4, indentation: 3, kind: 'module', role: 'entry point', exports: ['main'], mixes: ['io', 'parsing'], imports: ['src/b.js'], outside: ['node:fs'] },
+      { path: 'src/b.js', lines: null, churn: null, indentation: null, kind: null, role: null, exports: null, mixes: null, imports: [], outside: [] },
+    ],
+    candidates: [
+      {
+        name: 'split-parsing',
+        tier: 'strong',
+        category: 'in-process',
+        files: ['src/a.js', 'src/b.js'],
+        next_change: 'add a second input format',
+        next_sites: [{ path: 'src/a.js', line: 12, what: 'the format switch' }],
+        est_diff_lines: 80,
+        deletion_test: 'deleting b.js moves its parsing back into a.js',
+        friction: 'a.js mixes io and parsing',
+      },
+    ],
+    notices: ['one candidate found'],
+  };
+}
+
 // ---- the viewer's round controller (ui/rounds.js) --------------------------------------------
 
 // Imported per case rather than at the top, so a broken module fails its cases by name. The
 // import itself proves the module touches no DOM when it loads: Node has none.
 const loadRounds = () => import('../../ui/rounds.js');
+const loadOverviewModel = () => import('../../ui/overview.js');
 
 // An error the way the viewer's `api` throws one.
 function apiError(status, message) {
@@ -362,7 +538,7 @@ function roundsRoutes(session, files = ['src/a.js', 'src/b/c.js'], extra = {}) {
 
 const bodyIds = (call) => call[2].annotations.map((a) => a.id);
 
-const ALLOWED = new Set(['src/a.js', 'src/b/c.js']);
+const ALLOWED = { paths: new Set(['src/a.js', 'src/b/c.js']), candidates: new Set(['split-parsing']) };
 
 const CASES = [
   ['highlight: the vendored highlight.js loads and colours TSX across lines', async () => {
@@ -434,6 +610,51 @@ const CASES = [
       const reply = await request(port, { target: '/rounds.js', headers: { host } });
       assert(reply.status === 200 && reply.type.startsWith('text/javascript'), `/rounds.js got ${reply.status} ${reply.type}`);
     });
+  }],
+  ["viewer rounds: candidate notes follow the overview's names", async () => {
+    const candidate = (id, name, extra) => viewerNote(id, { kind: 'candidate', name }, extra);
+    const server = viewerSession([candidate('withheld', 'merge-io')]);
+    const h = await roundsHarness(
+      roundsRoutes(viewerSession(), undefined, {
+        'GET /api/session': () => ({ session: structuredClone(server), files: ['src/a.js'], changes: 1 }),
+      }),
+    );
+    await h.rounds.load();
+    assert(!h.rounds.listed({ kind: 'candidate', name: 'split-parsing' }), 'a candidate is listed before the names are set');
+    h.rounds.setCandidates(['split-parsing']);
+    assert(h.rounds.listed({ kind: 'candidate', name: 'split-parsing' }), 'an overview candidate is not listed');
+    assert(!h.rounds.listed({ kind: 'candidate', name: 'merge-io' }), 'a candidate outside the overview is listed');
+    assert(!h.rounds.listed({ kind: 'candidate' }), 'a candidate anchor without a name is listed');
+    assertEqual(h.rounds.unsent().map((a) => a.id), ['withheld'], 'the unsent notes');
+    assert(h.rounds.withheld(h.rounds.session.annotations[0]), 'the stored note outside the overview is not withheld');
+    assertEqual(h.rounds.sendable(), [], 'the sendable notes with only a withheld note');
+    assert(!h.rounds.canSend(), 'Send is allowed with only a withheld note');
+    assert(!h.rounds.withheld(candidate('sent', 'merge-io', { round: 1 })), 'a sent candidate note is withheld');
+    h.rounds.addNote(candidate('local', 'split-parsing'));
+    h.rounds.addNote(candidate('stray', 'cache-layer'));
+    assertEqual(h.rounds.sendable().map((a) => a.id), ['local'], 'the sendable notes');
+    assert(h.rounds.canSend(), 'Send is refused with a note on an overview candidate');
+    h.take();
+    await h.rounds.refresh();
+    assertEqual(h.rounds.session.annotations.map((a) => a.id), ['withheld', 'local'], 'the notes after a refresh');
+    assertEqual(h.take().filter((e) => Array.isArray(e) && e[0] === 'dropped'), [['dropped', ['stray']]], 'the notes a refresh dropped');
+    h.rounds.setCandidates([]);
+    assert(!h.rounds.listed({ kind: 'candidate', name: 'split-parsing' }), 'a candidate is listed once the names are cleared');
+    assert(!h.rounds.sendHeld(), 'Send is held for a run without an overview');
+    h.rounds.setCandidates(null);
+    assert(!h.rounds.listed({ kind: 'candidate', name: 'split-parsing' }), 'a candidate is listed while the names are unknown');
+    assert(h.rounds.sendHeld(), 'Send is not held while the names are unknown and candidate notes are unsent');
+    assertEqual(h.rounds.sendable(), [], 'the sendable notes while the names are unknown');
+    h.overall = 'direction';
+    assert(!h.rounds.canSend(), 'Send is allowed for a new overall text while the names are unknown');
+    h.take();
+    await h.rounds.sendRound();
+    assert(!h.requests().includes('POST /api/submit'), 'a held Send posted a round');
+    h.rounds.addNote(viewerNote('scoped'));
+    assert(!h.rounds.canSend(), 'Send is allowed for a scope note while candidate notes are unsent and the names unknown');
+    h.rounds.deleteNote('withheld');
+    h.rounds.deleteNote('local');
+    assert(!h.rounds.sendHeld() && h.rounds.canSend(), 'Send stays held once no candidate note is unsent');
   }],
   ['viewer rounds: writes run one at a time, each carrying the session as it stands at its turn', async () => {
     let release;
@@ -728,6 +949,104 @@ const CASES = [
     );
     assert(h.rounds.ended && h.rounds.connection === '', `the state after the end: ended ${h.rounds.ended}, connection "${h.rounds.connection}"`);
   }],
+  ['viewer overview: the outline model groups rows, counts notes and serves the overview modules', async () => {
+    const { buildOutline, noteCounts, CANDIDATE_COLOURS } = await loadOverviewModel();
+    const entry = (p, churn, indentation, imports = []) => ({ path: p, lines: 10, churn, indentation, kind: null, role: null, exports: null, mixes: null, imports, outside: [] });
+    const candidate = (name, files) => ({ name, tier: 'strong', category: 'in-process', files, next_change: 'x', next_sites: [], est_diff_lines: 1, deletion_test: 'x', friction: 'x' });
+    const doc = checkOverview({
+      version: 1,
+      root: OVERVIEW_ROOT,
+      scope: ['src'],
+      generatedAt: '2026-10-30T12:00:00Z',
+      files: [
+        entry('src/a.js', 8, 20, ['src/b.js', 'src/lib/c.js']),
+        entry('src/b.js', 2, 5),
+        entry('src/lib/c.js', 4, 10, ['src/b.js']),
+        entry('src/lib/deep/d.js', null, null),
+        entry('tools/x.js', 0, 0),
+        entry('notes.md', 0, 0),
+      ],
+      candidates: [candidate('one', ['src/a.js', 'src/b.js']), candidate('two', ['src/lib/c.js', 'src/a.js'])],
+      notices: [],
+    });
+    const listing = ['notes.md', 'src/a.js', 'src/b.js', 'src/lib/c.js', 'src/lib/deep/d.js'];
+    const listed = (anchor) => (anchor.kind === 'folder' ? anchor.path !== '' && anchor.path !== '.' && listing.some((p) => p.startsWith(`${anchor.path}/`)) : listing.includes(anchor.path));
+    const shape = (row) =>
+      row.type === 'folder'
+        ? [row.type, row.path, row.name, row.depth, row.files, row.folders, row.listed]
+        : [row.type, row.path, row.name, row.depth, row.folder, row.candidates, row.churnBar, row.tangleBar, row.listed, row.folderListed];
+    const outline = buildOutline(doc, { listed });
+    assertEqual(outline.groups.map((g) => g.entry), ['src', '.'], 'the groups');
+    assertEqual(
+      outline.groups[0].rows.map(shape),
+      [
+        ['folder', 'src', 'src', 0, 2, 1, true],
+        ['file', 'src/a.js', 'a.js', 1, 'src', [0, 1], 1, 1, true, true],
+        ['file', 'src/b.js', 'b.js', 1, 'src', [0], 0.25, 0.25, true, true],
+        ['folder', 'src/lib', 'lib', 1, 1, 1, true],
+        ['file', 'src/lib/c.js', 'c.js', 2, 'src/lib', [1], 0.5, 0.5, true, true],
+        ['folder', 'src/lib/deep', 'deep', 2, 1, 0, true],
+        ['file', 'src/lib/deep/d.js', 'd.js', 3, 'src/lib/deep', [], null, null, true, true],
+      ],
+      'the rows under src',
+    );
+    assertEqual(
+      outline.groups[1].rows.map(shape),
+      [
+        ['folder', '.', '.', 0, 1, 1, false],
+        ['file', 'notes.md', 'notes.md', 1, '', [], 0, 0, true, false],
+        ['folder', 'tools', 'tools', 1, 1, 0, false],
+        ['file', 'tools/x.js', 'x.js', 2, 'tools', [], 0, 0, false, false],
+      ],
+      'the rows under no scope entry',
+    );
+    assert(outline.groups[0].rows[1].file === doc.files[0] && outline.byPath.get('src/lib/c.js') === doc.files[2], 'a row does not carry its document entry');
+    assertEqual(outline.importedBy.get('src/b.js'), ['src/a.js', 'src/lib/c.js'], 'imported-by of src/b.js');
+    assertEqual(outline.importedBy.get('src/a.js'), [], 'imported-by of src/a.js');
+    assertEqual(outline.candidatesOf('src/a.js'), [0, 1], 'the candidates touching src/a.js');
+    assertEqual([outline.maxChurn, outline.maxIndent], [8, 20], 'the bar scales');
+    assertEqual(
+      buildOutline({ ...doc, scope: ['.'] }, { listed }).groups.map((g) => [g.entry, g.rows.map((r) => r.path)]),
+      [['.', ['.', 'notes.md', 'src', 'src/a.js', 'src/b.js', 'src/lib', 'src/lib/c.js', 'src/lib/deep', 'src/lib/deep/d.js', 'tools', 'tools/x.js']]],
+      'a scope of the root',
+    );
+    assertEqual(
+      buildOutline({ ...doc, scope: ['src', 'src/lib'] }, { listed }).groups.map((g) => [g.entry, g.rows.map((r) => r.path)]),
+      [['src', ['src', 'src/a.js', 'src/b.js']], ['src/lib', ['src/lib', 'src/lib/c.js', 'src/lib/deep', 'src/lib/deep/d.js']], ['.', ['.', 'notes.md', 'tools', 'tools/x.js']]],
+      'a file under nested scope entries belongs to the longer one',
+    );
+    assertEqual(
+      buildOutline({ ...doc, scope: ['src/a.js', 'src/lib'] }, { listed }).groups.map((g) => [g.entry, g.rows.map((r) => r.path)]),
+      [['src/lib', ['src/lib', 'src/lib/c.js', 'src/lib/deep', 'src/lib/deep/d.js']], ['.', ['.', 'notes.md', 'src', 'src/a.js', 'src/b.js', 'tools', 'tools/x.js']]],
+      'a file scope entry is grouped under its folder, not as a folder of its own',
+    );
+    const unmeasured = buildOutline({ ...doc, files: [entry('src/a.js', null, null)], candidates: [] }, { listed });
+    assertEqual([unmeasured.maxChurn, unmeasured.groups[0].rows[1].churnBar], [1, null], 'a document without readings');
+    assertEqual(buildOutline({ ...doc, files: [], candidates: [] }, { listed }).groups.map((g) => g.rows.map(shape)), [[['folder', 'src', 'src', 0, 0, 0, true]]], 'a document without files');
+    const fixture = buildOutline(expectedOverview(OVERVIEW_ROOT), { listed: () => true });
+    assertEqual(
+      fixture.groups.map((g) => g.rows.map(shape)),
+      [[['folder', 'src', 'src', 0, 2, 0, true], ['file', 'src/a.js', 'a.js', 1, 'src', [0], 1, 1, true, true], ['file', 'src/b.js', 'b.js', 1, 'src', [0], null, null, true, true]]],
+      'the shape-check fixture',
+    );
+    assert(CANDIDATE_COLOURS.length > 1 && CANDIDATE_COLOURS.every((c) => /^#[0-9a-f]{6}$/.test(c)), 'the candidate palette is not a list of colours');
+    const note = (anchor) => ({ id: 'n', anchor, intent: 'change', body: 'b', createdAt: 't' });
+    const counts = noteCounts([
+      note({ kind: 'scope' }),
+      note({ kind: 'folder', path: 'src' }),
+      note({ kind: 'file', path: 'src/a.js' }),
+      note({ kind: 'range', path: 'src/b.js', start: 1, end: 1 }),
+      note({ kind: 'range', path: 'src/b.js', start: 2, end: 3 }),
+      note({ kind: 'candidate', name: 'split-parsing' }),
+    ]);
+    assertEqual(Object.fromEntries(counts), { 'folder:src': 1, 'file:src/a.js': 1, 'file:src/b.js': 2, 'candidate:split-parsing': 1 }, 'the note counts');
+    await withServer(async ({ port, host }) => {
+      const reply = await request(port, { target: '/overview.js', headers: { host } });
+      assert(reply.status === 200 && reply.type.startsWith('text/javascript'), `/overview.js got ${reply.status} ${reply.type}`);
+      const view = await request(port, { target: '/overview-view.js', headers: { host } });
+      assert(view.status === 200 && view.type.startsWith('text/javascript'), `/overview-view.js got ${view.status} ${view.type}`);
+    });
+  }],
   ['annotations: anchor rule per kind', () => {
     const keep = (anchor) => cleanAnnotation({ anchor, body: 'b' }, ALLOWED) !== null;
     assert(keep({ kind: 'scope' }), 'a scope note with no path was dropped');
@@ -757,6 +1076,56 @@ const CASES = [
     );
     assertEqual(stripped, { id: 'n1', anchor: { kind: 'file', path: 'src/a.js' }, intent: 'question', body: 'b', createdAt: 't' }, 'cleaned note');
     assertEqual(Object.keys(stripped), ['id', 'anchor', 'intent', 'body', 'createdAt'], 'cleaned note keys');
+
+    assertEqual(
+      cleanAnnotation({ id: 'c1', anchor: { kind: 'candidate', name: 'split-parsing', path: 'src/a.js', start: 1 }, body: 'b', intent: 'change', createdAt: 't' }, ALLOWED),
+      { id: 'c1', anchor: { kind: 'candidate', name: 'split-parsing' }, intent: 'change', body: 'b', createdAt: 't' },
+      'cleaned candidate note',
+    );
+    assert(!keep({ kind: 'candidate', name: 'merge-io' }), 'a candidate note on a name outside the overview was kept');
+    for (const name of [undefined, '', '-x', 'Split', 'a b', 42]) {
+      assert(!keep({ kind: 'candidate', name }), `a candidate note named ${JSON.stringify(name)} was kept`);
+    }
+    assertEqual(
+      cleanAnnotation({ id: 'c2', anchor: { kind: 'candidate', name: 'merge-io' }, body: 'b', createdAt: 't' }, null)?.anchor,
+      { kind: 'candidate', name: 'merge-io' },
+      'a candidate note read back from the file, outside the overview',
+    );
+    assert(cleanAnnotation({ anchor: { kind: 'candidate', name: 'Merge' }, body: 'b' }, null) === null, 'a candidate note read back with a bad name was kept');
+  }],
+  ['annotations: a new candidate note outside the overview refuses the write', () => {
+    const session = {
+      annotations: [
+        { id: 's1', anchor: { kind: 'candidate', name: 'gone' }, intent: 'change', body: 'sent', createdAt: 't', round: 1 },
+        { id: 'u1', anchor: { kind: 'candidate', name: 'gone' }, intent: 'change', body: 'unsent', createdAt: 't' },
+      ],
+    };
+    const refuse = (annotations, allowed = ALLOWED) => refuseCandidates(session, { annotations }, allowed);
+    const candidate = (name, extra = {}) => ({ anchor: { kind: 'candidate', name }, body: 'b', ...extra });
+    assert(refuse([candidate('split-parsing'), { anchor: { kind: 'file', path: 'src/x.js' }, body: 'b' }]) === null, 'a known candidate and an unlisted file refused the write');
+    assertEqual(refuse([{ anchor: { kind: 'scope' }, body: 'b' }, candidate('merge-io')]), 'entry 1: "merge-io" is not a candidate of this run\'s overview', 'one unknown candidate');
+    assertEqual(
+      refuse([candidate('merge-io'), candidate('split-parsing'), candidate('cache-layer', { id: 'n9' })]),
+      'entry 0: "merge-io" is not a candidate of this run\'s overview; entry 2: "cache-layer" is not a candidate of this run\'s overview',
+      'two unknown candidates',
+    );
+    assert(refuse([candidate('gone', { id: 'u1' })]) === null, 'a revision of a stored unsent candidate note refused the write');
+    assert(refuse([candidate('gone', { id: 's1' })]) === null, 'an entry carrying a sent note id refused the write');
+    for (const [name, shown] of [['Merge', '"Merge"'], ['', '""'], ['-x', '"-x"'], [42, '42'], [undefined, 'null']]) {
+      assertEqual(refuse([candidate(name)]), `entry 0: ${shown} is not a candidate of this run's overview`, `a candidate name ${shown} that breaks the name rule`);
+    }
+    assert(refuse([{ anchor: { kind: 'candidate', name: 'split-parsing' }, body: 7 }]) === null, 'a known candidate with a malformed body refused the write');
+    assertEqual(
+      refuse([{ anchor: { kind: 'candidate', name: 'merge-io' }, body: 7 }]),
+      'entry 0: "merge-io" is not a candidate of this run\'s overview',
+      'an unknown candidate with a malformed body',
+    );
+    assert(refuseCandidates(session, { overall: 'o' }, ALLOWED) === null, 'a write without annotations was refused');
+    assertEqual(
+      refuse([candidate('split-parsing')], { paths: ALLOWED.paths, candidates: new Set() }),
+      'entry 0: "split-parsing" is not a candidate of this run\'s overview',
+      'a candidate note in a run without an overview',
+    );
   }],
   ['annotations: range validity and excerpt cap', () => {
     const range = (fields) => cleanAnnotation({ anchor: { kind: 'range', path: 'src/a.js', ...fields }, body: 'b' }, ALLOWED);
@@ -831,6 +1200,18 @@ const CASES = [
       1,
       '1 of 2 notes are malformed (indices 1)',
     );
+    throwsRun(
+      () => restoreSession({ annotations: [{ anchor: { kind: 'candidate' }, body: 'x' }, { anchor: { kind: 'scope' }, body: 'ok' }] }, out),
+      1,
+      '1 of 2 notes are malformed (indices 0)',
+    );
+    const resumed = restoreSession({ annotations: [{ id: 'c1', anchor: { kind: 'candidate', name: 'merge-io' }, body: 'kept', createdAt: 't' }] }, out);
+    applyEdits(resumed, { annotations: [{ id: 'c1', body: 'kept, revised' }] }, { paths: ALLOWED.paths, candidates: new Set() });
+    assertEqual(
+      resumed.annotations,
+      [{ id: 'c1', anchor: { kind: 'candidate', name: 'merge-io' }, intent: 'change', body: 'kept, revised', createdAt: 't' }],
+      'a resumed candidate note outside the overview after a write',
+    );
     const absent = path.join(dir, 'absent.json');
     assert(readStored(absent) === null, 'an absent notes file did not start fresh');
     assert(!fs.existsSync(absent), 'reading an absent notes file created it');
@@ -866,7 +1247,7 @@ const CASES = [
     assert(others.includes('link.txt'), 'git does not list the symlink, so the filter is not what drops it');
     assertEqual(listFiles(root, []), ['a.txt', 'sub/b.txt'], 'git listing');
     const notes = write(root, 'claudedocs/margin/notes.json', '{}\n');
-    assertEqual(listFiles(root, [], notes), ['a.txt', 'sub/b.txt'], 'git listing leaves out the notes file');
+    assertEqual(listFiles(root, [], [notes]), ['a.txt', 'sub/b.txt'], 'git listing leaves out the notes file');
   })],
   ['reading: refusals and limits', () => withTemp((root) => withTemp((outside) => {
     write(outside, 'secret.txt', 'secret\n');
@@ -893,6 +1274,143 @@ const CASES = [
     assert(typeof readSource(root, 'late.dat').text === 'string', 'a NUL past the first 8000 bytes was read as binary');
     write(root, 'u.txt', 'héllo\n');
     assertEqual(readSource(root, 'u.txt'), { path: 'u.txt', text: 'héllo\n' }, 'a UTF-8 file');
+  }))],
+  ['overview: the shape check accepts a document and drops unknown fields', () => {
+    assertEqual(checkOverview(overviewFixture(OVERVIEW_ROOT)), expectedOverview(OVERVIEW_ROOT), 'the checked document');
+    const empty = { version: 1, root: OVERVIEW_ROOT, scope: ['.'], generatedAt: '2026-10-30T12:00:00.123Z', files: [], candidates: [], notices: [] };
+    assertEqual(checkOverview(structuredClone(empty)), empty, 'a document with no files, candidates or notices');
+    const mixed = overviewFixture(OVERVIEW_ROOT);
+    Object.assign(mixed.files[0], { churn: null, role: null, mixes: null });
+    assertEqual(checkOverview(mixed).files[0], { ...expectedOverview(OVERVIEW_ROOT).files[0], churn: null, role: null, mixes: null }, 'a file with some fields null and the rest set');
+    const doc = overviewFixture(OVERVIEW_ROOT);
+    doc.candidates[0].next_sites = [];
+    assertEqual(checkOverview(doc).candidates[0].next_sites, [], 'a candidate with no next sites');
+    const planted = JSON.parse(`{"__proto__": {"polluted": true}, ${JSON.stringify(overviewFixture(OVERVIEW_ROOT)).slice(1)}`);
+    const checked = checkOverview(planted);
+    assert(Object.getPrototypeOf(checked) === Object.prototype && checked.polluted === undefined, 'a __proto__ key reached the checked document');
+  }],
+  ['overview: the shape check refuses each violation', () => {
+    const cases = [
+      [() => null, 'overview: the document is not an object'],
+      [(d) => [d], 'the document is not an object'],
+      [(d) => { delete d.generatedAt; }, 'missing key generatedAt'],
+      [(d) => { d.generatedAt = 'yesterday'; }, 'generatedAt is not an ISO 8601 UTC timestamp'],
+      [(d) => { d.generatedAt = '3'; }, 'generatedAt is not an ISO 8601 UTC timestamp'],
+      [(d) => { d.generatedAt = '2026-10-30'; }, 'generatedAt is not an ISO 8601 UTC timestamp'],
+      [(d) => { d.generatedAt = '2026-10-30T12:00:00+02:00'; }, 'generatedAt is not an ISO 8601 UTC timestamp'],
+      [(d) => { d.generatedAt = '2026-13-30T12:00:00Z'; }, 'generatedAt is not an ISO 8601 UTC timestamp'],
+      [(d) => { d.version = 2; }, 'version is not the number 1'],
+      [(d) => { d.root = 'work/repo'; }, 'root is not an absolute path'],
+      [(d) => { d.scope = ['../elsewhere']; }, 'scope[0] is not . or a root-relative path'],
+      [(d) => { d.files[1].path = 'src/../b.js'; }, 'files[1].path is not a root-relative path'],
+      [(d) => { d.files[0].path = '/src/a.js'; }, 'files[0].path is not a root-relative path'],
+      [(d) => { d.files[0].path = 'src\\a.js'; }, 'files[0].path is not a root-relative path'],
+      [(d) => { d.files[1].path = 'src/a.js'; }, 'files[1].path duplicates files[0].path'],
+      [(d) => { d.files[0].imports = ['src/c.js']; }, 'files[0].imports[0] is not an overview file'],
+      [(d) => { d.files[0].imports = ['src/b.js', 'src/b.js']; }, 'files[0].imports[1] duplicates files[0].imports[0]'],
+      [(d) => { d.files[0].lines = -1; }, 'files[0].lines is not a non-negative integer or null'],
+      [(d) => { delete d.files[1].role; }, 'missing key files[1].role'],
+      [(d) => { d.files[0].outside = null; }, 'files[0].outside is not an array of non-empty strings'],
+      [(d) => { d.candidates.push(structuredClone(d.candidates[0])); }, 'candidates[1].name duplicates candidates[0].name'],
+      [(d) => { d.candidates[0].name = 'Split Parsing'; }, 'candidates[0].name is not a name of lowercase letters, digits and hyphens'],
+      [(d) => { d.candidates[0].tier = 'maybe'; }, 'candidates[0].tier is not one of strong, worth-exploring, speculative'],
+      [(d) => { d.candidates[0].category = 'external'; }, 'candidates[0].category is not one of in-process, local-substitutable, remote-owned, true-external'],
+      [(d) => { d.candidates[0].files = []; }, 'candidates[0].files is not a non-empty array'],
+      [(d) => { d.candidates[0].files = ['src/c.js']; }, 'candidates[0].files[0] is not an overview file'],
+      [(d) => { d.candidates[0].files = ['src/a.js', 'src/b.js', 'src/a.js']; }, 'candidates[0].files[2] duplicates candidates[0].files[0]'],
+      [(d) => { d.candidates[0].files = ['src/b.js']; }, "candidates[0].next_sites[0].path is not one of the candidate's files"],
+      [(d) => { d.candidates[0].next_sites[0].line = 0; }, 'candidates[0].next_sites[0].line is not an integer of at least 1'],
+      [(d) => { d.candidates[0].next_sites[0].line = '3'; }, 'candidates[0].next_sites[0].line is not an integer of at least 1'],
+      [(d) => { d.candidates[0].est_diff_lines = 1.5; }, 'candidates[0].est_diff_lines is not a non-negative integer'],
+      [(d) => { d.candidates[0].friction = ''; }, 'candidates[0].friction is not a non-empty string'],
+      [(d) => { d.notices = [3]; }, 'notices is not an array of non-empty strings'],
+    ];
+    for (const [mutate, fragment] of cases) {
+      const doc = overviewFixture(OVERVIEW_ROOT);
+      const replaced = mutate(doc);
+      throwsRun(() => checkOverview(replaced === undefined ? doc : replaced), 1, fragment);
+    }
+    throwsRun(() => checkOverview(null, 'overview /x.json'), 1, 'overview /x.json: the document is not an object');
+  }],
+  ['overview: reading refusals and the size limit', () => withTemp((dir) => {
+    assert(MAX_OVERVIEW_BYTES === 2097152, `the overview limit is ${MAX_OVERVIEW_BYTES} bytes`);
+    const missing = path.join(dir, 'missing.json');
+    throwsRun(() => readOverview(missing), 1, `overview ${missing}: not found`);
+    throwsRun(() => readOverview(path.join(dir, 'missing', 'x.json')), 1, 'not found');
+    fs.mkdirSync(path.join(dir, 'folder'));
+    throwsRun(() => readOverview(path.join(dir, 'folder')), 1, 'folder: not a regular file');
+    const big = write(dir, 'big.json', Buffer.alloc(MAX_OVERVIEW_BYTES + 1, ' '));
+    throwsRun(() => readOverview(big), 1, 'big.json: 2.0 MB is above the 2 MB overview limit');
+    const edge = write(dir, 'edge.json', Buffer.alloc(MAX_OVERVIEW_BYTES, 'a'));
+    throwsRun(() => readOverview(edge), 1, 'edge.json: not valid JSON');
+    const broken = write(dir, 'broken.json', '{');
+    throwsRun(() => readOverview(broken), 1, `overview ${broken}: not valid JSON`);
+    const shape = write(dir, 'shape.json', '[]');
+    throwsRun(() => readOverview(shape), 1, `overview ${shape}: the document is not an object`);
+    const good = write(dir, 'good.json', JSON.stringify(overviewFixture(OVERVIEW_ROOT)));
+    assertEqual(readOverview(good), expectedOverview(OVERVIEW_ROOT), 'a valid overview file');
+  })],
+  ['overview: the route serves the document behind the token, 404 without one', async () => {
+    await withServer(async ({ port, host }) => {
+      const noToken = await request(port, { target: '/api/overview', headers: { host } });
+      assert(noToken.status === 403, `the overview without the token got ${noToken.status}`);
+      const served = await request(port, { target: '/api/overview', headers: { host, 'x-margin-token': TOKEN } });
+      assert(served.status === 200, `the overview with the token got ${served.status}`);
+      assertEqual(served.json, expectedOverview(OVERVIEW_ROOT), 'the served overview');
+      const session = await request(port, { headers: { host, 'x-margin-token': TOKEN } });
+      assertEqual(Object.keys(session.json), ['session', 'files', 'changes'], 'session route keys on an overview run');
+    }, { overview: checkOverview(overviewFixture(OVERVIEW_ROOT)) });
+    await withServer(async ({ port, host }) => {
+      const noToken = await request(port, { target: '/api/overview', headers: { host } });
+      assert(noToken.status === 403, `the overview route without the token and without an overview got ${noToken.status}`);
+      const none = await request(port, { target: '/api/overview', headers: { host, 'x-margin-token': TOKEN } });
+      assert(none.status === 404, `the overview route without an overview got ${none.status}`);
+      assertEqual(none.json, { error: 'no overview' }, 'the reply without an overview');
+    });
+  }],
+  ["server: candidate notes against the run's overview", async () => {
+    const candidate = (id, name) => ({ id, anchor: { kind: 'candidate', name }, body: id });
+    await withServer(async ({ port, host, out, session }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const put = await request(port, { method: 'PUT', target: '/api/session', headers, body: { annotations: [candidate('c1', 'split-parsing')] } });
+      assert(put.status === 200, `a known candidate note got ${put.status}`);
+      assertEqual(session.annotations.map((a) => a.anchor), [{ kind: 'candidate', name: 'split-parsing' }], 'stored anchors after a known candidate note');
+      const saved = fs.readFileSync(out, 'utf8');
+      const body = { annotations: [candidate('c1', 'split-parsing'), candidate('c2', 'merge-io'), { id: 'f1', anchor: { kind: 'file', path: 'a.txt' }, body: 'f1' }] };
+      for (const target of ['/api/session', '/api/submit', '/api/cancel', '/api/finish']) {
+        const refused = await request(port, { method: target === '/api/session' ? 'PUT' : 'POST', target, headers, body });
+        assert(refused.status === 400, `${target} with an unknown candidate got ${refused.status}`);
+        assertEqual(refused.json, { error: 'entry 1: "merge-io" is not a candidate of this run\'s overview' }, `${target} refusal`);
+        assertEqual(session.annotations.map((a) => a.id), ['c1'], `notes after ${target} was refused`);
+        assert(fs.readFileSync(out, 'utf8') === saved, `a refused ${target} rewrote the notes file`);
+      }
+      assert(session.round === 0, `a refused submit moved the round count to ${session.round}`);
+      const sent = await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: [candidate('c1', 'split-parsing')] } });
+      assertEqual(sent.json, { ok: true, round: 1 }, 'a submit with a known candidate note');
+      assertEqual(session.annotations.map((a) => [a.id, a.round]), [['c1', 1]], 'notes after the submit');
+      const file = await request(port, { target: '/api/file?path=a.txt', headers });
+      assert(file.status === 200, `a listed file on an overview run got ${file.status}`);
+    }, { overview: checkOverview(overviewFixture(OVERVIEW_ROOT)) });
+    await withServer(async ({ port, host, session }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const refused = await request(port, { method: 'PUT', target: '/api/session', headers, body: { annotations: [candidate('c1', 'split-parsing')] } });
+      assert(refused.status === 400, `a candidate note without an overview got ${refused.status}`);
+      assertEqual(refused.json, { error: 'entry 0: "split-parsing" is not a candidate of this run\'s overview' }, 'the refusal without an overview');
+      assertEqual(session.annotations, [], 'notes after the refusal without an overview');
+    });
+  }],
+  ["listing: the run's overview file is never listed", () => withTemp((root) => withTemp((outside) => {
+    write(root, 'a.txt', 'a\n');
+    const notes = write(root, 'claudedocs/margin/notes.json', '{}\n');
+    const overview = write(root, 'claudedocs/margin/notes.overview.json', '{}\n');
+    const away = write(outside, 'overview.json', '{}\n');
+    assert(!isRepository(root), `${root} is inside a git repository, so the walk is not what runs`);
+    assertEqual(listFiles(root, []), ['a.txt', 'claudedocs/margin/notes.json', 'claudedocs/margin/notes.overview.json'], 'walk listing with nothing left out');
+    assertEqual(listFiles(root, [], [notes, overview]), ['a.txt'], 'walk listing leaves out the notes and overview files');
+    assertEqual(listFiles(root, ['claudedocs'], [notes, overview]), [], 'walk listing of a scope holding only the run files');
+    assertEqual(listFiles(root, [], [notes, away]), ['a.txt', 'claudedocs/margin/notes.overview.json'], 'walk listing with an overview outside the root');
+    execFileSync('git', ['init', '-q'], { cwd: root, stdio: 'ignore' });
+    assertEqual(listFiles(root, [], [notes, overview]), ['a.txt'], 'git listing leaves out the notes and overview files');
   }))],
   ['guards: host, origin and token', () => withServer(async ({ port, host, ended }) => {
     const token = { 'x-margin-token': TOKEN };
@@ -992,7 +1510,7 @@ const CASES = [
     const before = JSON.stringify({ round: blocked.round, rounds: blocked.rounds, annotations: blocked.annotations });
     let sendThrew = false;
     try {
-      sendRound(blocked);
+      sendRound(blocked, new Set());
     } catch {
       sendThrew = true;
     }
@@ -1024,6 +1542,38 @@ const CASES = [
     applyEdits(session, { annotations: [] }, ALLOWED);
     assertEqual(session.annotations, [note('s1', 'sent', { round: 1 })], 'notes after a write that leaves the sent note out');
   }],
+  ['rounds: a Send withholds candidate notes the overview does not name', () => withTemp((dir) => {
+    const note = (id, anchor) => ({ id, anchor, intent: 'change', body: id, createdAt: `c-${id}` });
+    const session = createSession({ stored: null, out: path.join(dir, 'notes.json'), root: dir, scope: [], revision: null });
+    session.annotations = [
+      note('h1', { kind: 'candidate', name: 'merge-io' }),
+      note('k1', { kind: 'candidate', name: 'split-parsing' }),
+      note('f1', { kind: 'file', path: 'src/a.js' }),
+    ];
+    assert(sendRound(session, new Set(['split-parsing'])) === 1, 'the Send did not send round 1');
+    assertEqual(session.annotations.map((a) => [a.id, a.round]), [['k1', 1], ['f1', 1], ['h1', undefined]], 'notes after a Send withholding one');
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, 'notes.json'), 'utf8'));
+    assertEqual(saved.annotations.map((a) => [a.id, a.round ?? null]), [['k1', 1], ['f1', 1], ['h1', null]], 'saved notes after a Send withholding one');
+    assert(sendRound(session, new Set(['split-parsing'])) === null, 'a Send with only a withheld note and the same overall sent a round');
+    assert(session.round === 1, `a Send with only a withheld note moved the round count to ${session.round}`);
+    const bare = createSession({ stored: null, out: path.join(dir, 'bare.json'), root: dir, scope: [], revision: null });
+    bare.annotations = [note('k2', { kind: 'candidate', name: 'split-parsing' }), note('s2', { kind: 'scope' })];
+    assert(sendRound(bare, new Set()) === 1, 'a Send without candidate names did not send the scope note');
+    assertEqual(bare.annotations.map((a) => [a.id, a.round]), [['s2', 1], ['k2', undefined]], 'notes after a Send without candidate names');
+    const taken = path.join(dir, 'taken');
+    fs.mkdirSync(taken);
+    const failing = createSession({ stored: null, out: taken, root: dir, scope: [], revision: null });
+    failing.annotations = [note('h3', { kind: 'candidate', name: 'merge-io' }), note('f3', { kind: 'file', path: 'src/a.js' })];
+    let threw = false;
+    try {
+      sendRound(failing, new Set(['split-parsing']));
+    } catch {
+      threw = true;
+    }
+    assert(threw, 'a Send whose save fails did not throw');
+    assertEqual(failing.annotations.map((a) => [a.id, a.round]), [['h3', undefined], ['f3', undefined]], 'notes after a Send withholding one whose save failed');
+    assert(failing.round === 0 && failing.rounds.length === 0, `a Send whose save failed left round ${failing.round} and ${failing.rounds.length} rounds`);
+  })],
   ['rounds: a submit keeps the server alive and sends the next round', () => withServer(async ({ port, host, out, ended }) => {
     const headers = { host, 'x-margin-token': TOKEN };
     const submit = (body) => request(port, { method: 'POST', target: '/api/submit', headers, body });
@@ -1379,6 +1929,372 @@ const CASES = [
     assertEqual((await changesAfter(5)).json, { status: 'finished', changes: 1 }, 'a change wait after the end');
     await finished();
   })],
+  ['imports: specifiers scanned from every import form, in order', () => {
+    const text = [
+      "import a from './a';",
+      'import {',
+      '  b,',
+      '  c,',
+      '} from "./bc";',
+      "export { d } from './d';",
+      "export * from './e';",
+      "import type { T } from './types';",
+      "import './side-effect';",
+      "const f = await import('./lazy');",
+      'const g = require("./g");',
+      "x.import('./not-this');",
+      "const s = 'from nowhere';",
+      'import {',
+      '  h,',
+      "  // don't",
+      '  /* i */ i,',
+      "} from './hi';",
+      "// import './line-comment';",
+      "/* import './block-comment'; */",
+      "const u = 'http://host/*'; import './after-url';",
+      'const t = `// not a comment`; import "./after-template";',
+    ].join('\r\n');
+    assertEqual(scanSpecifiers(text), ['./a', './bc', './d', './e', './types', './side-effect', './lazy', './g', './hi', './after-url', './after-template'], 'scanned specifiers');
+  }],
+  ['imports: relative, extension, index and .js to .ts resolution against the listing', () => withTemp((root) => {
+    const resolver = createResolver(root, ['src/a.ts', 'src/b.ts', 'src/dir/index.tsx', 'src/js.ts', 'src/raw.css', 'lib.mjs']);
+    const text = ["./b", "./dir", "./js.js", "./raw.css?raw", "./a", "../lib.mjs", "../../up", "./b.ts", "./missing", "pkg/sub", "node:fs", "#internal"]
+      .map((spec) => `import '${spec}';`).join('\n');
+    assertEqual(resolver.resolveImports('src/a.ts', text), {
+      imports: ['src/b.ts', 'src/dir/index.tsx', 'src/js.ts', 'src/raw.css', 'lib.mjs'],
+      outside: ['../../up', './missing', 'pkg/sub', 'node:fs', '#internal'],
+    }, 'resolved imports');
+    assertEqual(resolver.warnings, [], 'warnings without a tsconfig');
+  })],
+  ['imports: tsconfig paths with and without baseUrl, extends, comments and trailing commas', () => withTemp((root) => {
+    assertEqual(parseJsonc('{"a": "x//y /* z */", /* c */ "b": [1, 2,], // end\n "c": "q\\"//", "d": ",}",}'), { a: 'x//y /* z */', b: [1, 2], c: 'q"//', d: ',}' }, 'parsed JSONC');
+    write(root, 'tsconfig.json', '{\n  // root\n  "compilerOptions": {\n    /* aliases */\n    "paths": {\n      "@/*": ["./src/*"],\n      "@/lib/*": ["./missing/*", "./fallback/*"],\n      "exact": ["./src/exact.ts"],\n    },\n  },\n}\n');
+    write(root, 'web/tsconfig.json', '{"extends": "../tsconfig", "compilerOptions": {"baseUrl": "."}}');
+    write(root, 'cycle/tsconfig.json', '{"extends": "./tsconfig.json", "compilerOptions": {"paths": {"~/*": ["./*"]}}}');
+    write(root, 'broken/tsconfig.json', '{ nope');
+    write(root, 'escape/tsconfig.json', '{"extends": "../../elsewhere.json"}');
+    const resolver = createResolver(root, ['src/a.ts', 'src/exact.ts', 'src/lib/l.ts', 'fallback/f.ts', 'web/k.ts', 'web/src/w.ts', 'cycle/c.ts', 'cycle/d.ts', 'broken/x.ts', 'escape/e.ts']);
+    const imports = (specs) => specs.map((spec) => `import '${spec}';`).join('\n');
+    assertEqual(resolver.resolveImports('src/a.ts', imports(['@/exact', '@/lib/f', '@/lib/l', 'exact', 'exact/more'])), {
+      imports: ['src/exact.ts', 'fallback/f.ts'],
+      outside: ['@/lib/l', 'exact/more'],
+    }, 'the root config: longest prefix, targets in order, exact pattern');
+    assertEqual(resolver.resolveImports('web/k.ts', imports(['@/w'])), { imports: ['web/src/w.ts'], outside: [] }, 'an inherited paths under the extending config baseUrl');
+    assertEqual(resolver.resolveImports('cycle/c.ts', imports(['~/d'])), { imports: ['cycle/d.ts'], outside: [] }, 'a config whose extends is a cycle keeps its own paths');
+    assertEqual(resolver.resolveImports('broken/x.ts', imports(['@/exact'])), { imports: ['src/exact.ts'], outside: [] }, 'an unparseable config counts as absent');
+    assertEqual(resolver.resolveImports('escape/e.ts', imports(['@/exact'])), { imports: [], outside: ['@/exact'] }, 'a config without paths');
+    const expected = [
+      'tsconfig cycle/tsconfig.json: extends ./tsconfig.json skipped, it forms a cycle',
+      'tsconfig broken/tsconfig.json: ignored, it could not be parsed',
+      'tsconfig escape/tsconfig.json: extends ../../elsewhere.json skipped, it resolves outside the root',
+    ];
+    assert(resolver.warnings.length === expected.length && expected.every((fragment, i) => resolver.warnings[i].startsWith(fragment)), `tsconfig warnings: ${JSON.stringify(resolver.warnings)}`);
+  })],
+  ['imports: an extends through a symlinked folder out of the root is skipped', () => withTemp((root) => withTemp((outside) => {
+    write(outside, 'base.json', '{"compilerOptions": {"paths": {"@/*": ["./*"]}}}');
+    fs.symlinkSync(outside, path.join(root, 'cfg'));
+    write(root, 'tsconfig.json', '{"extends": "./cfg/base.json"}');
+    const resolver = createResolver(root, ['a.ts', 'b.ts']);
+    assertEqual(resolver.resolveImports('a.ts', "import '@/b';"), { imports: [], outside: ['@/b'] }, 'no alias read from out of the root');
+    assertEqual(resolver.warnings, ['tsconfig tsconfig.json: extends ./cfg/base.json skipped, it resolves outside the root'], 'the skipped extends');
+  }))],
+  ['measure: line count, indent width and indentation', () => {
+    assertEqual(['', 'a', 'a\n', 'a\n\n', 'a\r\nb'].map(countLines), [0, 1, 1, 2, 2], 'line counts');
+    assertEqual(detectWidth(['  a\n    b\n    c\n']), 2, 'a width halved while the half starts half as many lines');
+    assertEqual(detectWidth(['    a\n    b\n    c\n  d\n']), 4, 'a half on one stray line does not halve');
+    assertEqual(detectWidth(['/**\n * doc\n */\nf() {\n    a\n    b\n    c\n  d\n}\n']), 4, 'doc-comment lines below a stray half do not halve');
+    assertEqual(detectWidth(['    a\n        b\n']), 4, 'a tie won by the smaller width');
+    assertEqual(detectWidth(['a\n\tb\n   \n']), 1, 'no space-indented line');
+    assertEqual(indentation('a\n\t  x\n\n    \n    y\r\n', 2), 4, 'tabs plus spaces over the width, blank lines skipped');
+  }],
+  ['measure: lines, churn in a six-month window, imports and the hotspot table on a git repository', () => withTemp((root) => {
+    measureFixture(root);
+    const measured = measureScope({ root, scope: ['src'] });
+    assertEqual(measured.document, measuredFixture(root), 'the measurement document');
+    assertEqual(measured.tsv, MEASURED_FIXTURE_TSV, 'the hotspot table');
+    assertEqual(measured.warnings, [], 'warnings');
+    assertEqual(measured.summary, { files: 4, churn: 'git' }, 'the summary');
+    throwsRun(() => measureScope({ root, scope: ['nothing'] }), 1, 'no files under nothing');
+  })],
+  ['measure: a root below the git top level, outside git, and without commits', () => withTemp((dir) => {
+    const repo = path.join(dir, 'repo');
+    fs.mkdirSync(repo);
+    measureFixture(repo);
+    const below = measureScope({ root: path.join(repo, 'src'), scope: [] }).document;
+    assertEqual(below.prefix, 'src/', 'the prefix below the top level');
+    assertEqual(below.scope, ['.'], 'the scope of a run without --scope');
+    assertEqual(below.files.map((file) => [file.path, file.churn]), [['a.ts', 2], ['b.ts', 1], ['img.bin', 0], ['lib/c.ts', 0]], 'churn below the top level');
+    assertEqual(below.files[0].outside, ['@/c', 'react', './missing', '../other/x'], 'a tsconfig above the root is not read');
+
+    const plain = path.join(dir, 'plain');
+    write(plain, 'a.txt', 'x\n  y\n');
+    write(plain, 'b.js', "require('./a.txt');\n");
+    assert(!isRepository(plain), `${plain} is inside a git repository, so the walk is not what runs`);
+    const outside = measureScope({ root: plain, scope: [] });
+    assertEqual(outside.document, {
+      version: 1,
+      root: plain,
+      scope: ['.'],
+      prefix: null,
+      files: [
+        { path: 'a.txt', lines: 2, churn: null, indentation: 1, imports: [], outside: [] },
+        { path: 'b.js', lines: 1, churn: null, indentation: 0, imports: ['a.txt'], outside: [] },
+      ],
+    }, 'the measurement outside git');
+    assertEqual(outside.tsv, `${HOTSPOT_HEADER_LINE}a.txt\t0\t2\t1\t0\t0\nb.js\t0\t1\t0\t0\t0\n`, 'the hotspot table outside git');
+    assertEqual(outside.summary, { files: 2, churn: null }, 'the summary outside git');
+
+    execFileSync('git', ['init', '-q'], { cwd: plain, stdio: 'ignore' });
+    const fresh = measureScope({ root: plain, scope: [] }).document;
+    assertEqual([fresh.prefix, fresh.files.map((file) => file.churn)], ['', [0, 0]], 'a repository with no commits');
+  })],
+  ['assemble: explorer blocks parsed, malformed ones dropped with their names', () => {
+    const good = [
+      'name: split-a',
+      'tier: strong',
+      'category: in-process',
+      'files: apps/web/src/a.ts, ./src/b.ts,src/a.ts',
+      'structural_key: a',
+      'next_change: add a mode',
+      'next_sites: apps/web/src/a.ts:2 — the switch',
+      'next_sites: src/b.ts:1 – the export',
+      'est_diff_lines: 40',
+      'deletion_test: vanishes',
+      'friction: tangled',
+      'adr_conflict: none',
+    ];
+    const blocks = [
+      good,
+      explorerBlock('bad-site', { sites: ['src/a.ts line 2'] }),
+      explorerBlock('stranger', { files: 'other/x.ts' }),
+      explorerBlock('wrong-case', { tier: 'Strong' }),
+      good,
+      explorerBlock('approx', { est: '~200' }),
+      explorerBlock('off-files', { sites: ['src/b.ts:1 — x'] }),
+      ['name: lonely'],
+      (([first, ...rest]) => [...rest, first])(explorerBlock('out-of-order', { files: 'src/b.ts' })),
+      (([, ...rest]) => ['Name: capital', ...rest])(explorerBlock('capital')),
+      explorerBlock('bulleted').map((line) => `- ${line}`),
+      (([, ...rest]) => ['**name:** bold', ...rest])(explorerBlock('bold')),
+      ['pin: none — nothing pinned', 'notes: none'],
+    ];
+    const text = ['```', explorerText(blocks), '```'].join('\n').replaceAll('\n', '\r\n');
+    const { document, warnings, dropped } = assembleOverview({ measurement: handMeasurement(), rolesText: '{}', explorerText: text });
+    assertEqual(document.candidates, [{
+      name: 'split-a',
+      tier: 'strong',
+      category: 'in-process',
+      files: ['src/a.ts', 'src/b.ts'],
+      next_change: 'add a mode',
+      next_sites: [{ path: 'src/a.ts', line: 2, what: 'the switch' }, { path: 'src/b.ts', line: 1, what: 'the export' }],
+      est_diff_lines: 40,
+      deletion_test: 'vanishes',
+      friction: 'tangled',
+    }, {
+      name: 'out-of-order',
+      tier: 'speculative',
+      category: 'in-process',
+      files: ['src/b.ts'],
+      next_change: 'x',
+      next_sites: [],
+      est_diff_lines: 3,
+      deletion_test: 'x',
+      friction: 'y',
+    }], 'the parsed candidates');
+    assertEqual(warnings, [
+      'dropped explorer block "bad-site": next_sites line 1 is not <path>:<line> — <what>',
+      'dropped explorer block "stranger": names other/x.ts, which is not in the scope',
+      'dropped explorer block "wrong-case": tier is not one of strong, worth-exploring, speculative',
+      'dropped explorer block "split-a": repeats the name of an earlier block',
+      'dropped explorer block "approx": est_diff_lines ~200 is not a whole number',
+      'dropped explorer block "off-files": next_sites[0].path is not one of the candidate\'s files',
+      'dropped explorer block "lonely": missing tier',
+      'dropped explorer block block 10: missing name',
+      'dropped explorer block block 11: missing name',
+      'dropped explorer block block 12: missing name',
+    ], 'the drop warnings');
+    assertEqual(dropped, 10, 'the dropped count');
+    assertEqual(document.notices, [], 'notices when a candidate survives');
+    assertEqual(document.files.map((file) => [file.kind, file.role, file.exports, file.mixes]), [[null, null, null, null], [null, null, null, null]], 'role fields from an empty roles object');
+  }],
+  ['assemble: roles merged; missing or malformed inputs give notices', () => withTemp((dir) => {
+    const roles = '```json\n{"src/a.ts": {"kind": "module", "role": "entry", "exports": ["a", "a"], "mixes": "io"}, "apps/web/src/b.ts": {"kind": ""}, "nowhere.ts": {}, "__proto__": {"kind": "x"}}\n```';
+    const merged = assembleOverview({ measurement: handMeasurement(), rolesText: roles, explorerText: 'notes: none' });
+    assertEqual(merged.document.files, [
+      { path: 'src/a.ts', lines: 3, churn: 1, indentation: 0, kind: 'module', role: 'entry', exports: ['a'], mixes: null, imports: ['src/b.ts'], outside: ['react'] },
+      { path: 'src/b.ts', lines: 1, churn: 0, indentation: 0, kind: null, role: null, exports: null, mixes: null, imports: [], outside: [] },
+    ], 'the merged files');
+    assertEqual(merged.warnings, [
+      'roles: src/a.ts.mixes is not an array of non-empty strings, set to null',
+      'roles: src/b.ts.kind is not a non-empty string, set to null',
+      'roles: ignored nowhere.ts, which is not in the scope',
+      'roles: ignored __proto__, which is not in the scope',
+    ], 'the roles warnings');
+    assertEqual(merged.document.notices, [], 'notes: none gives no notice');
+    assert(merged.document.files.every((file) => Object.getPrototypeOf(file) === Object.prototype), 'a roles __proto__ key reached a file entry');
+
+    const notices = (inputs) => assembleOverview({ measurement: handMeasurement(), ...inputs }).document.notices;
+    assertEqual(notices({ rolesReason: 'no roles file was given', explorerReason: 'no explorer file was given' }), [
+      'File roles are unavailable: no roles file was given.',
+      'No deepening candidates: no explorer file was given.',
+    ], 'notices for missing inputs');
+    assertEqual(notices({ rolesText: '[1]', explorerText: 'notes: scope too small' }), [
+      'File roles are unavailable: the roles input is not a JSON object.',
+      'Explorer: scope too small',
+    ], 'notices for a roles array and explorer notes');
+    const noBlock = 'No deepening candidates: the explorer output holds no candidate block and no notes: line.';
+    const unparsed = notices({ rolesText: 'nope', explorerText: '' });
+    assert(unparsed.length === 2 && unparsed[0].startsWith('File roles are unavailable: the roles input is not valid JSON (') && unparsed[1] === noBlock, `notices for roles that do not parse and an empty explorer output: ${JSON.stringify(unparsed)}`);
+    assertEqual(notices({ rolesText: '{}', explorerText: 'Here are my findings.\n\n- notes: none' }), [noBlock], 'explorer output with neither a block nor a notes: line');
+    assertEqual(notices({ rolesText: '{}', explorerText: explorerText([explorerBlock('stranger', { files: 'other/x.ts' })]) }), ['1 explorer candidate dropped as malformed.'], 'one block, dropped');
+    assertEqual(notices({ rolesText: '{}', explorerText: explorerText([['name: a'], ['name: b']]) }), ['2 explorer candidates dropped as malformed.'], 'two blocks, both dropped');
+
+    const tampered = handMeasurement();
+    tampered.files[0].imports = ['src/zz.ts'];
+    throwsRun(() => assembleOverview({ measurement: tampered, rolesText: '{}', explorerText: '' }), 1, 'assembled overview: files[0].imports[0] is not an overview file');
+    const big = assembleOverview({ measurement: handMeasurement(), rolesText: JSON.stringify({ 'src/a.ts': { role: 'r'.repeat(MAX_OVERVIEW_BYTES) } }), explorerText: '' }).document;
+    throwsRun(() => serialiseOverview(big, '/x/overview.json'), 1, 'overview /x/overview.json: 2.0 MB is above the 2 MB overview limit');
+
+    const missing = path.join(dir, 'missing.json');
+    assertEqual(readOptional(undefined, 'roles'), { reason: 'no roles file was given' }, 'an optional input not given');
+    assertEqual(readOptional(missing, 'explorer'), { reason: `explorer file ${missing}: not found` }, 'an optional input not found');
+    assertEqual(readOptional(write(dir, 'e.txt', 'notes: none\n'), 'explorer'), { text: 'notes: none\n' }, 'an optional input read');
+    throwsRun(() => readMeasurement(missing), 1, `measurements ${missing}: not found`);
+    for (const [content, fragment] of [
+      ['{', 'not valid JSON'],
+      ['[]', 'not a JSON object'],
+      ['{"version": 2}', 'version is not 1'],
+      ['{"version": 1, "root": "rel", "scope": [], "files": []}', 'root is not an absolute path'],
+      [`{"version": 1, "root": ${JSON.stringify(dir)}, "scope": [], "files": [{}]}`, 'files[0] is not an object with a string path'],
+    ]) {
+      throwsRun(() => readMeasurement(write(dir, 'm.json', content)), 1, fragment);
+    }
+  })],
+  ['cli: measure then assemble writes an overview the shape check accepts', () => withTemp((dir) => {
+    const root = path.join(dir, 'repo');
+    fs.mkdirSync(root);
+    measureFixture(root);
+    const measurements = path.join(dir, 'out', 'measurements.json');
+    const hotspots = path.join(dir, 'out', 'hotspots.tsv');
+    const measured = runCli(['measure', '--root', root, '--scope', 'src', '--out', measurements, '--hotspots', hotspots]);
+    assert(measured.status === 0, `measure exited ${measured.status}: ${measured.stdout}`);
+    assertEqual(measured.doc, { status: 'ok', out: measurements, hotspots, files: 4, churn: 'git' }, 'the measure document');
+    assertEqual(measured.stderr, '', 'measure stderr');
+    assertEqual(JSON.parse(fs.readFileSync(measurements, 'utf8')), measuredFixture(root), 'the measurement file');
+    assertEqual(fs.readFileSync(hotspots, 'utf8'), MEASURED_FIXTURE_TSV, 'the hotspot file');
+
+    const explorer = write(dir, 'explorer.txt', `${explorerText([
+      explorerBlock('split-a', { tier: 'strong', files: 'src/a.ts,src/b.ts', sites: ['src/a.ts:8 — the branch', 'src/b.ts:2 — the field'], est: '30' }),
+      explorerBlock('stranger', { files: 'other/x.ts' }),
+      ['notes: none'],
+    ])}\n`);
+    const roles = write(dir, 'roles.json', '{"src/a.ts": {"kind": "module", "role": "entry", "exports": ["a"], "mixes": []}}');
+    const out = path.join(dir, 'out', 'overview.json');
+    const assembled = runCli(['assemble', '--measurements', measurements, '--roles', roles, '--explorer', explorer, '--out', out]);
+    assert(assembled.status === 0, `assemble exited ${assembled.status}: ${assembled.stdout}`);
+    assertEqual(assembled.doc, { status: 'ok', out, files: 4, candidates: 1, dropped: 1, notices: 0 }, 'the assemble document');
+    assertEqual(assembled.stderr, 'margin: assemble: dropped explorer block "stranger": names other/x.ts, which is not in the scope\n', 'assemble stderr');
+    const overview = readOverview(out);
+    assert(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(overview.generatedAt), `generatedAt is not toISOString output: ${overview.generatedAt}`);
+    const nulls = { kind: null, role: null, exports: null, mixes: null };
+    const files = measuredFixture(root).files.map((file) => ({ ...file, ...nulls }));
+    Object.assign(files[0], { kind: 'module', role: 'entry', exports: ['a'], mixes: [] });
+    assertEqual(overview, {
+      version: 1,
+      root,
+      scope: ['src'],
+      generatedAt: overview.generatedAt,
+      files,
+      candidates: [{
+        name: 'split-a',
+        tier: 'strong',
+        category: 'in-process',
+        files: ['src/a.ts', 'src/b.ts'],
+        next_change: 'x',
+        next_sites: [{ path: 'src/a.ts', line: 8, what: 'the branch' }, { path: 'src/b.ts', line: 2, what: 'the field' }],
+        est_diff_lines: 30,
+        deletion_test: 'x',
+        friction: 'y',
+      }],
+      notices: [],
+    }, 'the assembled overview');
+
+    const bare = path.join(dir, 'out', 'bare.json');
+    const fallback = runCli(['assemble', '--measurements', measurements, '--out', bare]);
+    assertEqual(fallback.doc, { status: 'ok', out: bare, files: 4, candidates: 0, dropped: 0, notices: 2 }, 'assemble without roles or explorer');
+    assertEqual(readOverview(bare).notices, ['File roles are unavailable: no roles file was given.', 'No deepening candidates: no explorer file was given.'], 'the notices without roles or explorer');
+  })],
+  ['cli: measure and assemble refusals write nothing', () => withTemp((dir) => {
+    const root = path.join(dir, 'root');
+    write(root, 'a.txt', 'a\n');
+    const out = path.join(dir, 'out.json');
+    const hotspots = path.join(dir, 'hotspots.tsv');
+    for (const [args, code, fragment] of [
+      [['measure', '--out', out, '--hotspots', hotspots], 2, 'measure needs --root'],
+      [['measure', '--root', root, '--out', out], 2, 'measure needs --hotspots'],
+      [['measure', '--root', root, '--out=', '--hotspots', hotspots], 2, 'bad --out: empty'],
+      [['measure', 'extra', '--root', root, '--out', out, '--hotspots', hotspots], 2, 'usage: cli.mjs measure'],
+      [['measure', '--root', root, '--out', out, '--hotspots', out], 2, 'bad --hotspots: same file as --out'],
+      [['measure', '--root', root, '--scope', '../x', '--out', out, '--hotspots', hotspots], 2, 'is outside'],
+      [['measure', '--root', root, '--scope', 'nothing', '--out', out, '--hotspots', hotspots], 1, 'no files under nothing'],
+      [['assemble', '--out', out], 2, 'assemble needs --measurements'],
+      [['assemble', '--measurements', path.join(dir, 'm.json'), '--roles=', '--out', out], 2, 'bad --roles: empty'],
+      [['assemble', '--measurements', path.join(dir, 'missing.json'), '--out', out], 1, 'missing.json: not found'],
+    ]) {
+      assertErrorDoc(runCli(args), code, fragment, args.join(' '));
+      assert(!fs.existsSync(out) && !fs.existsSync(hotspots), `${args.join(' ')} wrote an output`);
+    }
+    const kept = '{"kept": true}\n';
+    fs.writeFileSync(out, kept);
+    const notJson = write(dir, 'broken.json', '{');
+    assertErrorDoc(runCli(['assemble', '--measurements', notJson, '--out', out]), 1, 'not valid JSON', 'a measurement file that is not JSON');
+    const tampered = handMeasurement();
+    tampered.root = root;
+    tampered.files[0].imports = ['src/zz.ts'];
+    const dangling = write(dir, 'dangling.json', JSON.stringify(tampered));
+    assertErrorDoc(runCli(['assemble', '--measurements', dangling, '--out', out]), 1, 'assembled overview: files[0].imports[0] is not an overview file', 'a measurement with a dangling import');
+    assert(fs.readFileSync(out, 'utf8') === kept, 'a refused assemble rewrote --out');
+    assertEqual(fs.readdirSync(root), ['a.txt'], 'files under the root after the refusals');
+  })],
+  ['cli: --explorer-unavailable gives its reason as the candidates notice; its refusals write nothing', () => withTemp((dir) => {
+    const root = path.join(dir, 'repo');
+    fs.mkdirSync(root);
+    measureFixture(root);
+    const measurements = path.join(dir, 'measurements.json');
+    const measured = runCli(['measure', '--root', root, '--scope', 'src', '--out', measurements, '--hotspots', path.join(dir, 'hotspots.tsv')]);
+    assert(measured.status === 0, `measure exited ${measured.status}: ${measured.stdout}`);
+    const roles = write(dir, 'roles.json', '{"src/a.ts": {"kind": "util", "role": "entry", "exports": ["a"], "mixes": []}}');
+    const out = path.join(dir, 'overview.json');
+    const assembled = runCli(['assemble', '--measurements', measurements, '--roles', roles, '--explorer-unavailable', ' candidates need the deepen plugin, which is not installed. ', '--out', out]);
+    assertEqual(assembled.doc, { status: 'ok', out, files: 4, candidates: 0, dropped: 0, notices: 1 }, 'the assemble document');
+    const overview = readOverview(out);
+    assertEqual(overview.notices, ['No deepening candidates: candidates need the deepen plugin, which is not installed.'], 'the notice from the given reason');
+    assertEqual([overview.files[0].kind, overview.files[0].role], ['util', 'entry'], 'roles merged beside the given reason');
+
+    const bare = path.join(dir, 'bare.json');
+    runCli(['assemble', '--measurements', measurements, '--explorer-unavailable', 'the explorer failed: it timed out', '--out', bare]);
+    assertEqual(readOverview(bare).notices, [
+      'File roles are unavailable: no roles file was given.',
+      'No deepening candidates: the explorer failed: it timed out.',
+    ], 'the notices without roles and with a given reason');
+
+    const kept = fs.readFileSync(out, 'utf8');
+    const explorer = write(dir, 'explorer.txt', 'notes: none\n');
+    const missing = path.join(dir, 'missing.json');
+    for (const [flags, fragment] of [
+      [['--explorer-unavailable='], 'bad --explorer-unavailable: empty'],
+      [['--explorer-unavailable', ' . '], 'bad --explorer-unavailable: empty'],
+      [['--explorer-unavailable', 'one\ntwo'], 'bad --explorer-unavailable: not one line'],
+      [['--explorer-unavailable', 'one\rtwo'], 'bad --explorer-unavailable: not one line'],
+      [['--explorer', explorer, '--explorer-unavailable', 'gone'], '--explorer and --explorer-unavailable are exclusive'],
+    ]) {
+      for (const source of [measurements, missing]) {
+        const args = ['assemble', '--measurements', source, ...flags, '--out', out];
+        assertErrorDoc(runCli(args), 2, fragment, JSON.stringify(args));
+        assert(fs.readFileSync(out, 'utf8') === kept, `${JSON.stringify(args)} rewrote --out`);
+      }
+    }
+  })],
   ['cli: a run survives a submit and prints one document on finish', () => withTemp(async (dir) => {
     const root = path.join(dir, 'root');
     write(root, 'a.txt', 'a\n');
@@ -1441,6 +2357,66 @@ const CASES = [
     assertErrorDoc(runCli(['annotate', '--root', root, '--scope', '../outside', '--port', '0', '--no-open']), 2, 'is outside', 'a scope outside the root');
     assertEqual(fs.readdirSync(root), ['a.txt'], 'files under the root after the refusals');
     assertErrorDoc(runCli(['--self-test', 'extra']), 2, 'usage: cli.mjs annotate', '--self-test with another argument');
+  })],
+  ['cli: overview refusals write nothing', () => withTemp((dir) => {
+    const root = path.join(dir, 'root');
+    write(root, 'a.txt', 'a\n');
+    const out = path.join(dir, 'notes.json');
+    const notes = '{"annotations": []}';
+    fs.writeFileSync(out, notes);
+    const args = (overview) => ['annotate', '--root', root, '--out', out, '--overview', overview, '--port', '0', '--no-open'];
+    for (const [name, content, fragment] of [
+      ['missing.json', null, 'missing.json: not found'],
+      ['broken.json', '{', 'broken.json: not valid JSON'],
+      ['shape.json', JSON.stringify({ ...overviewFixture(root), version: 2 }), 'shape.json: version is not the number 1'],
+    ]) {
+      const overview = path.join(dir, name);
+      if (content !== null) {
+        fs.writeFileSync(overview, content);
+      }
+      assertErrorDoc(runCli(args(overview)), 1, fragment, `--overview ${name}`);
+      assert(fs.readFileSync(out).equals(Buffer.from(notes)), `--overview ${name} rewrote --out`);
+    }
+    assertErrorDoc(runCli(['annotate', '--root', root, '--out', out, '--overview=', '--port', '0', '--no-open']), 2, 'bad --overview: empty', 'an empty --overview');
+    assertErrorDoc(runCli(['annotate', '--root', root, '--out', out, '--port', '0', '--no-open', '--overview']), 2, 'usage: cli.mjs annotate', '--overview with no value');
+    assert(fs.readFileSync(out).equals(Buffer.from(notes)), 'a bad --overview invocation rewrote --out');
+    fs.rmSync(out);
+    assertErrorDoc(runCli(['annotate', '--root', root, '--overview', path.join(dir, 'broken.json'), '--port', '0', '--no-open']), 1, 'not valid JSON', 'a fresh run with a bad overview');
+    assertEqual(fs.readdirSync(root), ['a.txt'], 'files under the root after the overview refusals');
+  })],
+  ['cli: an overview run serves the document and keeps it out of the listing', () => withTemp(async (dir) => {
+    const root = path.join(dir, 'root');
+    write(root, 'a.txt', 'a\n');
+    const overviewFile = write(root, 'claudedocs/margin/notes.overview.json', JSON.stringify(overviewFixture(root)));
+    const out = path.join(dir, 'notes.json');
+    const server = spawnCli(['annotate', '--root', root, '--out', out, '--overview', overviewFile, '--port', '0', '--token', TOKEN, '--no-open']);
+    try {
+      const url = await serverUrl(server);
+      const port = Number(new URL(url).port);
+      const headers = { host: `127.0.0.1:${port}`, 'x-margin-token': TOKEN };
+      const served = await request(port, { target: '/api/overview', headers });
+      assert(served.status === 200, `the overview route got ${served.status}`);
+      assertEqual(served.json, expectedOverview(root), 'the served overview');
+      assertEqual((await request(port, { headers })).json.files, ['a.txt'], 'listing on an overview run');
+      const notes = [
+        { id: 'n1', anchor: { kind: 'scope' }, body: 'one' },
+        { id: 'c1', anchor: { kind: 'candidate', name: 'split-parsing' }, body: 'take it' },
+      ];
+      const sent = await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: notes } });
+      assertEqual(sent.json, { ok: true, round: 1 }, 'submit reply');
+      const stored = JSON.parse(fs.readFileSync(out, 'utf8')).annotations.map((a) => [a.id, a.anchor, a.round]);
+      assertEqual(stored, [['n1', { kind: 'scope' }, 1], ['c1', { kind: 'candidate', name: 'split-parsing' }, 1]], 'notes file after a submit with a candidate note');
+      const replied = await request(port, { method: 'POST', target: '/api/reply', headers, body: { round: 1, replies: [{ id: 'n1', body: 'noted' }] } });
+      assertEqual(replied.json, { ok: true, replied: 1 }, 'reply answer');
+      assertEqual((await request(port, { headers })).json.files, ['a.txt'], 'listing after a reply on an overview run');
+      const finish = await request(port, { method: 'POST', target: '/api/finish', headers });
+      assertEqual(finish.json, { ok: true, status: 'finished' }, 'finish reply');
+      const exit = await server.exited();
+      assert(exit.code === 0, `the server exited ${exit.code ?? exit.signal}: ${exit.stdout}`);
+      assertEqual(JSON.parse(exit.stdout), { status: 'finished', out, annotations: 2, rounds: 1, root, scope: [] }, 'result document on an overview run');
+    } finally {
+      server.child.kill('SIGKILL');
+    }
   })],
 ];
 

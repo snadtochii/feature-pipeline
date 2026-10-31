@@ -24,9 +24,26 @@
       </div>
       <div id="tree-rows"></div>
     </nav>
-    <section id="code" class="code">
-      <div class="empty">Pick a file. Click a line number to annotate it; shift-click to extend the range. The <b>+</b> on a tree row annotates that file or folder.</div>
-    </section>
+    <div class="center">
+      <div id="tabs" class="tabs hidden">
+        <button id="toggle-files" class="panel-toggle" aria-pressed="true" title="Show or hide the file tree">Files</button>
+        <div class="tab-list" role="tablist" aria-label="Center view">
+          <button id="tab-overview" class="tab" role="tab" aria-selected="false" aria-controls="overview">Overview</button>
+          <button id="tab-code" class="tab on" role="tab" aria-selected="true" aria-controls="code">Code</button>
+        </div>
+        <span class="spacer"></span>
+        <button id="toggle-notes" class="panel-toggle" aria-pressed="true" title="Show or hide the notes">Notes</button>
+      </div>
+      <div class="panes">
+        <section id="overview" class="overview off" role="tabpanel" aria-label="Overview">
+          <div id="overview-notice" class="ov-notice"></div>
+          <div id="overview-body"></div>
+        </section>
+        <section id="code" class="code">
+          <div class="empty">Pick a file. Click a line number to annotate it; shift-click to extend the range. The <b>+</b> on a tree row annotates that file or folder.</div>
+        </section>
+      </div>
+    </div>
     <aside class="notes">
       <label class="field">
         <span>Overall direction</span>
@@ -37,6 +54,7 @@
         <span id="count" class="muted">0 notes</span>
         <button id="add-scope" class="ghost small" title="A note about the scope as a whole">+ general note</button>
       </div>
+      <p id="notes-notice" class="notes-notice hidden"></p>
       <div id="composer" class="composer hidden"></div>
       <ol id="list" class="list"></ol>
     </aside>

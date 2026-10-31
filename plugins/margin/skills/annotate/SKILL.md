@@ -1,7 +1,7 @@
 ---
 name: annotate
-description: "Open a read-only viewer over the given paths so the human can leave notes on code ranges, files, folders and the scope as a whole, then work through each round they send: answer the questions, plan and make the structural changes, hand behavioural ones to the feature pipeline, and reply beside every note, until the human finishes."
-argument-hint: "[path ...] [--resume <notes-file>] [--port <n>]"
+description: "Open a read-only viewer over the given paths, optionally with an overview of the area's file measurements, roles and deepening candidates, so the human can leave notes on code ranges, files, folders, candidates and the scope as a whole, then work through each round they send: answer the questions, plan and make the structural changes, hand behavioural ones and accepted candidates off, and reply beside every note, until the human finishes."
+argument-hint: "[path ...] [--overview] [--resume <notes-file>] [--port <n>]"
 disable-model-invocation: true
 allowed-tools:
   - Bash
@@ -11,6 +11,8 @@ allowed-tools:
   - Edit
   - Write
   - Skill
+  - Agent
+  - Task
 ---
 
 # Annotate
@@ -33,7 +35,13 @@ the round's confirmation in §3.
   working directory, and the file must exist. Its annotations and `overall` load into the
   viewer, its recorded root and scope apply — paths given alongside replace the scope and
   resolve under the recorded root — and it is written back in place. Its rounds and replies
-  load too, and the loop continues with the next round.
+  load too, and the loop continues with the next round. The overview beside it — the notes
+  path with its trailing `.json` replaced by `.overview.json` — reopens with it when that file
+  exists.
+- `--overview` — analyze the scope before the viewer opens — file measurements, each file's
+  kind and role, and deepening candidates — and open it with an Overview tab (§1a). It needs at
+  least one path: with none, ask for a folder and wait. On `--resume` it is ignored with one
+  line saying so: a resume reopens the overview its notes were written against.
 - `--port <n>` — optional. Without it the server binds a free port.
 
 ## §1 Open the viewer and loop over rounds
@@ -55,6 +63,12 @@ the round's confirmation in §3.
    stored and resumes from ([CONTRACT.md](../../CONTRACT.md) §5). Keep the count of notes sent
    without a reply for step 6. A file this cannot parse prints an error → go on to step 3; the
    server refuses the file, and step 7 reports why.
+
+   Then the notes file's overview: `<sibling>` is the absolute notes path with its trailing
+   `.json` replaced by `.overview.json`; a notes path that does not end in `.json` has none.
+   `test -f "<sibling>"` succeeds → step 4 passes it as `--overview`. It fails, or there is no
+   sibling → the resume runs without an overview, and when `--overview` was given too, one line
+   says the notes file has no overview beside it.
 3. **Stderr file.** Create the file the server's stderr goes to with
    `mktemp "${TMPDIR:-/tmp}/margin.XXXXXX"`, which works with both BSD and GNU `mktemp`. Print
    its path once and write that literal path into every later command — shell variables do not
@@ -62,18 +76,30 @@ the round's confirmation in §3.
    fall back to a fixed path, since the file receives the URL with the run's token.
 4. **Start** the server **in the background with the maximum timeout** — a review takes as
    long as the human needs, and the command returns only when the run ends — Finish, Cancel or
-   a signal.
+   a signal. With `--overview` on a fresh run, §1a builds the overview first; the server starts
+   only once it has, so generation finishes before step 5's wait begins.
    A fresh run:
 
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" annotate --root "<root>" [--scope "<path>" ...] [--port <n>] 2> "<stderr-file>"
    ```
 
+   A fresh overview run, with `<notes>` and `<overview>` the two paths §1a step 7 minted:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" annotate --root "<root>" --scope "<path>" ... --out "<notes>" --overview "<overview>" [--port <n>] 2> "<stderr-file>"
+   ```
+
+   `<notes>` does not exist yet, so the run is fresh and its notes file is created there, beside
+   the overview.
+
    A resume:
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" annotate --out "<absolute-notes-file>" [--scope "<path>" ...] [--port <n>] 2> "<stderr-file>"
+   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" annotate --out "<absolute-notes-file>" [--scope "<path>" ...] [--overview "<sibling>"] [--port <n>] 2> "<stderr-file>"
    ```
+
+   `--overview` only when step 2 found the sibling.
 
    One `--scope` per path given; none means the whole repository on a fresh run and the
    recorded scope on a resume. A resume passes no `--root`: the server applies the recorded
@@ -95,7 +121,8 @@ the round's confirmation in §3.
    `#<token>` fragment is required, since without it the viewer cannot load the session — and
    the block's `notes:` line as printed, naming the file that saves as the human goes. Add
    that each Send hands a round over, and that Finish in the viewer, or saying so here, ends
-   the review.
+   the review. When the run was given an overview, add that the viewer has an Overview tab,
+   where a candidate takes a note like a file does.
 
    `<last>`, the last round handled, is what every wait carries: `0` on a fresh run, and on a
    resume the round step 2 read. On a resume, a count above `0` of notes sent without a reply
@@ -105,16 +132,19 @@ the round's confirmation in §3.
    - **Still running** → the server is still listing the scope or reading the resumed file,
      which it does before binding. Run step 5's wait once more; the block appears → step 6.
      Still none → stop the background command, report that the server did not bind within
-     two minutes and suggest a narrower scope, delete the stderr file and stop.
+     two minutes and suggest a narrower scope, delete the stderr file, apply the overview
+     cleanup (§1a) and stop.
    - **Exited** → the server stopped before binding the port. Report its stdout error document
      verbatim, with its cause in one line:
      - `could not listen on port <n>: EADDRINUSE` — that port is taken; running without
        `--port` lets the server pick a free one. Nothing is retried.
      - `no files under …` on a resume — the recorded root or scope lists no file; name the
        recorded root.
+     - `overview <file>: …` on a resume — the overview beside the notes file was refused; name
+       the file, and say that moving it aside resumes the notes without an overview.
      - any other error — as printed.
 
-     Then delete the stderr file and stop.
+     Then delete the stderr file, apply the overview cleanup (§1a) and stop.
 8. **Wait for a round**, **in the background with the maximum timeout**, with `<url>` the
    viewer URL exactly as printed and `<last>` written as a number:
 
@@ -158,6 +188,107 @@ the round's confirmation in §3.
    §6's post answers `409`: the round's actions have run with their checks, and its replies
    go to the chat.
 
+## §1a Build the overview
+
+Run from §1 step 4, only with `--overview` on a fresh run, before the server starts. The
+overview file is written by the server's `assemble` and nothing else: the skill never writes
+overview JSON itself, and never edits the file `assemble` wrote. Generation runs a deep
+exploration, so it takes minutes; say so once before step 1.
+
+1. **Temp directory.** `mktemp -d "${TMPDIR:-/tmp}/margin-overview.XXXXXX"` → `<tmp>`. Print its
+   path once and write that literal path into every later command. `mktemp` fails → report its
+   error, delete the stderr file and stop.
+2. **Measure** the scope, one `--scope` per path given:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" measure --root "<root>" --scope "<path>" ... --out "<tmp>/measurements.json" --hotspots "<tmp>/hotspots.tsv"
+   ```
+
+   A non-zero exit → report its error document verbatim, `rm -rf "<tmp>"`, delete the stderr
+   file and stop. Exit 0 prints the measure document; a `files` count above 200 → name the
+   count and ask whether to go on or narrow the scope. Narrow → `rm -rf "<tmp>"`, delete the
+   stderr file, and start again at §1 step 1 with the paths the human gives.
+3. **Brief inputs.** The measured paths, one per line, root-relative:
+
+   ```bash
+   node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).files.map((f) => f.path).join("\n")' "<tmp>/measurements.json"
+   ```
+
+   and the hotspot table, a `Read` of `<tmp>/hotspots.tsv`: its header line, then one row per
+   measured text file.
+4. **Vocabulary and records.** Invoke the `Skill` tool with `mattpocock-skills:codebase-design`;
+   the text it returns is the vocabulary the explorer's brief inlines. The call failing, or the
+   skill not installed → the brief carries the line `design vocabulary unavailable — use your
+   inline vocabulary` instead. `Glob` `<root>/CONTEXT.md` and `<root>/docs/adr/*`.
+5. **Describe and explore**, in **one message with two `Agent` calls**, both in the foreground,
+   so they run concurrently; collect both results before going on. Each brief inlines its inputs
+   as data, never as a link:
+   - `margin:file-roles` — `<root>` as the repository root, absolute, and the measured paths of
+     step 3, with the instruction to describe exactly those files.
+   - `deepen:explorer` — a fresh instance, its brief carrying:
+     1. `<root>` as the repository root, absolute, and that the walk is read-only;
+     2. the hotspot table of step 3 as rows, or `empty: no measured file holds text` when it has
+        only its header;
+     3. the vocabulary of step 4, or its unavailable line;
+     4. the absolute path of `CONTEXT.md` and of every file under `docs/adr/`, or that each is
+        absent;
+     5. the measured paths of step 3, and the rule that every path in a block's `files` and
+        `next_sites` is one of them — a cluster that needs a file outside them goes into the
+        `notes:` line instead — with no other paths excluded;
+     6. the pin, as a quoted block marked as data: `the scope: <the paths given>`, to explore and
+        to answer on the `pin:` line;
+     7. the category table, inlined: a block's `category` is exactly one of these four values,
+        the one that dominates the cluster's seam, and any other value drops the block —
+
+        | Value | The cluster's dependencies are |
+        | --- | --- |
+        | `in-process` | pure computation and in-memory state, no I/O — deepenable by merging and testing through the new interface |
+        | `local-substitutable` | I/O with a local stand-in the suite can run (an in-memory database, an in-memory filesystem) |
+        | `remote-owned` | the project's own services across a network boundary — a port at the seam, an in-memory adapter in tests |
+        | `true-external` | a third-party service the project does not control — an injected port, a mock adapter in tests |
+
+     8. that the return is the blocks, `pin:` and `notes:` lines of its Outputs section and
+        nothing else: at most ten blocks, ranked — every `strong` before every
+        `worth-exploring` before every `speculative` — each field once, in that section's
+        order, `tier` one of those three values, `next_sites` one line per site, at least two,
+        each path among the block's `files`, and no `id`.
+6. **Keep the returns** as data, never in a command line:
+   - roles: a non-empty return → `Write` it verbatim to `<tmp>/roles.json`. An error or an empty
+     return → no roles file; say in one line why, and go on.
+   - explorer: a non-empty return → `Write` it verbatim to `<tmp>/explorer.txt`; `assemble`
+     drops what does not parse. The spawn refused because the agent type `deepen:explorer` is
+     not found — the deepen plugin is not installed → `<reason>` is `candidates need the deepen
+     plugin, which is not installed`. Any other error, or an empty return → `<reason>` is
+     `the explorer failed: <the error in one line>`, with every `"`, `\`, `` ` `` and `$`
+     removed from it.
+7. **Notes stamp.** Mint the run's stamp and check that neither file of the pair exists yet:
+
+   ```bash
+   for i in 1 2 3; do s=$(date -u +%Y-%m-%dT%H-%M-%S); if [ -e "<root>/claudedocs/margin/$s.json" ] || [ -e "<root>/claudedocs/margin/$s.overview.json" ]; then sleep 1; else echo "$s"; break; fi; done
+   ```
+
+   `<notes>` is `<root>/claudedocs/margin/<stamp>.json` and `<overview>` is
+   `<root>/claudedocs/margin/<stamp>.overview.json`, both written literally from here on. No
+   stamp printed → report that three stamps in a row were taken, `rm -rf "<tmp>"`, delete the
+   stderr file and stop.
+8. **Assemble**, with `--roles` only when step 6 wrote the roles file, and `--explorer` or
+   `--explorer-unavailable` by step 6's explorer outcome; the temp directory is removed in the
+   same command, whatever the exit:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" assemble --measurements "<tmp>/measurements.json" [--roles "<tmp>/roles.json"] [--explorer "<tmp>/explorer.txt" | --explorer-unavailable "<reason>"] --out "<overview>"; rc=$?; rm -rf "<tmp>"; (exit $rc)
+   ```
+
+   A non-zero exit → report its error document verbatim, delete the stderr file and stop;
+   nothing was written. Exit 0 → relay the assemble document's `files`, `candidates`, `dropped`
+   and `notices` counts in one line, and its stderr warning lines as printed. Back to §1 step 4.
+
+**Overview cleanup.** An overview file belongs to the notes file beside it. Wherever a run that
+used one ends — §1 step 7 and §7 — check the notes file with `test -f "<notes-file>"`, the
+`<notes>` path on a fresh run and the resumed file on a resume. When it no longer exists,
+`rm -f "<overview-file>"` and say the overview went with it. A notes file that still exists
+keeps its overview.
+
 ## §2 Read the round
 
 The round is read from `<out>`, the notes file the wait document names, between rounds: the
@@ -188,13 +319,16 @@ shape; [CONTRACT.md](../../CONTRACT.md) §6 and §7 define every field:
     { "id": "<uuid>", "anchor": { "kind": "folder", "path": "src/features/orders" },
       "intent": "change", "body": "…", "createdAt": "…" },
     { "id": "<uuid>", "anchor": { "kind": "scope" },
-      "intent": "question", "body": "…", "createdAt": "…" }
+      "intent": "question", "body": "…", "createdAt": "…" },
+    { "id": "<uuid>", "anchor": { "kind": "candidate", "name": "split-parsing" },
+      "intent": "change", "body": "…", "createdAt": "…" }
   ]
 }
 ```
 
 `revision` is `null` when the root is not in a git repository. `annotations` are stored in the
-order they were created; §3 sorts them. Ids are not guaranteed unique, so the table and the
+order they were created, except that a Send moves the candidate notes it withholds after the
+notes it stamps; §3 sorts them. Ids are not guaranteed unique, so the table and the
 drift check never key on them; §6's reply post must, so notes that share an id are named
 wherever they occur.
 
@@ -206,8 +340,8 @@ wherever they occur.
   node -e '
   const notes = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
   const after = Number(process.argv[2]), upto = Number(process.argv[3]);
-  const span = ({ kind, path, start, end }) => (kind === "scope" ? "scope" : kind === "range" ? `range ${path}:${start}-${end}` : `${kind} ${path}`);
-  const same = (x, y) => x.kind === y.kind && x.path === y.path && x.start === y.start && x.end === y.end;
+  const span = ({ kind, path, start, end, name }) => (kind === "scope" ? "scope" : kind === "candidate" ? `candidate ${name}` : kind === "range" ? `range ${path}:${start}-${end}` : `${kind} ${path}`);
+  const same = (x, y) => x.kind === y.kind && x.path === y.path && x.name === y.name && x.start === y.start && x.end === y.end;
   for (let r = after + 1; r <= upto; r += 1) {
     const sent = notes.rounds[r - 1].overall, before = r > 1 ? notes.rounds[r - 2].overall : "";
     if (sent !== before || r === upto) { console.log(`overall (round ${r})${sent === before ? " (unchanged)" : ""}: ${JSON.stringify(sent)}`); }
@@ -231,8 +365,8 @@ wherever they occur.
   before, and always round `<R>`'s, marked `(unchanged)` when the human left it as it was;
   then one line per note of the round, in the file's order — its position in
   `annotations`, round, id (with the other sent notes sharing it), span, intent and body —
-  and under each, every note sent in an earlier round on the same anchor (kind, path, and for
-  a range the same lines) with the agent's last reply to it; then the count. Earlier notes
+  and under each, every note sent in an earlier round on the same anchor (kind, path or
+  candidate name, and for a range the same lines) with the agent's last reply to it; then the count. Earlier notes
   are context for the round, never part of it. Excerpts stay out of it; the drift check
   reads them.
 - Read the round's `overall` first; it is the human's framing for every note below it.
@@ -250,7 +384,7 @@ wherever they occur.
   const show = (line, none) => (line === undefined ? none : JSON.stringify(line));
   let drifted = 0;
   notes.annotations.forEach(({ anchor: { kind, path, start, end, excerpt }, round }, i) => {
-    if (!(round > after && round <= upto) || kind === "scope") { return; }
+    if (!(round > after && round <= upto) || kind === "scope" || kind === "candidate") { return; }
     const span = kind === "range" ? `${path}:${start}-${end}` : path;
     const report = (why) => { drifted += 1; console.log(`note ${i + 1}, ${kind} ${span}: ${why}`); };
     const stat = fs.statSync(join(notes.root, path), { throwIfNoEntry: false });
@@ -276,12 +410,14 @@ wherever they occur.
   line endings. Equal text holds, an empty excerpt included; an excerpt of exactly 4000
   characters was truncated by the server's cap, so it holds when the current text starts with
   it. Different text, an `end` past the file's last line, or a missing file has drifted, and so
-  has a `file` or `folder` anchor whose path is missing. It prints one line per drifted
+  has a `file` or `folder` anchor whose path is missing. A `scope` or `candidate` note points
+  at no code, so it has nothing to drift. It prints one line per drifted
   anchor — the note's position in `annotations`, its span, and the first line that differs,
   quoted from the excerpt and from the current file — then `<n> drifted` or `no drift`.
   Drifted anchors go into §3's Reading list; never guess which version the note meant.
 - A `folder` note is about the folder's shape (what lives in it, how it is split), not about
   any one file. A `file` note is about the file as a unit. A `scope` note is about everything.
+  A `candidate` note is about the overview's deepening candidate of that name.
 
 ## §3 Plan before touching anything
 
@@ -289,9 +425,9 @@ Open with the count: "N notes read (round <R>)", or "(rounds <last+1>–<R>)" wh
 covered more than one Send — the same N as the round view's count, so the human can see
 nothing was dropped. Then one table for the round, **one row per note of the round**; notes of
 earlier rounds are context and never become rows. Rows are sorted as the viewer
-lists them: scope notes first, then by path, then folder before file before range on the same
-path, then by start line; notes that tie keep the file's order. Paths compare as the viewer
-compares them, with JavaScript's `localeCompare`, not by code point: case only breaks ties
+lists them: scope notes first, then candidate notes by name, then by path, then folder before
+file before range on the same path, then by start line; notes that tie keep the file's order.
+Names and paths compare as the viewer compares them, with JavaScript's `localeCompare`, not by code point: case only breaks ties
 and punctuation sorts before digits and letters, so `a.ts` precedes `B.ts`. When two paths
 differ in case or punctuation, settle their order with `node -p '"<a>".localeCompare("<b>")'`.
 
@@ -314,6 +450,12 @@ differ in case or punctuation, settle their order with `node -p '"<a>".localeCom
 - **behavioural** — anything that changes what the code does, including a "structural" note
   whose honest implementation would. Flag it; it goes through the pipeline (§5) unless the
   user says otherwise.
+- **candidate** — a `change` note on a `candidate` anchor; a `question` note on one is an
+  **answer**. Its body is read as accepting the candidate or declining it. Accepted → action
+  `offer: /feature:discover or /deepen:run --pin`; declined, or anything else → action
+  `noted: <the reading>`. A reading that is not the literal note gets a Reading bullet. A
+  candidate is never implemented in this session, whatever the note asks: an accepted one
+  leaves through §5, as a ticket or as a deepen run.
 
 Below the table, a **Reading** list: one bullet for every place the plan is not the literal
 note — two notes merged into one action, a name the note did not use (`utils` asked for,
@@ -333,12 +475,18 @@ gate, when it asks for edits.
 
 Then ask one question: do the structural rows here, hand everything to `/feature:discover`,
 or adjust the table? A `held:` row is done in §4 only when the answer names it; otherwise it is
-left out of §4 and stays available to §5. Wait for the answer. That is the only gate of the
+left out of §4 and stays available to §5. When the table holds accepted candidate rows, the
+same question asks which route each takes: a `/feature:discover` ticket or a `/deepen:run --pin`
+run. Handing everything to `/feature:discover` sends them as tickets; a declined candidate
+row, and an accepted one the overview no longer holds, is never handed off. An accepted
+candidate whose route the answer does not name is handed nowhere, and an answer that asks to
+implement a candidate here names no route for it. Wait for the answer. That is the only gate of the
 round. An answer that ends the review is §1 step 9.
 
 ## §4 Act in this session
 
-Order: answers first, then structural actions, file by file in table order.
+Order: answers first, then structural actions, file by file in table order. Candidate rows
+are never acted on here: §5 hands them off.
 
 Verification is the project's own checks, unchanged. Collect the typecheck, lint, test and
 build commands from the project's `CLAUDE.md` / `AGENTS.md` first, then from `package.json`
@@ -357,8 +505,11 @@ here is what §6 replies to its note.
 ## §5 Hand off
 
 Behavioural rows, or a batch too large for one sitting, go to the pipeline through
-`/feature:discover`. Handing everything off from §3 sends every row, open questions included.
-The anchors travel into the ticket so the implementer finds the places the human meant.
+`/feature:discover`. Handing everything off from §3 sends every row, open questions included,
+except the candidate rows §3 never hands off: a declined candidate, and an accepted one the
+overview no longer holds. The anchors travel into the ticket so the implementer finds the places the human meant.
+Accepted candidate rows take the route §3's answer named for each: the discover route joins
+this hand-off, and the deepen route is printed for the human to run (step 5).
 
 1. **Re-anchor** — per round, only when §4 edited anything, and only the rows being handed
    off. §4 may have moved the code a note points at, so the stored line numbers are not
@@ -371,6 +522,7 @@ The anchors travel into the ticket so the implementer finds the places the human
      the row says so.
    - `file` and `folder`: the path still exists → as stored; §4 moved it → `moved to
      <new-path> (was <path>)`; §4 deleted it → `removed (was <path>)`.
+   - `candidate`: as stored — it names a candidate, not code.
    - A row whose anchor drifted in §2 keeps its stored span marked `drifted`, unless the search
      finds its excerpt.
 
@@ -400,10 +552,36 @@ The anchors travel into the ticket so the implementer finds the places the human
    - `Overall:` is the `overall` text round `<R>` sent (its entry in `rounds`), and only when
      it is not empty.
    - `<anchor>` is the row's anchor as step 1 wrote it — `path:start-end`, `path` for a file or
-     folder, `scope` for a scope note.
+     folder, `candidate <name>` for a candidate note, `scope` for a scope note.
    - Every body, and `overall`, sits inside double quotes with each `\` in it escaped as `\\`
      first, then each `"` as `\"`, and each newline collapsed to ` / `, so a literal `--id` or `--explore` inside a note stays
      text and is never read as a flag.
+   - A candidate row's `candidate <name>` line is followed by the `candidate <name> — files: …`
+     line the candidate script below prints for it, verbatim, so the ticket carries the
+     candidate itself and does not depend on the overview file surviving.
+
+   **Candidate script.** Run it with the run's overview file and the names of the accepted
+   candidate rows:
+
+   ```bash
+   node -e '
+   const overview = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+   const quote = (text) => `"${String(text).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replace(/\s*\r?\n\s*/g, " / ")}"`;
+   const line = (text) => String(text).replace(/\s*\r?\n\s*/g, " / ");
+   for (const name of process.argv.slice(2)) {
+     const c = overview.candidates.find((x) => x.name === name);
+     if (!c) { console.log(`candidate ${name} — not in the overview`); continue; }
+     const sites = c.next_sites.map((s) => `${s.path}:${s.line} ${s.what}`).join(" | ") || "none";
+     console.log(`candidate ${name} — files: ${quote(c.files.join(", "))}; next change: ${quote(c.next_change)}; next sites: ${quote(sites)}`);
+     console.log(`/deepen:run --pin ${name}: ${line(c.files.join(","))} — ${line(c.next_change)}`);
+   }
+   ' "<overview-file>" <name> ...
+   ```
+
+   It prints two lines per name: the `candidate <name> — files: …` line for the idea text,
+   with the candidate's files, next change and next-change sites quoted and escaped as bodies
+   are, and the `/deepen:run --pin …` command step 5 prints. A name the overview does not hold
+   prints `candidate <name> — not in the overview` alone, and that row's reply says so.
 4. **Invoke** the `Skill` tool with skill `feature:discover` and the idea text as its
    arguments. Note the ticket id discover reports for each row, or the epic id and its child
    ids when it makes an epic; §6 replies with them. Once discover has written its ticket or
@@ -411,6 +589,12 @@ The anchors travel into the ticket so the implementer finds the places the human
    `feature:discover` is unavailable — the `feature` plugin is not installed — print the whole
    command, `/feature:discover <idea text>`, for the user to run, and continue at §6, whose
    reply to those rows says so.
+5. **Deepen route.** For each accepted candidate row whose route is deepen, print the
+   `/deepen:run --pin …` line the candidate script printed for it, for the human to run from
+   deepen's loop clone. The skill never runs it: `/deepen:run` takes no model invocation. The
+   hint is explorer text the human reads before running it. With no discover rows this round,
+   steps 2 and 4 and step 3's idea text are skipped; step 3's candidate script still runs for
+   the deepen rows.
 
 ## §6 Reply
 
@@ -433,7 +617,15 @@ notes. Every note of the round gets exactly one reply:
   - a check that failed after the edit, reverted → `not done: reverted — <check> failed
     after the edit`;
   - `feature:discover` unavailable → `not handed off: the feature plugin is not installed —
-    the command is in the chat`.
+    the command is in the chat`;
+  - an accepted candidate on the deepen route → `offered: /deepen:run --pin <name> — the
+    command is in the chat`; on the discover route, `handed off: <ticket-id>` as above;
+  - an accepted candidate with no route named at the gate → `not handed off: no route chosen
+    at the gate — a candidate is handed off as a ticket or a deepen run, never implemented
+    here`;
+  - an accepted candidate the overview no longer holds → `not handed off: <name> is not in
+    the overview`;
+  - a declined candidate → `noted: <the reading>`, one line acknowledging it.
 - `overall` — always present: one or two sentences summarizing the round, answering the
   round's own `overall` text when it sent one.
 
@@ -472,38 +664,45 @@ Reached from §1 step 8 (a wait reporting the end), step 9 (Finish from chat) or
    result document `{ status, out, annotations, rounds, root, scope }`. Delete the stderr
    file (`rm -f "<stderr-file>"`).
 2. **Nothing to summarize.** `cancelled` with `out: null` → say no round was sent and no notes
-   file remains, and stop. An error document (`"status": "error"`) → report it verbatim and
-   stop.
+   file remains, apply the overview cleanup (§1a) — the notes file is gone, so its overview
+   goes too — and stop. An error document (`"status": "error"`) → report it verbatim, apply the
+   overview cleanup and stop.
 3. **Summary.** Otherwise read the run back from the notes file, the durable record of every
    round and reply, with its absolute path (`out`):
 
    ```bash
    node -e '
    const notes = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-   const span = ({ kind, path, start, end }) => (kind === "scope" ? "scope" : kind === "range" ? `${path}:${start}-${end}` : path);
+   const span = ({ kind, path, start, end, name }) => (kind === "scope" ? "scope" : kind === "candidate" ? `candidate ${name}` : kind === "range" ? `${path}:${start}-${end}` : path);
    const first = (text) => JSON.stringify(text.split("\n")[0]);
-   const tickets = new Set();
+   const tickets = new Set(), offers = new Set();
    notes.rounds.forEach(({ round }) => {
      const sent = notes.annotations.filter((a) => a.round === round);
      console.log(`round ${round}: ${sent.length} notes`);
      sent.forEach((a) => {
        const replies = a.replies || [];
-       replies.forEach(({ body }) => { for (const m of body.matchAll(/handed off: ([A-Za-z][A-Za-z0-9]*-\d+(?: \([^)]*\))?)/g)) { tickets.add(m[1]); } });
+       replies.forEach(({ body }) => {
+         for (const m of body.matchAll(/handed off: ([A-Za-z][A-Za-z0-9]*-\d+(?: \([^)]*\))?)/g)) { tickets.add(m[1]); }
+         for (const m of body.matchAll(/offered: \/deepen:run --pin ([a-z0-9][a-z0-9-]*)/g)) { offers.add(m[1]); }
+       });
        console.log(`  ${span(a.anchor)} ${a.intent}: ${replies.length ? replies.map((r) => first(r.body)).join(" | ") : "(no reply)"}`);
      });
      (notes.overallReplies || []).filter((r) => r.round === round).forEach((r) => console.log(`  overall: ${first(r.body)}`));
    });
    console.log(`tickets: ${[...tickets].join(", ") || "none"}`);
+   if (offers.size) { console.log(`deepen offers: ${[...offers].join(", ")}`); }
    console.log(`unsent: ${notes.annotations.filter((a) => a.round === undefined).length}`);
    ' "<absolute-notes-file>"
    ```
 
    It prints, per round, `round <r>: <k> notes`, one line per note sent in it — its span,
    intent and the first line of each of its replies — and the round's overall reply; then
-   `tickets:` with every id taken from a `handed off:` reply, and `unsent:` with the number
-   of notes never sent.
+   `tickets:` with every id taken from a `handed off:` reply, `deepen offers:` with every
+   candidate name taken from an `offered: /deepen:run --pin` reply — only when there is one —
+   and `unsent:` with the number of notes never sent.
 4. **Report**, in this order: the status — `finished`, `cancelled` or `interrupted` — with
-   `rounds` and `annotations` from the result document; the per-round list; the tickets
-   created; the rounds whose replies were printed in chat only, from this conversation; and
-   the unsent notes, with `/margin:annotate --resume <out>` to send them in a later run.
+   `rounds` and `annotations` from the result document; when the run used an overview, the
+   notes file and the overview file beside it; the per-round list; the tickets created; the
+   deepen runs offered, when there are any, whose commands are in the chat; the rounds whose
+   replies were printed in chat only, from this conversation; and the unsent notes, with `/margin:annotate --resume <out>` to send them in a later run.
    Unsent notes are not acted on.

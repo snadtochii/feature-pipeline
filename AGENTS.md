@@ -145,7 +145,7 @@ Agent tool budgets live in [docs/contributing/tool-budgets.md](docs/contributing
 
 ### Model: opus for every Claude agent definition
 
-Every Claude agent definition pins `model: opus` rather than inheriting. Rationale: the pipeline is for personal projects where per-run velocity and reasoning quality matter more than throughput cost. Reviewers, architects, explorers, and analysts all benefit from deeper reasoning on per-ticket work where volume is low. Exception: if a future agent does purely mechanical work where Opus's reasoning is wasted, `sonnet` or `haiku` are acceptable — none currently qualify.
+Every Claude agent definition pins `model: opus` rather than inheriting. Rationale: the pipeline is for personal projects where per-run velocity and reasoning quality matter more than throughput cost. Reviewers, architects, explorers, and analysts all benefit from deeper reasoning on per-ticket work where volume is low. Exception: an agent that does purely mechanical work where Opus's reasoning is wasted may pin `sonnet` or `haiku` — margin's `file-roles` agent pins `sonnet`, with its rationale in [docs/contributing/tool-budgets.md](docs/contributing/tool-budgets.md).
 
 `code-explorer` additionally sets `effort: high` — exploration is many-tool-call work where extra per-step deliberation (what to search next, which lead to follow) pays off, and its output is cached as `exploration.md` and trusted downstream by `plan`, so gathering quality caps ticket quality.
 

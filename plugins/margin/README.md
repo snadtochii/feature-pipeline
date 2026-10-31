@@ -2,9 +2,9 @@
 
 Notes in the margin of code the agent wrote. A read-only viewer in the browser — file tree,
 line numbers, light syntax colouring from a vendored highlight.js, nothing else — where you pin remarks to a line range, a file, a folder or the
-whole scope, then press Send. Each Send hands that round to the `annotate` skill, which
-plans, does the structural work or hands the rest to the feature pipeline, and replies beside
-every note; you read the replies next to the code and send the next round. Finish ends the
+whole scope, or to a deepening candidate in an overview of the area, then press Send. Each
+Send hands that round to the `annotate` skill, which plans, does the structural work or hands
+the rest to the feature pipeline, and replies beside every note; you read the replies next to the code and send the next round. Finish ends the
 review. Every note and reply lives in a JSON file in the repository.
 
 It is for the kind of feedback that is awkward to type into a chat: *these twenty components
@@ -28,6 +28,7 @@ Node 22+ built-ins only; the viewer ships one vendored library, highlight.js (se
 /margin:annotate src/features/orders            # one folder
 /margin:annotate src/a.ts src/b.ts              # named files
 /margin:annotate                                # whole repository (small repos)
+/margin:annotate --overview src/features/orders # with an overview: measurements, file roles, candidates
 /margin:annotate --resume claudedocs/margin/2026-10-11T14-05-33.json   # same root and scope as before
 ```
 
@@ -46,12 +47,31 @@ session that you are done, ends the review; Cancel ends it without sending the u
 `--resume` reopens a file with its rounds and replies and continues with the next round.
 
 For each round, the skill ([skills/annotate/SKILL.md](skills/annotate/SKILL.md)) presents one
-table — note, action, kind (`answer` / `structural` / `behavioural`), risk — and asks once. A
-note whose code differs from the excerpt you saw is quoted both ways and held until you name
-it. Structural actions run in the session behind the project's own checks, run before and
-after, with test edits limited to moved imports and the test list unchanged. Behavioural ones
-go to `/feature:discover` with the anchors attached. When the review ends, the skill
-summarizes every round's actions and the tickets it created.
+table — note, action, kind (`answer` / `structural` / `behavioural` / `candidate`), risk — and
+asks once. A note whose code differs from the excerpt you saw is quoted both ways and held
+until you name it. Structural actions run in the session behind the project's own checks, run
+before and after, with test edits limited to moved imports and the test list unchanged.
+Behavioural ones go to `/feature:discover` with the anchors attached. When the review ends, the
+skill summarizes every round's actions, the tickets it created and the deepen runs it offered.
+
+### Overview
+
+With `--overview`, the skill analyzes the scope before the viewer opens. The server's `measure`
+counts each file's lines, its commits over the last six months, its indentation and its
+imports; the read-only `margin:file-roles` agent labels each file's kind, role, exports and the
+other kinds of code it mixes in; and `deepen:explorer` proposes deepening candidates — clusters
+of files that a deeper module would make cheaper to change next. The two agents run at the same
+time. The server's `assemble` combines the three into
+`claudedocs/margin/<timestamp>.overview.json`, beside the notes file, and the viewer gains an
+Overview tab: the files with their measurements and roles, and a card per candidate that takes
+a note like a file does. Generation finishes before the viewer opens and takes minutes.
+`--resume` reopens the overview beside the notes file, and a run that leaves no notes file
+removes its overview too.
+
+A candidate note is answered, never implemented in the session. One you accept leaves by the
+route you pick at the round's question: a `/feature:discover` ticket carrying the candidate's
+files and next change, or a `/deepen:run --pin <hint>` command printed for you to run from
+deepen's loop clone.
 
 ## Standalone
 
@@ -71,7 +91,8 @@ documents, the routes — replies and Finish included — and the exit codes.
 ## Notes file
 
 [CONTRACT.md](CONTRACT.md) specifies the notes-file schema and the anchor rule. Anchors are
-`range` (path, start, end, excerpt of the lines as seen), `file`, `folder`, or `scope`. The excerpt lets the reader
+`range` (path, start, end, excerpt of the lines as seen), `file`, `folder`, `scope`, or
+`candidate` (the name of a candidate in the run's overview). The excerpt lets the reader
 detect drift when the code has changed since the note was written.
 
 ## Runtime dependencies
@@ -82,6 +103,12 @@ bullet says what happens when it is missing.
 - **`feature`** — the skill hands behavioural notes to `/feature:discover` (its §5). Not
   installed → the skill prints the `/feature:discover …` command it built, for you to run once
   the plugin is installed.
+- **`deepen`** — optional, for `--overview`: the skill spawns its read-only `deepen:explorer`
+  agent for the deepening candidates. Not installed → the overview has no candidates and its
+  notice says candidates need the deepen plugin; measurements and file roles are unaffected.
+- **`mattpocock-skills`** — optional, for `--overview`: its `codebase-design` skill gives the
+  explorer its design vocabulary. Not installed → the explorer uses the inline vocabulary its
+  own definition carries.
 - **`curl`** — the skill posts each round's replies, and the Finish you ask for in the
   session, with it. Missing → the replies are printed in the chat instead, and the review ends
   from the viewer's Finish button.
@@ -133,5 +160,4 @@ To update:
 ## Not yet
 
 - Diff view against a base revision.
-- A generated overview (module diagram, file roles) as a second surface to annotate.
 - Codex support.

@@ -1,9 +1,12 @@
 // margin viewer. One page, no build step. Renders the tree, the code pane, the composer and the
-// notes with their replies; ./rounds.js holds the session and talks to ../server/lib/server.mjs
-// for it, and this file reads files through GET /api/file.
+// notes with their replies, and switches between the Code and Overview tabs; ./rounds.js holds the
+// session and talks to ../server/lib/server.mjs for it, ./overview-view.js renders the Overview
+// tab, and this file reads files through GET /api/file.
 
 import { highlightLines } from './syntax.js';
 import { createRounds, isSent } from './rounds.js';
+import { noteCounts } from './overview.js';
+import { createOverviewView } from './overview-view.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -29,14 +32,26 @@ const state = {
   fileSeq: 0,
   // A message from the last action, { text, error }, or null.
   notice: null,
+  // The center pane shown: 'code', or 'overview' on a run with an overview.
+  surface: 'code',
 };
 
 const el = {
   status: $('#status'),
+  layout: $('.layout'),
   treeRows: $('#tree-rows'),
   filter: $('#filter'),
+  tabs: $('#tabs'),
+  tabOverview: $('#tab-overview'),
+  tabCode: $('#tab-code'),
+  toggleFiles: $('#toggle-files'),
+  toggleNotes: $('#toggle-notes'),
+  overview: $('#overview'),
+  overviewNotice: $('#overview-notice'),
+  overviewBody: $('#overview-body'),
   code: $('#code'),
   list: $('#list'),
+  notesNotice: $('#notes-notice'),
   overall: $('#overall'),
   overallReplies: $('#overall-replies'),
   composer: $('#composer'),
@@ -102,12 +117,26 @@ const rounds = createRounds({
     renderControls,
     refreshed: async () => {
       renderTree();
+      overviewView.render();
       renderStatus();
       await refreshOpenFile();
       renderList();
     },
     showEnd,
   },
+});
+
+const overviewView = createOverviewView({
+  nodes: { pane: el.overview, notice: el.overviewNotice, body: el.overviewBody },
+  listed: rounds.listed,
+  notes: () => rounds.session.annotations,
+  ended: () => rounds.ended,
+  openCode: (path, line) => {
+    showSurface('code');
+    expandTo(path);
+    openFile(path, line);
+  },
+  annotate: (anchor) => openComposer(anchor),
 });
 
 const byName = (a, b) => a.name.localeCompare(b.name);
@@ -121,22 +150,79 @@ function anchorLabel(anchor) {
       return anchor.path;
     case 'folder':
       return `${anchor.path}/`;
-    default:
+    case 'candidate':
+      return `candidate ${anchor.name}`;
+    case 'scope':
       return 'whole scope';
+    default:
+      return anchor.kind;
   }
 }
 
 // ---- loading -------------------------------------------------------------
 
 async function load() {
-  const session = await rounds.load();
+  const [session, overview] = await Promise.all([rounds.load(), loadOverview()]);
+  if (overview === null) {
+    rounds.setCandidates([]);
+  } else {
+    rounds.setCandidates(overview.doc ? overview.doc.candidates.map((candidate) => candidate.name) : null);
+  }
+  overviewView.setOverview(overview);
   el.scope.textContent = `${session.root} · ${session.scope.join(', ') || '.'}`;
   el.overall.value = session.overall || '';
   applyDefaultCollapse();
   renderTree();
   renderList();
   renderStatus();
+  if (overview) {
+    el.tabs.classList.remove('hidden');
+    showSurface('overview');
+  }
   rounds.watchChanges();
+}
+
+async function loadOverview() {
+  try {
+    return { doc: await api('GET', '/api/overview') };
+  } catch (err) {
+    return err.status === 404 ? null : { error: err.message };
+  }
+}
+
+// ---- center tabs and side panels ----------------------------------------
+
+function showSurface(name) {
+  if (!overviewView.overview || state.surface === name) {
+    return;
+  }
+  state.surface = name;
+  const overview = name === 'overview';
+  el.overview.classList.toggle('off', !overview);
+  el.code.classList.toggle('off', overview);
+  el.tabOverview.classList.toggle('on', overview);
+  el.tabCode.classList.toggle('on', !overview);
+  el.tabOverview.setAttribute('aria-selected', String(overview));
+  el.tabCode.setAttribute('aria-selected', String(!overview));
+  overviewView.show(overview);
+}
+
+function setPanel(className, button, shown) {
+  el.layout.classList.toggle(className, !shown);
+  button.setAttribute('aria-pressed', String(shown));
+}
+
+const togglePanel = (className, button) => setPanel(className, button, el.layout.classList.contains(className));
+
+function showPanel(name) {
+  if (!overviewView.overview) {
+    return;
+  }
+  if (name === 'notes') {
+    setPanel('hide-notes', el.toggleNotes, true);
+  } else {
+    setPanel('hide-tree', el.toggleFiles, true);
+  }
 }
 
 // ---- tree ----------------------------------------------------------------
@@ -198,18 +284,6 @@ function applyDefaultCollapse() {
   }
 }
 
-// Note counts per tree row: `folder:<path>` counts folder notes, `file:<path>` file and range notes.
-function noteCounts() {
-  const counts = new Map();
-  for (const a of annotations()) {
-    if (a.anchor.path) {
-      const key = `${a.anchor.kind === 'folder' ? 'folder' : 'file'}:${a.anchor.path}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-  }
-  return counts;
-}
-
 const matchesFilter = (path) => path.toLowerCase().includes(state.filter);
 
 // While the filter is on, the tree holds only the matching files and the folders above
@@ -225,7 +299,7 @@ function renderTree() {
     el.treeRows.replaceChildren(empty);
     return;
   }
-  const view = { counts: noteCounts(), filtering };
+  const view = { counts: noteCounts(annotations()), filtering };
   el.treeRows.replaceChildren(renderDir(buildTree(paths), 0, view));
 }
 
@@ -257,6 +331,7 @@ function treeRow(kind, node, depth, view) {
   name.title = node.path;
   name.addEventListener('click', () => {
     if (kind === 'file') {
+      showSurface('code');
       openFile(node.path);
     } else if (!view.filtering) {
       toggleDir(node.path);
@@ -301,11 +376,15 @@ function splitLines(text) {
   return lines;
 }
 
-function showEmpty(text) {
+function emptyLine(text) {
   const note = document.createElement('div');
   note.className = 'empty';
   note.textContent = text;
-  el.code.replaceChildren(note);
+  return note;
+}
+
+function showEmpty(text) {
+  el.code.replaceChildren(emptyLine(text));
 }
 
 // Says why a file cannot be shown and drops its cached text, so nothing stale stays on screen.
@@ -555,6 +634,7 @@ function applySelection() {
 
 // `existing` is the unsent note being edited; `intent` presets the intent of a new note.
 function openComposer(anchor, { existing = null, intent = existing?.intent ?? 'change' } = {}) {
+  showPanel('notes');
   state.editing = existing?.id ?? null;
   el.composer.classList.remove('hidden');
   el.composer.replaceChildren();
@@ -578,7 +658,12 @@ function openComposer(anchor, { existing = null, intent = existing?.intent ?? 'c
 
   const body = document.createElement('textarea');
   body.rows = 5;
-  body.placeholder = anchor.kind === 'scope' ? 'Something about the scope as a whole.' : 'What should change here, or what do you want to know?';
+  body.placeholder =
+    anchor.kind === 'scope'
+      ? 'Something about the scope as a whole.'
+      : anchor.kind === 'candidate'
+        ? 'Accept, reject or reshape this candidate — and why.'
+        : 'What should change here, or what do you want to know?';
   body.value = existing?.body ?? '';
 
   const actions = document.createElement('div');
@@ -654,6 +739,7 @@ function afterChange() {
   rounds.scheduleSave();
   renderList();
   renderTree();
+  overviewView.render();
   // Patch the open file in place; commit clears the selection, so repaint it too.
   if (state.view) {
     refreshMarks();
@@ -663,25 +749,36 @@ function afterChange() {
 
 // ---- notes list ----------------------------------------------------------
 
-const KIND_ORDER = { scope: 0, folder: 1, file: 2, range: 3 };
+const KIND_ORDER = { scope: 0, candidate: 1, folder: 2, file: 3, range: 4 };
+const SORT_GROUP = { scope: 0, candidate: 1 };
+const PATH_GROUP = 2;
+const sortGroup = (anchor) => SORT_GROUP[anchor.kind] ?? PATH_GROUP;
 
 function sortedAnnotations() {
   return [...annotations()].sort((a, b) => {
-    const pathDiff = (a.anchor.path ?? '').localeCompare(b.anchor.path ?? '');
-    if (pathDiff !== 0) {
-      return pathDiff;
+    const groupDiff = sortGroup(a.anchor) - sortGroup(b.anchor);
+    if (groupDiff !== 0) {
+      return groupDiff;
+    }
+    const nameDiff = (a.anchor.name ?? a.anchor.path ?? '').localeCompare(b.anchor.name ?? b.anchor.path ?? '');
+    if (nameDiff !== 0) {
+      return nameDiff;
     }
     const kindDiff = KIND_ORDER[a.anchor.kind] - KIND_ORDER[b.anchor.kind];
     return kindDiff !== 0 ? kindDiff : (a.anchor.start ?? 0) - (b.anchor.start ?? 0);
   });
 }
 
+const SEND_TITLE = el.send.title;
+
 // Send is offered when the server's rule holds or when the open composer holds a note Send would
-// add first (rounds.sendRound commits it before checking the rule).
+// add first (rounds.sendRound commits it before checking the rule), and never while Send is held.
 function updateSend() {
-  const count = rounds.unsent().length;
+  const count = rounds.sendable().length;
+  const held = rounds.sendHeld();
   el.send.textContent = count ? `Send ${count}` : 'Send';
-  el.send.disabled = rounds.busy || rounds.ended || !(rounds.canSend() || Boolean(state.composer?.dirty()));
+  el.send.title = held ? 'The overview could not be loaded: reload the page to send' : SEND_TITLE;
+  el.send.disabled = rounds.busy || rounds.ended || held || !(rounds.canSend() || Boolean(state.composer?.dirty()));
 }
 
 // Finish and Cancel are disabled while a lifecycle request is in flight and once the run is over.
@@ -697,7 +794,29 @@ function renderList() {
   el.count.textContent = rounds.session.round ? `${noun} · ${all.filter(isSent).length} sent` : noun;
   updateSend();
   el.list.replaceChildren(...all.map(noteItem));
+  renderNotesNotice();
   renderOverallReplies();
+}
+
+function readOnlyNotice() {
+  const { overview } = overviewView;
+  if (overview === null) {
+    return 'The overview is missing: candidate notes are read-only.';
+  }
+  if (overview.error) {
+    return rounds.sendHeld()
+      ? 'The overview could not be loaded: candidate notes are read-only, and Send waits for a reload.'
+      : 'The overview could not be loaded: candidate notes are read-only.';
+  }
+  return 'Some candidate notes name no candidate of this overview and are read-only.';
+}
+
+function renderNotesNotice() {
+  const shown = annotations().some((a) => a.anchor.kind === 'candidate' && !rounds.listed(a.anchor));
+  const text = shown ? readOnlyNotice() : '';
+  el.notesNotice.textContent = text;
+  el.notesNotice.title = text;
+  el.notesNotice.classList.toggle('hidden', !shown);
 }
 
 // Replies render as text only, under the note or the overall direction they answer.
@@ -789,7 +908,11 @@ function noteItem(a) {
     thread.append(...replyItems(a.replies));
     item.append(thread);
   }
-  item.append(sent ? lockedOps(a) : editOps(a));
+  if (sent) {
+    item.append(lockedOps(a));
+  } else {
+    item.append(rounds.withheld(a) ? withheldOps() : editOps(a));
+  }
   return item;
 }
 
@@ -815,6 +938,17 @@ function editOps(a) {
   return ops;
 }
 
+function withheldOps() {
+  const ops = document.createElement('div');
+  ops.className = 'ops';
+  const label = document.createElement('span');
+  label.className = 'muted';
+  label.textContent = 'read-only';
+  label.title = "This candidate is not in this run's overview: the note cannot be edited, deleted or sent";
+  ops.append(label);
+  return ops;
+}
+
 // A sent note is read-only; its one action starts a follow-up note on the same anchor, offered
 // while the anchor still passes the anchor rule against the current listing.
 function lockedOps(a) {
@@ -827,7 +961,10 @@ function lockedOps(a) {
     reply.addEventListener('click', () => replyTo(a));
   } else {
     reply.disabled = true;
-    reply.title = `${a.anchor.path} is no longer in this review's listing`;
+    reply.title =
+      a.anchor.kind === 'candidate'
+        ? `${anchorLabel(a.anchor)} is not a candidate of this run's overview`
+        : `${a.anchor.path} is no longer in this review's listing`;
   }
   ops.append(reply);
   return ops;
@@ -844,13 +981,21 @@ async function replyTo(a) {
     openComposer({ kind: 'scope' }, options);
     return;
   }
+  if (anchor.kind === 'candidate') {
+    showSurface('overview');
+    overviewView.revealCandidate(anchor.name);
+    openComposer({ kind: 'candidate', name: anchor.name }, options);
+    return;
+  }
   if (anchor.kind === 'folder') {
     expandTo(anchor.path, { self: true });
     renderTree();
+    showPanel('tree');
     openComposer({ kind: 'folder', path: anchor.path }, options);
     return;
   }
   const label = anchorLabel(anchor);
+  showSurface('code');
   expandTo(anchor.path);
   let shown = await openFile(anchor.path, anchor.start);
   // A refresh re-opening the same file supersedes this fetch; fetch it once more.
@@ -887,13 +1032,21 @@ function revealAnchor(anchor) {
   if (anchor.path && !matchesFilter(anchor.path)) {
     el.filter.value = '';
     setFilter('');
+    showPanel('tree');
   }
   if (anchor.kind === 'range' || anchor.kind === 'file') {
+    showSurface('code');
     expandTo(anchor.path);
     openFile(anchor.path, anchor.start);
   } else if (anchor.kind === 'folder') {
     expandTo(anchor.path, { self: true });
     renderTree();
+    showPanel('tree');
+  } else if (anchor.kind === 'candidate') {
+    if (rounds.listed(anchor)) {
+      showSurface('overview');
+      overviewView.revealCandidate(anchor.name);
+    }
   } else {
     el.overall.focus();
   }
@@ -993,18 +1146,27 @@ el.cancel.addEventListener('click', rounds.cancelRun);
 
 el.filter.addEventListener('input', () => setFilter(el.filter.value));
 
+el.tabOverview.addEventListener('click', () => showSurface('overview'));
+el.tabCode.addEventListener('click', () => showSurface('code'));
+el.toggleFiles.addEventListener('click', () => togglePanel('hide-tree', el.toggleFiles));
+el.toggleNotes.addEventListener('click', () => togglePanel('hide-notes', el.toggleNotes));
+
 el.addScope.addEventListener('click', () => openComposer({ kind: 'scope' }));
 el.overall.addEventListener('input', () => {
   rounds.scheduleSave();
   updateSend();
 });
+// An Escape the Overview tab took to close its detail card arrives defaultPrevented.
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && el.composer.classList.contains('hidden') && state.selection) {
+  if (event.key !== 'Escape' || event.defaultPrevented) {
+    return;
+  }
+  if (el.composer.classList.contains('hidden') && state.selection) {
     state.selection = null;
     applySelection();
   }
 });
 
 load().catch((err) => {
-  el.code.replaceChildren(Object.assign(document.createElement('div'), { className: 'empty', textContent: `Could not load: ${err.message}` }));
+  showEmpty(`Could not load: ${err.message}`);
 });

@@ -119,37 +119,47 @@ export function createSession({ stored, out, root, scope, revision }) {
   return Object.assign(session, { status: 'draft', root, scope, out, revision, updatedAt: now });
 }
 
-// Writes the session to its notes file, stamping `updatedAt` first. The content goes to a
-// temporary file in the same directory, which is then renamed over the notes file; a failed
-// write or rename removes the temporary file and rethrows.
-export function saveSession(session) {
-  session.updatedAt = new Date().toISOString();
-  const dir = dirname(session.out);
+// Writes `text` to a temporary file in the same directory as `file`, then renames it over
+// `file`; a failed write or rename removes the temporary file and rethrows.
+export function writeAtomic(file, text) {
+  const dir = dirname(file);
   mkdirSync(dir, { recursive: true });
-  const tmp = join(dir, `.${basename(session.out)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
+  const tmp = join(dir, `.${basename(file)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
   try {
-    writeFileSync(tmp, `${JSON.stringify(session, null, 2)}\n`);
-    renameSync(tmp, session.out);
+    writeFileSync(tmp, text);
+    renameSync(tmp, file);
   } catch (err) {
     rmSync(tmp, { force: true });
     throw err;
   }
 }
 
+// Writes the session to its notes file, stamping `updatedAt` first.
+export function saveSession(session) {
+  session.updatedAt = new Date().toISOString();
+  writeAtomic(session.out, `${JSON.stringify(session, null, 2)}\n`);
+}
+
 // A Send: stamps every unsent note with the next round number, records the round with the
-// overall comment it carries, and saves. Returns the new round number, or null when there is
-// nothing to send — no unsent note and the same overall comment the last round sent. A failed
-// save undoes the stamps and the round entry and rethrows, so a retried Send sends the round.
-export function sendRound(session) {
-  const unsent = session.annotations.filter((a) => a.round === undefined);
+// overall comment it carries, and saves. A withheld note — an unsent candidate note whose name is
+// not in `candidates`, the names of the run's overview candidates — is not stamped, and the
+// stamped notes move ahead of it, so sent notes still lead the list. Returns the new round
+// number, or null when there is nothing to send — no unsent note other than withheld ones and the
+// same overall comment the last round sent. A failed save undoes the stamps, the reordering
+// and the round entry and rethrows, so a retried Send sends the round.
+export function sendRound(session, candidates) {
+  const withheld = (a) => a.anchor.kind === 'candidate' && !candidates.has(a.anchor.name);
+  const unsent = session.annotations.filter((a) => a.round === undefined && !withheld(a));
   const last = session.rounds.at(-1)?.overall ?? '';
   if (unsent.length === 0 && session.overall.trim() === last.trim()) {
     return null;
   }
   const round = session.round + 1;
+  const before = session.annotations;
   for (const note of unsent) {
     note.round = round;
   }
+  session.annotations = [...before.filter((a) => a.round !== undefined), ...before.filter((a) => a.round === undefined)];
   session.rounds.push({ round, sentAt: new Date().toISOString(), overall: session.overall });
   session.round = round;
   try {
@@ -158,6 +168,7 @@ export function sendRound(session) {
     for (const note of unsent) {
       delete note.round;
     }
+    session.annotations = before;
     session.rounds.pop();
     session.round = round - 1;
     throw err;

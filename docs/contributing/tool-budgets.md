@@ -1,6 +1,6 @@
 # Tool budgets
 
-Per-skill `allowed-tools` and per-agent `tools` budgets for the `feature` plugin, and the skill budgets for the `verify` and `margin` plugins, with the rationale for each entry. Read before touching either frontmatter field. Unqualified `skills/` and `agents/` paths follow the root guidance file's path convention (`plugins/feature/…`); the `verify` and `margin` sections name their paths in full.
+Per-skill `allowed-tools` and per-agent `tools` budgets for the `feature` plugin, and the skill budgets for the `verify` and `margin` plugins with the `margin` agent's budget, with the rationale for each entry. Read before touching either frontmatter field. Unqualified `skills/` and `agents/` paths follow the root guidance file's path convention (`plugins/feature/…`); the `verify` and `margin` sections name their paths in full.
 
 ## Skills
 
@@ -57,8 +57,12 @@ The `verify` plugin ships three skills and no agents, under `plugins/verify/skil
 
 ## margin plugin
 
-The `margin` plugin ships one skill and no agents, under `plugins/margin/skills/`.
+The `margin` plugin ships one skill and one agent, under `plugins/margin/skills/` and `plugins/margin/agents/`.
 
 | Skill | Typical budget |
 |---|---|
-| `annotate` (user-started review session) | Bash, Read, Glob, Grep, Edit, Write, Skill — `Bash` resolves the root with `git rev-parse --show-toplevel`, creates the stderr file with `mktemp`, starts the viewer (`server/cli.mjs annotate`) in the background, waits for the URL line in that file, starts one `server/cli.mjs wait` per round in the background, reads that round's notes and the run's summary with `node` scripts over the notes file, posts the round's replies and the chat-side Finish with `curl` to `127.0.0.1`, and runs the project's checks before the first and after the last of §4's edits; `Read` reads the anchored source; `Glob`/`Grep` find the files a structural action touches, the check commands the project declares and the tickets' `project:` value §5 passes on; `Edit`/`Write` make §4's structural changes; `Skill` hands behavioural notes to `/feature:discover` in §5 |
+| `annotate` (user-started review session) | Bash, Read, Glob, Grep, Edit, Write, Skill, Agent, Task — `Bash` resolves the root with `git rev-parse --show-toplevel`, creates the stderr file with `mktemp`, starts the viewer (`server/cli.mjs annotate`) in the background, waits for the URL line in that file, starts one `server/cli.mjs wait` per round in the background, reads that round's notes and the run's summary with `node` scripts over the notes file, posts the round's replies and the chat-side Finish with `curl` to `127.0.0.1`, and runs the project's checks before the first and after the last of §4's edits; for `--overview` it also creates the generation temp directory with `mktemp -d`, runs `server/cli.mjs measure` and `assemble`, lists the measured paths and prints candidate details with `node` scripts, mints the notes stamp with `date -u`, and removes the temp directory and, at the end of a run that leaves no notes file, the overview file with `rm`; `Read` reads the anchored source and the hotspot table; `Glob`/`Grep` find the files a structural action touches, the check commands the project declares, the tickets' `project:` value §5 passes on, and the glossary and decision records the explorer's brief names; `Edit`/`Write` make §4's structural changes, and `Write` keeps the roles and explorer returns in the temp directory as files, so model-written text never enters a command line; `Skill` hands behavioural notes and accepted candidates to `/feature:discover` in §5 and loads the `codebase-design` vocabulary for the explorer; `Agent` / `Task` spawns `margin:file-roles` and `deepen:explorer` in one message for `--overview`, so the two passes run concurrently — Claude surfaces expose the spawn under either name |
+
+| Agent | Tools | Rationale |
+|---|---|---|
+| `file-roles` (`margin:file-roles`) | `Glob`, `Grep`, `LS`, `Read` | Describes the files an overview lists and returns their kind, role, exports and mixes as JSON: it reads only the listed files and what they import, so it holds no `NotebookRead`, `WebFetch`, `WebSearch` or `TodoWrite`, and no write or shell tool. It pins `model: sonnet` rather than the repository's `opus` default: labelling each file with a kind from a fixed set, a one-sentence role and its export names is mechanical work where Opus's reasoning is wasted, and the pass runs before the viewer opens on every overview, emitting one entry per file, so a faster model shortens that wait |

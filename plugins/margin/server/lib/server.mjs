@@ -5,16 +5,18 @@
 // reads source through /api/file). Every request must carry the Host of this server, and
 // every /api route must carry the per-run token that only the URL the server printed knows.
 // A run spans rounds: Send ends a round and the server keeps serving; Finish, Cancel or a
-// signal ends the run, once. Ten routes:
+// signal ends the run, once. Eleven routes:
 //   GET  /                    the viewer
 //   GET  /api/session         { session, files, changes }
+//   GET  /api/overview        the overview document; 404 when the run has none
 //   GET  /api/file?path=      { path, text } | { path, binary, reason }; 404 when the path is
 //                             not listed or no longer exists
 //   GET  /api/wait?after=     held until the round count exceeds `after` or the run ends, then
 //                             { status: 'sent' | <end status>, round, out }
 //   GET  /api/changes?after=  held until the change count exceeds `after` or the run ends, then
 //                             { status: 'changed' | <end status>, changes }
-//   PUT  /api/session         { overall, annotations } -> saved as draft
+//   PUT  /api/session         { overall, annotations } -> saved as draft; 400 with nothing
+//                             applied when a new note names no candidate of the run's overview
 //   POST /api/submit          same body, then a round is sent: { ok, round }; 409 when there is
 //                             nothing to send
 //   POST /api/reply           { round, replies?, overall? } -> the agent's replies are saved,
@@ -31,7 +33,8 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyEdits } from './annotations.mjs';
+import { applyEdits, refuseCandidates } from './annotations.mjs';
+import { candidateNames } from './overview.mjs';
 
 const UI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'ui');
 const STATIC = {
@@ -39,6 +42,8 @@ const STATIC = {
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/syntax.js': ['syntax.js', 'text/javascript; charset=utf-8'],
   '/rounds.js': ['rounds.js', 'text/javascript; charset=utf-8'],
+  '/overview.js': ['overview.js', 'text/javascript; charset=utf-8'],
+  '/overview-view.js': ['overview-view.js', 'text/javascript; charset=utf-8'],
   '/vendor/highlight.min.js': ['vendor/highlight.min.js', 'text/javascript; charset=utf-8'],
   '/vendor/dockerfile.min.js': ['vendor/dockerfile.min.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
@@ -116,18 +121,21 @@ function flush(pending) {
 // `files` is the listing the run starts with, and `relist()` returns the listing recomputed
 // with the run's root and scope; every accepted reply post replaces the listing with it, and a
 // `relist()` that throws keeps the previous one. `readSource(path)` returns null for a listed
-// path that no longer exists. `onSend()` sends a round and returns its number, or null when
-// there is nothing to send. `onReply(body)` applies a reply post and returns `{ replied }`, or
+// path that no longer exists. `onSend(candidates)` sends a round, given the overview's
+// candidate names, and returns its number, or null when there is nothing to send. `onReply(body)` applies a reply post and returns `{ replied }`, or
 // `{ error }` when it is refused with nothing applied. `onEnd(status)` ends the run and returns
 // the result document. Resolves with `{ url, close, end, ended, waiting, watching }`: `end(status, res?)` ends the
 // run once, whoever calls it, and returns `ended`, which resolves with the result document
 // after every held wait and change wait — and `res`, the Cancel or Finish request that ended
 // the run, when given — has been answered (capped at FLUSH_CAP_MS), or rejects when `onEnd`
 // throws, after `res` has been answered 500. `waiting()` is the number of held waits and
-// `watching()` the number of held change waits.
-export function startServer({ port, token: givenToken, session, files: initialFiles, readSource, onSave, onSend, onReply, onEnd, relist }) {
+// `watching()` the number of held change waits. `overview` is the run's checked overview
+// document, or null when it has none; it is served as is, and its candidate names are the ones
+// a new candidate note may carry.
+export function startServer({ port, token: givenToken, session, files: initialFiles, readSource, onSave, onSend, onReply, onEnd, relist, overview = null }) {
   let files = initialFiles;
-  let allowed = new Set(files);
+  const candidates = candidateNames(overview);
+  let allowed = { paths: new Set(files), candidates };
   // The run's change count: bumped once per accepted reply post, kept in memory only, so a
   // viewer reads it from `GET /api/session` and waits on `GET /api/changes` for the next one.
   let changes = 0;
@@ -189,9 +197,12 @@ export function startServer({ port, token: givenToken, session, files: initialFi
       if (req.method === 'GET' && url.pathname === '/api/session') {
         return sendJson(res, { session, files, changes });
       }
+      if (req.method === 'GET' && url.pathname === '/api/overview') {
+        return overview ? sendJson(res, overview) : sendJson(res, { error: 'no overview' }, 404);
+      }
       if (req.method === 'GET' && url.pathname === '/api/file') {
         const path = url.searchParams.get('path') ?? '';
-        if (!allowed.has(path)) {
+        if (!allowed.paths.has(path)) {
           return sendJson(res, { error: `${path} is not in scope` }, 404);
         }
         const source = readSource(path);
@@ -252,7 +263,7 @@ export function startServer({ port, token: givenToken, session, files: initialFi
         }
         try {
           files = relist();
-          allowed = new Set(files);
+          allowed = { paths: new Set(files), candidates };
         } catch {
           // the replies are saved; the previous listing stays
         }
@@ -261,13 +272,17 @@ export function startServer({ port, token: givenToken, session, files: initialFi
         answerWaiters(watchers, { status: 'changed', changes }, changes);
         return undefined;
       }
+      const refused = refuseCandidates(session, body, allowed);
+      if (refused) {
+        return sendJson(res, { error: refused }, 400);
+      }
       applyEdits(session, body, allowed);
       if (req.method === 'PUT') {
         onSave();
         return sendJson(res, { ok: true, updatedAt: session.updatedAt });
       }
       if (url.pathname === '/api/submit') {
-        const round = onSend();
+        const round = onSend(candidates);
         if (round === null) {
           onSave();
           return sendJson(res, { error: 'nothing to send' }, 409);
