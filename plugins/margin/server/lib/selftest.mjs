@@ -1772,6 +1772,20 @@ const CASES = [
     assertEqual(fitTransform(null, 800, 600), { x: 0, y: 0, k: 1 }, 'a fit with no bounds');
     assertEqual(fitTransform(bounds, 0, 600), { x: 0, y: 0, k: 1 }, 'a fit in an empty viewport');
   }],
+  ['diagram: a zoom keeps its anchor point, a pinch moves it, and a wheel notch is one capped step', async () => {
+    const { wheelZoomFactor, zoomView } = await loadDiagramModel();
+    const view = { x: 10, y: 20, k: 1 };
+    const point = { x: 110, y: 220 };
+    assertEqual(zoomView(view, 2, point), { x: -90, y: -180, k: 2 }, 'a zoom about one point');
+    assertEqual(zoomView(view, 10, point), { x: -290, y: -580, k: 4 }, 'a zoom clamped to its maximum');
+    assertEqual(zoomView(view, 0.01, point), { x: 90, y: 180, k: 0.2 }, 'a zoom clamped to its minimum');
+    assertEqual(zoomView(view, 2, point, { x: 130, y: 240 }), { x: -70, y: -160, k: 2 }, 'a pinch whose midpoint moved');
+    assertEqual(view, { x: 10, y: 20, k: 1 }, 'zoomView changed its input');
+    assertEqual(wheelZoomFactor(100, 0), Math.exp(-0.1), 'a mouse-wheel notch zooming out');
+    assertEqual(wheelZoomFactor(-100, 0), Math.exp(0.1), 'a mouse-wheel notch zooming in');
+    assertEqual(wheelZoomFactor(3, 1), Math.exp(-0.1), 'a line-mode notch');
+    assertEqual(wheelZoomFactor(2.5, 0), Math.exp(-0.025), 'a small trackpad pinch delta');
+  }],
   ['diagram: a diagram session lists the linked regular files only', () => withTemp(async (root) => {
     const { checkDiagram } = await loadDiagramModel();
     const { linkedFiles } = await loadDiagramReader();

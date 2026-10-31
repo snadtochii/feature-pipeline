@@ -570,6 +570,29 @@ export function groupFrames(doc) {
 export const ZOOM_MIN = 0.2;
 export const ZOOM_MAX = 4;
 
+const ZOOM_RATE = 0.01;
+const WHEEL_LINE = 16;
+const WHEEL_PAGE = 400;
+const WHEEL_STEP_MAX = 10;
+
+// The view at scale `k`, clamped to [ZOOM_MIN, ZOOM_MAX], that puts the world point under screen
+// point `from` in `view` at screen point `to`: a zoom about one point when the two are the same,
+// a pinch that also pans when they differ. The input is unchanged.
+export function zoomView(view, k, from, to = from) {
+  const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, k));
+  const wx = (from.x - view.x) / view.k;
+  const wy = (from.y - view.y) / view.k;
+  return { x: to.x - wx * next, y: to.y - wy * next, k: next };
+}
+
+// The factor one zooming wheel event scales by. Its deltaY is read in pixels — a line or page
+// delta converted — and capped at WHEEL_STEP_MAX each way, so a mouse-wheel notch zooms by about
+// a tenth while a trackpad pinch's small deltas pass through unchanged.
+export function wheelZoomFactor(deltaY, deltaMode) {
+  const pixels = deltaY * (deltaMode === 1 ? WHEEL_LINE : deltaMode === 2 ? WHEEL_PAGE : 1);
+  return Math.exp(-Math.min(WHEEL_STEP_MAX, Math.max(-WHEEL_STEP_MAX, pixels)) * ZOOM_RATE);
+}
+
 const PARALLEL_STEP = 32;
 const LOOP_INSET = 16;
 const LOOP_REACH = 36;

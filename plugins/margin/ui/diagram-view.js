@@ -4,11 +4,10 @@
 // text reaches the page through textContent only. It owns its nodes, the open card and the keys
 // and clicks that drive them; leaving the tab goes through the callbacks createDiagramView takes.
 
-import { ZOOM_MAX, ZOOM_MIN, arrowGeometry, boxLabel, boxSize, diagramBounds, fitTransform, groupFrames, layoutDiagram } from './diagram.js';
+import { arrowGeometry, boxLabel, boxSize, diagramBounds, fitTransform, groupFrames, layoutDiagram, wheelZoomFactor, zoomView } from './diagram.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const PAN_THRESHOLD = 4;
-const ZOOM_RATE = 0.01;
 const ARROW_LABEL_CHAR = 6.2;
 
 function svg(tag, attrs, parent) {
@@ -245,10 +244,8 @@ export function createDiagramView({ nodes, listed, openCode }) {
         const { x, y, k } = state.view;
         if (event.ctrlKey || event.metaKey) {
           const rect = canvas.getBoundingClientRect();
-          const px = event.clientX - rect.left;
-          const py = event.clientY - rect.top;
-          const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, k * Math.exp(-event.deltaY * ZOOM_RATE)));
-          state.view = { x: px - ((px - x) / k) * next, y: py - ((py - y) / k) * next, k: next };
+          const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+          state.view = zoomView(state.view, k * wheelZoomFactor(event.deltaY, event.deltaMode), point);
         } else {
           state.view = { x: x - event.deltaX, y: y - event.deltaY, k };
         }
