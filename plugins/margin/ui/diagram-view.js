@@ -63,7 +63,9 @@ export function createDiagramView({ nodes, listed, openCode }) {
     walkthrough: 0,
     position: 0, // 0 shows every arrow; n shows step n
     pointer: null, // the press in progress: { id, x, y, view, box, panning }
-    justPanned: false, // the click that ends a drag is not a click on the canvas
+    touches: new Map(), // the fingers on the canvas: pointer id → { x, y } in client coordinates
+    pinch: null, // the two-finger pinch in progress: { rect, view, mid, dist } at its start
+    justPanned: false, // the click that ends a drag or a pinch is not a click on the canvas
   };
 
   function notice(text) {
@@ -162,6 +164,9 @@ export function createDiagramView({ nodes, listed, openCode }) {
     pane.replaceChildren(canvas, toolbar, card, ...(caption ? [caption.node] : []));
     state.drawing = { laid, world, card, caption, arrows, boxes };
     state.card = null;
+    state.pointer = null;
+    state.touches.clear();
+    state.pinch = null;
     wireCanvas(canvas);
     applyView();
     applyStep();
@@ -182,15 +187,62 @@ export function createDiagramView({ nodes, listed, openCode }) {
     applyView();
   }
 
+  function swallowClick() {
+    state.justPanned = true;
+    setTimeout(() => {
+      state.justPanned = false;
+    }, 0);
+  }
+
+  // The midpoint and distance of the first two fingers on the canvas.
+  function span() {
+    const [a, b] = [...state.touches.values()];
+    return { mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, dist: Math.hypot(b.x - a.x, b.y - a.y) };
+  }
+
+  // A second finger turns the press into a pinch: the first finger's press ends without a pan
+  // or a card, and the pinch scales by the change in the fingers' distance about their midpoint.
+  function startPinch(canvas) {
+    state.pointer = null;
+    canvas.classList.remove('panning');
+    state.pinch = { rect: canvas.getBoundingClientRect(), view: { ...state.view }, ...span() };
+  }
+
+  function movePinch() {
+    const { rect, view, mid, dist } = state.pinch;
+    const now = span();
+    const local = (point) => ({ x: point.x - rect.left, y: point.y - rect.top });
+    state.view = zoomView(view, view.k * (now.dist / Math.max(1, dist)), local(mid), local(now.mid));
+    applyView();
+  }
+
   function wireCanvas(canvas) {
     canvas.addEventListener('pointerdown', (event) => {
       if (event.button !== 0) {
         return;
       }
+      if (event.pointerType === 'touch') {
+        state.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (state.touches.size === 2) {
+          startPinch(canvas);
+        }
+        if (state.touches.size > 1) {
+          return;
+        }
+      }
       const box = event.target instanceof Element ? event.target.closest('.d-box') : null;
       state.pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, view: { ...state.view }, box: box?.dataset.id ?? null, panning: false };
     });
     canvas.addEventListener('pointermove', (event) => {
+      if (state.touches.has(event.pointerId)) {
+        state.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      }
+      if (state.pinch) {
+        if (state.touches.size >= 2) {
+          movePinch();
+        }
+        return;
+      }
       const press = state.pointer;
       if (!press || press.id !== event.pointerId) {
         return;
@@ -209,6 +261,11 @@ export function createDiagramView({ nodes, listed, openCode }) {
       applyView();
     });
     const release = (event) => {
+      state.touches.delete(event.pointerId);
+      if (state.pinch && state.touches.size < 2) {
+        state.pinch = null;
+        swallowClick();
+      }
       const press = state.pointer;
       if (!press || press.id !== event.pointerId) {
         return null;
@@ -226,10 +283,7 @@ export function createDiagramView({ nodes, listed, openCode }) {
         return;
       }
       if (press.panning) {
-        state.justPanned = true;
-        setTimeout(() => {
-          state.justPanned = false;
-        }, 0);
+        swallowClick();
       } else if (press.box !== null) {
         openCard(press.box);
       } else {
