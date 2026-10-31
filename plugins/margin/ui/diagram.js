@@ -260,12 +260,26 @@ const FRAME_LABEL = 24;
 const CLEAR = 24;
 const SWEEPS = 4;
 
-export const LABEL_CHAR_WIDTH = 7.4;
-export const LABEL_PADDING = 34;
+const LABEL_CHAR_WIDTH = 7.4;
+const LABEL_PADDING = 34;
+const BOX_MIN_WIDTH = 120;
+const BOX_MAX_WIDTH = 230;
+
+const labelWidth = (chars) => Math.round(chars * LABEL_CHAR_WIDTH + LABEL_PADDING);
 
 export function boxSize(box) {
-  const n = [...box.label].length;
-  return { w: Math.min(230, Math.max(120, Math.round(n * LABEL_CHAR_WIDTH + LABEL_PADDING))), h: BOX_HEIGHT };
+  return { w: Math.min(BOX_MAX_WIDTH, Math.max(BOX_MIN_WIDTH, labelWidth([...box.label].length))), h: BOX_HEIGHT };
+}
+
+// The text a box shows: its whole label when boxSize widened the box to hold it, otherwise as
+// many code points as the widest box holds, the last of them replaced by an ellipsis.
+export function boxLabel(box) {
+  const chars = [...box.label];
+  if (labelWidth(chars.length) <= BOX_MAX_WIDTH) {
+    return box.label;
+  }
+  const room = Math.floor((BOX_MAX_WIDTH - LABEL_PADDING) / LABEL_CHAR_WIDTH);
+  return `${chars.slice(0, room - 1).join('')}…`;
 }
 
 function isPositioned(box) {

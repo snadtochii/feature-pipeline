@@ -1592,11 +1592,17 @@ const CASES = [
     assert(serializeDiagram(moved).includes('\n    {"id":"z","label":"L","kind":"module","files":[],"group":"g","x":1,"y":2}\n'), 'the serializer did not write a box in canonical key order');
   }],
   ['diagram: layout is deterministic and places every box when none is positioned', async () => {
-    const { boxSize, checkDiagram, layoutDiagram } = await loadDiagramModel();
+    const { boxLabel, boxSize, checkDiagram, layoutDiagram } = await loadDiagramModel();
     assertEqual(boxSize({ label: 'ab' }), { w: 120, h: 46 }, 'a short label');
     assertEqual(boxSize({ label: 'x'.repeat(20) }), { w: 182, h: 46 }, 'a 20-character label');
     assertEqual(boxSize({ label: 'x'.repeat(30) }), { w: 230, h: 46 }, 'a long label');
     assertEqual(boxSize({ label: '😀'.repeat(20) }), { w: 182, h: 46 }, 'a label counted in code points');
+    for (let n = 1; n <= 26; n += 1) {
+      assertEqual(boxLabel({ label: 'x'.repeat(n) }), 'x'.repeat(n), `a ${n}-character label boxSize sized its box for`);
+    }
+    assertEqual(boxLabel({ label: 'x'.repeat(27) }), `${'x'.repeat(25)}…`, 'the shortest label wider than the widest box');
+    assertEqual(boxLabel({ label: 'x'.repeat(40) }), `${'x'.repeat(25)}…`, 'a 40-character label');
+    assertEqual(boxLabel({ label: '😀'.repeat(30) }), `${'😀'.repeat(25)}…`, 'a label truncated in code points');
     const chain = checkDiagram(diagramOf({
       boxes: ['a', 'b', 'c', 'd'].map((id) => diagramBox(id)),
       arrows: [diagramArrow('1', 'a', 'b'), diagramArrow('2', 'b', 'c'), diagramArrow('3', 'c', 'd')],

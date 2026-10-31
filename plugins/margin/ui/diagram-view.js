@@ -4,7 +4,7 @@
 // text reaches the page through textContent only. It owns its nodes, the open card and the keys
 // and clicks that drive them; leaving the tab goes through the callbacks createDiagramView takes.
 
-import { LABEL_CHAR_WIDTH, LABEL_PADDING, ZOOM_MAX, ZOOM_MIN, arrowGeometry, boxSize, diagramBounds, fitTransform, groupFrames, layoutDiagram } from './diagram.js';
+import { ZOOM_MAX, ZOOM_MIN, arrowGeometry, boxLabel, boxSize, diagramBounds, fitTransform, groupFrames, layoutDiagram } from './diagram.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const PAN_THRESHOLD = 4;
@@ -35,12 +35,6 @@ function html(tag, className, text) {
     node.textContent = text;
   }
   return node;
-}
-
-function truncated(label, width) {
-  const chars = [...label];
-  const room = Math.max(1, Math.floor((width - LABEL_PADDING) / LABEL_CHAR_WIDTH));
-  return chars.length <= room ? label : `${chars.slice(0, room - 1).join('')}…`;
 }
 
 // Read from the path the event was dispatched along, which still holds the ancestors of a target
@@ -137,7 +131,7 @@ export function createDiagramView({ nodes, listed, openCode }) {
       const node = svg('g', { class: `d-box kind-${box.kind}`, transform: `translate(${box.x} ${box.y})` }, layer);
       node.dataset.id = box.id;
       svg('rect', { width: w, height: h, rx: 6 }, node);
-      svgText({ class: 'd-box-label', x: w / 2, y: 20 }, truncated(box.label, w), node);
+      svgText({ class: 'd-box-label', x: w / 2, y: 20 }, boxLabel(box), node);
       svgText({ class: 'd-box-kind', x: w / 2, y: 36 }, box.kind, node);
       const title = svg('title', {}, node);
       title.textContent = [box.label, ...box.files].join('\n');
