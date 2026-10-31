@@ -118,11 +118,13 @@ function restoreRounds(stored, out) {
 
 // The session a run serves: the resumed notes, or a fresh record at round 0, as a `draft` over
 // `root` and `scope` that saves to `out`. `diagram` is the absolute path of the run's diagram
-// file, or null; a resume reads it back from the stored file (CONTRACT §5).
-export function createSession({ stored, out, root, scope, revision, diagram = null }) {
+// file, or null; a resume reads it back from the stored file (CONTRACT §5). `baseline` is the
+// current round's starting file as a diagram document, or null without a diagram; a Send and the
+// reply that closes a round move it (CONTRACT §6).
+export function createSession({ stored, out, root, scope, revision, diagram = null, baseline = null }) {
   const now = new Date().toISOString();
   const session = stored ? restoreSession(stored, out) : { version: 1, createdAt: now, overall: '', overallReplies: [], round: 0, rounds: [], annotations: [] };
-  return Object.assign(session, { status: 'draft', root, scope, diagram, out, revision, updatedAt: now });
+  return Object.assign(session, { status: 'draft', root, scope, diagram, baseline, out, revision, updatedAt: now });
 }
 
 // Writes `text` to a temporary file in the same directory as `file`, then renames it over
@@ -170,9 +172,11 @@ export function roundOut(session) {
 // arrow note whose id the diagram no longer holds — is not stamped, and the stamped notes move
 // ahead of it, so sent notes still lead the list. Returns the new round number, or null when
 // there is nothing to send — no unsent note other than withheld ones, the same overall comment
-// the last round sent and no change. A failed save undoes the stamps, the reordering and the
-// round entry and rethrows, so a retried Send sends the round.
-export function sendRound(session, allowed, changes = null) {
+// the last round sent and no change. When `changes` is a list, `sent` — the diagram document the
+// Send diffed — becomes `baseline`, the next round's starting file the notes file records.
+// A failed save undoes the stamps, the reordering, the round entry and the baseline and
+// rethrows, so a retried Send sends the round.
+export function sendRound(session, allowed, changes = null, sent = null) {
   const absent = {
     candidate: (anchor) => !allowed.candidates.has(anchor.name),
     box: (anchor) => !allowed.boxes.has(anchor.id),
@@ -193,6 +197,10 @@ export function sendRound(session, allowed, changes = null) {
   const entry = { round, sentAt: new Date().toISOString(), overall: session.overall };
   session.rounds.push(changes === null ? entry : { ...entry, changes });
   session.round = round;
+  const baseline = session.baseline;
+  if (changes !== null) {
+    session.baseline = sent;
+  }
   try {
     saveSession(session);
   } catch (err) {
@@ -202,6 +210,7 @@ export function sendRound(session, allowed, changes = null) {
     session.annotations = before;
     session.rounds.pop();
     session.round = round - 1;
+    session.baseline = baseline;
     throw err;
   }
   return round;
@@ -212,12 +221,13 @@ export function sendRound(session, allowed, changes = null) {
 // optional `overall` appends an overall reply. The whole request is checked before anything
 // changes: a problem returns `{ error }` and nothing is applied. A request-level problem is
 // the whole error; otherwise the error joins each entry's first problem.
-// Once those checks pass, `gate()` runs: a string it returns is the error, with nothing applied —
-// the server's re-read of a redrawn diagram (CONTRACT §8).
+// Once those checks pass, `gate()` runs — the server's re-read of a redrawn diagram (CONTRACT
+// §8): `{ error }` refuses the post with nothing applied, and `{ baseline }` names the re-read
+// document, which becomes the next round's starting file the notes file records.
 // Otherwise the replies are appended with one server time and saved, and `{ replied }` is the
-// number of note replies appended. A failed save undoes every append and rethrows, so a
-// retried post does not duplicate.
-export function postReplies(session, body, gate = () => null) {
+// number of note replies appended. A failed save undoes every append and the baseline and
+// rethrows, so a retried post does not duplicate.
+export function postReplies(session, body, gate = () => ({})) {
   const round = body?.round;
   if (!Number.isInteger(round) || round < 1 || round > session.round) {
     return { error: `bad round: ${JSON.stringify(round) ?? 'none'}` };
@@ -260,9 +270,13 @@ export function postReplies(session, body, gate = () => null) {
   if (problems.length > 0) {
     return { error: problems.join('; ') };
   }
-  const refused = gate();
-  if (refused !== null) {
-    return { error: refused };
+  const gated = gate();
+  if (gated.error !== undefined) {
+    return { error: gated.error };
+  }
+  const baseline = session.baseline;
+  if (gated.baseline !== undefined) {
+    session.baseline = gated.baseline;
   }
   const createdAt = new Date().toISOString();
   const appended = [];
@@ -292,6 +306,7 @@ export function postReplies(session, body, gate = () => null) {
     if (overall !== undefined) {
       session.overallReplies.pop();
     }
+    session.baseline = baseline;
     throw err;
   }
   return { replied: appended.length };

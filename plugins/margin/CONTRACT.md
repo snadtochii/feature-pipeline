@@ -329,15 +329,20 @@ fresh run whose notes file is created at that path.
      whose `replies` is present and is not an array, sits on a note without `round`, or holds
      an entry that is not a reply of §7 answering a round from the note's `round` to the
      number of stored rounds. The reason names the count and the indices:
-     `<out>: <k> of <n> notes are malformed (indices <i>, ...)`.
+     `<out>: <k> of <n> notes are malformed (indices <i>, ...)`;
+   - the file's `baseline` applies (item 2), is not `null`, and fails §15
+     (`<out>: baseline is malformed (<the violation>)`). This is checked after the notes.
 2. **Root, scope and diagram.** The file's `root` (when a string) and `scope` (when an array)
    apply unless `--root` or `--scope` is given. The two are independent: `--root` given alone
    keeps the stored scope, resolved under the new root. The file's `diagram` (when a string)
    applies unless `--diagram` is given, a relative value resolving against the working
    directory as `--diagram`'s does; the diagram it names is read and checked as a named
-   one is (§15), so one that is missing or refused exits 1 and writes nothing. The diagram as
-   read when the resumed run starts is the first round's starting file (§6); no earlier
-   starting file is stored.
+   one is (§15), so one that is missing or refused exits 1 and writes nothing. The current
+   round's starting file (§6) is the file's `baseline` when the diagram the run reopens is the
+   one the file's `diagram` names and `baseline` is present and not `null`; otherwise — a
+   `--diagram` naming another file, or a file without a `baseline` — it is the diagram as read
+   when the resumed run starts. A structural edit the human saved before the run stopped
+   without sending it is therefore listed in the next round's `changes`.
 3. **Notes.** Every stored note is checked for shape by §7 with the anchor check against the
    listing skipped, so a resumed note keeps its anchor (§7). An accepted note is normalised:
    a missing or non-string `id` gets a fresh UUID, an `intent` outside the two values becomes
@@ -349,7 +354,8 @@ fresh run whose notes file is created at that path.
 4. **Kept and replaced.** The run keeps `createdAt` (when a string, else the current time),
    `overall` (when a string, else `""`), `overallReplies` (each entry's `body`, `round` and
    `createdAt`), `rounds` (each entry's `round`, `sentAt`, `overall` and, when present,
-   `changes`; any other field on an entry is dropped) and the notes. Every other stored field is dropped; `version`, `status`,
+   `changes`; any other field on an entry is dropped), the notes and, as item 2 says, `baseline`.
+   Every other stored field is dropped; `version`, `status`,
    `round`, `root`, `scope`, `diagram`, `out`, `revision` and `updatedAt` are written fresh for this run
    (§6), `round` as the number of kept rounds. A file without `rounds` resumes as round 0 with
    every note unsent, and a file without `overallReplies` or `replies` resumes with no
@@ -368,6 +374,7 @@ on the order of its keys.
 | `root` | The absolute root of the run that wrote the file. |
 | `scope` | The scope, as in §2. |
 | `diagram` | The absolute path of the run's diagram file (§4), or `null` when the run has none. |
+| `baseline` | The current round's starting file (Round changes, below) as a diagram document of §15, or `null` when the run has no diagram. Written by the server only; a resume restores it (§5). |
 | `out` | The absolute path of this file. |
 | `revision` | `{"head": "<commit sha>", "dirty": <boolean>}` read from git in the root when the run starts — `dirty` is `true` when `git status --porcelain` lists anything — or `null` when the root is not in a git repository or git is unavailable. |
 | `createdAt` | ISO 8601 UTC timestamp of the run that created the file; kept across resumes. |
@@ -384,9 +391,10 @@ on the order of its keys.
 in the new `rounds` entry's `changes`: the diagram document the server holds at the Send —
 every edit the human saved (`PUT /api/diagram`, §8) — compared with the round's starting file,
 box and arrow by `id`. The first round's starting file is the diagram as read when the run
-starts (§5). After a Send the sent document is the next round's starting file, and after a
-reply that closes the round out (`POST /api/reply`, §8) the diagram file as re-read for that
-reply is. Each change is one object with a string `op` and the `id` of its box or arrow:
+starts, or on a resume the `baseline` the file records (§5). After a Send the sent document is
+the next round's starting file, and after a reply that closes the round out (`POST /api/reply`,
+§8) the diagram file as re-read for that reply is. The notes file records the current one as
+`baseline`, saved with the Send or the reply that moves it. Each change is one object with a string `op` and the `id` of its box or arrow:
 
 | `op` | Fields | When |
 |---|---|---|
@@ -503,6 +511,13 @@ the human deleted the box. A withheld note stays unsent and stored, does
 not count as something to send (§8), and moves after the notes the Send stamps, so sent notes
 all predate unsent ones; the list otherwise stays in creation order, sent notes first. A
 withheld `box` or `arrow` note is sent at the first Send whose diagram holds its `id` again.
+The viewer shows a withheld note read-only. It offers a withheld `box` or `arrow` note for
+deletion — its element may never return, since new ids never reuse an id a note names — and a
+write that leaves it out deletes it as it deletes any unsent note; a withheld `candidate` note
+is neither edited nor deleted. Only a stored note is withheld: a `box` or `arrow` note the
+server does not hold yet — its save still waiting, or every save since it was written refused
+or failed — whose element is deleted would refuse the whole write that carries it (above), so
+the viewer removes it, with its text, and names it in a notice.
 A sent `box` or `arrow` note whose `id` the current diagram no longer holds — removed by the
 human or by the agent's redraw — keeps its anchor, and the viewer shows it as
 `on removed box ‹label›` or `on removed arrow ‹label›` from its `label` snapshot.
@@ -525,7 +540,7 @@ request passes the guards of §9 first. Thirteen routes:
 | `GET /api/wait?after=<n>` | yes | — | `after` present and not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`. Without `after`, `<n>` is the round count the run started with (§4). Once the end of the run has begun: 200 with that end's wait document (§2), at once. When the round count exceeds `<n>`: 200 `{"status": "sent", "round": <count>, "out"}`, at once. Otherwise the reply is held until a Send brings the round count above `<n>`, which answers it with `sent` and the new round, or the end of the run answers it. |
 | `PUT /api/session` | yes | `{"overall"?, "annotations"?}` | Applies the edits (§7), saves the file, 200 `{"ok": true, "updatedAt"}`. A new `candidate` note that names no candidate of the run's overview, or a new `box` or `arrow` note that names no box or arrow of its diagram, answers 400 `{"error"}` with nothing applied or saved (§7). |
 | `POST /api/submit` | yes | as `PUT` | Applies the edits, refused like `PUT`, and sends a round: every note without `round` except a withheld note (§7) is stamped with the next round number, the round is appended to `rounds` with the current `overall` and, in a run with a diagram, its structural changes (§6), the file is saved, the reply is 200 `{"ok": true, "round": <n>}`, and every held wait whose `<n>` is below the new round is answered `sent`. In a run with a diagram the sent document then becomes the next round's starting file, and the round is out until its reply (`PUT /api/diagram` above). The server keeps serving. With nothing to send — no unsent note other than withheld ones, an `overall` that, trimmed, equals the `overall` the last round sent, trimmed (`""` before any round), and no structural change — the edits are still saved, the round count does not move, no wait is answered, and the reply is 409 `{"error": "nothing to send"}`. |
-| `POST /api/reply` | yes | `{"round": <n>, "replies"?: [{"id", "body"}], "overall"?: "<text>"}` | The agent's replies for sent round `<n>`; it carries no viewer edits. The whole request is checked before anything is applied: `round` is an integer from 1 to the round count (`bad round: <value>`, `none` when absent); `replies`, when present, is an array (`replies is not a list`); `overall`, when present, is a string that is not blank (`overall reply is blank or not a string`); there is at least one entry or an `overall` (`nothing to reply`); and each entry `i` has a string `id` (`entry <i>: id is not a string`), a string `body` that is not blank (`entry <i>: body is blank or not a string`), and at least one stored note carrying that `id` that was sent in round `<n>` or earlier (otherwise `entry <i>: no note <id>`, `entry <i>: note <id> is not sent`, or `entry <i>: note <id> was sent after round <n>`). The request-level checks — `round`, `replies`, `overall`, at least one entry or an `overall` — run in that order, and the first that fails is the whole error; once they pass, each entry reports its first problem, in the order listed. Any problem answers 400 `{"error": "<the request-level problem, or every entry's first problem, joined by '; '>"}` and applies nothing. In a run with a diagram, a reply whose `round` is the last round while that round is out (`PUT /api/diagram` above) closes it: once those checks pass, the diagram file is read again and checked as at the start (§15) — the agent may have rewritten it — and a file that is missing, too large or fails the check answers 400 `{"error": "diagram <file>: <reason>"}` and applies nothing, the file, the served document and the round left as they were. A reply to an earlier round reads nothing. A reply that closes a round with no note of its own, a round that carried only changes, still needs an `overall`. Otherwise each entry appends a reply `{"body", "round": <n>, "createdAt"}` (§7) to every stored note carrying its `id` that was sent in round `<n>` or earlier — an `id` given twice appends twice, and an unsent note sharing the `id` gets none — and `overall` appends one to `overallReplies` (§6), all with one `createdAt`. Then the file is saved; a diagram re-read for the reply becomes the document `GET /api/diagram` serves, the next round's starting file, and the text a later save compares the file with, so the human's next save is not refused as changed on disk; the listing is recomputed (§10), the change count goes up by one, the reply is 200 `{"ok": true, "replied": <the number of note replies appended>}`, and every held change wait is answered `changed`. A save that fails appends nothing and answers 500 `{"error"}`. |
+| `POST /api/reply` | yes | `{"round": <n>, "replies"?: [{"id", "body"}], "overall"?: "<text>"}` | The agent's replies for sent round `<n>`; it carries no viewer edits. The whole request is checked before anything is applied: `round` is an integer from 1 to the round count (`bad round: <value>`, `none` when absent); `replies`, when present, is an array (`replies is not a list`); `overall`, when present, is a string that is not blank (`overall reply is blank or not a string`); there is at least one entry or an `overall` (`nothing to reply`); and each entry `i` has a string `id` (`entry <i>: id is not a string`), a string `body` that is not blank (`entry <i>: body is blank or not a string`), and at least one stored note carrying that `id` that was sent in round `<n>` or earlier (otherwise `entry <i>: no note <id>`, `entry <i>: note <id> is not sent`, or `entry <i>: note <id> was sent after round <n>`). The request-level checks — `round`, `replies`, `overall`, at least one entry or an `overall` — run in that order, and the first that fails is the whole error; once they pass, each entry reports its first problem, in the order listed. Any problem answers 400 `{"error": "<the request-level problem, or every entry's first problem, joined by '; '>"}` and applies nothing. In a run with a diagram, a reply whose `round` is the last round while that round is out (`PUT /api/diagram` above) closes it: once those checks pass, the diagram file is read again and checked as at the start (§15) — the agent may have rewritten it — and a file that is missing, too large or fails the check answers 400 `{"error": "diagram <file>: <reason>"}` and applies nothing, the file, the served document and the round left as they were. A reply to an earlier round reads nothing. A reply that closes a round with no note of its own, a round that carried only changes, still needs an `overall`. Otherwise each entry appends a reply `{"body", "round": <n>, "createdAt"}` (§7) to every stored note carrying its `id` that was sent in round `<n>` or earlier — an `id` given twice appends twice, and an unsent note sharing the `id` gets none — and `overall` appends one to `overallReplies` (§6), all with one `createdAt`. Then the file is saved; a diagram re-read for the reply becomes the document `GET /api/diagram` serves, the next round's starting file, and the text a later save compares the file with, so the human's next save is not refused as changed on disk. Only the reply that closes the round re-reads the file: a later reply post for that round reads nothing, so a file the agent rewrites after its round is closed is never adopted, and the human's next save answers 409 `the diagram file changed on disk` — the skill sends one reply per round (§11) and rewrites the file only before it. Then the listing is recomputed (§10), the change count goes up by one, the reply is 200 `{"ok": true, "replied": <the number of note replies appended>}`, and every held change wait is answered `changed`. A save that fails appends nothing and answers 500 `{"error"}`. |
 | `POST /api/cancel` | yes | as `PUT` | Applies the edits, refused like `PUT`, without sending a round and ends the run as `cancelled`, with the deletion rule of §6; once the notes file has taken its final status, answers 200 `{"ok": true, "status": "cancelled"}`. |
 | `POST /api/finish` | yes | as `PUT` | Applies the edits, refused like `PUT`, without sending a round and ends the run as `finished`; once the notes file has taken its final status, answers 200 `{"ok": true, "status": "finished"}`. Unsent notes stay in the file without `round`. |
 
@@ -723,7 +738,7 @@ one outside it removed on a refresh), and the Send rule of §8 with withheld can
 and Send held while the overview could not be loaded and a candidate note is unsent — the
 diagram's structural changes against the round's starting file counted, so a change alone
 makes Send available and none once the starting file is the document, a box note withheld while
-its box is gone and sendable once it returns, a sent one on a removed box reported as removed, a
+its box is gone, deletable, and sendable once it returns, a sent one on a removed box reported as removed, a
 round out by the same rule as the server's on the same session, and new ids never reusing an id
 the starting file or a note names — writes
 sent one at a time each carrying the session as it stands when it starts, the server's copy
@@ -781,7 +796,12 @@ the sent-note lock of §7, and a Send withholding the candidate notes the overvi
 and the box and arrow notes the diagram no longer holds, sending them once their ids return,
 recording a round's `changes` when given — a round with only changes sent, no change and no
 note sending nothing, and no `changes` key without a diagram — a round out until a note or
-overall reply for it, and `changes` restored on resume, each malformed value refused;
+overall reply for it, and `changes` restored on resume, each malformed value refused; the
+`baseline` a Send and a reply over a redraw record, kept through a refused reply and a Send
+without a diagram and restored when their save fails, and a resume's `baseline` — the recorded
+one for the run's diagram file, a relative recorded path included, the diagram as read without
+one, with a `null` one, for another diagram file or without a recorded diagram, and a
+malformed one refused;
 replies (§7) kept through a viewer write that echoes or forges them
 and through a save and a resume, a file without them resuming with none, each resume refusal
 for them (§5), and a reply post whose save fails leaving the session as it was; the scope
@@ -832,9 +852,11 @@ changes by id with the baseline moving to the sent document, a second Send with 
 refused 409, a save while the round is out refused 409 `a round is out` with the file byte for
 byte as it was, a reply over an invalid redraw refused 400 with nothing applied, the file left
 as the agent wrote it and the round still out, a reply with a bad entry reporting the entry
-before the diagram is read, a reply over a valid redraw serving it as document and baseline,
-taking a note on a box the redraw added and the next save accepted, a reply to an earlier
-round reading nothing, and a note on a deleted box withheld at the Send and sent once the box
+before the diagram is read, a reply over a valid redraw serving it as document and baseline and recording it in the
+notes file, a later reply to the closed round over a rewritten file reading nothing and the
+next save answering 409 changed on disk, taking a note on a box the redraw added and the next
+save accepted, a reply to an earlier round reading nothing, and notes on a deleted box withheld
+at the Send, one deleted by a write that leaves it out and the other sent once the box
 returns; and a diagram session's server with no notes session — the diagram route of §8 behind the token,
 `session` `null` on the session route, a listed link read and an unlisted one refused, the
 notes routes and the wait answering 404, Finish ending it with the diagram session document
@@ -857,7 +879,8 @@ sends a candidate note; a run given `--diagram` with no scope lists the diagram'
 regular files, prints the `diagram links` scope line and the `diagram:` line of §2, serves the
 diagram, takes a box note, saves an edit, sends a round whose `rounds` entry records the
 edit's change, refuses a save while that round is out, serves the agent's redraw after the
-reply and records the diagram in the notes file, a resume with `--out` and a scope reopens the recorded diagram, keeps the box note's label
+reply and records the diagram in the notes file, a resume with `--out` and a scope reopens the recorded diagram, serves the recorded
+baseline beside an edit saved before the stop and lists that edit in its next Send's `changes`, keeps the box note's label
 and lists the scope's files and the linked ones without the diagram file, and a diagram with
 no links starts with an empty listing; a resume whose recorded diagram was deleted exits 1
 leaving `--out` byte for byte as it was, an empty `--diagram` exits 2, and an invalid diagram

@@ -149,11 +149,12 @@ function flush(pending) {
 // recomputed with the run's root and scope over the diagram document the server holds (null
 // without one); every accepted reply post replaces the listing with it, and a `relist()` that
 // throws keeps the previous one. `readSource(path)` returns null for a listed path that no
-// longer exists. `onSend(allowed, changes)` sends a round, given what anchors may name now and
-// the diagram's changes (null without a diagram), and returns its number, or null when there is
-// nothing to send. `onReply(body, gate)` applies a reply post and returns `{ replied }`, or
-// `{ error }` when it is refused with nothing applied; `gate()` runs once the post's own checks
-// pass and returns an error string or null. `onEnd(status)` ends the run and returns
+// longer exists. `onSend(allowed, changes, document)` sends a round, given what anchors may name
+// now, the diagram's changes and the document they were diffed from (both null without a
+// diagram), and returns its number, or null when there is nothing to send. `onReply(body, gate)`
+// applies a reply post and returns `{ replied }`, or `{ error }` when it is refused with nothing
+// applied; `gate()` runs once the post's own checks pass and returns `{ error }`, `{ baseline }`
+// with a re-read redraw, or `{}`. `onEnd(status)` ends the run and returns
 // the result document. Resolves with `{ url, close, end, ended, waiting, watching }`: `end(status, res?)` ends the
 // run once, whoever calls it, and returns `ended`, which resolves with the result document
 // after every held wait and change wait — and `res`, the Cancel or Finish request that ended
@@ -326,10 +327,10 @@ export function startServer({ port, token: givenToken, session, files: initialFi
         let redraw = null;
         const gate = () => {
           if (!closing) {
-            return null;
+            return {};
           }
           redraw = rereadDiagram();
-          return redraw.status === 200 ? null : redraw.error;
+          return redraw.status === 200 ? { baseline: redraw.document } : { error: redraw.error };
         };
         const result = onReply(body, gate);
         if (result.error) {
@@ -362,7 +363,7 @@ export function startServer({ port, token: givenToken, session, files: initialFi
       }
       if (url.pathname === '/api/submit') {
         const changes = diagram !== null && diffDiagrams !== null ? diffDiagrams(diagram.baseline, diagram.document) : null;
-        const round = onSend(allowed, changes);
+        const round = onSend(allowed, changes, diagram?.document ?? null);
         if (round === null) {
           onSave();
           return sendJson(res, { error: 'nothing to send' }, 409);

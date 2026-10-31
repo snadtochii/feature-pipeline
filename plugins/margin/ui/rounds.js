@@ -114,8 +114,9 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
 
   // An unsent candidate note whose candidate the run's overview does not name, or an unsent box
   // or arrow note whose id the current diagram does not hold: the server withholds it at every
-  // Send, and the viewer shows it read-only. A box or arrow note is sent again once its id
-  // returns. While the candidate names are unknown, every unsent candidate note is read-only.
+  // Send, and the viewer shows it read-only — a box or arrow note can still be deleted. A box or
+  // arrow note is sent again once its id returns. While the candidate names are unknown, every
+  // unsent candidate note is read-only.
   const withheld = (a) => !isSent(a) && WITHHELD_KINDS.has(a.anchor.kind) && !listed(a.anchor);
 
   const sendable = () => unsent().filter((a) => !withheld(a));

@@ -205,7 +205,7 @@ function withServer(fn, { overview = null, diagram = null, save: saves = false }
       writer = reader.diagramWriter(diagramFile, text);
       diffDiagrams = reader.diffDiagrams;
     }
-    const session = createSession({ stored: null, out, root, scope: [], revision: null });
+    const session = createSession({ stored: null, out, root, scope: [], revision: null, baseline: writer ? diagram : null });
     const save = () => saveSession(session);
     const { url, close, ended, waiting, watching } = await startServer({
       port: 0,
@@ -215,11 +215,11 @@ function withServer(fn, { overview = null, diagram = null, save: saves = false }
       readSource: (p) => readSource(root, p),
       relist: () => listFiles(root, [], [out, diagramFile]),
       onSave: save,
-      onSend: (allowed, changes) => sendRound(session, allowed, changes),
+      onSend: (allowed, changes, sent) => sendRound(session, allowed, changes, sent),
       onReply: (body, gate) => postReplies(session, body, gate),
       onEnd: (status) => finishRun(session, status),
       overview,
-      diagram: diagram ? { file: diagramFile, root, document: diagram, ...(writer ? { baseline: diagram } : {}) } : null,
+      diagram: diagram ? { file: diagramFile, root, document: diagram, ...(writer ? { baseline: session.baseline } : {}) } : null,
       saveDiagram: writer ? (edited) => writer.save(edited) : null,
       rereadDiagram: writer ? () => writer.reread() : null,
       diffDiagrams,
@@ -912,6 +912,11 @@ const CASES = [
     assertEqual(h.rounds.dropUnstored(), [], 'a second drop removes a note');
     await h.rounds.save();
     assertEqual(h.calls.at(-1)[2].annotations.map((a) => a.id), ['held', 'sent'], 'the write after the drop carries a dropped note');
+    assert(h.rounds.withheld(h.rounds.session.annotations[0]), 'the stored note on the removed box is not withheld');
+    h.rounds.deleteNote('held');
+    assertEqual(h.rounds.unsent(), [], 'the unsent notes after deleting the withheld box note');
+    await h.rounds.save();
+    assertEqual(h.calls.at(-1)[2].annotations.map((a) => a.id), ['sent'], 'the write after deleting the withheld box note carries it');
 
     const sentRound = { round: 1, rounds: [{ round: 1, sentAt: 't', overall: '' }] };
     const reply = { body: 'ok', round: 1, createdAt: 't' };
@@ -2759,7 +2764,65 @@ const CASES = [
     for (const bad of ['x', [null], [{ op: 1, id: 'a' }], [{ op: 'add-box' }], {}]) {
       throwsRun(() => restoreSession(stored(bad), out), 1, 'rounds entry 0 is malformed');
     }
+
+    const start = { boxes: ['start'] };
+    const sentDoc = { boxes: ['sent'] };
+    const redrawDoc = { boxes: ['redraw'] };
+    const basedOut = path.join(dir, 'based.json');
+    const recorded = () => JSON.parse(fs.readFileSync(basedOut, 'utf8')).baseline;
+    const based = createSession({ stored: null, out: basedOut, root: dir, scope: [], revision: null, baseline: start });
+    assert(sendRound(based, sendAllowed(), [change], sentDoc) === 1, 'a Send with a change and its document did not send round 1');
+    assertEqual(recorded(), sentDoc, 'the baseline the notes file records after a Send');
+    assertEqual(postReplies(based, { round: 1, overall: 'redrew' }, () => ({ error: 'refused' })), { error: 'refused' }, 'a reply its gate refuses');
+    assertEqual([based.baseline, based.overallReplies], [sentDoc, []], 'the baseline and replies after a refused gate');
+    assertEqual(postReplies(based, { round: 1, overall: 'redrew' }, () => ({ baseline: redrawDoc })), { replied: 0 }, 'a reply its gate passes with a redraw');
+    assertEqual(recorded(), redrawDoc, 'the baseline the notes file records after a reply over a redraw');
+    based.annotations = [note('s9', { kind: 'scope' })];
+    assert(sendRound(based, sendAllowed(), null) === 2, 'a Send without a diagram did not send round 2');
+    assertEqual(recorded(), redrawDoc, 'a Send without changes moved the baseline');
+    fs.rmSync(basedOut);
+    fs.mkdirSync(basedOut);
+    let threw = false;
+    try {
+      postReplies(based, { round: 2, overall: 'again' }, () => ({ baseline: sentDoc }));
+    } catch {
+      threw = true;
+    }
+    assert(threw && isDeepStrictEqual(based.baseline, redrawDoc), 'a reply whose save fails did not throw or left its baseline');
+    based.overall = 'more';
+    threw = false;
+    try {
+      sendRound(based, sendAllowed(), [change], sentDoc);
+    } catch {
+      threw = true;
+    }
+    assert(threw && isDeepStrictEqual(based.baseline, redrawDoc), 'a Send whose save fails did not throw or left its baseline');
   })],
+  ["rounds: a resume restores the recorded baseline of the run's diagram file", async () => {
+    const { checkDiagram } = await loadDiagramModel();
+    const { restoreBaseline } = await loadDiagramReader();
+    const document = checkDiagram(structuredClone(NOTE_DIAGRAM));
+    const recorded = structuredClone(NOTE_DIAGRAM);
+    recorded.boxes = recorded.boxes.filter((box) => box.id !== 'shared');
+    recorded.arrows = recorded.arrows.filter((arrow) => arrow.from !== 'shared' && arrow.to !== 'shared');
+    const file = path.resolve('d.diagram.json');
+    const out = path.resolve('notes.json');
+    assert(restoreBaseline(null, out, file, document) === document, 'a fresh run does not start from the diagram as read');
+    assert(restoreBaseline({ diagram: file, baseline: recorded }, out, null, null) === null, 'a run without a diagram has a baseline');
+    assertEqual(restoreBaseline({ diagram: file, baseline: recorded }, out, file, document), checkDiagram(structuredClone(recorded)), 'the recorded baseline on a resume');
+    assertEqual(restoreBaseline({ diagram: 'd.diagram.json', baseline: recorded }, out, file, document), checkDiagram(structuredClone(recorded)), 'the recorded baseline of a relative diagram path');
+    for (const [what, stored] of [
+      ['no baseline', { diagram: file }],
+      ['a null baseline', { diagram: file, baseline: null }],
+      ['another diagram file', { diagram: path.resolve('other.diagram.json'), baseline: recorded }],
+      ['no recorded diagram', { baseline: recorded }],
+    ]) {
+      assert(restoreBaseline(stored, out, file, document) === document, `a resume with ${what} does not start from the diagram as read`);
+    }
+    for (const bad of ['x', {}, { ...recorded, boxes: [{ id: 'Bad id' }] }]) {
+      throwsRun(() => restoreBaseline({ diagram: file, baseline: bad }, out, file, document), 1, `${out}: baseline is malformed`);
+    }
+  }],
   ["server: an annotate run's diagram is saved, diffed at Send, locked while the round is out and re-read at the reply", async () => {
     const { checkDiagram, serializeDiagram } = await loadDiagramModel();
     const document = checkDiagram(structuredClone(NOTE_DIAGRAM));
@@ -2793,6 +2856,7 @@ const CASES = [
       assertEqual(JSON.parse(fs.readFileSync(out, 'utf8')).rounds[0].changes, changes, 'the changes round 1 records');
       const after = await call('GET', '/api/diagram');
       assertEqual(after.json.baseline, after.json.document, 'the baseline after the Send');
+      assertEqual(JSON.parse(fs.readFileSync(out, 'utf8')).baseline, after.json.document, 'the baseline the notes file records after the Send');
       const bytes = fs.readFileSync(diagramFile);
       const locked = await call('PUT', '/api/diagram', { document });
       assertEqual([locked.status, locked.json], [409, { error: 'a round is out' }], 'a save while the round is out');
@@ -2806,6 +2870,7 @@ const CASES = [
       assertEqual(session.overallReplies, [], 'the overall replies after a refused redraw');
       assert(fs.readFileSync(diagramFile, 'utf8') === '{', 'a refused redraw changed the file');
       assert((await call('PUT', '/api/diagram', { document })).status === 409, 'the round is not out after a refused redraw');
+      assertEqual(JSON.parse(fs.readFileSync(out, 'utf8')).baseline, after.json.document, 'the baseline the notes file records after a refused redraw');
       const badEntry = await call('POST', '/api/reply', { round: 1, replies: [{ id: 'nope', body: 'x' }] });
       assertEqual([badEntry.status, badEntry.json], [400, { error: 'entry 0: no note nope' }], 'a reply with a bad entry over an invalid redraw');
 
@@ -2815,6 +2880,14 @@ const CASES = [
       const redrawn = await call('GET', '/api/diagram');
       const checked = checkDiagram(structuredClone(redraw));
       assertEqual([redrawn.json.document, redrawn.json.baseline], [checked, checked], 'the document and baseline after the redraw');
+      assertEqual(JSON.parse(fs.readFileSync(out, 'utf8')).baseline, checked, 'the baseline the notes file records after the redraw');
+      fs.writeFileSync(diagramFile, '{');
+      const later = await call('POST', '/api/reply', { round: 1, overall: 'redrew again' });
+      assertEqual(later.json, { ok: true, replied: 0 }, 'a later reply to the closed round over a rewritten file');
+      assertEqual((await call('GET', '/api/diagram')).json.document, checked, 'a later reply to the closed round adopted the rewrite');
+      const stale = await call('PUT', '/api/diagram', { document: checked });
+      assertEqual([stale.status, stale.json], [409, { error: 'the diagram file changed on disk' }], 'a save after a rewrite no reply adopted');
+      fs.writeFileSync(diagramFile, JSON.stringify(redraw));
       const onAgent = { id: 'n2', anchor: { kind: 'box', id: 'agent' }, body: 'why' };
       assert((await call('PUT', '/api/session', { annotations: [onAgent] })).status === 200, 'a note on a box the redraw added was refused');
       const next = await call('PUT', '/api/diagram', { document: checked });
@@ -2836,11 +2909,15 @@ const CASES = [
       const headers = { host, 'x-margin-token': TOKEN };
       const call = (method, target, body) => request(port, { method, target, headers, body });
       const onCli = { id: 'b1', anchor: { kind: 'box', id: 'cli' }, body: 'split it' };
-      assert((await call('PUT', '/api/session', { annotations: [onCli] })).status === 200, 'a note on a box was refused');
+      const dropped = { id: 'b2', anchor: { kind: 'box', id: 'cli' }, body: 'or drop it' };
+      assert((await call('PUT', '/api/session', { annotations: [onCli, dropped] })).status === 200, 'a note on a box was refused');
       assert((await call('PUT', '/api/diagram', { document: removeBox(document, 'cli') })).status === 200, 'the save deleting the box was refused');
-      assertEqual((await call('POST', '/api/submit', { annotations: [onCli] })).json, { ok: true, round: 1 }, 'the Send after deleting the box');
+      assertEqual((await call('POST', '/api/submit', { annotations: [onCli, dropped] })).json, { ok: true, round: 1 }, 'the Send after deleting the box');
+      const withheld = JSON.parse(fs.readFileSync(out, 'utf8'));
+      assertEqual(withheld.annotations.map((a) => [a.id, a.round ?? null]), [['b1', null], ['b2', null]], 'the notes on the deleted box after the Send');
+      assert((await call('PUT', '/api/session', { annotations: [onCli] })).status === 200, 'a write deleting a withheld box note was refused');
       const first = JSON.parse(fs.readFileSync(out, 'utf8'));
-      assertEqual(first.annotations.map((a) => [a.id, a.round ?? null]), [['b1', null]], 'the note on the deleted box after the Send');
+      assertEqual(first.annotations.map((a) => [a.id, a.round ?? null]), [['b1', null]], 'the note on the deleted box after deleting the other');
       assertEqual(
         first.rounds[0].changes,
         [
@@ -3849,6 +3926,8 @@ const CASES = [
       }
     };
 
+    let redrawnDocument = null;
+    let unsentDocument = null;
     const first = await live(['--root', root, '--out', out, '--diagram', diagramFile], async ({ port, headers, stderr }) => {
       assert(stderr().includes('  scope: diagram links (1 files)\n'), `the scope line of a diagram run: ${stderr()}`);
       assert(stderr().includes(`  diagram: ${diagramFile}\n`), `the diagram line: ${stderr()}`);
@@ -3877,6 +3956,12 @@ const CASES = [
       const redrawn = (await request(port, { target: '/api/diagram', headers })).json;
       assertEqual(redrawn.document.boxes.map((box) => box.id), ['cli', 'skill', 'shared', 'agent'], 'the boxes served after the redraw');
       assertEqual(redrawn.baseline, redrawn.document, 'the baseline after the redraw');
+      const unsentEdit = structuredClone(redrawn.document);
+      unsentEdit.boxes = unsentEdit.boxes.filter((box) => box.id !== 'agent');
+      const kept = await request(port, { method: 'PUT', target: '/api/diagram', headers, body: { document: unsentEdit } });
+      assert(kept.status === 200, `an edit after the reply got ${kept.status}`);
+      redrawnDocument = redrawn.document;
+      unsentDocument = (await request(port, { target: '/api/diagram', headers })).json.document;
     });
     assertEqual(first, { status: 'finished', out, annotations: 1, rounds: 1, root, scope: [] }, 'result document of a diagram run');
 
@@ -3885,7 +3970,13 @@ const CASES = [
       const data = (await request(port, { headers })).json;
       assertEqual(data.files, ['src/a.js', 'src/b.js'], 'listing of a resumed diagram run over a scope, without the diagram files');
       assertEqual(data.session.annotations.map((a) => a.anchor), [{ kind: 'box', id: 'cli', label: 'cli.mjs' }], 'the box note after a resume');
-      assertEqual((await request(port, { target: '/api/diagram', headers })).json.file, diagramFile, 'the diagram a resume reopens');
+      const reopened = (await request(port, { target: '/api/diagram', headers })).json;
+      assertEqual(reopened.file, diagramFile, 'the diagram a resume reopens');
+      assertEqual([reopened.document, reopened.baseline], [unsentDocument, redrawnDocument], 'the document and recorded baseline a resume serves');
+      const changed = await request(port, { method: 'POST', target: '/api/submit', headers, body: {} });
+      assertEqual(changed.json, { ok: true, round: 2 }, 'the Send of the unsent edit after a resume');
+      assertEqual(JSON.parse(fs.readFileSync(out, 'utf8')).rounds[1].changes, [{ op: 'remove-box', id: 'agent', label: 'Agent box' }], 'the changes of an edit saved before the resume');
+      assertEqual((await request(port, { method: 'POST', target: '/api/reply', headers, body: { round: 2, overall: 'kept it' } })).json, { ok: true, replied: 0 }, 'the reply closing round 2');
     });
 
     const recorded = JSON.parse(fs.readFileSync(out, 'utf8'));

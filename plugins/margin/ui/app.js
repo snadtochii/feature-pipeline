@@ -1105,6 +1105,11 @@ function editOps(a) {
   const edit = document.createElement('button');
   edit.textContent = 'edit';
   edit.addEventListener('click', () => openComposer(a.anchor, { existing: a }));
+  ops.append(edit, deleteButton(a));
+  return ops;
+}
+
+function deleteButton(a) {
   const del = document.createElement('button');
   del.className = 'del';
   del.textContent = 'delete';
@@ -1117,21 +1122,24 @@ function editOps(a) {
     }
     afterChange();
   });
-  ops.append(edit, del);
-  return ops;
+  return del;
 }
 
+// A withheld note cannot be edited or sent. A box or arrow note can still be deleted, since its
+// element may never return: new ids never reuse the id a note names.
 function withheldOps(a) {
   const ops = document.createElement('div');
   ops.className = 'ops';
   const label = document.createElement('span');
   label.className = 'muted';
   label.textContent = 'read-only';
-  label.title =
-    a.anchor.kind === 'candidate'
-      ? "This candidate is not in this run's overview: the note cannot be edited, deleted or sent"
-      : `Its ${a.anchor.kind} is not in the diagram: the note is held back until it returns`;
-  ops.append(label);
+  if (a.anchor.kind === 'candidate') {
+    label.title = "This candidate is not in this run's overview: the note cannot be edited, deleted or sent";
+    ops.append(label);
+  } else {
+    label.title = `Its ${a.anchor.kind} is not in the diagram: the note is held back until it returns, and can be deleted but not edited`;
+    ops.append(label, deleteButton(a));
+  }
   return ops;
 }
 

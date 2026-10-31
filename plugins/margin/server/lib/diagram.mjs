@@ -4,12 +4,13 @@
 // place that exits; the model stays free of Node so the viewer can load it too. `linkedFiles`
 // is a diagram session's listing (CONTRACT §10), `runListing` an `annotate` run's,
 // `diagramSessionInputs` everything a diagram session reads before its port is bound
-// (CONTRACT §1), and `diagramWriter` the save of a diagram session or an `annotate` run and the
-// re-read of a file the agent redrew. `diffDiagrams` is the shared change model a Send records
-// (CONTRACT §6), re-exported so `cli.mjs` hands it to the server without importing `ui/`.
+// (CONTRACT §1), `diagramWriter` the save of a diagram session or an `annotate` run and the
+// re-read of a file the agent redrew, and `restoreBaseline` a resumed run's round starting file.
+// `diffDiagrams` is the shared change model a Send records (CONTRACT §6), re-exported so
+// `cli.mjs` hands it to the server without importing `ui/`.
 
 import { readFileSync, realpathSync, statSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { DiagramViolation, checkDiagram, serializeDiagram } from '../../ui/diagram.js';
 import { gitRoot, listFiles, listPaths } from './files.mjs';
 import { RunError, writeAtomic } from './session.mjs';
@@ -122,6 +123,28 @@ export function diagramWriter(file, text) {
       return { status: 200, document: checked };
     },
   };
+}
+
+// The current round's starting file of an `annotate` run (CONTRACT §5, §6): the notes file's
+// `baseline` on a resume whose diagram is the one the file records, checked by §15, else
+// `document`, the diagram as read now; null for a run without a diagram. A recorded baseline
+// that fails §15 stops the run.
+export function restoreBaseline(stored, out, diagramFile, document) {
+  if (document === null) {
+    return null;
+  }
+  const recorded = stored?.baseline;
+  if (recorded === undefined || recorded === null || typeof stored.diagram !== 'string' || resolve(stored.diagram) !== diagramFile) {
+    return document;
+  }
+  try {
+    return checkDiagram(recorded);
+  } catch (err) {
+    if (err instanceof DiagramViolation) {
+      throw new RunError(`${out}: baseline is malformed (${err.message}); fix it or pass another --out`, 1);
+    }
+    throw err;
+  }
 }
 
 // Every path a box of `document` links that is a regular file under `root`, without `ownFiles`.
