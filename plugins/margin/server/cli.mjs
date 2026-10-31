@@ -7,6 +7,7 @@
 //   cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>
 //   cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file> | --explorer-unavailable <reason>] --out <file>
 //   cli.mjs diagram --check <file>
+//   cli.mjs diagram <file> [--root <dir>] [--port <n>] [--token <hex>] [--no-open]
 //   cli.mjs --self-test
 //
 // `annotate` serves a read-only code viewer for the files under the scope paths and collects
@@ -30,18 +31,21 @@
 // reads. Both print one success document on stdout and their warnings on stderr.
 //
 // `diagram --check` reads and checks one diagram file, prints one document saying whether its
-// text is canonical with its entry counts, and writes nothing.
+// text is canonical with its entry counts, and writes nothing. `diagram <file>` without --check
+// is a diagram session: the same viewer, read-only, with no notes file and no rounds, showing
+// the diagram and the files it links under --root (default: the git top level of the file's
+// directory, else that directory). It ends on Finish or SIGINT/SIGTERM and writes nothing.
 //
-// Exit: 0 the run ended (finished, cancelled or interrupted), the wait returned, the files
-// were written or the diagram passed, 1 could not run or the server was unreachable, 2 bad
-// invocation.
+// Exit: 0 the run or the diagram session ended (finished, cancelled or interrupted), the wait
+// returned, the files were written or the diagram passed, 1 could not run or the server was
+// unreachable, 2 bad invocation.
 // Zero dependencies: Node 22+ built-ins only. Everything under lib/ is private.
 
 import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { assembleOverview, readMeasurement, readOptional, serialiseOverview } from './lib/assemble.mjs';
-import { readDiagram } from './lib/diagram.mjs';
+import { diagramSessionInputs, readDiagram } from './lib/diagram.mjs';
 import { listFiles, readSource, revision } from './lib/files.mjs';
 import { measureScope } from './lib/measure.mjs';
 import { readOverview } from './lib/overview.mjs';
@@ -52,7 +56,10 @@ import { TOKEN_PATTERN, parseRunUrl, waitForRound } from './lib/wait.mjs';
 const WAIT_USAGE = 'usage: cli.mjs wait <url> [--after <n>]';
 const MEASURE_USAGE = 'usage: cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>';
 const ASSEMBLE_USAGE = 'usage: cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file> | --explorer-unavailable <reason>] --out <file>';
-const DIAGRAM_USAGE = 'usage: cli.mjs diagram --check <file>';
+const DIAGRAM_USAGE = [
+  'usage: cli.mjs diagram --check <file>',
+  '       cli.mjs diagram <file> [--root <dir>] [--port <n>] [--token <hex>] [--no-open]',
+].join('\n');
 const USAGE = [
   'usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--overview <file>] [--port <n>] [--token <hex>] [--no-open]',
   ...[WAIT_USAGE, MEASURE_USAGE, ASSEMBLE_USAGE, DIAGRAM_USAGE].map((line) => `       ${line.slice('usage: '.length)}`),
@@ -81,6 +88,17 @@ function openInBrowser(url) {
   }
 }
 
+function checkedPort(rawPort, token) {
+  const port = Number(rawPort);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    fail(`bad --port ${rawPort}`, 2);
+  }
+  if (token !== undefined && !TOKEN_PATTERN.test(token)) {
+    fail('bad --token: 16-128 characters of [A-Za-z0-9_-]', 2);
+  }
+  return port;
+}
+
 async function annotate(argv) {
   let parsed;
   try {
@@ -104,13 +122,7 @@ async function annotate(argv) {
   if (positionals[0] !== 'annotate') {
     fail(USAGE, 2);
   }
-  const port = Number(values.port);
-  if (!Number.isInteger(port) || port < 0 || port > 65535) {
-    fail(`bad --port ${values.port}`, 2);
-  }
-  if (values.token !== undefined && !TOKEN_PATTERN.test(values.token)) {
-    fail('bad --token: 16-128 characters of [A-Za-z0-9_-]', 2);
-  }
+  const port = checkedPort(values.port, values.token);
   if (values.overview === '') {
     fail('bad --overview: empty', 2);
   }
@@ -133,9 +145,8 @@ async function annotate(argv) {
   const overview = overviewFile ? readOverview(overviewFile) : null;
   const save = () => saveSession(session);
 
-  let run;
-  try {
-    run = await startServer({
+  await serve(
+    {
       port,
       token: values.token,
       session,
@@ -147,11 +158,29 @@ async function annotate(argv) {
       onReply: (body) => postReplies(session, body),
       onEnd: (status) => finishRun(session, status),
       overview,
-    });
+    },
+    {
+      noOpen: values['no-open'],
+      announce: (run) => {
+        // The first draft is written only once the port is bound, so a failed bind leaves
+        // nothing behind.
+        save();
+        process.stderr.write(`margin: ${run.url}\n  root:  ${root}\n  scope: ${scope.join(', ') || '.'} (${files.length} files)\n  notes: ${out}\n`);
+      },
+    },
+  );
+}
+
+// Starts the server and serves until the run ends, printing its result document then — the one
+// place it is printed, whichever way the run ends. The signal handlers are bound before
+// `announce` prints the URL: a caller that has seen the URL may signal the run at once.
+async function serve(options, { noOpen, announce }) {
+  let run;
+  try {
+    run = await startServer(options);
   } catch (err) {
-    fail(`could not listen on port ${port}: ${err.code ?? err.message}`, 1);
+    fail(`could not listen on port ${options.port}: ${err.code ?? err.message}`, 1);
   }
-  // The one place the result document is printed: when the run ends, whichever way it ends.
   run.ended.then(
     (doc) => {
       writeDoc(doc);
@@ -159,15 +188,10 @@ async function annotate(argv) {
     },
     (err) => fail(String(err?.message ?? err), 1),
   );
-  // Bound before the URL is printed: a caller that has seen the URL may signal the run at once.
   process.on('SIGINT', () => run.end('interrupted'));
   process.on('SIGTERM', () => run.end('interrupted'));
-  // The first draft is written only once the port is bound, so a failed bind leaves nothing
-  // behind.
-  save();
-
-  process.stderr.write(`margin: ${run.url}\n  root:  ${root}\n  scope: ${scope.join(', ') || '.'} (${files.length} files)\n  notes: ${out}\n`);
-  if (!values['no-open']) {
+  announce(run);
+  if (!noOpen) {
     openInBrowser(run.url);
   }
 }
@@ -303,12 +327,51 @@ function assembleCmd(argv) {
   process.exit(0);
 }
 
+const SESSION_FLAGS = ['root', 'port', 'token', 'no-open'];
+
+// A diagram session (CONTRACT §1): the file is read and checked, the root resolved and the
+// linked files listed, all before the port is bound. Writes nothing.
+async function diagramSession(values, raw) {
+  const port = checkedPort(values.port ?? '0', values.token);
+  const givenRoot = fileFlag(values, 'root', 'diagram', false);
+  const { document, file, root, files } = diagramSessionInputs(resolve(raw), givenRoot);
+  await serve(
+    {
+      port,
+      token: values.token,
+      session: null,
+      files,
+      readSource: (path) => readSource(root, path),
+      relist: () => files,
+      onEnd: (status) => ({ status, file }),
+      diagram: { file, root, document },
+    },
+    {
+      noOpen: values['no-open'],
+      announce: (run) => {
+        process.stderr.write(`margin: ${run.url}\n  root:    ${root}\n  diagram: ${file} (${files.length} linked files)\n`);
+      },
+    },
+  );
+}
+
 // Checks in order: the arguments parse, the positionals are exactly `diagram <file>`, --check
-// is given, and <file> is non-empty. Then the read and the shape check, and its document.
-function diagramCmd(argv) {
+// is not given with a session flag, and <file> is non-empty. With --check, the read and the
+// shape check, and its document; without it, a diagram session.
+async function diagramCmd(argv) {
   let parsed;
   try {
-    parsed = parseArgs({ args: argv, allowPositionals: true, options: { check: { type: 'boolean' } } });
+    parsed = parseArgs({
+      args: argv,
+      allowPositionals: true,
+      options: {
+        check: { type: 'boolean' },
+        root: { type: 'string' },
+        port: { type: 'string' },
+        token: { type: 'string' },
+        'no-open': { type: 'boolean' },
+      },
+    });
   } catch (err) {
     fail(`${err.message}\n${DIAGRAM_USAGE}`, 2);
   }
@@ -316,11 +379,15 @@ function diagramCmd(argv) {
   if (positionals.length !== 2 || positionals[0] !== 'diagram') {
     fail(DIAGRAM_USAGE, 2);
   }
-  if (values.check !== true) {
-    fail('diagram needs --check', 2);
+  if (values.check && SESSION_FLAGS.some((name) => values[name] !== undefined)) {
+    fail('--check takes no other flag', 2);
   }
   if (positionals[1] === '') {
     fail('bad <file>: empty', 2);
+  }
+  if (!values.check) {
+    await diagramSession(values, positionals[1]);
+    return;
   }
   const file = resolve(positionals[1]);
   const { document, canonical } = readDiagram(file);
@@ -358,7 +425,7 @@ async function main(argv) {
       return;
     }
     if (argv[0] === 'diagram') {
-      diagramCmd(argv);
+      await diagramCmd(argv);
       return;
     }
     await annotate(argv);
