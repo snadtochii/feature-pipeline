@@ -1135,10 +1135,14 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       paint();
     },
     // Selects the box or arrow a note sits on and centres it at the current zoom; the tab must
-    // be shown. False, with a card saying so, when the diagram no longer holds it, and false
-    // with nothing done while a notice stands in for the drawing.
+    // be shown. False, with a card saying so, when the diagram no longer holds it; false, with
+    // the notice saying so, when the diagram has no boxes; and false with nothing done while
+    // the load-error notice stands in for the drawing.
     reveal({ kind, id, label }) {
       if (!state.drawing) {
+        if (state.doc) {
+          notice(`This diagram has no boxes yet, so ${kind} ${label || id} is not in it.`);
+        }
         return false;
       }
       const entry = (kind === 'box' ? state.doc.boxes : state.doc.arrows).find((item) => item.id === id);
