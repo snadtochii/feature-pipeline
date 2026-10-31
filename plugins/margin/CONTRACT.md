@@ -382,7 +382,7 @@ request passes the guards of §9 first. Eleven routes:
 
 | Route | Token | Request | Response |
 |---|---|---|---|
-| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/rounds.js`, `/overview.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
+| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/rounds.js`, `/overview.js`, `/overview-view.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
 | `GET /api/overview` | yes | — | 200 with the overview document as checked (§13). 404 `{"error": "no overview"}` when the run has none. Served until the process exits. |
 | `GET /api/session` | yes | — | 200 `{"session": <the notes file object, §6>, "files": [<the current listing, §10>], "changes": <the run's change count>}`. The change count is `0` when the process starts, is kept in memory only, and goes up by one on every accepted reply post. |
 | `GET /api/file?path=<p>` | yes | — | `<p>` not in the current listing: 404 `{"error": "<p> is not in scope"}`. A listed path that no longer exists — removed, or a parent folder replaced by a file: 404 `{"error": "<p> no longer exists"}`. Otherwise 200 with `{"path", "text"}` or a refusal `{"path", "binary": true, "reason"}` (§10). |

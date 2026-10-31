@@ -43,6 +43,7 @@ const STATIC = {
   '/syntax.js': ['syntax.js', 'text/javascript; charset=utf-8'],
   '/rounds.js': ['rounds.js', 'text/javascript; charset=utf-8'],
   '/overview.js': ['overview.js', 'text/javascript; charset=utf-8'],
+  '/overview-view.js': ['overview-view.js', 'text/javascript; charset=utf-8'],
   '/vendor/highlight.min.js': ['vendor/highlight.min.js', 'text/javascript; charset=utf-8'],
   '/vendor/dockerfile.min.js': ['vendor/dockerfile.min.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],

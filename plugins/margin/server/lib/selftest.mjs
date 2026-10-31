@@ -949,7 +949,7 @@ const CASES = [
     );
     assert(h.rounds.ended && h.rounds.connection === '', `the state after the end: ended ${h.rounds.ended}, connection "${h.rounds.connection}"`);
   }],
-  ['viewer overview: the outline model groups rows, counts notes and serves its module', async () => {
+  ['viewer overview: the outline model groups rows, counts notes and serves the overview modules', async () => {
     const { buildOutline, noteCounts, CANDIDATE_COLOURS } = await loadOverviewModel();
     const entry = (p, churn, indentation, imports = []) => ({ path: p, lines: 10, churn, indentation, kind: null, role: null, exports: null, mixes: null, imports, outside: [] });
     const candidate = (name, files) => ({ name, tier: 'strong', category: 'in-process', files, next_change: 'x', next_sites: [], est_diff_lines: 1, deletion_test: 'x', friction: 'x' });
@@ -1043,6 +1043,8 @@ const CASES = [
     await withServer(async ({ port, host }) => {
       const reply = await request(port, { target: '/overview.js', headers: { host } });
       assert(reply.status === 200 && reply.type.startsWith('text/javascript'), `/overview.js got ${reply.status} ${reply.type}`);
+      const view = await request(port, { target: '/overview-view.js', headers: { host } });
+      assert(view.status === 200 && view.type.startsWith('text/javascript'), `/overview-view.js got ${view.status} ${view.type}`);
     });
   }],
   ['annotations: anchor rule per kind', () => {
