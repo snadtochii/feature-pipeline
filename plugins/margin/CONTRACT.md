@@ -599,7 +599,9 @@ non-integer position and a position given half), the canonical text of a fixed d
 its byte-identical round trip, a layout that is deterministic and places every box when none
 is positioned, never moves a positioned box and keeps placed boxes clear of it, ranks through
 cycles and self-loops, keeps each group's members contiguous with frames that are their
-members' bounds and never overlap, and leaves its input unchanged — and the diagram file's
+members' bounds and never overlap, places a new member of a positioned group beside its
+members — to the right when a group lies below, below when every side is taken — without its
+frame meeting another group's, and leaves its input unchanged — and the diagram file's
 reading refusals and size limit; the anchor rule of §7 for every kind — a `candidate` anchor kept for a name of the
 run's overview, dropped for any other name or a name that breaks §13's rule, and checked for
 shape only when read back — a new candidate note outside the overview, a name that breaks
@@ -966,9 +968,15 @@ whether a file is canonical (§2) and never rewrites it.
 positioned box never moves. Ranks run left to right and follow the arrows: an arrow that closes
 a cycle is reversed for ranking, and an arrow from a box to itself is ignored. When no box is
 positioned, the boxes of one group occupy one contiguous band in every rank, and the bands of
-two groups never overlap; in a partly positioned diagram a placed box keeps clear of every
-positioned box, and group contiguity is not promised. A box's size is never stored: its height
-is 46 and its width `min(230, max(120, round(n × 7.4 + 34)))`, `n` the number of code points in
+two groups never overlap. In a partly positioned diagram the boxes are placed in `boxes`
+order, and a placed box keeps at least 24 clear of every box already standing — positioned,
+or placed before it. A placed box whose group already has a standing member joins that group:
+it goes beside the members' bounds — below them, else to their right, else above, else to
+their left, stepping outward a row or a rank at a time until it is clear — on the first side
+where the group's frame then meets no other group's frame it did not meet already, and below
+when no side does. Any other placed box takes its computed position, stepping down a row at a
+time until it is clear; it is the only placed box that takes its rank from the arrows. A box's
+size is never stored: its height is 46 and its width `min(230, max(120, round(n × 7.4 + 34)))`, `n` the number of code points in
 its label. A group's frame is the bounds of its members' boxes plus 20 on each side and 24 more
 above, for the label; a group with no members has no frame. Positions are integers, and the
 same document always gives the same layout. The spacing between ranks and rows is not part of

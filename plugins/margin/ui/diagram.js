@@ -438,9 +438,72 @@ function tooClose(a, b) {
     && a.y - CLEAR < b.y + b.h && b.y - CLEAR < a.y + a.h;
 }
 
+function overlaps(a, b) {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+function frameOf(rects) {
+  const left = Math.min(...rects.map((r) => r.x));
+  const top = Math.min(...rects.map((r) => r.y));
+  const right = Math.max(...rects.map((r) => r.x + r.w));
+  const bottom = Math.max(...rects.map((r) => r.y + r.h));
+  return {
+    x: left - FRAME_PAD,
+    y: top - FRAME_PAD - FRAME_LABEL,
+    w: right - left + 2 * FRAME_PAD,
+    h: bottom - top + 2 * FRAME_PAD + FRAME_LABEL,
+  };
+}
+
+const ROW_GAP = ROW_STEP - BOX_HEIGHT;
+const RANK_GAP = 100;
+
+// The sides of a group's members a joining box tries, in order: each gives the first spot,
+// beside the members' bounds, and the step outward when that spot is too close to a box.
+const SIDES = [
+  { start: (b) => [b.left, b.bottom + ROW_GAP], step: [0, ROW_STEP] },
+  { start: (b) => [b.right + RANK_GAP, b.top], step: [RANK_STEP, 0] },
+  { start: (b, size) => [b.left, b.top - ROW_GAP - size.h], step: [0, -ROW_STEP] },
+  { start: (b, size) => [b.left - RANK_GAP - size.w, b.top], step: [-RANK_STEP, 0] },
+];
+
+function stepUntilClear(box, [x, y], [dx, dy], standing) {
+  while (standing.some((other) => tooClose(rectOf(box, x, y), other.rect))) {
+    x += dx;
+    y += dy;
+  }
+  return { x, y };
+}
+
+// A placed box whose group already stands goes beside that group's members, on the first side
+// that leaves the group's frame meeting no other group's frame it did not meet already; when
+// every side does, below.
+function besideGroup(box, standing) {
+  const own = standing.filter((other) => other.group === box.group).map((other) => other.rect);
+  const otherGroups = [...new Set(standing.map((other) => other.group))]
+    .filter((group) => group !== undefined && group !== box.group);
+  const frames = otherGroups.map((group) => frameOf(standing.filter((other) => other.group === group).map((other) => other.rect)));
+  const before = frameOf(own);
+  const fresh = frames.filter((frame) => !overlaps(frame, before));
+  const bounds = {
+    left: Math.min(...own.map((r) => r.x)),
+    top: Math.min(...own.map((r) => r.y)),
+    right: Math.max(...own.map((r) => r.x + r.w)),
+    bottom: Math.max(...own.map((r) => r.y + r.h)),
+  };
+  const size = boxSize(box);
+  const spots = SIDES.map((side) => stepUntilClear(box, side.start(bounds, size), side.step, standing));
+  const keepsApart = ({ x, y }) => {
+    const after = frameOf([...own, rectOf(box, x, y)]);
+    return fresh.every((frame) => !overlaps(frame, after));
+  };
+  return spots.find(keepsApart) ?? spots[0];
+}
+
 // Returns a new document in which every box has a position. Without `all`, a positioned box
-// keeps its own, and a placed box steps down a row at a time until it clears every box already
-// standing; with `all`, every box takes the computed layout.
+// keeps its own; a placed box whose group already has a box standing joins it (`besideGroup`),
+// and any other placed box steps down from its computed position a row at a time until it
+// clears every box already standing. With `all`, every box takes the computed layout.
 export function layoutDiagram(doc, { all = false } = {}) {
   const result = structuredClone(doc);
   const partial = !all && result.boxes.some(isPositioned);
@@ -449,7 +512,7 @@ export function layoutDiagram(doc, { all = false } = {}) {
   }
   const computed = computedPositions(result);
   const standing = partial
-    ? result.boxes.filter(isPositioned).map((box) => rectOf(box, box.x, box.y))
+    ? result.boxes.filter(isPositioned).map((box) => ({ group: box.group, rect: rectOf(box, box.x, box.y) }))
     : [];
   result.boxes.forEach((box, i) => {
     if (!all && isPositioned(box)) {
@@ -457,10 +520,11 @@ export function layoutDiagram(doc, { all = false } = {}) {
     }
     let { x, y } = computed[i];
     if (partial) {
-      while (standing.some((other) => tooClose(rectOf(box, x, y), other))) {
-        y += ROW_STEP;
-      }
-      standing.push(rectOf(box, x, y));
+      const joins = box.group !== undefined && standing.some((other) => other.group === box.group);
+      ({ x, y } = joins
+        ? besideGroup(box, standing)
+        : stepUntilClear(box, [x, y], [0, ROW_STEP], standing));
+      standing.push({ group: box.group, rect: rectOf(box, x, y) });
     }
     box.x = x;
     box.y = y;
@@ -479,17 +543,7 @@ export function groupFrames(doc) {
     if (rects.length === 0) {
       continue;
     }
-    const left = Math.min(...rects.map((r) => r.x));
-    const top = Math.min(...rects.map((r) => r.y));
-    const right = Math.max(...rects.map((r) => r.x + r.w));
-    const bottom = Math.max(...rects.map((r) => r.y + r.h));
-    frames.push({
-      id: group.id,
-      x: left - FRAME_PAD,
-      y: top - FRAME_PAD - FRAME_LABEL,
-      w: right - left + 2 * FRAME_PAD,
-      h: bottom - top + 2 * FRAME_PAD + FRAME_LABEL,
-    });
+    frames.push({ id: group.id, ...frameOf(rects) });
   }
   return frames;
 }

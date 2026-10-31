@@ -11,7 +11,8 @@
 // row, note counts, and the route serving it. It checks the diagram model: a document rebuilt in
 // canonical key order, each refusal, the canonical text and its byte-identical round trip, a
 // layout that is deterministic, never moves a positioned box, ranks through cycles and keeps each
-// group's members contiguous inside frames that are their bounds, and the diagram file's reading
+// group's members contiguous inside frames that are their bounds, places a new member of a
+// positioned group beside its members without its frame meeting another group's, and the diagram file's reading
 // refusals and size limit. It checks the note rules (the anchor rule per kind,
 // a new candidate note outside the overview refusing the write, range validity, the excerpt cap),
 // resuming a notes file (a stored note keeps its anchor; rounds and note rounds restore; a file
@@ -1640,6 +1641,38 @@ const CASES = [
     const [one, two] = frames;
     assert(gapBetween(one, two) > 0, 'two group frames overlap');
     assertEqual(groupFrames(diagramOf({ groups: [{ id: 'g', label: 'G' }] })), [], 'a diagram without boxes');
+  }],
+  ['diagram: a placed box joins its positioned group without stretching the frame over another group', async () => {
+    const { checkDiagram, groupFrames, layoutDiagram } = await loadDiagramModel();
+    const groups = (...ids) => ids.map((id) => ({ id, label: id.toUpperCase() }));
+    const frameOfGroup = (frames, id) => frames.find((frame) => frame.id === id);
+    const arranged = checkDiagram(diagramOf({
+      groups: groups('g', 'h'),
+      boxes: [diagramBox('g1', { group: 'g', x: 1000, y: 1000 }), diagramBox('h1', { group: 'h', x: 500, y: 500 }), diagramBox('g2', { group: 'g' }), diagramBox('g3', { group: 'g' })],
+      arrows: [diagramArrow('1', 'g1', 'g2')],
+    }));
+    const joined = layoutDiagram(arranged);
+    assertEqual(positionsOf(joined), [['g1', 1000, 1000], ['h1', 500, 500], ['g2', 1000, 1080], ['g3', 1000, 1160]], 'two new members below their positioned group');
+    const frames = groupFrames(joined);
+    assertEqual(frameOfGroup(frames, 'g'), { id: 'g', x: 980, y: 956, w: 160, h: 270 }, 'the joined group frame');
+    assert(gapBetween(frameOfGroup(frames, 'g'), frameOfGroup(frames, 'h')) > 0, 'the joined group frame meets another group');
+    const blockedBelow = checkDiagram(diagramOf({
+      groups: groups('g', 'h'),
+      boxes: [diagramBox('g1', { group: 'g', x: 0, y: 0 }), diagramBox('h1', { group: 'h', x: 0, y: 120 }), diagramBox('g2', { group: 'g' })],
+    }));
+    const right = layoutDiagram(blockedBelow);
+    assertEqual(positionsOf(right), [['g1', 0, 0], ['h1', 0, 120], ['g2', 220, 0]], 'a group below sends the new member to the right');
+    const [g, h] = groupFrames(right);
+    assert(gapBetween(g, h) > 0, 'the frame stretched over the group below');
+    const boxedIn = checkDiagram(diagramOf({
+      groups: groups('g', 'h', 'i', 'j', 'k'),
+      boxes: [
+        diagramBox('g1', { group: 'g', x: 0, y: 0 }), diagramBox('h1', { group: 'h', x: 0, y: 120 }), diagramBox('i1', { group: 'i', x: 220, y: 0 }),
+        diagramBox('j1', { group: 'j', x: 0, y: -120 }), diagramBox('k1', { group: 'k', x: -220, y: 0 }), diagramBox('g2', { group: 'g' }),
+      ],
+    }));
+    assertEqual(positionsOf(layoutDiagram(boxedIn)).at(-1), ['g2', 0, 240], 'a group boxed in on every side falls back to below, clear of every box');
+    assertEqual(layoutDiagram(arranged), joined, 'a second layout of the same document');
   }],
   ['diagram: reading refusals, the size limit and the canonical flag', () => withTemp(async (dir) => {
     const { checkDiagram } = await loadDiagramModel();
