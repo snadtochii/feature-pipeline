@@ -116,7 +116,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       notice(`Could not load the diagram: ${state.result.error}`);
       return;
     }
-    if (state.doc.boxes.length === 0 && !state.editable) {
+    if (state.doc.boxes.length === 0 && state.saver === null) {
       notice('This diagram has no boxes yet.');
       return;
     }
