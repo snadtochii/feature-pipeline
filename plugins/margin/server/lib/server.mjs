@@ -6,11 +6,15 @@
 // every /api route must carry the per-run token that only the URL the server printed knows.
 // A run spans rounds: Send ends a round and the server keeps serving; Finish, Cancel or a
 // signal ends the run, once. A diagram session has no notes session (`session` is null): the
-// notes routes and the wait answer 404, and Finish ends it without reading edits. Twelve routes:
+// notes routes and the wait answer 404, the human's edits are saved to the diagram file through
+// PUT /api/diagram, and Finish ends it without reading edits. Thirteen routes:
 //   GET  /                    the viewer
 //   GET  /api/session         { session, files, changes }
 //   GET  /api/overview        the overview document; 404 when the run has none
 //   GET  /api/diagram         { file, root, document }; 404 when the run has none
+//   PUT  /api/diagram         { document } -> checked and written to the diagram file:
+//                             { ok, savedAt }; 400 refused, 409 changed on disk, both writing
+//                             nothing; 404 outside a diagram session
 //   GET  /api/file?path=      { path, text } | { path, binary, reason }; 404 when the path is
 //                             not listed or no longer exists
 //   GET  /api/wait?after=     held until the round count exceeds `after` or the run ends, then
@@ -47,6 +51,7 @@ const STATIC = {
   '/overview.js': ['overview.js', 'text/javascript; charset=utf-8'],
   '/overview-view.js': ['overview-view.js', 'text/javascript; charset=utf-8'],
   '/diagram.js': ['diagram.js', 'text/javascript; charset=utf-8'],
+  '/diagram-edit.js': ['diagram-edit.js', 'text/javascript; charset=utf-8'],
   '/diagram-view.js': ['diagram-view.js', 'text/javascript; charset=utf-8'],
   '/vendor/highlight.min.js': ['vendor/highlight.min.js', 'text/javascript; charset=utf-8'],
   '/vendor/dockerfile.min.js': ['vendor/dockerfile.min.js', 'text/javascript; charset=utf-8'],
@@ -136,9 +141,13 @@ function flush(pending) {
 // `watching()` the number of held change waits. `overview` is the run's checked overview
 // document, or null when it has none; it is served as is, and its candidate names are the ones
 // a new candidate note may carry. `diagram` is `{ file, root, document }` for a run that shows a
-// diagram, or null; it is served as is. A null `session` is a diagram session: `onSave`,
-// `onSend` and `onReply` are never called, and the end document carries only its status.
-export function startServer({ port, token: givenToken, session, files: initialFiles, readSource, onSave, onSend, onReply, onEnd, relist, overview = null, diagram = null }) {
+// diagram, or null; it is served as is until a save replaces its document. `saveDiagram(document)`
+// saves an edited diagram and returns `{ status: 200, document }` or `{ status, error }` with
+// nothing written; without it `PUT /api/diagram` answers 404. A null `session` is a diagram
+// session: `onSave`, `onSend` and `onReply` are never called, and the end document carries only
+// its status.
+export function startServer({ port, token: givenToken, session, files: initialFiles, readSource, onSave, onSend, onReply, onEnd, relist, overview = null, diagram: givenDiagram = null, saveDiagram = null }) {
+  let diagram = givenDiagram;
   let files = initialFiles;
   const candidates = candidateNames(overview);
   let allowed = { paths: new Set(files), candidates };
@@ -251,10 +260,12 @@ export function startServer({ port, token: givenToken, session, files: initialFi
         res.on('close', () => waiters.delete(res));
         return undefined;
       }
+      const diagramSave = req.method === 'PUT' && url.pathname === '/api/diagram' && saveDiagram !== null;
       const mutating =
+        diagramSave ||
         (req.method === 'PUT' && url.pathname === '/api/session') ||
         (req.method === 'POST' && (url.pathname === '/api/submit' || url.pathname === '/api/reply' || END_ROUTES[url.pathname]));
-      if (!mutating || (!session && url.pathname !== '/api/finish')) {
+      if (!mutating || (!session && !diagramSave && url.pathname !== '/api/finish')) {
         return sendJson(res, { error: 'not found' }, 404);
       }
       // Checked after the body is read, so a request that was in flight when the end began
@@ -262,6 +273,14 @@ export function startServer({ port, token: givenToken, session, files: initialFi
       const body = await readJson(req);
       if (closed) {
         return sendJson(res, { error: 'the run has ended' }, 409);
+      }
+      if (diagramSave) {
+        const saved = saveDiagram(body?.document);
+        if (saved.status !== 200) {
+          return sendJson(res, { error: saved.error }, saved.status);
+        }
+        diagram = { ...diagram, document: saved.document };
+        return sendJson(res, { ok: true, savedAt: new Date().toISOString() });
       }
       if (!session) {
         end('finished', res);

@@ -15,10 +15,12 @@
 // positioned group beside its members without its frame meeting another group's, and the diagram file's reading
 // refusals and size limit; arrow geometry (a lone arrow straight between box borders, parallel and
 // opposite arrows spread apart, nested self-loops), the bounds and the fit transform, and a
-// diagram session's listing of linked regular files only. It checks the note rules (the anchor rule per kind,
+// diagram session's listing of linked regular files only. It checks the viewer's diagram edits:
+// each edit checked and its input untouched, removals cleaning walkthrough steps, ids, the group
+// a dropped box lands in, the layouts, and the save ordering with its failures. It checks the note rules (the anchor rule per kind,
 // a new candidate note outside the overview refusing the write, range validity, the excerpt cap),
 // resuming a notes file (a stored note keeps its anchor; rounds and note rounds restore; a file
-// without rounds is round 0; the refusals), the atomic save, the sent-note lock, a Send withholding
+// without rounds is round 0; the refusals), the atomic save keeping the file's mode, the sent-note lock, a Send withholding
 // the candidate notes the overview does not name, the agent's replies
 // (kept through a viewer write and a resume, each resume refusal for them, a reply post whose
 // save fails changing nothing), the scope rule, file listing that never lists a symlink, and
@@ -33,7 +35,9 @@
 // for the overview's names and refused on every write route otherwise, and a listing that never
 // lists the overview file. Against a diagram session's server, with no notes session, it checks
 // the diagram route, the null session, linked-file reads, the notes routes answering 404 and
-// Finish ending it. It checks the overview data: the import scan and its resolution
+// Finish ending it, and its save route: a canonical write served afterwards, each refusal and a
+// file changed on disk leaving the file as it was, a save after the end, and the 404 without a
+// writer. It checks the overview data: the import scan and its resolution
 // against the listing and tsconfig `paths`, the line count, indent width and indentation, churn
 // from dated commits in a temporary repository, the hotspot table, explorer blocks parsed and
 // dropped, roles merged, each notice, and the size limit. Through `cli.mjs` children it checks
@@ -41,8 +45,8 @@
 // refusals, each `--overview` refusal leaving `--out` as it was, the `measure` and
 // `assemble` refusals writing nothing, `diagram --check` exiting 0, 1 and 2 with the file
 // left as it was, and a diagram session's refusals exiting before binding) and end-to-end runs:
-// a diagram session's stderr block, root default and override, and its document on Finish and
-// on SIGTERM with nothing written, a submit, a `wait` child, finish,
+// a diagram session's stderr block, root default and override, a save writing the canonical
+// text, and its document on Finish and on SIGTERM with nothing else written, a submit, a `wait` child, finish,
 // and exactly one result document, a run ended by SIGTERM, a run serving its overview and
 // sending a candidate note, and
 // `measure` then `assemble` writing an overview the shape check accepts.
@@ -67,7 +71,7 @@ import { createResolver, parseJsonc, scanSpecifiers } from './imports.mjs';
 import { countLines, detectWidth, indentation, measureScope } from './measure.mjs';
 import { MAX_OVERVIEW_BYTES, checkOverview, readOverview } from './overview.mjs';
 import { startServer } from './server.mjs';
-import { RunError, createSession, finishRun, postReplies, readStored, restoreSession, saveSession, scopePath, sendRound } from './session.mjs';
+import { RunError, createSession, finishRun, postReplies, readStored, restoreSession, saveSession, scopePath, sendRound, writeAtomic } from './session.mjs';
 import { waitForRound } from './wait.mjs';
 
 const CLI = fileURLToPath(new URL('../cli.mjs', import.meta.url));
@@ -199,11 +203,21 @@ function withServer(fn, { overview = null } = {}) {
 
 // A diagram session's server on port 0 over a temp root holding `a.txt`, as `cli.mjs diagram
 // <file>` wires it: no notes session, the given listing, and `finished` settling with the
-// diagram session document.
-function withDiagramServer(fn, { document, files }) {
+// diagram session document. With `save`, the diagram file holds `text` (the document's
+// canonical text by default) and the server saves to it as the session's writer does.
+function withDiagramServer(fn, { document, files, save = false, text }) {
   return withTemp(async (root) => {
     write(root, 'a.txt', 'a\n');
     const file = path.join(root, 'd.diagram.json');
+    let saveDiagram = null;
+    if (save) {
+      const { serializeDiagram } = await loadDiagramModel();
+      const { diagramWriter } = await loadDiagramReader();
+      const start = text ?? serializeDiagram(document);
+      write(root, 'd.diagram.json', start);
+      const writer = diagramWriter(file, start);
+      saveDiagram = (edited) => writer.save(edited);
+    }
     const { url, close, ended } = await startServer({
       port: 0,
       token: TOKEN,
@@ -213,6 +227,7 @@ function withDiagramServer(fn, { document, files }) {
       relist: () => files,
       onEnd: (status) => ({ status, file }),
       diagram: { file, root, document },
+      saveDiagram,
     });
     try {
       const port = Number(new URL(url).port);
@@ -475,6 +490,9 @@ const loadRounds = () => import('../../ui/rounds.js');
 const loadOverviewModel = () => import('../../ui/overview.js');
 const loadDiagramModel = () => import('../../ui/diagram.js');
 const loadDiagramReader = () => import('./diagram.mjs');
+const loadDiagramEdit = () => import('../../ui/diagram-edit.js');
+
+const tick =() => new Promise((resolve) => setImmediate(resolve));
 
 // ---- the diagram model (ui/diagram.js) --------------------------------------------------------
 
@@ -1732,7 +1750,7 @@ const CASES = [
     const refused = write(dir, 'refused.json', JSON.stringify(unknown));
     throwsRun(() => readDiagram(refused), 1, `diagram ${refused}: boxes[0] has unknown key w`);
     const canonical = write(dir, 'canonical.diagram.json', DIAGRAM_FIXTURE_TEXT);
-    assertEqual(readDiagram(canonical), { document: checkDiagram(diagramFixture()), canonical: true }, 'a canonical file');
+    assertEqual(readDiagram(canonical), { document: checkDiagram(diagramFixture()), text: DIAGRAM_FIXTURE_TEXT, canonical: true }, 'a canonical file');
     const pretty = write(dir, 'pretty.diagram.json', `${JSON.stringify(checkDiagram(diagramFixture()), null, 2)}\n`);
     assertEqual(readDiagram(pretty).canonical, false, 'a two-space JSON file');
     const bare = write(dir, 'bare.diagram.json', DIAGRAM_FIXTURE_TEXT.slice(0, -1));
@@ -1834,10 +1852,264 @@ const CASES = [
     await withServer(async ({ port, host }) => {
       const none = await request(port, { target: '/api/diagram', headers: { host, 'x-margin-token': TOKEN } });
       assertEqual([none.status, none.json], [404, { error: 'no diagram' }], 'the diagram route on a run without one');
-      for (const asset of ['/diagram.js', '/diagram-view.js']) {
+      for (const asset of ['/diagram.js', '/diagram-edit.js', '/diagram-view.js']) {
         const res = await request(port, { target: asset, headers: { host } });
         assert(res.status === 200 && res.type === 'text/javascript; charset=utf-8', `${asset} got ${res.status} ${res.type}`);
       }
+    });
+  }],
+  ['diagram edit: each operation returns a new checked document and leaves its input as it was', async () => {
+    const { checkDiagram } = await loadDiagramModel();
+    const edit = await loadDiagramEdit();
+    const base = checkDiagram(diagramOf({
+      groups: [{ id: 'g', label: 'G' }, { id: 'h', label: 'H' }],
+      boxes: [diagramBox('a', { group: 'g', x: 0, y: 0 }), diagramBox('b', { x: 300, y: 0 })],
+      arrows: [diagramArrow('ab', 'a', 'b')],
+    }));
+    const before = structuredClone(base);
+    const added = edit.addBox(base, { id: 'box-1', x: 10.4, y: 20.6, label: '  New  ', group: 'h' });
+    assertEqual(added.boxes[2], { id: 'box-1', label: 'New', kind: 'concept', files: [], group: 'h', x: 10, y: 21 }, 'an added box');
+    assert(!('group' in edit.addBox(base, { id: 'box-2', x: 0, y: 0, label: 'X', group: 'nope' }).boxes[2]), 'an added box naming no group keeps no group');
+    assert(edit.addBox(base, { id: 'a', x: 0, y: 0, label: 'X' }) === base, 'an added box reusing an id');
+    assert(edit.addBox(base, { id: 'box-3', x: 0, y: 0, label: '   ' }) === base, 'an added box with a blank label');
+    const renamed = edit.renameBox(base, 'a', ' Alpha ');
+    assertEqual(renamed.boxes[0].label, 'Alpha', 'a renamed box');
+    assert(edit.renameBox(base, 'a', '   ') === base, 'a blank box label keeps the old one');
+    const kinded = edit.setKind(base, 'a', 'store');
+    assertEqual(kinded.boxes[0].kind, 'store', 'a kind change');
+    assert(edit.setKind(base, 'a', 'widget') === base, 'an unknown kind');
+    const grouped = edit.setGroup(base, 'b', 'h');
+    assertEqual(grouped.boxes[1].group, 'h', 'a box joining a group');
+    const ungrouped = edit.setGroup(base, 'a', null);
+    assert(!('group' in ungrouped.boxes[0]), 'a box leaving every group keeps no group key');
+    assert(edit.setGroup(base, 'a', 'nope') === base, 'an unknown group');
+    const moved = edit.moveBox(base, 'b', 12.5, -7.4);
+    assertEqual([moved.boxes[1].x, moved.boxes[1].y], [13, -7], 'a move rounds to integers');
+    const joined = edit.connect(base, { id: 'arrow-1', from: 'b', to: 'a' });
+    assertEqual(joined.arrows[1], { id: 'arrow-1', from: 'b', to: 'a', label: '', why: '' }, 'a new arrow');
+    const parallel = edit.connect(base, { id: 'arrow-2', from: 'a', to: 'b' });
+    assertEqual(parallel.arrows.map((arrow) => arrow.id), ['ab', 'arrow-2'], 'a parallel arrow');
+    assert(edit.connect(base, { id: 'arrow-3', from: 'a', to: 'a' }) === base, 'a self-loop');
+    assert(edit.connect(base, { id: 'arrow-3', from: 'a', to: 'zz' }) === base, 'an arrow to an unknown box');
+    assert(edit.connect(base, { id: 'ab', from: 'b', to: 'a' }) === base, 'an arrow reusing an id');
+    const labelled = edit.relabelArrow(base, 'ab', ' calls ');
+    assertEqual(labelled.arrows[0].label, 'calls', 'a relabelled arrow');
+    assertEqual(edit.relabelArrow(labelled, 'ab', '  ').arrows[0].label, '', 'an arrow label cleared');
+    for (const [result, what] of [
+      [edit.renameBox(base, 'zz', 'x'), 'rename'], [edit.setKind(base, 'zz', 'store'), 'kind'], [edit.setGroup(base, 'zz', 'g'), 'group'],
+      [edit.moveBox(base, 'zz', 1, 1), 'move'], [edit.removeBox(base, 'zz'), 'box removal'], [edit.relabelArrow(base, 'zz', 'x'), 'relabel'],
+      [edit.removeArrow(base, 'zz'), 'arrow removal'], [edit.moveBox(base, 'a', 0, 0), 'a move to where the box is'],
+    ]) {
+      assert(result === base, `a ${what} that does not apply returned a new document`);
+    }
+    for (const result of [added, renamed, kinded, grouped, ungrouped, moved, joined, parallel, labelled]) {
+      assertEqual(checkDiagram(result), result, 'an edited document the check does not accept as it is');
+    }
+    assertEqual(base, before, 'an operation changed its input');
+  }],
+  ['diagram edit: removing a box or an arrow drops its arrows from every walkthrough step', async () => {
+    const { checkDiagram } = await loadDiagramModel();
+    const edit = await loadDiagramEdit();
+    const base = checkDiagram(diagramOf({
+      boxes: [diagramBox('a'), diagramBox('b'), diagramBox('c')],
+      arrows: [diagramArrow('loop', 'a', 'a'), diagramArrow('ab1', 'a', 'b'), diagramArrow('ab2', 'a', 'b'), diagramArrow('bc', 'b', 'c')],
+      walkthroughs: [{ name: 'W', steps: [{ arrows: ['loop', 'ab1'], text: 'one' }, { arrows: ['ab2', 'bc'], text: 'two' }] }],
+    }));
+    const before = structuredClone(base);
+    const noA = edit.removeBox(base, 'a');
+    assertEqual(noA.boxes.map((box) => box.id), ['b', 'c'], 'the boxes left');
+    assertEqual(noA.arrows.map((arrow) => arrow.id), ['bc'], 'the self-loop and both parallel arrows go with their box');
+    assertEqual(noA.walkthroughs, [{ name: 'W', steps: [{ arrows: [], text: 'one' }, { arrows: ['bc'], text: 'two' }] }], 'the steps after a box removal');
+    const noBc = edit.removeArrow(base, 'bc');
+    assertEqual(noBc.arrows.map((arrow) => arrow.id), ['loop', 'ab1', 'ab2'], 'the arrows after an arrow removal');
+    assertEqual(noBc.walkthroughs[0].steps.map((step) => step.arrows), [['loop', 'ab1'], ['ab2']], 'the steps after an arrow removal');
+    const bare = edit.removeArrow(noA, 'bc');
+    assertEqual(bare.walkthroughs, [{ name: 'W', steps: [{ arrows: [], text: 'one' }, { arrows: [], text: 'two' }] }], 'every step kept with no arrows');
+    for (const result of [noA, noBc, bare]) {
+      assertEqual(checkDiagram(result), result, 'a document after a removal the check does not accept as it is');
+    }
+    assertEqual(base, before, 'a removal changed its input');
+  }],
+  ['diagram edit: ids never repeat, drops resolve the group, and the layouts', async () => {
+    const { checkDiagram, layoutDiagram } = await loadDiagramModel();
+    const edit = await loadDiagramEdit();
+    const ids = edit.createIds(diagramOf({
+      boxes: [diagramBox('box-007'), diagramBox('box-x'), diagramBox('box-3'), diagramBox('arrow-2')],
+      arrows: [diagramArrow('arrow-3', 'box-3', 'box-x')],
+    }));
+    assertEqual([ids.next('box'), ids.next('box'), ids.next('arrow'), ids.next('arrow')], ['box-8', 'box-9', 'arrow-4', 'arrow-5'], 'the ids handed out');
+    const empty = edit.createIds(diagramOf({}));
+    assertEqual([empty.next('box'), empty.next('arrow')], ['box-1', 'arrow-1'], 'the first ids of an empty diagram');
+
+    const frames = [{ id: 'g', x: 0, y: 0, w: 100, h: 100 }, { id: 'h', x: 50, y: 50, w: 100, h: 100 }];
+    assertEqual(edit.groupAt(frames, { x: 75, y: 75 }), 'h', 'overlapping frames take the last');
+    assertEqual(edit.groupAt(frames, { x: 10, y: 10 }), 'g', 'a point in one frame');
+    assertEqual(edit.groupAt(frames, { x: 500, y: 500 }), null, 'a point in no frame');
+    const doc = checkDiagram(diagramOf({
+      groups: [{ id: 'g', label: 'G' }, { id: 'h', label: 'H' }],
+      boxes: [diagramBox('a', { group: 'g', x: 0, y: 0 }), diagramBox('c', { group: 'g', x: 0, y: 100 }), diagramBox('b', { x: 400, y: 0 })],
+    }));
+    assertEqual(edit.dropGroup(doc, 'a', { x: 500, y: 500 }, frames), 'g', 'a drop outside every frame keeps the group');
+    assertEqual(edit.dropGroup(doc, 'b', { x: 500, y: 500 }, frames), null, 'an ungrouped drop outside every frame');
+    assertEqual(edit.dropGroup(doc, 'b', { x: 10, y: 10 }, frames), 'g', 'an ungrouped box dropped in a frame joins it');
+    assertEqual(edit.dropGroup(doc, 'a', { x: 120, y: 120 }, frames), 'h', 'a drop into another group');
+    // c alone: x 0..120, y 100..146, so the frame is 20 wider each side and 24 taller above.
+    assertEqual(edit.dropFrames(doc, 'a'), [{ id: 'g', x: -20, y: 56, w: 160, h: 110 }], 'the frames without the dragged box');
+
+    const loose = checkDiagram(diagramOf({ boxes: [diagramBox('p', { x: 900, y: 900 }), diagramBox('q')], arrows: [diagramArrow('pq', 'p', 'q')] }));
+    const frozen = edit.freeze(loose);
+    assert(frozen.boxes.every((box) => Number.isSafeInteger(box.x) && Number.isSafeInteger(box.y)), 'freeze left a box unpositioned');
+    assertEqual([frozen.boxes[0].x, frozen.boxes[0].y], [900, 900], 'freeze moved a positioned box');
+    assertEqual(edit.relayout(loose), layoutDiagram(loose, { all: true }), 'the re-layout');
+    assertEqual(edit.freeze(diagramOf({})), diagramOf({}), 'freezing an empty diagram');
+  }],
+  ['diagram edit: the saver keeps one save in flight and sends the newest document next', async () => {
+    const { createSaver } = await loadDiagramEdit();
+    const calls = [];
+    const send = (doc) => new Promise((resolve, reject) => calls.push({ doc, resolve, reject }));
+    const failure = (message, status) => Object.assign(new Error(message), { status });
+    const phases = [];
+    const saver = createSaver(send, { saved: 'v0', onChange: (state) => phases.push(state.phase) });
+    assertEqual([saver.state.phase, saver.state.saved], ['idle', 'v0'], 'the saver before any save');
+    saver.save('v1');
+    saver.save('v2');
+    saver.save('v3');
+    assertEqual(calls.map((call) => call.doc), ['v1'], 'saves while one is in flight');
+    const flushed = saver.flush();
+    assert(!(await isSettled(flushed)), 'flush settled with a save in flight');
+    calls[0].resolve({ ok: true });
+    await tick();
+    assertEqual(calls.map((call) => call.doc), ['v1', 'v3'], 'the newest document sent next');
+    assert(!(await isSettled(flushed)), 'flush settled with the newest document in flight');
+    calls[1].resolve({ ok: true });
+    const idle = await within(flushed, 'the flush');
+    assertEqual([idle.phase, idle.saved], ['idle', 'v3'], 'the state once every save landed');
+    assertEqual(phases, ['saving', 'saving', 'idle'], 'the phases heard');
+
+    saver.save('v4');
+    saver.save('v5');
+    calls[2].reject(failure('boxes[0] has unknown key w', 400));
+    await tick();
+    assertEqual(calls.length, 3, 'a 400 sent the waiting document');
+    assertEqual([saver.state.phase, saver.state.status, saver.state.error, saver.state.saved], ['failed', 400, 'boxes[0] has unknown key w', 'v3'], 'the state after a 400');
+    saver.retry();
+    await tick();
+    assertEqual(calls.length, 3, 'a retry after a 400 sent something');
+
+    saver.save('v6');
+    saver.save('v7');
+    calls[3].reject(failure('disk full', 500));
+    await tick();
+    assertEqual(calls.length, 4, 'a 500 sent the waiting document at once');
+    assertEqual((await within(saver.flush(), 'the flush after a 500')).phase, 'failed', 'a flush after a 500');
+    saver.retry();
+    await tick();
+    assertEqual(calls[4].doc, 'v7', 'the retry sends the newest unsaved document');
+    calls[4].resolve({ ok: true });
+    await tick();
+    assertEqual([saver.state.phase, saver.state.saved], ['idle', 'v7'], 'the state after the retry');
+
+    saver.save('v8');
+    calls[5].reject(failure('offline', 0));
+    await tick();
+    saver.save('v9');
+    assertEqual(calls[6].doc, 'v9', 'the next edit after an unreachable server sends its own document');
+    calls[6].resolve({ ok: true });
+    await tick();
+    assertEqual(saver.state.saved, 'v9', 'the last saved document');
+  }],
+  ["session: an atomic write keeps the file's permission bits and leaves no temporary file", () => withTemp((dir) => {
+    const file = write(dir, 'kept.json', 'old\n');
+    for (const mode of [0o600, 0o640]) {
+      fs.chmodSync(file, mode);
+      writeAtomic(file, `mode ${mode}\n`);
+      assertEqual([fs.readFileSync(file, 'utf8'), fs.statSync(file).mode & 0o777], [`mode ${mode}\n`, mode], `an atomic write over a ${mode.toString(8)} file`);
+    }
+    const fresh = path.join(dir, 'sub', 'fresh.json');
+    writeAtomic(fresh, 'new\n');
+    assertEqual(fs.readFileSync(fresh, 'utf8'), 'new\n', 'an atomic write creating its file');
+    assertEqual(fs.readdirSync(dir).sort(), ['kept.json', 'sub'], 'files beside the written file');
+    assertEqual(fs.readdirSync(path.join(dir, 'sub')), ['fresh.json'], 'files beside the created file');
+  })],
+  ['diagram session: a save checks the document, writes its canonical text and serves it', async () => {
+    const { checkDiagram } = await loadDiagramModel();
+    const document = checkDiagram(diagramFixture());
+    await withDiagramServer(async ({ port, host, root, file }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const edited = diagramFixture();
+      Object.assign(edited.boxes[1], { label: 'skill', x: 400, y: 84 });
+      const noToken = await request(port, { method: 'PUT', target: '/api/diagram', headers: { host }, body: { document: edited } });
+      assertEqual(noToken.status, 403, 'a save without the token');
+      assert(fs.readFileSync(file, 'utf8') === JSON.stringify(diagramFixture()), 'a save without the token wrote the file');
+      const saved = await request(port, { method: 'PUT', target: '/api/diagram', headers, body: { document: edited } });
+      assert(saved.status === 200 && saved.json.ok === true && !Number.isNaN(Date.parse(saved.json.savedAt)), `a save got ${saved.status} ${saved.text}`);
+      const expected = DIAGRAM_FIXTURE_TEXT.replace(
+        '    {"id":"skill","label":"annotate skill","kind":"agent","files":[]}',
+        '    {"id":"skill","label":"skill","kind":"agent","files":[],"x":400,"y":84}',
+      );
+      assert(fs.readFileSync(file, 'utf8') === expected, `the saved file is not the canonical text: ${fs.readFileSync(file, 'utf8')}`);
+      const served = await request(port, { target: '/api/diagram', headers });
+      assertEqual(served.json.document.boxes[1], { id: 'skill', label: 'skill', kind: 'agent', files: [], x: 400, y: 84 }, 'the served document after a save');
+      edited.boxes[1].label = 'again';
+      const second = await request(port, { method: 'PUT', target: '/api/diagram', headers, body: { document: edited } });
+      assertEqual(second.status, 200, 'a second save over the text the session wrote');
+      assert(fs.readFileSync(file, 'utf8').includes('{"id":"skill","label":"again",'), 'the second save is not on disk');
+      assertEqual(fs.readdirSync(root).sort(), ['a.txt', 'd.diagram.json'], 'files under the root after saves');
+    }, { document, files: ['a.txt'], save: true, text: JSON.stringify(diagramFixture()) });
+  }],
+  ['diagram session: a refused save, a file changed on disk and the end write nothing; without a writer the route is 404', async () => {
+    const { checkDiagram } = await loadDiagramModel();
+    const document = checkDiagram(diagramFixture());
+    await withDiagramServer(async ({ port, host, root, file, finished }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      fs.chmodSync(file, 0o640);
+      const unknown = diagramFixture();
+      unknown.boxes[0].w = 1;
+      const unnamed = diagramFixture();
+      unnamed.arrows[0].to = 'nowhere';
+      const big = diagramFixture();
+      big.arrows[0].why = 'x'.repeat(MAX_BYTES);
+      for (const [body, error, what] of [
+        [{}, 'document is not an object', 'no document'],
+        [null, 'document is not an object', 'a null body'],
+        [{ document: [] }, 'document is not an object', 'an array'],
+        [{ document: null }, 'document is not an object', 'a null document'],
+        [{ document: unknown }, 'boxes[0] has unknown key w', 'an unknown key'],
+        [{ document: unnamed }, 'arrows[0].to names no box nowhere', 'a reference to no box'],
+        [{ document: big }, 'diagram too large', 'an oversized document'],
+      ]) {
+        const res = await request(port, { method: 'PUT', target: '/api/diagram', headers, body });
+        assertEqual([res.status, res.json], [400, { error }], `a save of ${what}`);
+      }
+      assert(fs.readFileSync(file, 'utf8') === DIAGRAM_FIXTURE_TEXT, 'a refused save changed the file');
+      assertEqual(fs.statSync(file).mode & 0o777, 0o640, 'the file mode after refused saves');
+      assertEqual(fs.readdirSync(root).sort(), ['a.txt', 'd.diagram.json'], 'files under the root after refused saves');
+
+      const valid = { document: diagramFixture() };
+      fs.writeFileSync(file, `${DIAGRAM_FIXTURE_TEXT} `);
+      const changed = await request(port, { method: 'PUT', target: '/api/diagram', headers, body: valid });
+      assertEqual([changed.status, changed.json], [409, { error: 'the diagram file changed on disk' }], 'a save over a file changed on disk');
+      assert(fs.readFileSync(file, 'utf8') === `${DIAGRAM_FIXTURE_TEXT} `, 'a save overwrote a file changed on disk');
+      fs.rmSync(file);
+      const gone = await request(port, { method: 'PUT', target: '/api/diagram', headers, body: valid });
+      assertEqual([gone.status, gone.json], [409, { error: 'the diagram file changed on disk' }], 'a save over a deleted file');
+      assert(!fs.existsSync(file), 'a save recreated a deleted diagram file');
+
+      const finish = await request(port, { method: 'POST', target: '/api/finish', headers });
+      assertEqual(finish.json, { ok: true, status: 'finished' }, 'Finish');
+      await finished();
+      const late = await request(port, { method: 'PUT', target: '/api/diagram', headers, body: valid });
+      assertEqual([late.status, late.json], [409, { error: 'the run has ended' }], 'a save after the end');
+      assertEqual(fs.readdirSync(root), ['a.txt'], 'files under the root after the end');
+    }, { document, files: ['a.txt'], save: true });
+    await withDiagramServer(async ({ port, host, root }) => {
+      const res = await request(port, { method: 'PUT', target: '/api/diagram', headers: { host, 'x-margin-token': TOKEN }, body: { document: diagramFixture() } });
+      assertEqual([res.status, res.json], [404, { error: 'not found' }], 'a save in a diagram session without a writer');
+      assertEqual(fs.readdirSync(root), ['a.txt'], 'files under the root without a writer');
+    }, { document, files: ['a.txt'] });
+    await withServer(async ({ port, host }) => {
+      const res = await request(port, { method: 'PUT', target: '/api/diagram', headers: { host, 'x-margin-token': TOKEN }, body: { document: diagramFixture() } });
+      assertEqual([res.status, res.json], [404, { error: 'not found' }], 'a save in an annotate run');
     });
   }],
   ['overview: the route serves the document behind the token, 404 without one', async () => {
@@ -2796,6 +3068,9 @@ const CASES = [
       const served = await request(port, { target: '/api/diagram', headers });
       assertEqual([served.json.file, served.json.root], [file, repo], 'the served diagram file and root');
       assertEqual((await request(port, { headers })).json.files, ['a.txt'], 'the diagram session listing');
+      fixture.boxes[1].label = 'the skill';
+      const save = await request(port, { method: 'PUT', target: '/api/diagram', headers, body: { document: fixture } });
+      assertEqual([save.status, save.json.ok], [200, true], 'a save through the diagram session');
       const finish = await request(port, { method: 'POST', target: '/api/finish', headers });
       assertEqual(finish.json, { ok: true, status: 'finished' }, 'finish reply');
       const exit = await server.exited();
@@ -2805,7 +3080,11 @@ const CASES = [
     } finally {
       server.child.kill('SIGKILL');
     }
-    assert(fs.readFileSync(file, 'utf8') === text, 'a diagram session changed the diagram file');
+    const savedText = DIAGRAM_FIXTURE_TEXT
+      .replace('"files":["server/cli.mjs"]', '"files":["a.txt","server/cli.mjs"]')
+      .replace('"label":"annotate skill"', '"label":"the skill"');
+    assert(fs.readFileSync(file, 'utf8') === savedText, `the diagram file after a save is not its canonical text: ${fs.readFileSync(file, 'utf8')}`);
+    assert(text !== savedText, 'the diagram file was canonical before its save');
     assertEqual(fs.readdirSync(repo).sort(), ['.git', 'a.txt', 'docs'], 'files under the root after a diagram session');
     assertEqual(fs.readdirSync(path.join(repo, 'docs')), ['d.diagram.json'], 'files beside the diagram after a diagram session');
 
@@ -2826,6 +3105,8 @@ const CASES = [
         run.child.kill('SIGKILL');
       }
     }
+    assert(fs.readFileSync(loose, 'utf8') === DIAGRAM_FIXTURE_TEXT, 'a diagram session with no save changed the diagram file');
+    assertEqual(fs.readdirSync(plain), ['x.diagram.json'], 'files beside a diagram no save touched');
   })],
   ['cli: diagram session refusals exit before binding a port', () => withTemp((dir) => {
     const good = write(dir, 'good.diagram.json', DIAGRAM_FIXTURE_TEXT);

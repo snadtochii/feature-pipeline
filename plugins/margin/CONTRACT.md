@@ -78,14 +78,15 @@ exits 0. The file it writes is the one `annotate --overview` reads.
 `diagram --check` validates its arguments (§3), reads and checks the diagram file (§15),
 prints the diagram document (§2) and exits 0. It binds no port and writes nothing.
 
-A diagram session (`diagram <file>`) is a read-only run that shows the diagram in the viewer.
-It validates its arguments (§3), reads and checks the diagram file (§15), resolves the root —
+A diagram session (`diagram <file>`) is a run that shows the diagram in the viewer and saves
+the human's edits to the diagram file as they are made (§8, §15). It validates its arguments (§3), reads and checks the diagram file (§15), resolves the root —
 `--root` when given, else the top level of the git repository holding the diagram file's
 directory, else that directory — lists the files the diagram links (§10), binds the port,
 prints the stderr block (§2) and opens the viewer unless `--no-open` is given. It keeps no
 notes file and sends no rounds. The session ends once, on Finish (`POST /api/finish`, §8) or
 `SIGINT` / `SIGTERM`; the process then prints the diagram session document (§2) and exits 0.
-It writes nothing.
+It writes only the diagram file, and only on a save (`PUT /api/diagram`, §8): the path is
+fixed when the session starts, and the server writes nowhere else.
 
 ## §2 Output rules
 
@@ -226,9 +227,9 @@ is not a refusal (§14).
 exactly `diagram` and one `<file>`, `--check` is not given with a session flag, `<file>` is
 non-empty, then — in a diagram session — `--port`, `--token` and an empty `--root`, then the
 read — not found, not a regular file, the size limit, the read itself, the JSON — and the
-shape check (§15), then — in a diagram session — the root and the port binding. Neither form
-writes anything, so a refused file is left exactly as it was, and a refused session binds no
-port.
+shape check (§15), then — in a diagram session — the root and the port binding. A refused
+form writes nothing, so a refused file is left exactly as it was, and a refused session binds
+no port.
 
 ## §4 Flags
 
@@ -440,13 +441,14 @@ all predate unsent ones; the list otherwise stays in creation order, sent notes 
 
 The server listens on `127.0.0.1` only, at the bound port. Every response carries
 `cache-control: no-store`; JSON responses are `application/json; charset=utf-8`. Every
-request passes the guards of §9 first. Twelve routes:
+request passes the guards of §9 first. Thirteen routes:
 
 | Route | Token | Request | Response |
 |---|---|---|---|
-| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/rounds.js`, `/overview.js`, `/overview-view.js`, `/diagram.js`, `/diagram-view.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
+| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/rounds.js`, `/overview.js`, `/overview-view.js`, `/diagram.js`, `/diagram-edit.js`, `/diagram-view.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
 | `GET /api/overview` | yes | — | 200 with the overview document as checked (§13). 404 `{"error": "no overview"}` when the run has none. Served until the process exits. |
-| `GET /api/diagram` | yes | — | 200 `{"file", "root", "document"}`: the diagram file's absolute path, the session's root, and the diagram document as checked (§15), not laid out. 404 `{"error": "no diagram"}` when the run has none. Served until the process exits. |
+| `GET /api/diagram` | yes | — | 200 `{"file", "root", "document"}`: the diagram file's absolute path, the session's root, and the diagram document as checked (§15) when the session started or as last saved, not laid out. 404 `{"error": "no diagram"}` when the run has none. Served until the process exits. |
+| `PUT /api/diagram` | yes | `{"document": <diagram>}` | Saves the diagram file, in a diagram session only. The checks run in this order, each answering 400 `{"error"}` with the file untouched: `document` missing or not an object (`document is not an object`); the document fails §15 (the violation, worded as `diagram --check` words it after `diagram <file>:`); its canonical text exceeds 2 MiB (`diagram too large`). The file is then read again: when it is gone, unreadable, or not the text the session last read or wrote, the reply is 409 `{"error": "the diagram file changed on disk"}` and nothing is written. Otherwise the canonical text (§15) is written atomically — to a temporary file in the same directory, renamed over the file, keeping the file's permission bits — becomes the document `GET /api/diagram` serves, and the reply is 200 `{"ok": true, "savedAt": <ISO time>}`. A write that fails answers 500 `{"error"}` and the file keeps its previous text. Outside a diagram session the route answers 404 `{"error": "not found"}`. |
 | `GET /api/session` | yes | — | 200 `{"session": <the notes file object, §6>, "files": [<the current listing, §10>], "changes": <the run's change count>}`. The change count is `0` when the process starts, is kept in memory only, and goes up by one on every accepted reply post. In a diagram session (§1) `session` is `null`. |
 | `GET /api/file?path=<p>` | yes | — | `<p>` not in the current listing: 404 `{"error": "<p> is not in scope"}`. A listed path that no longer exists — removed, or a parent folder replaced by a file: 404 `{"error": "<p> no longer exists"}`. Otherwise 200 with `{"path", "text"}` or a refusal `{"path", "binary": true, "reason"}` (§10). |
 | `GET /api/changes?after=<n>` | yes | — | `after` absent or not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`, `<value>` empty when absent. Once the end of the run has begun: 200 `{"status": <the end's status>, "changes": <count>}`, at once. When the change count exceeds `<n>`: 200 `{"status": "changed", "changes": <count>}`, at once. Otherwise the reply is held until an accepted reply post brings the count above `<n>`, which answers it `changed` with the new count, or the end of the run answers it. |
@@ -465,7 +467,7 @@ the process prints the result document (§2) and exits 0 once those replies have
 to their sockets, or after 1000 ms, whichever is sooner. When the notes file cannot be saved,
 that Cancel or Finish request is answered 500 `{"error"}` and the process exits 1 with the
 error document (§3). Once
-the end has begun, `PUT /api/session` and the four `POST` routes answer 409
+the end has begun, `PUT /api/session`, `PUT /api/diagram` and the four `POST` routes answer 409
 `{"error": "the run has ended"}` and apply nothing, a request whose body was still arriving
 included; a `GET /api/wait` answers the end's wait document at once, and a `GET /api/changes`
 its change document. A caller other than the viewer ends the run with
@@ -477,9 +479,11 @@ curl sends the `Host` the guard expects and no `Origin` (§9).
 
 **A diagram session.** The run has no notes file (§1). `PUT /api/session`, `POST /api/submit`,
 `POST /api/reply`, `POST /api/cancel` and `GET /api/wait` answer 404 `{"error": "not found"}`.
-`POST /api/finish` applies nothing from its body, ends the session as `finished` and answers
-200 `{"ok": true, "status": "finished"}`; `SIGINT` / `SIGTERM` end it as `interrupted`. Once
-the end has begun, `POST /api/finish` answers 409 `{"error": "the run has ended"}` and a
+`PUT /api/diagram` saves the human's edits to the diagram file. `POST /api/finish` applies
+nothing from its body, ends the session as `finished` and answers 200
+`{"ok": true, "status": "finished"}`; `SIGINT` / `SIGTERM` end it as `interrupted`. Once the
+end has begun, `PUT /api/diagram` and `POST /api/finish` answer 409
+`{"error": "the run has ended"}` and write nothing, and a
 `GET /api/changes` its change document; the change count never moves. The process prints the
 diagram session document (§2) and exits 0 once the Finish reply has been handed to its socket,
 or after 1000 ms, whichever is sooner.
@@ -658,7 +662,14 @@ reading refusals and size limit, arrow geometry — a lone arrow straight betwee
 parallel and opposite arrows spread to either side, self-loops nested off a box's top-right
 corner, the same output for the same document and its input unchanged — the diagram's bounds
 over boxes and frames with a fit that centres and clamps, and a diagram session's listing of
-§10, linked regular files only, deduplicated and sorted, without the diagram file; the anchor rule of §7 for every kind — a `candidate` anchor kept for a name of the
+§10, linked regular files only, deduplicated and sorted, without the diagram file; the viewer's
+diagram edits — each edit giving a document §15 accepts as it is and leaving its input
+unchanged, an edit that does not apply returning its input, a removed box taking its arrows,
+self-loops and parallels included, and a removed arrow leaving every walkthrough step in place
+without it, new ids never repeating, a dropped box taking the last group frame holding its
+centre and keeping its group outside every frame, and the re-layout — and the save ordering:
+one save in flight, the newest document sent next, a 4xx dropping the waiting document and any
+other failure keeping it for a retry; the anchor rule of §7 for every kind — a `candidate` anchor kept for a name of the
 run's overview, dropped for any other name or a name that breaks §13's rule, and checked for
 shape only when read back — a new candidate note outside the overview, a name that breaks
 §13's rule or is missing included, refusing the write with each failing entry named, while a
@@ -666,7 +677,8 @@ revision, a sent id or a known candidate with a malformed body does not, range
 validity and the excerpt cap; resume (§5) — a stored note
 keeps its anchor through a write, a new note outside the listing is dropped, rounds and note
 rounds restore, a file without `rounds` resumes as round 0, an absent `--out` starts fresh, and
-each refusal; the atomic save of §6, which leaves no temporary file behind, and a failed save;
+each refusal; the atomic save of §6, which leaves no temporary file behind and keeps the
+permission bits of the file it replaces, and a failed save;
 the sent-note lock of §7, and a Send withholding the candidate notes the overview does not name;
 replies (§7) kept through a viewer write that echoes or forges them
 and through a save and a resume, a file without them resuming with none, each resume refusal
@@ -711,8 +723,14 @@ the run still serving, and every candidate note refused on a run without an over
 diagram session's server with no notes session — the diagram route of §8 behind the token,
 `session` `null` on the session route, a listed link read and an unlisted one refused, the
 notes routes and the wait answering 404, Finish ending it with the diagram session document
-and a second Finish refused 409 — a run without a diagram answering `no diagram`, and
-`/diagram.js` and `/diagram-view.js` served. A few cases run
+and a second Finish refused 409 — its save route — a save behind the token writing the
+canonical text of the document over a file that was not canonical, served by the diagram route
+after it, and a second save over the text the session wrote; each 400 refusal, an oversized
+document included, and a save over a file changed on disk or deleted answering 409, all
+leaving the file byte for byte and mode as it was with no temporary file; a save after the end
+refused 409; and the route answering 404 in a diagram session without a writer and in an
+`annotate` run — a run without a diagram answering `no diagram`, and `/diagram.js`,
+`/diagram-edit.js` and `/diagram-view.js` served. A few cases run
 `cli.mjs` itself: each refusal of §5, the scope check and each `--overview` refusal of §13 exit
 with the error document and leave an existing `--out` file byte for byte as it was, and an
 empty `--overview` exits 2; `wait`'s invocation
@@ -736,9 +754,10 @@ flag given with `--explorer` — exit 2 before the measurement file is read, lea
 for a valid file, 1 with the error document for a missing or refused one, and 2 for each
 invocation refusal of §3, leaving the file byte for byte as it was; a diagram session prints
 its stderr block of §2 with the git top level as its root, the file's directory outside a
-repository and `--root` when given, serves the diagram and its listing, and ends with exactly
-one diagram session document on Finish and on `SIGTERM`, leaving the file byte for byte as it
-was and writing nothing; and its refusals of §3 — a refused file, a `--root` that is not a
+repository and `--root` when given, serves the diagram and its listing, saves an edit as the
+canonical text of the edited document, and ends with exactly one diagram session document on
+Finish and on `SIGTERM`, writing only the saved diagram file, and a session with no save leaves
+the file byte for byte as it was; and its refusals of §3 — a refused file, a `--root` that is not a
 directory, and each invocation refusal — exit before a port is bound.
 
 It opens no browser, sends requests to `127.0.0.1` only, and binds no fixed port. It prints
@@ -1029,7 +1048,8 @@ one newline:
 ```
 
 A document that is valid but not in canonical form is accepted; `diagram --check` reports
-whether a file is canonical (§2) and never rewrites it.
+whether a file is canonical (§2) and never rewrites it. A save from the viewer (§8) always
+writes canonical text, so such a file becomes canonical at its first save.
 
 **Layout.** Boxes without a position are placed; when no box has one, every box is placed. A
 positioned box never moves. Ranks run left to right and follow the arrows: an arrow that closes
@@ -1048,6 +1068,10 @@ its label. A group's frame is the bounds of its members' boxes plus 20 on each s
 above, for the label; a group with no members has no frame. Positions are integers, and the
 same document always gives the same layout. The spacing between ranks and rows is not part of
 this contract.
+
+The viewer edits the laid-out document and saves every box's position, so after its first
+save every box carries `x` and `y`. Its re-layout writes the layout that ignores stored
+positions — the one computed when no box is positioned.
 
 **Refusals.** The first violation refuses the file with exit 1 (§3). The reason begins
 `diagram <file>:`, `<file>` the absolute path, and goes on with one of `not found`,

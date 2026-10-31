@@ -1,14 +1,27 @@
 // The viewer's Diagram tab: GET /api/diagram's document drawn as SVG — group frames, boxes styled
-// by kind and labelled arrows — with pan, zoom and fit, a detail card for the box clicked, and
-// walkthroughs stepped with J and K. Every position comes from ./diagram.js's model, and diagram
-// text reaches the page through textContent only. It owns its nodes, the open card and the keys
-// and clicks that drive them; leaving the tab goes through the callbacks createDiagramView takes.
+// by kind and labelled arrows — with pan, zoom and fit, a detail card for the box or arrow
+// selected, and walkthroughs stepped with J and K. Given a save (setEditable), it is editable:
+// every finished edit is one ./diagram-edit.js call on the laid-out document, redrawn in place
+// and handed whole to the save, at most one request in flight. Every position comes from
+// ./diagram.js's model, and diagram text reaches the page through textContent only. It owns its
+// nodes, the open card and the keys and clicks that drive them; leaving the tab goes through the
+// callbacks createDiagramView takes.
 
-import { arrowGeometry, boxLabel, boxSize, diagramBounds, fitTransform, groupFrames, layoutDiagram, wheelZoomFactor, zoomView } from './diagram.js';
+import { KINDS, arrowGeometry, boxLabel, boxSize, diagramBounds, fitTransform, groupFrames, wheelZoomFactor, zoomView } from './diagram.js';
+import { addBox, connect, createIds, createSaver, dropFrames, dropGroup, freeze, groupAt, moveBox, relabelArrow, relayout, removeArrow, removeBox, renameBox, setGroup, setKind } from './diagram-edit.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const PAN_THRESHOLD = 4;
 const ARROW_LABEL_CHAR = 6.2;
+const HANDLE_RADIUS = 6;
+// Two clicks this close in time and space are a double-click; it is timed here because a press
+// that ends a drag must never count as half of one.
+const DOUBLE_CLICK_MS = 400;
+const DOUBLE_CLICK_PX = 6;
+const NEW_BOX_LABEL = 'New box';
+const RENAME_HEIGHT = 28;
+const RENAME_BOX_MIN = 160;
+const RENAME_ARROW_WIDTH = 180;
 
 function svg(tag, attrs, parent) {
   const node = document.createElementNS(SVG_NS, tag);
@@ -42,27 +55,46 @@ const eventInside = (event, selector) => event.composedPath().some((node) => nod
 
 const typing = (event) => event.target instanceof Element && (event.target.matches('input, textarea, select') || event.target.isContentEditable === true);
 
+const focusOnButton = () => document.activeElement instanceof HTMLButtonElement;
+
+const SESSION_ENDED = 'the run has ended';
+
 // `nodes.pane` is the tab's pane. The callbacks:
-//   listed(path)    whether the path is in the run's listing, so the Code tab can open it
-//   openCode(path)  shows the file in the Code tab
+//   listed(path)     whether the path is in the run's listing, so the Code tab can open it
+//   openCode(path)   shows the file in the Code tab
+//   ended()          true once the run is over: no edit is made or saved
+//   saveState(text)  the header's save indicator
 // F fits, J and K step the walkthrough, only while the tab is shown, with no Ctrl, ⌘ or Alt, and
-// never while typing. Escape while a card is open closes it and marks the event handled
-// (defaultPrevented).
-export function createDiagramView({ nodes, listed, openCode }) {
+// never while typing. While editable, Delete or Backspace deletes the selection and L re-lays
+// out, under the same rules and never with a button focused. Escape while a card is open closes
+// it and marks the event handled (defaultPrevented).
+export function createDiagramView({ nodes, listed, openCode, ended = () => false, saveState = () => {} }) {
   const { pane } = nodes;
   const state = {
     // The run's diagram: null without one, { doc: { file, root, document } } once read, { error }.
     result: null,
+    send: null, // the save setEditable was given: document → promise, or null
+    editable: false, // edits are made and saved: a save was given, and no 409 has turned them off
+    doc: null, // the document drawn: the served one with every box positioned, then each edit's result
+    saver: null, // the save ordering of ./diagram-edit.js while editable
+    ids: null, // the session's id allocator, seeded from the served document
+    bar: null, // the save bar's message: { text, retry }, or null
+    // The rename field open: { type, id, input }, plus for a box being added { base, spec }: the
+    // document before it and the addBox arguments; null when closed.
+    rename: null,
+    lastClick: null, // the click that may start a double-click: { time, x, y, target }
     shown: false, // the tab is the center pane on screen
     dirty: true, // the tab needs rendering the next time it is shown
     view: { x: 0, y: 0, k: 1 }, // screen = world × k + (x, y)
-    // The drawn diagram: { laid, world, card, caption, arrows: id → { node, from, to },
-    // boxes: id → node }, or null while a notice stands in for it.
+    // The drawn diagram: { world, layers: { frames, arrows, boxes }, card, caption, relayout, bar,
+    // arrows: id → { node, from, to }, boxes: id → node }, or null while a notice stands in for it.
     drawing: null,
-    card: null, // the id of the box whose card is open, or null
+    selected: null, // the box or arrow whose card is open, { type: 'box' | 'arrow', id }, or null
     walkthrough: 0,
     position: 0, // 0 shows every arrow; n shows step n
-    pointer: null, // the press in progress: { id, x, y, view, box, panning }
+    // The press in progress: { id, x, y, view, box, arrow, mode }, `mode` null until it is a
+    // 'pan', a 'move' (with { base, start, origin, frames }) or a 'connect' (with { line }).
+    pointer: null,
     touches: new Map(), // the fingers on the canvas: pointer id → { x, y } in client coordinates
     pinch: null, // the two-finger pinch in progress: { rect, view, mid, dist } at its start
     justPanned: false, // the click that ends a drag or a pinch is not a click on the canvas
@@ -70,7 +102,7 @@ export function createDiagramView({ nodes, listed, openCode }) {
 
   function notice(text) {
     state.drawing = null;
-    state.card = null;
+    state.selected = null;
     pane.replaceChildren(html('div', 'empty', text));
   }
 
@@ -84,13 +116,92 @@ export function createDiagramView({ nodes, listed, openCode }) {
       notice(`Could not load the diagram: ${state.result.error}`);
       return;
     }
-    const { document: doc } = state.result.doc;
-    if (doc.boxes.length === 0) {
+    if (state.doc.boxes.length === 0 && !state.editable) {
       notice('This diagram has no boxes yet.');
       return;
     }
-    draw(layoutDiagram(doc));
+    draw();
     fit();
+  }
+
+  // ---- editing --------------------------------------------------------------
+
+  const canEdit = () => state.editable && !ended();
+
+  // One finished edit: drawn at once and saved; an edit that changed nothing is not saved.
+  function commit(next) {
+    if (!canEdit() || next === state.doc) {
+      return;
+    }
+    state.doc = next;
+    paint();
+    state.saver.save(next);
+  }
+
+  function deleteSelected() {
+    const { type, id } = state.selected;
+    commit(type === 'box' ? removeBox(state.doc, id) : removeArrow(state.doc, id));
+  }
+
+  function relayoutAll() {
+    if (!canEdit()) {
+      return;
+    }
+    commit(relayout(state.doc));
+    fit();
+  }
+
+  // A 400 puts the last saved document back; a 409 turns editing off; any other failure keeps
+  // the edit on screen and offers Retry.
+  function saveChanged(saved) {
+    if (saved.phase === 'saving') {
+      saveState('saving…');
+      showBar(null);
+      return;
+    }
+    if (saved.phase === 'idle') {
+      saveState(`saved ${new Date().toLocaleTimeString()}`);
+      showBar(null);
+      return;
+    }
+    saveState(`save failed: ${saved.error}`);
+    if (saved.status < 400 || saved.status >= 500) {
+      showBar({ text: `Not saved: ${saved.error}`, retry: true });
+      return;
+    }
+    abandonGestures();
+    state.doc = saved.saved;
+    if (saved.status === 409) {
+      state.editable = false;
+      showBar({ text: saved.error === SESSION_ENDED ? 'The session has ended.' : 'The diagram file changed on disk, so edits are off. Restart the session to edit it.' });
+    } else {
+      showBar({ text: `Not saved: ${saved.error}. The last saved diagram is back.` });
+    }
+    if (state.drawing) {
+      state.drawing.relayout.disabled = !state.editable;
+      paint();
+    }
+  }
+
+  function showBar(bar) {
+    state.bar = bar;
+    const node = state.drawing?.bar;
+    if (!node) {
+      return;
+    }
+    node.classList.toggle('error', bar !== null);
+    node.replaceChildren();
+    if (bar === null) {
+      return;
+    }
+    const text = html('span', 'd-save-text', bar.text);
+    text.title = bar.text;
+    node.append(text);
+    if (bar.retry) {
+      const retry = html('button', 'small', 'Retry');
+      retry.addEventListener('click', () => state.saver.retry());
+      node.append(retry);
+    }
   }
 
   // ---- drawing --------------------------------------------------------------
@@ -134,6 +245,9 @@ export function createDiagramView({ nodes, listed, openCode }) {
       svg('rect', { width: w, height: h, rx: 6 }, node);
       svgText({ class: 'd-box-label', x: w / 2, y: 20 }, boxLabel(box), node);
       svgText({ class: 'd-box-kind', x: w / 2, y: 36 }, box.kind, node);
+      if (state.editable) {
+        svg('circle', { class: 'd-handle', cx: w, cy: h / 2, r: HANDLE_RADIUS }, node);
+      }
       const title = svg('title', {}, node);
       title.textContent = [box.label, ...box.files].join('\n');
       boxes.set(box.id, node);
@@ -141,12 +255,23 @@ export function createDiagramView({ nodes, listed, openCode }) {
     return boxes;
   }
 
-  function draw(laid) {
+  // Builds the canvas and the nodes floating over it, then paints the document into it.
+  function draw() {
     const toolbar = html('div', 'd-toolbar');
     const fitButton = html('button', 'small', 'Fit');
     fitButton.title = 'Fit (F)';
     fitButton.addEventListener('click', fit);
     toolbar.append(fitButton);
+    let relayoutButton = null;
+    let bar = null;
+    if (state.saver) {
+      relayoutButton = html('button', 'small', 'Re-layout');
+      relayoutButton.title = 'Re-layout (L)';
+      relayoutButton.disabled = !state.editable;
+      relayoutButton.addEventListener('click', relayoutAll);
+      bar = html('div', 'd-save');
+      toolbar.append(relayoutButton, bar);
+    }
 
     const canvas = svg('svg', { class: 'd-canvas', role: 'img', 'aria-label': 'Diagram' });
     const defs = svg('defs', {}, canvas);
@@ -155,20 +280,44 @@ export function createDiagramView({ nodes, listed, openCode }) {
       svg('path', { d: 'M 0 0 L 10 5 L 0 10 z' }, marker);
     }
     const world = svg('g', { class: 'd-world' }, canvas);
-    drawFrames(laid, svg('g', {}, world));
-    const arrows = drawArrows(laid, svg('g', {}, world));
-    const boxes = drawBoxes(laid, svg('g', {}, world));
+    const layers = { frames: svg('g', {}, world), arrows: svg('g', {}, world), boxes: svg('g', {}, world), rubber: svg('g', {}, world) };
 
     const card = html('div', 'd-card hidden');
-    const caption = laid.walkthroughs.length > 0 ? buildCaption(laid) : null;
-    pane.replaceChildren(canvas, toolbar, card, ...(caption ? [caption.node] : []));
-    state.drawing = { laid, world, card, caption, arrows, boxes };
-    state.card = null;
+    const caption = state.doc.walkthroughs.length > 0 ? buildCaption(state.doc) : null;
+    const hint = state.saver ? html('div', 'd-hint', 'Double-click to add a box.') : null;
+    // The field goes with the nodes it sat in; its blur must not commit into the new drawing.
+    state.rename = null;
+    pane.replaceChildren(canvas, ...(hint ? [hint] : []), toolbar, card, ...(caption ? [caption.node] : []));
+    state.drawing = { canvas, world, layers, card, caption, hint, relayout: relayoutButton, bar, arrows: new Map(), boxes: new Map() };
+    state.selected = null;
+    state.lastClick = null;
     state.pointer = null;
     state.touches.clear();
     state.pinch = null;
     wireCanvas(canvas);
     applyView();
+    paint();
+    showBar(state.bar);
+  }
+
+  // Redraws the frames, arrows and boxes from state.doc inside the canvas already on screen, so
+  // the view transform, pointer capture and the floating nodes survive an edit; then puts back
+  // the selection, its card (closed when its box or arrow is gone) and the walkthrough step.
+  function paint() {
+    const drawing = state.drawing;
+    if (!drawing) {
+      return;
+    }
+    const { frames, arrows, boxes } = drawing.layers;
+    frames.replaceChildren();
+    arrows.replaceChildren();
+    boxes.replaceChildren();
+    drawFrames(state.doc, frames);
+    drawing.arrows = drawArrows(state.doc, arrows);
+    drawing.boxes = drawBoxes(state.doc, boxes);
+    drawing.canvas.classList.toggle('editable', state.editable);
+    drawing.hint?.classList.toggle('hidden', !state.editable || state.doc.boxes.length > 0);
+    showSelection();
     applyStep();
   }
 
@@ -183,7 +332,7 @@ export function createDiagramView({ nodes, listed, openCode }) {
     if (!state.drawing) {
       return;
     }
-    state.view = fitTransform(diagramBounds(state.drawing.laid), pane.clientWidth, pane.clientHeight);
+    state.view = fitTransform(diagramBounds(state.doc), pane.clientWidth, pane.clientHeight);
     applyView();
   }
 
@@ -203,9 +352,252 @@ export function createDiagramView({ nodes, listed, openCode }) {
   // A second finger turns the press into a pinch: the first finger's press ends without a pan
   // or a card, and the pinch scales by the change in the fingers' distance about their midpoint.
   function startPinch(canvas) {
+    cancelGesture();
     state.pointer = null;
     canvas.classList.remove('panning');
     state.pinch = { rect: canvas.getBoundingClientRect(), view: { ...state.view }, ...span() };
+  }
+
+  // ---- gestures: move, connect, add and rename ------------------------------
+
+  function toWorld(event) {
+    const rect = state.drawing.canvas.getBoundingClientRect();
+    const { x, y, k } = state.view;
+    return { x: (event.clientX - rect.left - x) / k, y: (event.clientY - rect.top - y) / k };
+  }
+
+  const boxById = (id) => state.doc.boxes.find((box) => box.id === id) ?? null;
+
+  // The topmost box under a world point, or null. A captured pointer's events all target the
+  // canvas, so a connect's drop is found by position.
+  function boxAt(point) {
+    for (let i = state.doc.boxes.length - 1; i >= 0; i -= 1) {
+      const box = state.doc.boxes[i];
+      const { w, h } = boxSize(box);
+      if (point.x >= box.x && point.x <= box.x + w && point.y >= box.y && point.y <= box.y + h) {
+        return box;
+      }
+    }
+    return null;
+  }
+
+  function startPan(press, event) {
+    press.mode = 'pan';
+    state.drawing.canvas.setPointerCapture(event.pointerId);
+    state.drawing.canvas.classList.add('panning');
+  }
+
+  // Group frames are taken once, without the box, so its own frame does not follow the drag.
+  function startMove(press, event) {
+    const box = boxById(press.box);
+    press.mode = 'move';
+    press.base = state.doc;
+    press.origin = { x: box.x, y: box.y };
+    press.frames = dropFrames(state.doc, box.id);
+    state.drawing.canvas.setPointerCapture(event.pointerId);
+    state.drawing.canvas.classList.add('moving');
+  }
+
+  function movedTo(press, event) {
+    const point = toWorld(event);
+    return { x: press.origin.x + point.x - press.start.x, y: press.origin.y + point.y - press.start.y };
+  }
+
+  function startConnect(press, event) {
+    const box = boxById(press.box);
+    const { w, h } = boxSize(box);
+    press.mode = 'connect';
+    press.line = svg('line', { class: 'd-rubber', x1: box.x + w, y1: box.y + h / 2, x2: press.start.x, y2: press.start.y }, state.drawing.layers.rubber);
+    state.drawing.canvas.setPointerCapture(event.pointerId);
+  }
+
+  function endPress(press) {
+    state.pointer = null;
+    const { canvas } = state.drawing;
+    canvas.classList.remove('panning', 'moving');
+    if (canvas.hasPointerCapture(press.id)) {
+      canvas.releasePointerCapture(press.id);
+    }
+    press.line?.remove();
+  }
+
+  // Escape, a second finger or a refused save during a move or a connect: the box goes back, no
+  // arrow is drawn, and nothing is saved.
+  function cancelGesture() {
+    const press = state.pointer;
+    if (!press || !state.drawing || (press.mode !== 'move' && press.mode !== 'connect')) {
+      return;
+    }
+    endPress(press);
+    if (press.mode === 'move') {
+      state.doc = press.base;
+      paint();
+    }
+  }
+
+  // A drop decides the group by the box's centre: another group's frame there takes it in, and
+  // anywhere else it keeps its group. The move and the group change are one save.
+  function finishMove(press, event) {
+    const { x, y } = movedTo(press, event);
+    const moved = moveBox(press.base, press.box, x, y);
+    const box = moved.boxes.find((entry) => entry.id === press.box);
+    const { w, h } = boxSize(box);
+    const next = setGroup(moved, press.box, dropGroup(moved, press.box, { x: box.x + w / 2, y: box.y + h / 2 }, press.frames));
+    state.doc = press.base;
+    state.selected = { type: 'box', id: press.box };
+    if (next !== press.base && canEdit()) {
+      commit(next);
+    } else {
+      paint();
+    }
+  }
+
+  // Released on another box, the handle draws a new arrow and selects it; anywhere else,
+  // the source box included, it draws nothing.
+  function finishConnect(press, event) {
+    const target = boxAt(toWorld(event));
+    if (target === null || target.id === press.box || !canEdit()) {
+      return;
+    }
+    const id = state.ids.next('arrow');
+    const next = connect(state.doc, { id, from: press.box, to: target.id });
+    if (next !== state.doc) {
+      state.selected = { type: 'arrow', id };
+      commit(next);
+    }
+  }
+
+  // A click selects what it landed on. The second click of a double-click renames a box or an
+  // arrow, or adds a box on empty canvas, instead.
+  function click(press, event) {
+    const target = press.box ?? press.arrow ?? '';
+    const now = performance.now();
+    const last = state.lastClick;
+    const double = last !== null && last.target === target && now - last.time <= DOUBLE_CLICK_MS
+      && Math.hypot(event.clientX - last.x, event.clientY - last.y) <= DOUBLE_CLICK_PX;
+    state.lastClick = double ? null : { time: now, x: event.clientX, y: event.clientY, target };
+    if (double && canEdit()) {
+      if (press.box !== null) {
+        startRename({ type: 'box', id: press.box });
+      } else if (press.arrow !== null) {
+        startRename({ type: 'arrow', id: press.arrow });
+      } else {
+        addPending(toWorld(event));
+      }
+      return;
+    }
+    if (press.box !== null) {
+      select({ type: 'box', id: press.box });
+    } else if (press.arrow !== null) {
+      select({ type: 'arrow', id: press.arrow });
+    } else {
+      closeCard();
+    }
+  }
+
+  // A new box centred on the point, in the group whose frame holds it, drawn but not saved: the
+  // rename field opens on it, and its commit is the one save that adds it.
+  function addPending(point) {
+    const { w, h } = boxSize({ label: NEW_BOX_LABEL });
+    const spec = { id: state.ids.next('box'), x: point.x - w / 2, y: point.y - h / 2, group: groupAt(groupFrames(state.doc), point) };
+    const base = state.doc;
+    state.doc = addBox(base, { ...spec, label: NEW_BOX_LABEL });
+    state.selected = { type: 'box', id: spec.id };
+    paint();
+    // The click that follows this pointerup lands on the canvas; it must not close the new card.
+    swallowClick();
+    startRename({ type: 'box', id: spec.id, base, spec });
+  }
+
+  // Lays the field over the box, or centred on the arrow's label point, inside the pane.
+  function placeRename(input, type, entry) {
+    const { x: vx, y: vy, k } = state.view;
+    let width;
+    let left;
+    let top;
+    if (type === 'box') {
+      const { w, h } = boxSize(entry);
+      width = Math.max(RENAME_BOX_MIN, w * k);
+      left = entry.x * k + vx + (w * k - width) / 2;
+      top = (entry.y + h / 2) * k + vy - RENAME_HEIGHT / 2;
+    } else {
+      const shape = arrowGeometry(state.doc).find((item) => item.id === entry.id);
+      width = RENAME_ARROW_WIDTH;
+      left = shape.lx * k + vx - width / 2;
+      top = shape.ly * k + vy - RENAME_HEIGHT / 2;
+    }
+    width = Math.min(width, Math.max(0, pane.clientWidth - 8));
+    input.style.width = `${width}px`;
+    input.style.left = `${Math.min(Math.max(4, pane.clientWidth - width - 4), Math.max(4, left))}px`;
+    input.style.top = `${Math.min(Math.max(4, pane.clientHeight - RENAME_HEIGHT - 4), Math.max(4, top))}px`;
+  }
+
+  // `target` is { type, id }, plus { base, spec } for a box being added. Enter or a blur commits,
+  // Escape cancels; both keys are marked handled on the field itself.
+  function startRename(target) {
+    if (!canEdit() || !state.drawing) {
+      return;
+    }
+    finishRename(true);
+    const entry = (target.type === 'box' ? state.doc.boxes : state.doc.arrows).find((item) => item.id === target.id);
+    if (!entry) {
+      return;
+    }
+    const input = html('input', 'd-rename');
+    input.type = 'text';
+    input.value = entry.label;
+    input.spellcheck = false;
+    input.autocomplete = 'off';
+    input.setAttribute('aria-label', target.type === 'box' ? 'Box label' : 'Arrow label');
+    if (target.type === 'arrow') {
+      input.placeholder = 'Label this arrow';
+    }
+    placeRename(input, target.type, entry);
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === 'Escape') {
+        event.preventDefault();
+        finishRename(event.key === 'Enter');
+      }
+    });
+    input.addEventListener('blur', () => finishRename(true));
+    pane.append(input);
+    state.rename = { ...target, input };
+    setTimeout(() => {
+      if (state.rename?.input === input) {
+        input.focus();
+        input.select();
+      }
+    }, 0);
+  }
+
+  // An empty box label keeps the old one; a box being added is dropped instead. An arrow label
+  // may be empty.
+  function finishRename(keep) {
+    const rename = state.rename;
+    if (rename === null) {
+      return;
+    }
+    state.rename = null;
+    const value = rename.input.value;
+    rename.input.remove();
+    if (rename.base) {
+      state.doc = rename.base;
+      const next = keep ? addBox(rename.base, { ...rename.spec, label: value }) : rename.base;
+      if (next !== rename.base && canEdit()) {
+        commit(next);
+      } else {
+        paint();
+      }
+      return;
+    }
+    if (keep) {
+      commit(rename.type === 'box' ? renameBox(state.doc, rename.id, value) : relabelArrow(state.doc, rename.id, value));
+    }
+  }
+
+  function abandonGestures() {
+    finishRename(false);
+    cancelGesture();
   }
 
   function movePinch() {
@@ -221,6 +613,7 @@ export function createDiagramView({ nodes, listed, openCode }) {
       if (event.button !== 0) {
         return;
       }
+      finishRename(true);
       if (event.pointerType === 'touch') {
         state.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
         if (state.touches.size === 2) {
@@ -230,8 +623,14 @@ export function createDiagramView({ nodes, listed, openCode }) {
           return;
         }
       }
-      const box = event.target instanceof Element ? event.target.closest('.d-box') : null;
-      state.pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, view: { ...state.view }, box: box?.dataset.id ?? null, panning: false };
+      const target = event.target instanceof Element ? event.target : null;
+      const box = target?.closest('.d-box')?.dataset.id ?? null;
+      const arrow = box === null ? target?.closest('.d-arrow')?.dataset.id ?? null : null;
+      const press = { id: event.pointerId, x: event.clientX, y: event.clientY, view: { ...state.view }, start: toWorld(event), box, arrow, mode: null };
+      state.pointer = press;
+      if (box !== null && canEdit() && target.closest('.d-handle')) {
+        startConnect(press, event);
+      }
     });
     canvas.addEventListener('pointermove', (event) => {
       if (state.touches.has(event.pointerId)) {
@@ -249,16 +648,28 @@ export function createDiagramView({ nodes, listed, openCode }) {
       }
       const dx = event.clientX - press.x;
       const dy = event.clientY - press.y;
-      if (!press.panning && Math.hypot(dx, dy) <= PAN_THRESHOLD) {
-        return;
+      if (press.mode === null) {
+        if (Math.hypot(dx, dy) <= PAN_THRESHOLD) {
+          return;
+        }
+        if (press.box !== null && canEdit()) {
+          startMove(press, event);
+        } else {
+          startPan(press, event);
+        }
       }
-      if (!press.panning) {
-        press.panning = true;
-        canvas.setPointerCapture(event.pointerId);
-        canvas.classList.add('panning');
+      if (press.mode === 'connect') {
+        const point = toWorld(event);
+        press.line.setAttribute('x2', String(point.x));
+        press.line.setAttribute('y2', String(point.y));
+      } else if (press.mode === 'move') {
+        const { x, y } = movedTo(press, event);
+        state.doc = moveBox(press.base, press.box, x, y);
+        paint();
+      } else {
+        state.view = { ...press.view, x: press.view.x + dx, y: press.view.y + dy };
+        applyView();
       }
-      state.view = { ...press.view, x: press.view.x + dx, y: press.view.y + dy };
-      applyView();
     });
     const release = (event) => {
       state.touches.delete(event.pointerId);
@@ -270,11 +681,7 @@ export function createDiagramView({ nodes, listed, openCode }) {
       if (!press || press.id !== event.pointerId) {
         return null;
       }
-      state.pointer = null;
-      canvas.classList.remove('panning');
-      if (canvas.hasPointerCapture(event.pointerId)) {
-        canvas.releasePointerCapture(event.pointerId);
-      }
+      endPress(press);
       return press;
     };
     canvas.addEventListener('pointerup', (event) => {
@@ -282,19 +689,30 @@ export function createDiagramView({ nodes, listed, openCode }) {
       if (!press) {
         return;
       }
-      if (press.panning) {
-        swallowClick();
-      } else if (press.box !== null) {
-        openCard(press.box);
-      } else {
-        closeCard();
+      if (press.mode === null) {
+        click(press, event);
+        return;
+      }
+      state.lastClick = null;
+      swallowClick();
+      if (press.mode === 'move') {
+        finishMove(press, event);
+      } else if (press.mode === 'connect') {
+        finishConnect(press, event);
       }
     });
-    canvas.addEventListener('pointercancel', release);
+    canvas.addEventListener('pointercancel', (event) => {
+      const press = release(event);
+      if (press?.mode === 'move') {
+        state.doc = press.base;
+        paint();
+      }
+    });
     canvas.addEventListener(
       'wheel',
       (event) => {
         event.preventDefault();
+        finishRename(true);
         const { x, y, k } = state.view;
         if (event.ctrlKey || event.metaKey) {
           const rect = canvas.getBoundingClientRect();
@@ -309,19 +727,97 @@ export function createDiagramView({ nodes, listed, openCode }) {
     );
   }
 
-  // ---- the box card ---------------------------------------------------------
+  // ---- the selection and its card -------------------------------------------
 
-  function openCard(id) {
+  function selectedEntry() {
+    if (state.selected === null) {
+      return null;
+    }
+    const { type, id } = state.selected;
+    return (type === 'box' ? state.doc.boxes : state.doc.arrows).find((entry) => entry.id === id) ?? null;
+  }
+
+  function select(selected) {
+    state.selected = selected;
+    showSelection();
+  }
+
+  // Marks the selected box or arrow and fills its card, or hides the card when nothing is
+  // selected or the selection is gone from the document.
+  function showSelection() {
     const drawing = state.drawing;
-    const box = drawing.laid.boxes.find((entry) => entry.id === id);
-    closeCard();
-    state.card = id;
-    drawing.boxes.get(id).classList.add('open');
+    for (const node of drawing.world.querySelectorAll('.open')) {
+      node.classList.remove('open');
+    }
+    const entry = selectedEntry();
+    if (entry === null) {
+      state.selected = null;
+      drawing.card.classList.add('hidden');
+      drawing.card.replaceChildren();
+      return;
+    }
+    if (state.selected.type === 'box') {
+      drawing.boxes.get(entry.id).classList.add('open');
+      drawing.card.replaceChildren(...boxCard(entry));
+    } else {
+      drawing.arrows.get(entry.id).node.classList.add('open');
+      drawing.card.replaceChildren(...arrowCard(entry));
+    }
+    drawing.card.classList.remove('hidden');
+  }
 
+  function cardHead(label, kind) {
     const head = html('div', 'd-card-head');
     const close = html('button', 'ghost small', 'Close');
     close.addEventListener('click', closeCard);
-    head.append(html('span', 'd-card-label', box.label), html('span', 'd-card-kind', box.kind), close);
+    head.append(label, ...(kind ? [html('span', 'd-card-kind', kind)] : []), close);
+    return head;
+  }
+
+  // A select that blurs once changed, so the diagram keys work again at once.
+  function picker(label, options, value, change) {
+    const menu = html('select', 'd-pick');
+    menu.setAttribute('aria-label', label);
+    menu.title = label;
+    for (const [optionValue, text] of options) {
+      const option = html('option', '', text);
+      option.value = optionValue;
+      menu.append(option);
+    }
+    menu.value = value;
+    menu.disabled = !canEdit();
+    menu.addEventListener('change', () => {
+      const chosen = menu.value;
+      menu.blur();
+      change(chosen);
+    });
+    return menu;
+  }
+
+  function cardButton(text, title, action) {
+    const button = html('button', 'small', text);
+    button.title = title;
+    button.disabled = !canEdit();
+    button.addEventListener('click', action);
+    return button;
+  }
+
+  const renameButton = () => cardButton('Rename', 'Rename (Enter or double-click)', () => startRename(state.selected));
+  const deleteButton = () => cardButton('Delete', 'Delete (Del)', deleteSelected);
+
+  function boxCard(box) {
+    const head = cardHead(html('span', 'd-card-label', box.label), box.kind);
+    const parts = [head];
+    if (state.editable) {
+      const edit = html('div', 'd-card-edit');
+      edit.append(picker('Kind', KINDS.map((kind) => [kind, kind]), box.kind, (kind) => commit(setKind(state.doc, box.id, kind))));
+      if (state.doc.groups.length > 0) {
+        const groups = [['', 'No group'], ...state.doc.groups.map((group) => [group.id, group.label])];
+        edit.append(picker('Group', groups, box.group ?? '', (group) => commit(setGroup(state.doc, box.id, group === '' ? null : group))));
+      }
+      edit.append(renameButton(), deleteButton());
+      parts.push(edit);
+    }
     const files = html('div', 'd-card-files');
     if (box.files.length === 0) {
       files.append(html('div', 'muted', 'No linked files.'));
@@ -339,18 +835,31 @@ export function createDiagramView({ nodes, listed, openCode }) {
       }
       files.append(row);
     }
-    drawing.card.replaceChildren(head, files);
-    drawing.card.classList.remove('hidden');
+    parts.push(files);
+    return parts;
+  }
+
+  function arrowCard(arrow) {
+    const label = arrow.label === '' ? html('span', 'd-card-label muted', 'No label') : html('span', 'd-card-label', arrow.label);
+    const parts = [cardHead(label, 'arrow')];
+    const labelOf = (id) => state.doc.boxes.find((box) => box.id === id)?.label ?? id;
+    parts.push(html('div', 'd-card-ends', `${labelOf(arrow.from)} → ${labelOf(arrow.to)}`));
+    if (arrow.why !== '') {
+      parts.push(html('div', 'd-card-why', arrow.why));
+    }
+    if (state.editable) {
+      const edit = html('div', 'd-card-edit');
+      edit.append(renameButton(), deleteButton());
+      parts.push(edit);
+    }
+    return parts;
   }
 
   function closeCard() {
-    const drawing = state.drawing;
-    if (state.card !== null && drawing) {
-      drawing.boxes.get(state.card)?.classList.remove('open');
-      drawing.card.classList.add('hidden');
-      drawing.card.replaceChildren();
+    state.selected = null;
+    if (state.drawing) {
+      showSelection();
     }
-    state.card = null;
   }
 
   // ---- walkthroughs ---------------------------------------------------------
@@ -395,7 +904,7 @@ export function createDiagramView({ nodes, listed, openCode }) {
     if (!drawing?.caption) {
       return;
     }
-    const { steps } = drawing.laid.walkthroughs[state.walkthrough];
+    const { steps } = state.doc.walkthroughs[state.walkthrough];
     const { prev, next, position, text } = drawing.caption;
     prev.disabled = state.position === 0;
     next.disabled = state.position === steps.length;
@@ -407,10 +916,9 @@ export function createDiagramView({ nodes, listed, openCode }) {
     for (const node of drawing.world.querySelectorAll('.hl')) {
       node.classList.remove('hl');
     }
-    const lit = current ? current.arrows : [];
+    const lit = (current ? current.arrows : []).flatMap((id) => (drawing.arrows.has(id) ? [drawing.arrows.get(id)] : []));
     drawing.world.classList.toggle('dim', lit.length > 0);
-    for (const id of lit) {
-      const arrow = drawing.arrows.get(id);
+    for (const arrow of lit) {
       arrow.node.classList.add('hl');
       drawing.boxes.get(arrow.from).classList.add('hl');
       drawing.boxes.get(arrow.to).classList.add('hl');
@@ -422,7 +930,7 @@ export function createDiagramView({ nodes, listed, openCode }) {
     if (!drawing?.caption) {
       return;
     }
-    const count = drawing.laid.walkthroughs[state.walkthrough].steps.length;
+    const count = state.doc.walkthroughs[state.walkthrough].steps.length;
     const position = Math.min(count, Math.max(0, state.position + delta));
     if (position !== state.position) {
       state.position = position;
@@ -437,7 +945,10 @@ export function createDiagramView({ nodes, listed, openCode }) {
       return;
     }
     if (event.key === 'Escape') {
-      if (state.card !== null) {
+      if (state.pointer?.mode === 'move' || state.pointer?.mode === 'connect') {
+        cancelGesture();
+        event.preventDefault();
+      } else if (state.selected !== null) {
         closeCard();
         event.preventDefault();
       }
@@ -453,6 +964,16 @@ export function createDiagramView({ nodes, listed, openCode }) {
       step(1);
     } else if (key === 'k') {
       step(-1);
+    } else if (!canEdit() || focusOnButton()) {
+      return;
+    } else if ((event.key === 'Delete' || event.key === 'Backspace') && state.selected !== null) {
+      event.preventDefault();
+      deleteSelected();
+    } else if (event.key === 'Enter' && state.selected !== null) {
+      event.preventDefault();
+      startRename(state.selected);
+    } else if (key === 'l') {
+      relayoutAll();
     }
   });
   document.addEventListener('click', (event) => {
@@ -460,14 +981,24 @@ export function createDiagramView({ nodes, listed, openCode }) {
       state.justPanned = false;
       return;
     }
-    if (state.card !== null && !eventInside(event, '.d-card, .d-box, .d-toolbar, .d-caption')) {
+    if (state.selected !== null && !eventInside(event, '.d-card, .d-box, .d-arrow, .d-toolbar, .d-caption, .d-rename')) {
       closeCard();
     }
   });
 
   return {
+    // Before setDiagram: `send(document)` saves an edited document and returns a promise that
+    // rejects with an error carrying the HTTP `status`; with it the next diagram is editable.
+    setEditable(send) {
+      state.send = send;
+    },
     setDiagram(result) {
       state.result = result;
+      state.doc = result?.doc ? freeze(result.doc.document) : null;
+      state.ids = result?.doc ? createIds(result.doc.document) : null;
+      state.editable = Boolean(result?.doc) && state.send !== null;
+      state.saver = state.editable ? createSaver(state.send, { saved: state.doc, onChange: saveChanged }) : null;
+      state.bar = null;
       state.dirty = true;
       state.walkthrough = 0;
       state.position = 0;
@@ -475,11 +1006,17 @@ export function createDiagramView({ nodes, listed, openCode }) {
         render();
       }
     },
+    // Resolves with the save state once no save is waiting or in flight; null when not editable.
+    flush() {
+      return state.saver ? state.saver.flush() : Promise.resolve(null);
+    },
     // The tab comes on screen or leaves it: shown, it renders what changed while it was hidden;
     // hidden, its card closes.
     show(shown) {
       state.shown = shown;
       if (!shown) {
+        finishRename(true);
+        cancelGesture();
         closeCard();
       } else if (state.dirty) {
         render();
