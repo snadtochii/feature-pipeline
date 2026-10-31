@@ -9,7 +9,7 @@ import { highlightLines } from './syntax.js';
 import { createRounds, isSent } from './rounds.js';
 import { noteCounts } from './overview.js';
 import { createOverviewView } from './overview-view.js';
-import { createDiagramView } from './diagram-view.js';
+import { createDiagramView, UNLOCKED } from './diagram-view.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -38,8 +38,12 @@ const state = {
   // The center pane shown: the name of one of the registered surfaces, 'code' until load()
   // registers them.
   surface: 'code',
-  // The run's diagram document as served, or null: what names an unlabelled arrow's note.
+  // The run's diagram document as the server holds it — served, then each accepted save — or
+  // null: what names an unlabelled arrow's note.
   diagram: null,
+  // The current round's starting file in an `annotate` run with a diagram, or null: what the
+  // diagram's structural changes are counted against.
+  baseline: null,
 };
 
 const el = {
@@ -130,6 +134,9 @@ const rounds = createRounds({
       renderStatus();
       await refreshOpenFile();
       renderList();
+      if (lockedRoundAnswered()) {
+        await reloadDiagram();
+      }
     },
     showEnd,
   },
@@ -161,6 +168,13 @@ const diagramView = createDiagramView({
     el.saveState.textContent = text;
   },
   counts: () => noteCounts(annotations()),
+  saved: (document) => {
+    state.diagram = document;
+    rounds.setDiagram(document, state.baseline);
+    dropUnstoredNotes();
+    renderList();
+  },
+  seenIds: () => annotations().flatMap((a) => (a.anchor.kind === 'box' || a.anchor.kind === 'arrow' ? [a.anchor.id] : [])),
 });
 
 // The center panes the run serves, in tab order — Overview, Diagram, Code — each
@@ -212,14 +226,18 @@ async function load() {
   }
   overviewView.setOverview(overview);
   state.diagram = diagram?.doc?.document ?? null;
-  rounds.setDiagram(state.diagram);
-  if (rounds.standalone && diagram?.doc) {
+  state.baseline = diagram?.doc?.baseline ?? null;
+  rounds.setDiagram(state.diagram, state.baseline);
+  if (diagram?.doc) {
     diagramView.setEditable((edited) => api('PUT', '/api/diagram', { document: edited }));
   }
   if (!rounds.standalone) {
     diagramView.setAnnotate((anchor) => openComposer(anchor));
   }
   diagramView.setDiagram(diagram);
+  if (roundRun()) {
+    lockDiagram(roundLock());
+  }
   if (rounds.standalone) {
     enterStandalone(diagram);
   } else {
@@ -240,6 +258,67 @@ async function loadOptional(url) {
     return { doc: await api('GET', url) };
   } catch (err) {
     return err.status === 404 ? null : { error: err.message };
+  }
+}
+
+// ---- the diagram in a round -----------------------------------------------
+
+// An `annotate` run with a diagram: edits are saved, counted as the round's changes, and locked
+// from Send until the agent replies.
+const roundRun = () => !rounds.standalone && state.diagram !== null;
+
+const roundLock = () => (rounds.roundOut() ? rounds.session.round : UNLOCKED);
+
+const lockedRoundAnswered = () => roundRun() && diagramView.isLocked() && !rounds.roundOut();
+
+function lockDiagram(round) {
+  diagramView.setLocked(round);
+}
+
+// Re-reads the diagram the server holds — after a Send moved the round's starting file, or after
+// the reply that may carry the agent's redraw — and draws it in place. The lock lifts only once
+// the new document is drawn, so no edit is saved over a redraw; a failed read keeps the lock.
+async function reloadDiagram() {
+  const diagram = await loadOptional('/api/diagram');
+  if (!diagram?.doc) {
+    notify(`The diagram could not be reloaded: ${diagram?.error ?? 'no diagram'} — reload the page to edit it.`, { error: true });
+    return;
+  }
+  state.diagram = diagram.doc.document;
+  state.baseline = diagram.doc.baseline ?? null;
+  rounds.setDiagram(state.diagram, state.baseline);
+  dropUnstoredNotes();
+  diagramView.setDiagram(diagram, { keep: true });
+  lockDiagram(roundLock());
+  renderList();
+}
+
+function dropUnstoredNotes() {
+  const dropped = rounds.dropUnstored();
+  if (dropped.length > 0) {
+    notifyDropped(dropped);
+  }
+}
+
+// Send in a round run locks the diagram first and waits for the last edit to reach the server, so
+// the round carries every change the human made; a Send that sent nothing unlocks again.
+async function send() {
+  if (!roundRun()) {
+    await rounds.sendRound();
+    return;
+  }
+  const before = rounds.session.round;
+  lockDiagram(before + 1);
+  const flushed = await diagramView.flush();
+  if (flushed?.phase === 'failed' && !window.confirm('The last diagram edit was not saved. Send anyway?')) {
+    lockDiagram(roundLock());
+    return;
+  }
+  await rounds.sendRound();
+  if (rounds.session.round > before) {
+    await reloadDiagram();
+  } else {
+    lockDiagram(roundLock());
   }
 }
 
@@ -869,10 +948,13 @@ const SEND_TITLE = el.send.title;
 // Send is offered when the server's rule holds or when the open composer holds a note Send would
 // add first (rounds.sendRound commits it before checking the rule), and never while Send is held.
 function updateSend() {
-  const count = rounds.sendable().length;
+  const notes = rounds.sendable().length;
+  const changes = rounds.changeCount();
+  const count = notes + changes;
   const held = rounds.sendHeld();
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
   el.send.textContent = count ? `Send ${count}` : 'Send';
-  el.send.title = held ? 'The overview could not be loaded: reload the page to send' : SEND_TITLE;
+  el.send.title = held ? 'The overview could not be loaded: reload the page to send' : changes ? `${plural(notes, 'note')}, ${plural(changes, 'diagram change')}` : SEND_TITLE;
   el.send.disabled = rounds.busy || rounds.ended || held || !(rounds.canSend() || Boolean(state.composer?.dirty()));
 }
 
@@ -969,7 +1051,7 @@ function noteItem(a) {
   head.className = 'head';
   const anchor = document.createElement('span');
   anchor.className = 'anchor';
-  anchor.textContent = anchorLabel(a.anchor);
+  anchor.textContent = sent && state.diagram !== null && rounds.removed(a.anchor) ? removedLabel(a.anchor) : anchorLabel(a.anchor);
   anchor.addEventListener('click', () => revealAnchor(a.anchor));
   const tags = document.createElement('span');
   tags.className = 'tags';
@@ -1006,9 +1088,15 @@ function noteItem(a) {
   if (sent) {
     item.append(lockedOps(a));
   } else {
-    item.append(rounds.withheld(a) ? withheldOps() : editOps(a));
+    item.append(rounds.withheld(a) ? withheldOps(a) : editOps(a));
   }
   return item;
+}
+
+// A sent box or arrow note whose element the diagram no longer holds, named from its label
+// snapshot.
+function removedLabel(anchor) {
+  return `on removed ${anchor.kind} ‹${anchor.label || anchor.id}›`;
 }
 
 function editOps(a) {
@@ -1017,6 +1105,11 @@ function editOps(a) {
   const edit = document.createElement('button');
   edit.textContent = 'edit';
   edit.addEventListener('click', () => openComposer(a.anchor, { existing: a }));
+  ops.append(edit, deleteButton(a));
+  return ops;
+}
+
+function deleteButton(a) {
   const del = document.createElement('button');
   del.className = 'del';
   del.textContent = 'delete';
@@ -1029,18 +1122,24 @@ function editOps(a) {
     }
     afterChange();
   });
-  ops.append(edit, del);
-  return ops;
+  return del;
 }
 
-function withheldOps() {
+// A withheld note cannot be edited or sent. A box or arrow note can still be deleted, since its
+// element may never return: new ids never reuse the id a note names.
+function withheldOps(a) {
   const ops = document.createElement('div');
   ops.className = 'ops';
   const label = document.createElement('span');
   label.className = 'muted';
   label.textContent = 'read-only';
-  label.title = "This candidate is not in this run's overview: the note cannot be edited, deleted or sent";
-  ops.append(label);
+  if (a.anchor.kind === 'candidate') {
+    label.title = "This candidate is not in this run's overview: the note cannot be edited, deleted or sent";
+    ops.append(label);
+  } else {
+    label.title = `Its ${a.anchor.kind} is not in the diagram: the note is held back until it returns, and can be deleted but not edited`;
+    ops.append(label, deleteButton(a));
+  }
   return ops;
 }
 
@@ -1161,17 +1260,6 @@ function revealAnchor(anchor) {
 
 // ---- status --------------------------------------------------------------
 
-// Waiting: a round has been sent and the agent has posted no reply for it yet.
-function waiting() {
-  const round = rounds.session.round ?? 0;
-  const forRound = (reply) => reply.round === round;
-  return (
-    round > 0 &&
-    !annotations().some((a) => a.replies?.some(forRound)) &&
-    !(rounds.session.overallReplies ?? []).some(forRound)
-  );
-}
-
 // The strip shows one message, in this order: a lost connection, the last action's message,
 // then the round state.
 function renderStatus() {
@@ -1188,8 +1276,10 @@ function renderStatus() {
     text = 'Edits save to the diagram file as you make them; no notes are taken in this session.';
   } else if (round === 0) {
     text = 'Notes go out when you press Send.';
-  } else if (waiting()) {
-    text = `Round ${round} sent — the agent is working. You can keep reading and adding notes.`;
+  } else if (rounds.roundOut()) {
+    text = roundRun()
+      ? `Round ${round} sent — the agent is working. The diagram is read-only until it replies; you can keep adding notes.`
+      : `Round ${round} sent — the agent is working. You can keep reading and adding notes.`;
     kind = 'waiting';
   } else {
     text = `Round ${round} answered — replies are under the notes.`;
@@ -1205,11 +1295,18 @@ function notify(text, { error = false } = {}) {
   renderStatus();
 }
 
-// Says which unsent notes were removed because their anchor left the listing.
+// Says which unsent notes were removed because their anchor left the listing or the diagram.
 function notifyDropped(dropped) {
-  const labels = dropped.map((a) => anchorLabel(a.anchor)).join(', ');
+  const onDiagram = (a) => a.anchor.kind === 'box' || a.anchor.kind === 'arrow';
+  const labels = (list) => list.map((a) => anchorLabel(a.anchor)).join(', ');
+  const listing = dropped.filter((a) => !onDiagram(a));
+  const diagram = dropped.filter(onDiagram);
+  const reasons = [
+    ...(listing.length ? [`${labels(listing)} left this review's listing`] : []),
+    ...(diagram.length ? [`${labels(diagram)} ${diagram.length === 1 ? 'is' : 'are'} not in the diagram`] : []),
+  ];
   const lead = dropped.length === 1 ? 'An unsent note was' : `${dropped.length} unsent notes were`;
-  notify(`${lead} removed: ${labels} left this review's listing.`, { error: true });
+  notify(`${lead} removed: ${reasons.join('; ')}.`, { error: true });
 }
 
 // Disables every control and raises the end-of-run overlay; rounds.js calls it once per run.
@@ -1253,10 +1350,10 @@ function showEnd(status) {
   document.body.append(overlay);
 }
 
-// A diagram session ends once the last diagram edit has reached the server, or once the human
-// accepts that it did not.
+// A run that edits a diagram ends once the last diagram edit has reached the server, or once the
+// human accepts that it did not.
 async function finish() {
-  if (rounds.standalone) {
+  if (rounds.standalone || roundRun()) {
     const saved = await diagramView.flush();
     if (saved?.phase === 'failed' && !window.confirm('The last diagram edit was not saved. Finish anyway?')) {
       return;
@@ -1265,9 +1362,16 @@ async function finish() {
   await rounds.finishRun();
 }
 
-el.send.addEventListener('click', rounds.sendRound);
+async function cancel() {
+  if (roundRun()) {
+    await diagramView.flush();
+  }
+  await rounds.cancelRun();
+}
+
+el.send.addEventListener('click', send);
 el.finish.addEventListener('click', finish);
-el.cancel.addEventListener('click', rounds.cancelRun);
+el.cancel.addEventListener('click', cancel);
 
 el.filter.addEventListener('input', () => setFilter(el.filter.value));
 

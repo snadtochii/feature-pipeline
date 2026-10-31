@@ -21,9 +21,12 @@
 // Every /api call must carry the per-run token; it is random unless --token sets it, which
 // lets a caller know the viewer URL before this process prints it.
 // --overview names an overview document, checked when the run starts and served to the viewer.
-// --diagram names a diagram file, checked when the run starts and shown read-only; its boxes
-// and arrows take notes, the files they link join the listing, and the notes file records its
-// path, so a resume reopens it unless --diagram is given.
+// --diagram names a diagram file, checked when the run starts and shown for editing: the human's
+// edits are saved to it except while a round is out, each Send records the structural changes,
+// and the reply closing a round re-reads the file the agent may have redrawn. Its boxes and
+// arrows take notes, the files they link join the listing, and the notes file records its path
+// and the current round's starting file, so a resume reopens it unless --diagram is given and
+// diffs its next Send against the recorded starting file.
 //
 // `wait` takes the URL `annotate` printed on stderr, blocks until the next round is sent or
 // the run ends, and prints one wait document. --after is the last round the caller has seen.
@@ -49,7 +52,7 @@ import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { assembleOverview, readMeasurement, readOptional, serialiseOverview } from './lib/assemble.mjs';
-import { diagramSessionInputs, diagramWriter, readDiagram, runListing } from './lib/diagram.mjs';
+import { diagramSessionInputs, diagramWriter, diffDiagrams, readDiagram, restoreBaseline, runListing } from './lib/diagram.mjs';
 import { readSource, revision } from './lib/files.mjs';
 import { measureScope } from './lib/measure.mjs';
 import { readOverview } from './lib/overview.mjs';
@@ -144,7 +147,9 @@ async function annotate(argv) {
   const scope = scopeArgs.map((raw) => scopePath(root, raw));
   const out = resolve(values.out ?? join(root, 'claudedocs', 'margin', `${stamp()}.json`));
   const diagramFile = values.diagram !== undefined ? resolve(values.diagram) : typeof stored?.diagram === 'string' ? resolve(stored.diagram) : null;
-  const document = diagramFile ? readDiagram(diagramFile).document : null;
+  const read = diagramFile ? readDiagram(diagramFile) : null;
+  const document = read ? read.document : null;
+  const writer = read ? diagramWriter(diagramFile, read.text) : null;
   const own = [out, overviewFile, diagramFile].filter((file) => file !== null);
   const files = runListing(root, scope, own, document);
   if (files.length === 0 && document === null) {
@@ -152,6 +157,7 @@ async function annotate(argv) {
   }
 
   const session = createSession({ stored, out, root, scope, revision: revision(root), diagram: diagramFile });
+  session.baseline = restoreBaseline(stored, out, diagramFile, document);
   const overview = overviewFile ? readOverview(overviewFile) : null;
   const save = () => saveSession(session);
   const scopeText = scope.length > 0 ? scope.join(', ') : document ? 'diagram links' : '.';
@@ -164,13 +170,16 @@ async function annotate(argv) {
       session,
       files,
       readSource: (path) => readSource(root, path),
-      relist: () => runListing(root, scope, own, document),
+      relist: (current) => runListing(root, scope, own, current),
       onSave: save,
-      onSend: (candidates) => sendRound(session, candidates),
-      onReply: (body) => postReplies(session, body),
+      onSend: (allowed, changes, sent) => sendRound(session, allowed, changes, sent),
+      onReply: (body, gate) => postReplies(session, body, gate),
       onEnd: (status) => finishRun(session, status),
       overview,
-      diagram: document ? { file: diagramFile, root, document } : null,
+      diagram: document ? { file: diagramFile, root, document, baseline: session.baseline } : null,
+      saveDiagram: writer ? (edited) => writer.save(edited) : null,
+      rereadDiagram: writer ? () => writer.reread() : null,
+      diffDiagrams: writer ? diffDiagrams : null,
     },
     {
       noOpen: values['no-open'],

@@ -12,13 +12,15 @@ import { KINDS, groupFrames, layoutDiagram } from './diagram.js';
 const ID_SUFFIX = /^(box|arrow)-(\d+)$/;
 
 // `next('box' | 'arrow')` returns `<prefix>-<n>`, `n` one more than the largest numeric suffix
-// of that prefix among the ids of `doc` and every id returned before, skipping any id in use.
-export function createIds(doc) {
+// of that prefix among the ids of `doc`, the ids in `seen` and every id returned before, skipping
+// any id in use. `seen` holds ids the document no longer has but something still names — the
+// round's starting file, a note's anchor — so a new box never takes a removed one's identity.
+export function createIds(doc, seen = []) {
   const used = new Set();
   const largest = { box: 0, arrow: 0 };
-  for (const entry of [...doc.groups, ...doc.boxes, ...doc.arrows]) {
-    used.add(entry.id);
-    const match = ID_SUFFIX.exec(entry.id);
+  for (const id of [...doc.groups, ...doc.boxes, ...doc.arrows].map((entry) => entry.id).concat(seen)) {
+    used.add(id);
+    const match = ID_SUFFIX.exec(id);
     const n = match ? Number(match[2]) : 0;
     if (match && Number.isSafeInteger(n)) {
       largest[match[1]] = Math.max(largest[match[1]], n);
