@@ -332,6 +332,7 @@ kbd { font: 11px var(--mono); opacity: .7; margin-left: 4px; }
 .d-save.error { pointer-events: auto; padding: 0 4px 0 8px; color: var(--danger); background: var(--bg); border: 1px solid var(--danger); border-radius: 6px; }
 .d-save-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-save button { flex: none; padding: 0 8px; }
+.d-save.locked { padding: 0 8px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
 .d-card { position: absolute; top: 8px; right: 8px; z-index: 3; width: max-content; max-width: min(22em, calc(100% - 24px)); max-height: calc(100% - 72px); overflow: auto; padding: 10px 12px; background: var(--bg); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.3); }
 .d-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .d-card-label { font-weight: 600; overflow-wrap: anywhere; }

@@ -5,7 +5,9 @@
 // checks the viewer's round controller over a fake server and a fake view: the anchor rule
 // against the listing, the overview's candidate names and the diagram's box and arrow ids, the
 // Send rule with withheld candidate
-// notes left out, writes running one at a time with the newest session, a
+// notes left out, the diagram's structural changes counted toward Send, box notes withheld while
+// their box is gone and reported removed once sent, the round lock agreeing with the server's,
+// new ids never reusing a named one, writes running one at a time with the newest session, a
 // refresh merging the server copy by ownership, Send, Finish and Cancel with each refusal, and
 // the change wait's backoff, reconnection and end. It checks the viewer's outline model: rows
 // grouped by scope entry and folder, imported-by, candidate membership, bars, the anchor rule per
@@ -15,7 +17,9 @@
 // group's members contiguous inside frames that are their bounds, places a new member of a
 // positioned group beside its members without its frame meeting another group's, and the diagram file's reading
 // refusals and size limit; arrow geometry (a lone arrow straight between box borders, parallel and
-// opposite arrows spread apart, nested self-loops), the bounds and the fit transform, and a
+// opposite arrows spread apart, nested self-loops), the round changes between two documents by
+// id (each op, layout never listed, a removed box taking its arrows, the order, inputs
+// untouched), the bounds and the fit transform, and a
 // diagram session's listing of linked regular files only. It checks the viewer's diagram edits:
 // each edit checked and its input untouched, removals cleaning walkthrough steps, ids, the group
 // a dropped box lands in, the layouts, the positions an edit writes, and the save ordering with its failures. It checks the note rules (the anchor rule per kind,
@@ -24,7 +28,9 @@
 // excerpt cap),
 // resuming a notes file (a stored note keeps its anchor; rounds and note rounds restore; a file
 // without rounds is round 0; the refusals), the atomic save keeping the file's mode, the sent-note lock, a Send withholding
-// the candidate notes the overview does not name, the agent's replies
+// the candidate notes the overview does not name and the box and arrow notes the diagram no
+// longer holds, a round's changes recorded and restored and the round out until a reply, the
+// agent's replies
 // (kept through a viewer write and a resume, each resume refusal for them, a reply post whose
 // save fails changing nothing), the scope rule, file listing that never lists a symlink, and
 // the reading refusals and limits. Against a server on port 0 inside this process it checks the
@@ -38,7 +44,11 @@
 // for the overview's names and refused on every write route otherwise, box and arrow notes on a
 // run that shows a diagram (accepted with the diagram's label, sent, replied to, refused on every
 // write route for an unknown id and on a run without a diagram, the diagram served and its save
-// answering 404), and a listing that never lists the overview file. Against a diagram session's server, with no notes session, it checks
+// answering 404 without a writer), an annotate run with a diagram (an edit saved and diffed at
+// Send, the baseline moving, a save refused while the round is out, an invalid redraw refusing
+// the reply with nothing applied, a valid one adopted as document and baseline, a reply to an
+// earlier round reading nothing, a note on a deleted box withheld until it returns), and a
+// listing that never lists the overview file. Against a diagram session's server, with no notes session, it checks
 // the diagram route, the null session, linked-file reads, the notes routes answering 404 and
 // Finish ending it, and its save route: a canonical write served afterwards, each refusal and a
 // file changed on disk leaving the file as it was, a save after the end, and the 404 without a
@@ -54,7 +64,8 @@
 // text, and its document on Finish and on SIGTERM with nothing else written, a submit, a `wait` child, finish,
 // and exactly one result document, a run ended by SIGTERM, a run serving its overview and
 // sending a candidate note, a run given `--diagram` listing its linked files, taking a box note,
-// recording the diagram and reopening it on resume — a relative recorded path made absolute and
+// saving an edit, sending its change, locking while the round is out, serving the agent's
+// redraw after the reply, recording the diagram and reopening it on resume — a relative recorded path made absolute and
 // kept out of the listing — with its refusals, and
 // `measure` then `assemble` writing an overview the shape check accepts.
 // Every fixture is a real file in a temp directory, and every expectation is written by hand,
@@ -78,7 +89,7 @@ import { createResolver, parseJsonc, scanSpecifiers } from './imports.mjs';
 import { countLines, detectWidth, indentation, measureScope } from './measure.mjs';
 import { MAX_OVERVIEW_BYTES, checkOverview, readOverview } from './overview.mjs';
 import { startServer } from './server.mjs';
-import { RunError, createSession, finishRun, postReplies, readStored, restoreSession, saveSession, scopePath, sendRound, writeAtomic } from './session.mjs';
+import { RunError, createSession, finishRun, postReplies, readStored, restoreSession, roundOut, saveSession, scopePath, sendRound, writeAtomic } from './session.mjs';
 import { waitForRound } from './wait.mjs';
 
 const CLI = fileURLToPath(new URL('../cli.mjs', import.meta.url));
@@ -174,14 +185,26 @@ function request(port, { method = 'GET', target = '/api/session', headers = {}, 
 
 // A server on port 0 over a temp root holding `a.txt`, with the session, save, send and end
 // that `cli.mjs annotate` wires: `finished` settles with the result document the run would print.
-// `diagram` is a checked diagram document the run shows read-only, as `annotate --diagram` serves
-// it: no writer.
-function withServer(fn, { overview = null, diagram = null } = {}) {
+// `diagram` is a checked diagram document the run shows. Without `save` there is no writer; with
+// it the diagram file holds the document's canonical text and the run saves, diffs and re-reads it
+// as `annotate --diagram` does.
+function withServer(fn, { overview = null, diagram = null, save: saves = false } = {}) {
   return withTemp(async (root) => {
     write(root, 'a.txt', 'a\n');
     const out = path.join(root, 'claudedocs', 'margin', 'notes.json');
     const files = listFiles(root, [], [out]);
     assertEqual(files, ['a.txt'], 'fixture listing');
+    const diagramFile = path.join(root, 'd.diagram.json');
+    let writer = null;
+    let diffDiagrams = null;
+    if (diagram && saves) {
+      const { serializeDiagram } = await loadDiagramModel();
+      const reader = await loadDiagramReader();
+      const text = serializeDiagram(diagram);
+      write(root, 'd.diagram.json', text);
+      writer = reader.diagramWriter(diagramFile, text);
+      diffDiagrams = reader.diffDiagrams;
+    }
     const session = createSession({ stored: null, out, root, scope: [], revision: null });
     const save = () => saveSession(session);
     const { url, close, ended, waiting, watching } = await startServer({
@@ -190,13 +213,16 @@ function withServer(fn, { overview = null, diagram = null } = {}) {
       session,
       files,
       readSource: (p) => readSource(root, p),
-      relist: () => listFiles(root, [], [out]),
+      relist: () => listFiles(root, [], [out, diagramFile]),
       onSave: save,
-      onSend: (candidates) => sendRound(session, candidates),
-      onReply: (body) => postReplies(session, body),
+      onSend: (allowed, changes) => sendRound(session, allowed, changes),
+      onReply: (body, gate) => postReplies(session, body, gate),
       onEnd: (status) => finishRun(session, status),
       overview,
-      diagram: diagram ? { file: path.join(root, 'd.diagram.json'), root, document: diagram } : null,
+      diagram: diagram ? { file: diagramFile, root, document: diagram, ...(writer ? { baseline: diagram } : {}) } : null,
+      saveDiagram: writer ? (edited) => writer.save(edited) : null,
+      rereadDiagram: writer ? () => writer.reread() : null,
+      diffDiagrams,
     });
     try {
       const parsed = new URL(url);
@@ -204,7 +230,7 @@ function withServer(fn, { overview = null, diagram = null } = {}) {
       assert(parsed.hostname === '127.0.0.1' && port > 0, `the server is not on a loopback port: ${url}`);
       assert(parsed.hash === `#${TOKEN}`, `the viewer URL does not carry the token: ${url}`);
       const host = `127.0.0.1:${port}`;
-      return await fn({ port, host, root, out, url, session, save, ended, waiting, watching, finished: () => within(ended, 'the end of the run') });
+      return await fn({ port, host, root, out, url, session, save, ended, waiting, watching, diagramFile, finished: () => within(ended, 'the end of the run') });
     } finally {
       await close();
     }
@@ -501,6 +527,7 @@ const loadOverviewModel = () => import('../../ui/overview.js');
 const loadDiagramModel = () => import('../../ui/diagram.js');
 const loadDiagramReader = () => import('./diagram.mjs');
 const loadDiagramEdit = () => import('../../ui/diagram-edit.js');
+const loadDiagramDiff = () => import('../../ui/diagram-diff.js');
 
 const tick =() => new Promise((resolve) => setImmediate(resolve));
 
@@ -673,6 +700,11 @@ function roundsRoutes(session, files = ['src/a.js', 'src/b/c.js'], extra = {}) {
 const bodyIds = (call) => call[2].annotations.map((a) => a.id);
 
 const ALLOWED = { paths: new Set(['src/a.js', 'src/b/c.js']), candidates: new Set(['split-parsing']), boxes: new Map(), arrows: new Map() };
+const sendAllowed = (names = [], boxes = [], arrows = []) => ({
+  candidates: new Set(names),
+  boxes: new Map(boxes.map((id) => [id, id])),
+  arrows: new Map(arrows.map((id) => [id, id])),
+});
 
 // The diagram the box and arrow note cases check against: `shared` names a box and an arrow
 // both, and `quiet` is an unlabelled arrow.
@@ -830,9 +862,9 @@ const CASES = [
     assert(!h.rounds.listed({ kind: 'box', id: 'starts' }), 'an arrow id is listed as a box');
     assert(!h.rounds.listed({ kind: 'arrow', id: 'cli' }), 'a box id is listed as an arrow');
     assert(!h.rounds.listed({ kind: 'box' }) && !h.rounds.listed({ kind: 'arrow', id: 'nope' }), 'an unknown or missing id is listed');
-    assert(!h.rounds.withheld(h.rounds.session.annotations[0]), 'a stored box note outside the diagram is withheld');
-    assertEqual(h.rounds.sendable().map((a) => a.id), ['stored'], 'the sendable notes with only a stored box note');
-    assert(h.rounds.canSend(), 'Send is refused with only a box note');
+    assert(h.rounds.withheld(h.rounds.session.annotations[0]), 'a stored box note outside the diagram is not withheld');
+    assertEqual(h.rounds.sendable(), [], 'the sendable notes with only a withheld box note');
+    assert(!h.rounds.canSend(), 'Send is allowed with only a withheld box note');
     h.rounds.addNote(box('local', 'cli'));
     h.rounds.addNote(arrow('quiet', 'quiet'));
     h.rounds.addNote(box('stray', 'nope'));
@@ -848,6 +880,163 @@ const CASES = [
     );
     h.rounds.setDiagram(null);
     assert(!h.rounds.listed({ kind: 'box', id: 'cli' }) && !h.rounds.listed({ kind: 'arrow', id: 'starts' }), 'an element is listed in a run without a diagram');
+  }],
+  ['viewer rounds: diagram changes, withheld and removed box notes, and the round lock', async () => {
+    const { removeBox, createIds } = await loadDiagramEdit();
+    const box = (id, boxId, extra) => viewerNote(id, { kind: 'box', id: boxId, label: boxId }, extra);
+    const edited = removeBox(NOTE_DIAGRAM, 'shared');
+    const h = await roundsHarness(roundsRoutes(viewerSession([box('held', 'shared'), box('sent', 'shared', { round: 1 })], { round: 1, rounds: [{ round: 1, sentAt: 't', overall: '' }], overallReplies: [{ body: 'ok', round: 1, createdAt: 't' }] })));
+    await h.rounds.load();
+    h.rounds.setDiagram(NOTE_DIAGRAM, NOTE_DIAGRAM);
+    assert(h.rounds.changeCount() === 0, `changes with the document as its starting file: ${h.rounds.changeCount()}`);
+    assertEqual(h.rounds.sendable().map((a) => a.id), ['held'], 'the sendable notes while the box exists');
+    assert(!h.rounds.removed(h.rounds.session.annotations[1].anchor), 'a sent note on a box the diagram holds is removed');
+    h.rounds.setDiagram(edited, NOTE_DIAGRAM);
+    assert(h.rounds.changeCount() === 3, `changes after removing a box with two arrows: ${h.rounds.changeCount()}`);
+    assert(h.rounds.withheld(h.rounds.session.annotations[0]), 'an unsent note on a removed box is not withheld');
+    assertEqual(h.rounds.sendable(), [], 'the sendable notes after the box was removed');
+    assert(h.rounds.canSend(), 'Send is refused with only diagram changes');
+    assert(h.rounds.removed(h.rounds.session.annotations[1].anchor), 'a sent note on a removed box is not removed');
+    assert(!h.rounds.removed({ kind: 'file', path: 'src/a.js' }), 'a file anchor reads as removed');
+    h.rounds.setDiagram(edited, edited);
+    assert(h.rounds.changeCount() === 0 && !h.rounds.canSend(), 'Send is allowed once the starting file is the document');
+    h.rounds.setDiagram(NOTE_DIAGRAM, edited);
+    assert(!h.rounds.withheld(h.rounds.session.annotations[0]), 'a note whose box returned is still withheld');
+    assertEqual(h.rounds.sendable().map((a) => a.id), ['held'], 'the sendable notes once the box returned');
+    h.rounds.addNote(box('fresh', 'shared'));
+    h.editing = 'fresh';
+    h.rounds.setDiagram(edited, NOTE_DIAGRAM);
+    assertEqual(h.rounds.dropUnstored().map((a) => a.id), ['fresh'], 'the notes dropped once the box of a never-stored note was removed');
+    assertEqual(h.rounds.session.annotations.map((a) => a.id), ['held', 'sent'], 'the notes after the drop keep the stored one');
+    assert(h.editing === null, 'the composer on a dropped note stays open');
+    assertEqual(h.rounds.dropUnstored(), [], 'a second drop removes a note');
+    await h.rounds.save();
+    assertEqual(h.calls.at(-1)[2].annotations.map((a) => a.id), ['held', 'sent'], 'the write after the drop carries a dropped note');
+
+    const sentRound = { round: 1, rounds: [{ round: 1, sentAt: 't', overall: '' }] };
+    const reply = { body: 'ok', round: 1, createdAt: 't' };
+    const sessions = [
+      ['round 0', viewerSession(), false],
+      ['a round with no reply', viewerSession([viewerNote('n1', { kind: 'scope' }, { round: 1 })], sentRound), true],
+      ['an overall reply', viewerSession([viewerNote('n1', { kind: 'scope' }, { round: 1 })], { ...sentRound, overallReplies: [reply] }), false],
+      ['a note reply', viewerSession([viewerNote('n1', { kind: 'scope' }, { round: 1, replies: [reply] })], sentRound), false],
+      ['a reply for an earlier round only', viewerSession([viewerNote('n1', { kind: 'scope' }, { round: 1, replies: [reply] }), viewerNote('n2', { kind: 'scope' }, { round: 2 })], { round: 2, rounds: [...sentRound.rounds, { round: 2, sentAt: 't', overall: '' }] }), true],
+    ];
+    for (const [what, session, out] of sessions) {
+      const viewer = await roundsHarness(roundsRoutes(session));
+      await viewer.rounds.load();
+      assert(viewer.rounds.roundOut() === out, `the viewer's round lock with ${what}: ${viewer.rounds.roundOut()}`);
+      assert(roundOut(session) === out, `the server's round lock with ${what}: ${roundOut(session)}`);
+    }
+
+    const ids = createIds(diagramOf({ boxes: [diagramBox('box-1')] }), ['box-3', 'arrow-2', 'other']);
+    assertEqual([ids.next('box'), ids.next('arrow'), ids.next('box')], ['box-4', 'arrow-3', 'box-5'], 'ids seeded with ids the document no longer holds');
+  }],
+  ['diagram diff: each structural change by id, layout never listed', async () => {
+    const { diffDiagrams } = await loadDiagramDiff();
+    const { removeBox } = await loadDiagramEdit();
+    const base = diagramOf({
+      groups: [{ id: 'g1', label: 'G1' }, { id: 'g2', label: 'G2' }],
+      boxes: [diagramBox('a', { group: 'g1', x: 0, y: 0 }), diagramBox('b', { group: 'g1' }), diagramBox('c')],
+      arrows: [{ ...diagramArrow('x', 'a', 'b'), label: 'calls' }, diagramArrow('y', 'b', 'c')],
+    });
+    const frozen = JSON.stringify(base);
+    const edit = (change) => {
+      const doc = structuredClone(base);
+      change(doc);
+      return doc;
+    };
+    const find = (doc, id) => doc.boxes.find((entry) => entry.id === id);
+    const arrowOf = (doc, id) => doc.arrows.find((entry) => entry.id === id);
+    assertEqual(diffDiagrams(base, base), [], 'the same document');
+    const layout = edit((doc) => {
+      Object.assign(find(doc, 'a'), { x: 40, y: 80 });
+      find(doc, 'b').files = ['src/b.js'];
+      arrowOf(doc, 'x').why = 'because';
+      doc.groups[0].label = 'Renamed group';
+      doc.walkthroughs = [{ name: 'Tour', steps: [{ arrows: ['x'], text: 'A calls B.' }] }];
+    });
+    assertEqual(diffDiagrams(base, layout), [], 'positions, a move within a group, files, why, groups and walkthroughs');
+    const added = edit((doc) => doc.boxes.push(diagramBox('d', { kind: 'store', group: 'g2' }), diagramBox('e')));
+    assertEqual(
+      diffDiagrams(base, added),
+      [{ op: 'add-box', id: 'd', label: 'D', kind: 'store', group: 'g2' }, { op: 'add-box', id: 'e', label: 'E', kind: 'module', group: null }],
+      'added boxes',
+    );
+    assertEqual(diffDiagrams(base, removeBox(base, 'c')), [{ op: 'remove-box', id: 'c', label: 'C' }, { op: 'remove-arrow', id: 'y', from: 'b', to: 'c', label: '' }], 'a removed box with its arrow');
+    assertEqual(diffDiagrams(base, edit((doc) => (find(doc, 'a').label = 'Alpha'))), [{ op: 'rename-box', id: 'a', was: 'A', now: 'Alpha' }], 'a renamed box');
+    assertEqual(diffDiagrams(base, edit((doc) => (find(doc, 'a').kind = 'agent'))), [{ op: 'change-kind', id: 'a', was: 'module', now: 'agent' }], 'a changed kind');
+    const moved = edit((doc) => {
+      find(doc, 'a').group = 'g2';
+      delete find(doc, 'b').group;
+      find(doc, 'c').group = 'g1';
+    });
+    assertEqual(
+      diffDiagrams(base, moved),
+      [
+        { op: 'move-box', id: 'a', was: 'g1', now: 'g2' },
+        { op: 'move-box', id: 'b', was: 'g1', now: null },
+        { op: 'move-box', id: 'c', was: null, now: 'g1' },
+      ],
+      'boxes moved across groups, to and from no group',
+    );
+    assertEqual(diffDiagrams(base, edit((doc) => doc.arrows.push({ ...diagramArrow('z', 'c', 'a'), label: 'back' }))), [{ op: 'add-arrow', id: 'z', from: 'c', to: 'a', label: 'back' }], 'an added arrow');
+    assertEqual(diffDiagrams(base, edit((doc) => (doc.arrows = doc.arrows.filter((a) => a.id !== 'x')))), [{ op: 'remove-arrow', id: 'x', from: 'a', to: 'b', label: 'calls' }], 'a removed arrow');
+    assertEqual(diffDiagrams(base, edit((doc) => (arrowOf(doc, 'x').label = 'invokes'))), [{ op: 'relabel-arrow', id: 'x', was: 'calls', now: 'invokes' }], 'a relabelled arrow');
+    const rewired = edit((doc) => Object.assign(arrowOf(doc, 'x'), { to: 'c', label: 'new' }));
+    assertEqual(
+      diffDiagrams(base, rewired),
+      [{ op: 'remove-arrow', id: 'x', from: 'a', to: 'b', label: 'calls' }, { op: 'add-arrow', id: 'x', from: 'a', to: 'c', label: 'new' }],
+      'an arrow whose end changed',
+    );
+    const mixed = edit((doc) => {
+      doc.boxes = doc.boxes.filter((entry) => entry.id !== 'b');
+      doc.arrows = [diagramArrow('w', 'a', 'd')];
+      doc.boxes.push(diagramBox('d'));
+      Object.assign(find(doc, 'a'), { label: 'Alpha', kind: 'agent', group: 'g2' });
+    });
+    assertEqual(
+      diffDiagrams(base, mixed),
+      [
+        { op: 'remove-box', id: 'b', label: 'B' },
+        { op: 'add-box', id: 'd', label: 'D', kind: 'module', group: null },
+        { op: 'rename-box', id: 'a', was: 'A', now: 'Alpha' },
+        { op: 'change-kind', id: 'a', was: 'module', now: 'agent' },
+        { op: 'move-box', id: 'a', was: 'g1', now: 'g2' },
+        { op: 'remove-arrow', id: 'x', from: 'a', to: 'b', label: 'calls' },
+        { op: 'remove-arrow', id: 'y', from: 'b', to: 'c', label: '' },
+        { op: 'add-arrow', id: 'w', from: 'a', to: 'd', label: '' },
+      ],
+      'the order across mixed changes',
+    );
+    assertEqual(
+      diffDiagrams(diagramOf({}), base),
+      [
+        { op: 'add-box', id: 'a', label: 'A', kind: 'module', group: 'g1' },
+        { op: 'add-box', id: 'b', label: 'B', kind: 'module', group: 'g1' },
+        { op: 'add-box', id: 'c', label: 'C', kind: 'module', group: null },
+        { op: 'add-arrow', id: 'x', from: 'a', to: 'b', label: 'calls' },
+        { op: 'add-arrow', id: 'y', from: 'b', to: 'c', label: '' },
+      ],
+      'an empty starting file',
+    );
+    const loops = diagramOf({
+      boxes: [diagramBox('a'), diagramBox('b')],
+      arrows: [{ ...diagramArrow('s', 'a', 'a'), label: 'self' }, diagramArrow('p1', 'a', 'b'), diagramArrow('p2', 'a', 'b')],
+    });
+    assertEqual(
+      diffDiagrams(loops, removeBox(loops, 'a')),
+      [
+        { op: 'remove-box', id: 'a', label: 'A' },
+        { op: 'remove-arrow', id: 's', from: 'a', to: 'a', label: 'self' },
+        { op: 'remove-arrow', id: 'p1', from: 'a', to: 'b', label: '' },
+        { op: 'remove-arrow', id: 'p2', from: 'a', to: 'b', label: '' },
+      ],
+      'a removed box taking a self-loop and parallel arrows',
+    );
+    const mixedText = JSON.stringify(mixed);
+    diffDiagrams(base, mixed);
+    assert(JSON.stringify(base) === frozen && JSON.stringify(mixed) === mixedText, 'the diff changed its inputs');
   }],
   ['viewer rounds: writes run one at a time, each carrying the session as it stands at its turn', async () => {
     let release;
@@ -1981,7 +2170,7 @@ const CASES = [
     await withServer(async ({ port, host }) => {
       const none = await request(port, { target: '/api/diagram', headers: { host, 'x-margin-token': TOKEN } });
       assertEqual([none.status, none.json], [404, { error: 'no diagram' }], 'the diagram route on a run without one');
-      for (const asset of ['/diagram.js', '/diagram-edit.js', '/diagram-view.js']) {
+      for (const asset of ['/diagram.js', '/diagram-edit.js', '/diagram-diff.js', '/diagram-view.js']) {
         const res = await request(port, { target: asset, headers: { host } });
         assert(res.status === 200 && res.type === 'text/javascript; charset=utf-8', `${asset} got ${res.status} ${res.type}`);
       }
@@ -2474,7 +2663,7 @@ const CASES = [
     const before = JSON.stringify({ round: blocked.round, rounds: blocked.rounds, annotations: blocked.annotations });
     let sendThrew = false;
     try {
-      sendRound(blocked, new Set());
+      sendRound(blocked, sendAllowed());
     } catch {
       sendThrew = true;
     }
@@ -2514,15 +2703,15 @@ const CASES = [
       note('k1', { kind: 'candidate', name: 'split-parsing' }),
       note('f1', { kind: 'file', path: 'src/a.js' }),
     ];
-    assert(sendRound(session, new Set(['split-parsing'])) === 1, 'the Send did not send round 1');
+    assert(sendRound(session, sendAllowed(['split-parsing'])) === 1, 'the Send did not send round 1');
     assertEqual(session.annotations.map((a) => [a.id, a.round]), [['k1', 1], ['f1', 1], ['h1', undefined]], 'notes after a Send withholding one');
     const saved = JSON.parse(fs.readFileSync(path.join(dir, 'notes.json'), 'utf8'));
     assertEqual(saved.annotations.map((a) => [a.id, a.round ?? null]), [['k1', 1], ['f1', 1], ['h1', null]], 'saved notes after a Send withholding one');
-    assert(sendRound(session, new Set(['split-parsing'])) === null, 'a Send with only a withheld note and the same overall sent a round');
+    assert(sendRound(session, sendAllowed(['split-parsing'])) === null, 'a Send with only a withheld note and the same overall sent a round');
     assert(session.round === 1, `a Send with only a withheld note moved the round count to ${session.round}`);
     const bare = createSession({ stored: null, out: path.join(dir, 'bare.json'), root: dir, scope: [], revision: null });
     bare.annotations = [note('k2', { kind: 'candidate', name: 'split-parsing' }), note('s2', { kind: 'scope' })];
-    assert(sendRound(bare, new Set()) === 1, 'a Send without candidate names did not send the scope note');
+    assert(sendRound(bare, sendAllowed()) === 1, 'a Send without candidate names did not send the scope note');
     assertEqual(bare.annotations.map((a) => [a.id, a.round]), [['s2', 1], ['k2', undefined]], 'notes after a Send without candidate names');
     const taken = path.join(dir, 'taken');
     fs.mkdirSync(taken);
@@ -2530,7 +2719,7 @@ const CASES = [
     failing.annotations = [note('h3', { kind: 'candidate', name: 'merge-io' }), note('f3', { kind: 'file', path: 'src/a.js' })];
     let threw = false;
     try {
-      sendRound(failing, new Set(['split-parsing']));
+      sendRound(failing, sendAllowed(['split-parsing']));
     } catch {
       threw = true;
     }
@@ -2538,6 +2727,144 @@ const CASES = [
     assertEqual(failing.annotations.map((a) => [a.id, a.round]), [['h3', undefined], ['f3', undefined]], 'notes after a Send withholding one whose save failed');
     assert(failing.round === 0 && failing.rounds.length === 0, `a Send whose save failed left round ${failing.round} and ${failing.rounds.length} rounds`);
   })],
+  ["rounds: a Send records the diagram's changes, withholds notes on absent boxes and arrows, and the round stays out until a reply", () => withTemp((dir) => {
+    const note = (id, anchor) => ({ id, anchor, intent: 'change', body: id, createdAt: `c-${id}` });
+    const out = path.join(dir, 'notes.json');
+    const session = createSession({ stored: null, out, root: dir, scope: [], revision: null });
+    const change = { op: 'remove-box', id: 'gone', label: 'Gone' };
+    assert(sendRound(session, sendAllowed(), []) === null, 'a Send with no note, the same overall and no change sent a round');
+    assert(sendRound(session, sendAllowed(), null) === null, 'a Send with nothing and no diagram sent a round');
+    assert(!roundOut(session), 'a round is out before any Send');
+    assert(sendRound(session, sendAllowed(), [change]) === 1, 'a Send with only a change did not send round 1');
+    assertEqual(JSON.parse(fs.readFileSync(out, 'utf8')).rounds[0].changes, [change], 'the changes the notes file records');
+    assert(roundOut(session), 'the round is not out after the Send');
+    postReplies(session, { round: 1, overall: 'kept it' });
+    assert(!roundOut(session), 'the round is still out after an overall reply');
+    session.annotations = [note('s1', { kind: 'scope' })];
+    assert(sendRound(session, sendAllowed()) === 2, 'a Send with a note and no diagram did not send round 2');
+    assert(!('changes' in session.rounds[1]), `a round without a diagram carries changes: ${JSON.stringify(session.rounds[1])}`);
+    postReplies(session, { round: 2, replies: [{ id: 's1', body: 'done' }] });
+    assert(!roundOut(session), 'the round is still out after a note reply');
+    session.annotations.push(note('b1', { kind: 'box', id: 'gone', label: 'Gone' }), note('a1', { kind: 'arrow', id: 'gone', label: '' }), note('b2', { kind: 'box', id: 'kept', label: 'Kept' }));
+    assert(sendRound(session, sendAllowed([], ['kept'], []), []) === 3, 'a Send with a note on a kept box did not send round 3');
+    assertEqual(session.annotations.map((a) => [a.id, a.round]), [['s1', 2], ['b2', 3], ['b1', undefined], ['a1', undefined]], 'notes after a Send withholding notes on absent elements');
+    assertEqual(session.rounds[2].changes, [], 'the changes of a round with an unchanged diagram');
+    assert(sendRound(session, sendAllowed([], ['kept'], []), []) === null, 'a Send with only withheld box and arrow notes sent a round');
+    assert(sendRound(session, sendAllowed([], ['kept', 'gone'], ['gone']), []) === 4, 'a Send once the box and arrow returned did not send round 4');
+    assertEqual(session.annotations.map((a) => [a.id, a.round]), [['s1', 2], ['b2', 3], ['b1', 4], ['a1', 4]], 'notes after their box and arrow returned');
+
+    const stored = (changes) => ({ rounds: [{ round: 1, sentAt: 't', overall: '', ...(changes === undefined ? {} : { changes }) }], annotations: [] });
+    assertEqual(restoreSession(stored([change]), out).rounds, [{ round: 1, sentAt: 't', overall: '', changes: [change] }], 'a resumed round with changes');
+    assertEqual(restoreSession(stored(undefined), out).rounds, [{ round: 1, sentAt: 't', overall: '' }], 'a resumed round without changes');
+    for (const bad of ['x', [null], [{ op: 1, id: 'a' }], [{ op: 'add-box' }], {}]) {
+      throwsRun(() => restoreSession(stored(bad), out), 1, 'rounds entry 0 is malformed');
+    }
+  })],
+  ["server: an annotate run's diagram is saved, diffed at Send, locked while the round is out and re-read at the reply", async () => {
+    const { checkDiagram, serializeDiagram } = await loadDiagramModel();
+    const document = checkDiagram(structuredClone(NOTE_DIAGRAM));
+    const edited = structuredClone(document);
+    edited.boxes = edited.boxes.filter((box) => box.id !== 'shared').map((box) => (box.id === 'cli' ? { ...box, label: 'server' } : box));
+    edited.boxes.push({ id: 'new', label: 'New', kind: 'concept', files: [] });
+    edited.arrows = edited.arrows.filter((arrow) => arrow.id === 'starts');
+    const redraw = structuredClone(edited);
+    redraw.boxes.push({ id: 'agent', label: 'Agent box', kind: 'agent', files: [] });
+    await withServer(async ({ port, host, out, session, diagramFile }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const call = (method, target, body) => request(port, { method, target, headers, body });
+      const served = await call('GET', '/api/diagram');
+      assertEqual([served.json.document, served.json.baseline], [document, document], 'the document and baseline served at the start');
+      const saved = await call('PUT', '/api/diagram', { document: edited });
+      assert(saved.status === 200 && saved.json.ok === true, `a save in an annotate run got ${saved.status} ${saved.text}`);
+      assert(fs.readFileSync(diagramFile, 'utf8') === serializeDiagram(checkDiagram(structuredClone(edited))), 'the save did not write the canonical text');
+      const onNew = { id: 'n1', anchor: { kind: 'box', id: 'new' }, body: 'look' };
+      const put = await call('PUT', '/api/session', { annotations: [onNew] });
+      assert(put.status === 200, `a note on a box the save added got ${put.status} ${put.text}`);
+      assertEqual(session.annotations[0].anchor, { kind: 'box', id: 'new', label: 'New' }, 'the anchor of a note on an added box');
+      const sent = await call('POST', '/api/submit', { annotations: [onNew] });
+      assertEqual(sent.json, { ok: true, round: 1 }, 'the Send after an edit');
+      const changes = [
+        { op: 'remove-box', id: 'shared', label: 'Shared box' },
+        { op: 'add-box', id: 'new', label: 'New', kind: 'concept', group: null },
+        { op: 'rename-box', id: 'cli', was: 'cli.mjs', now: 'server' },
+        { op: 'remove-arrow', id: 'shared', from: 'cli', to: 'shared', label: 'uses' },
+        { op: 'remove-arrow', id: 'quiet', from: 'shared', to: 'skill', label: '' },
+      ];
+      assertEqual(JSON.parse(fs.readFileSync(out, 'utf8')).rounds[0].changes, changes, 'the changes round 1 records');
+      const after = await call('GET', '/api/diagram');
+      assertEqual(after.json.baseline, after.json.document, 'the baseline after the Send');
+      const bytes = fs.readFileSync(diagramFile);
+      const locked = await call('PUT', '/api/diagram', { document });
+      assertEqual([locked.status, locked.json], [409, { error: 'a round is out' }], 'a save while the round is out');
+      assert(fs.readFileSync(diagramFile).equals(bytes), 'a save while the round is out wrote the file');
+      const again = await call('POST', '/api/submit', { annotations: [] });
+      assertEqual([again.status, again.json], [409, { error: 'nothing to send' }], 'a second Send with nothing new');
+
+      fs.writeFileSync(diagramFile, '{');
+      const invalid = await call('POST', '/api/reply', { round: 1, overall: 'redrew' });
+      assert(invalid.status === 400 && invalid.json.error.startsWith(`diagram ${diagramFile}: not valid JSON`), `a reply over an invalid redraw got ${invalid.status} ${invalid.text}`);
+      assertEqual(session.overallReplies, [], 'the overall replies after a refused redraw');
+      assert(fs.readFileSync(diagramFile, 'utf8') === '{', 'a refused redraw changed the file');
+      assert((await call('PUT', '/api/diagram', { document })).status === 409, 'the round is not out after a refused redraw');
+      const badEntry = await call('POST', '/api/reply', { round: 1, replies: [{ id: 'nope', body: 'x' }] });
+      assertEqual([badEntry.status, badEntry.json], [400, { error: 'entry 0: no note nope' }], 'a reply with a bad entry over an invalid redraw');
+
+      fs.writeFileSync(diagramFile, JSON.stringify(redraw));
+      const valid = await call('POST', '/api/reply', { round: 1, overall: 'redrew it' });
+      assertEqual(valid.json, { ok: true, replied: 0 }, 'a reply over a valid redraw');
+      const redrawn = await call('GET', '/api/diagram');
+      const checked = checkDiagram(structuredClone(redraw));
+      assertEqual([redrawn.json.document, redrawn.json.baseline], [checked, checked], 'the document and baseline after the redraw');
+      const onAgent = { id: 'n2', anchor: { kind: 'box', id: 'agent' }, body: 'why' };
+      assert((await call('PUT', '/api/session', { annotations: [onAgent] })).status === 200, 'a note on a box the redraw added was refused');
+      const next = await call('PUT', '/api/diagram', { document: checked });
+      assert(next.status === 200, `the first save after a redraw got ${next.status} ${next.text}`);
+
+      const second = await call('POST', '/api/submit', { annotations: [onAgent] });
+      assertEqual(second.json, { ok: true, round: 2 }, 'the Send of round 2');
+      fs.writeFileSync(diagramFile, '{');
+      const late = await call('POST', '/api/reply', { round: 1, overall: 'late' });
+      assertEqual(late.json, { ok: true, replied: 0 }, 'a reply to an earlier round while a later one is out');
+      assert((await call('PUT', '/api/diagram', { document: checked })).status === 409, 'a reply to an earlier round lifted the lock');
+    }, { diagram: document, save: true });
+  }],
+  ['server: a note on a deleted box is withheld at the Send and sent once the box returns', async () => {
+    const { checkDiagram } = await loadDiagramModel();
+    const { removeBox } = await loadDiagramEdit();
+    const document = checkDiagram(structuredClone(NOTE_DIAGRAM));
+    await withServer(async ({ port, host, out, session }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const call = (method, target, body) => request(port, { method, target, headers, body });
+      const onCli = { id: 'b1', anchor: { kind: 'box', id: 'cli' }, body: 'split it' };
+      assert((await call('PUT', '/api/session', { annotations: [onCli] })).status === 200, 'a note on a box was refused');
+      assert((await call('PUT', '/api/diagram', { document: removeBox(document, 'cli') })).status === 200, 'the save deleting the box was refused');
+      assertEqual((await call('POST', '/api/submit', { annotations: [onCli] })).json, { ok: true, round: 1 }, 'the Send after deleting the box');
+      const first = JSON.parse(fs.readFileSync(out, 'utf8'));
+      assertEqual(first.annotations.map((a) => [a.id, a.round ?? null]), [['b1', null]], 'the note on the deleted box after the Send');
+      assertEqual(
+        first.rounds[0].changes,
+        [
+          { op: 'remove-box', id: 'cli', label: 'cli.mjs' },
+          { op: 'remove-arrow', id: 'starts', from: 'skill', to: 'cli', label: 'starts' },
+          { op: 'remove-arrow', id: 'shared', from: 'cli', to: 'shared', label: 'uses' },
+        ],
+        'the changes of the Send deleting the box',
+      );
+      assertEqual((await call('POST', '/api/reply', { round: 1, overall: 'noted' })).json, { ok: true, replied: 0 }, 'the reply closing round 1');
+      assert((await call('PUT', '/api/diagram', { document })).status === 200, 'the save restoring the box was refused');
+      assertEqual((await call('POST', '/api/submit', { annotations: [onCli] })).json, { ok: true, round: 2 }, 'the Send after restoring the box');
+      assertEqual(session.annotations.map((a) => [a.id, a.round]), [['b1', 2]], 'the note once its box returned');
+      assertEqual(
+        session.rounds[1].changes,
+        [
+          { op: 'add-box', id: 'cli', label: 'cli.mjs', kind: 'process', group: null },
+          { op: 'add-arrow', id: 'starts', from: 'skill', to: 'cli', label: 'starts' },
+          { op: 'add-arrow', id: 'shared', from: 'cli', to: 'shared', label: 'uses' },
+        ],
+        'the changes of the Send restoring the box',
+      );
+    }, { diagram: document, save: true });
+  }],
   ['rounds: a submit keeps the server alive and sends the next round', () => withServer(async ({ port, host, out, ended }) => {
     const headers = { host, 'x-margin-token': TOKEN };
     const submit = (body) => request(port, { method: 'POST', target: '/api/submit', headers, body });
@@ -3529,12 +3856,29 @@ const CASES = [
       const served = await request(port, { target: '/api/diagram', headers });
       assertEqual([served.status, served.json.file, served.json.root], [200, diagramFile, root], 'the diagram route of a diagram run');
       const save = await request(port, { method: 'PUT', target: '/api/diagram', headers, body: { document: NOTE_DIAGRAM } });
-      assert(save.status === 404, `a diagram save on a diagram run got ${save.status}`);
-      const put = await request(port, { method: 'PUT', target: '/api/session', headers, body: { annotations: [{ id: 'b1', anchor: { kind: 'box', id: 'cli' }, body: 'split it' }] } });
+      assert(save.status === 200, `a diagram save on a diagram run got ${save.status}`);
+      const boxNote = { id: 'b1', anchor: { kind: 'box', id: 'cli' }, body: 'split it' };
+      const put = await request(port, { method: 'PUT', target: '/api/session', headers, body: { annotations: [boxNote] } });
       assert(put.status === 200, `a box note on a diagram run got ${put.status}`);
       assertEqual(JSON.parse(fs.readFileSync(out, 'utf8')).diagram, diagramFile, 'the diagram the notes file records');
+      const renamed = structuredClone(NOTE_DIAGRAM);
+      renamed.boxes[0].label = 'server';
+      const edit = await request(port, { method: 'PUT', target: '/api/diagram', headers, body: { document: renamed } });
+      assert(edit.status === 200, `an edit on a diagram run got ${edit.status}`);
+      const sent = await request(port, { method: 'POST', target: '/api/submit', headers, body: { annotations: [boxNote] } });
+      assertEqual(sent.json, { ok: true, round: 1 }, 'the Send of a diagram run');
+      assertEqual(JSON.parse(fs.readFileSync(out, 'utf8')).rounds[0].changes, [{ op: 'rename-box', id: 'cli', was: 'cli.mjs', now: 'server' }], 'the changes a diagram run records');
+      const locked = await request(port, { method: 'PUT', target: '/api/diagram', headers, body: { document: NOTE_DIAGRAM } });
+      assertEqual([locked.status, locked.json], [409, { error: 'a round is out' }], 'a save on a diagram run while the round is out');
+      const redraw = { ...renamed, boxes: [...renamed.boxes, { id: 'agent', label: 'Agent box', kind: 'agent', files: [] }] };
+      fs.writeFileSync(diagramFile, JSON.stringify(redraw));
+      const replied = await request(port, { method: 'POST', target: '/api/reply', headers, body: { round: 1, overall: 'redrew' } });
+      assertEqual(replied.json, { ok: true, replied: 0 }, 'the reply over a redraw on a diagram run');
+      const redrawn = (await request(port, { target: '/api/diagram', headers })).json;
+      assertEqual(redrawn.document.boxes.map((box) => box.id), ['cli', 'skill', 'shared', 'agent'], 'the boxes served after the redraw');
+      assertEqual(redrawn.baseline, redrawn.document, 'the baseline after the redraw');
     });
-    assertEqual(first, { status: 'finished', out, annotations: 1, rounds: 0, root, scope: [] }, 'result document of a diagram run');
+    assertEqual(first, { status: 'finished', out, annotations: 1, rounds: 1, root, scope: [] }, 'result document of a diagram run');
 
     await live(['--out', out, '--scope', '.'], async ({ port, headers, stderr }) => {
       assert(stderr().includes('  scope: . (2 files)\n') && stderr().includes(`  diagram: ${diagramFile}\n`), `the stderr block of a resumed diagram run: ${stderr()}`);

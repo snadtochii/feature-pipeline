@@ -64,18 +64,23 @@ const focusOnButton = () => document.activeElement instanceof HTMLButtonElement;
 
 const SESSION_ENDED = 'the run has ended';
 
+export const UNLOCKED = 0;
+const ROUND_UNKNOWN = -1;
+
 // `nodes.pane` is the tab's pane. The callbacks:
 //   listed(path)     whether the path is in the run's listing, so the Code tab can open it
 //   openCode(path)   shows the file in the Code tab
 //   ended()          true once the run is over: no edit is made or saved
 //   saveState(text)  the header's save indicator
 //   counts()         the notes per element, keyed `box:<id>` and `arrow:<id>`, drawn as badges
+//   saved(document)  a save the server accepted, with the document it now holds
+//   seenIds()        ids the document may no longer hold but a note still names, kept out of new ids
 // F fits, J and K step the walkthrough, and N notes the selection once setAnnotate has been given
 // a composer, only while the tab is shown, with no Ctrl, ⌘ or Alt, and never while typing. While
-// editable, Delete or Backspace deletes the selection and L re-lays out, under the same rules and
-// never with a button focused or a press on the canvas in progress. Escape while a card is open
-// closes it and marks the event handled (defaultPrevented).
-export function createDiagramView({ nodes, listed, openCode, ended = () => false, saveState = () => {}, counts = () => new Map() }) {
+// editable and not locked, Delete or Backspace deletes the selection and L re-lays out, under the
+// same rules and never with a button focused or a press on the canvas in progress. Escape while a
+// card is open closes it and marks the event handled (defaultPrevented).
+export function createDiagramView({ nodes, listed, openCode, ended = () => false, saveState = () => {}, counts = () => new Map(), saved = () => {}, seenIds = () => [] }) {
   const { pane } = nodes;
   // Opens the composer on a { kind: 'box' | 'arrow', id, label } anchor; null in a run that keeps
   // no notes, which then offers no way to add one.
@@ -85,6 +90,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     result: null,
     send: null, // the save setEditable was given: document → promise, or null
     editable: false, // edits are made and saved: a save was given, and no 409 has turned them off
+    locked: UNLOCKED,
     stored: null, // the document as saved: the served one, then each edit's result
     doc: null, // the document drawn: `stored` with every box positioned, or a gesture's preview of it
     saver: null, // the save ordering of ./diagram-edit.js while editable
@@ -137,7 +143,35 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
 
   // ---- editing --------------------------------------------------------------
 
-  const canEdit = () => state.editable && !ended();
+  const isLocked = () => state.locked !== UNLOCKED;
+
+  const canEdit = () => state.editable && !isLocked() && !ended();
+
+  const LOCK_ERROR = 'a round is out';
+  const lockBar = (round) => ({ text: `${round === ROUND_UNKNOWN ? 'A round' : `Round ${round}`} is out — the diagram is read-only until the agent replies.`, kind: 'locked' });
+
+  function repaintEditing() {
+    if (!state.drawing) {
+      return;
+    }
+    if (state.drawing.relayout) {
+      state.drawing.relayout.disabled = !canEdit();
+    }
+    paint();
+  }
+
+  function setLocked(round) {
+    if (round !== UNLOCKED) {
+      abandonGestures();
+    }
+    state.locked = round;
+    if (isLocked()) {
+      showBar(lockBar(round));
+    } else if (state.bar?.kind === 'locked') {
+      showBar(null);
+    }
+    repaintEditing();
+  }
 
   // The document saved, and the one drawn from it.
   function setStored(stored) {
@@ -168,17 +202,19 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     fit();
   }
 
-  // A 400 puts the last saved document back; a 409 turns editing off; any other failure keeps
-  // the edit on screen and offers Retry.
+  // A 400 puts the last saved document back; a 409 for a round out puts it back and locks; any
+  // other 409 turns editing off; any other failure keeps the edit on screen and offers Retry.
+  // While locked, the lock's bar stays up through the save states.
   function saveChanged(saved) {
+    const lockedBar = isLocked() ? lockBar(state.locked) : null;
     if (saved.phase === 'saving') {
       saveState('saving…');
-      showBar(null);
+      showBar(lockedBar);
       return;
     }
     if (saved.phase === 'idle') {
       saveState(`saved ${new Date().toLocaleTimeString()}`);
-      showBar(null);
+      showBar(lockedBar);
       return;
     }
     saveState(`save failed: ${saved.error}`);
@@ -188,16 +224,17 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     }
     abandonGestures();
     setStored(saved.saved);
+    if (saved.status === 409 && saved.error === LOCK_ERROR) {
+      setLocked(isLocked() ? state.locked : ROUND_UNKNOWN);
+      return;
+    }
     if (saved.status === 409) {
       state.editable = false;
       showBar({ text: saved.error === SESSION_ENDED ? 'The session has ended.' : 'The diagram file changed on disk, so edits are off. Restart the session to edit it.' });
     } else {
       showBar({ text: `Not saved: ${saved.error}. The last saved diagram is back.` });
     }
-    if (state.drawing) {
-      state.drawing.relayout.disabled = !state.editable;
-      paint();
-    }
+    repaintEditing();
   }
 
   function showBar(bar) {
@@ -206,7 +243,8 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     if (!node) {
       return;
     }
-    node.classList.toggle('error', bar !== null);
+    node.classList.toggle('error', bar !== null && bar.kind !== 'locked');
+    node.classList.toggle('locked', bar?.kind === 'locked');
     node.replaceChildren();
     if (bar === null) {
       return;
@@ -278,7 +316,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       svg('rect', { width: w, height: h, rx: 6 }, node);
       svgText({ class: 'd-box-label', x: w / 2, y: 20 }, boxLabel(box), node);
       svgText({ class: 'd-box-kind', x: w / 2, y: 36 }, box.kind, node);
-      if (state.editable) {
+      if (canEdit()) {
         svg('circle', { class: 'd-handle', cx: w, cy: h / 2, r: HANDLE_RADIUS }, node);
       }
       const title = svg('title', {}, node);
@@ -307,7 +345,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     if (state.saver) {
       relayoutButton = html('button', 'small', 'Re-layout');
       relayoutButton.title = 'Re-layout (L)';
-      relayoutButton.disabled = !state.editable;
+      relayoutButton.disabled = !canEdit();
       relayoutButton.addEventListener('click', relayoutAll);
       bar = html('div', 'd-save');
       toolbar.append(relayoutButton, bar);
@@ -356,8 +394,8 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     const notes = counts();
     drawing.arrows = drawArrows(state.doc, arrows, notes);
     drawing.boxes = drawBoxes(state.doc, boxes, notes);
-    drawing.canvas.classList.toggle('editable', state.editable);
-    drawing.hint?.classList.toggle('hidden', !state.editable || state.doc.boxes.length > 0);
+    drawing.canvas.classList.toggle('editable', canEdit());
+    drawing.hint?.classList.toggle('hidden', !canEdit() || state.doc.boxes.length > 0);
     showSelection();
     applyStep();
   }
@@ -1094,7 +1132,12 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     setAnnotate(compose) {
       annotate = compose;
     },
-    setDiagram(result) {
+    // `result` is what GET /api/diagram answered: { doc } with its `document` and, in an annotate
+    // run, its `baseline`, or { error }, or null. With `keep` — a re-fetch after a Send or a reply —
+    // a shown drawing keeps its pan, zoom and selection where the selected box or arrow still
+    // exists; the walkthrough starts over either way.
+    setDiagram(result, { keep = false } = {}) {
+      const selected = state.selected;
       state.result = result;
       if (result?.doc) {
         setStored(result.doc.document);
@@ -1102,17 +1145,34 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
         state.stored = null;
         state.doc = null;
       }
-      state.ids = result?.doc ? createIds(result.doc.document) : null;
+      const baselineIds = (result?.doc?.baseline ? [...result.doc.baseline.boxes, ...result.doc.baseline.arrows] : []).map((entry) => entry.id);
+      state.ids = result?.doc ? createIds(result.doc.document, [...baselineIds, ...seenIds()]) : null;
       state.editable = Boolean(result?.doc) && state.send !== null;
-      state.saver = state.editable ? createSaver(state.send, { saved: state.stored, onChange: saveChanged }) : null;
-      state.bar = null;
+      const send = (document) =>
+        Promise.resolve(state.send(document)).then((reply) => {
+          saved(document);
+          return reply;
+        });
+      state.saver = state.editable ? createSaver(send, { saved: state.stored, onChange: saveChanged }) : null;
+      state.bar = isLocked() ? lockBar(state.locked) : null;
       state.dirty = true;
       state.walkthrough = 0;
       state.position = 0;
-      if (state.shown) {
+      if (!state.shown) {
+        return;
+      }
+      if (!keep || !state.drawing || !state.doc || (state.doc.boxes.length === 0 && state.saver === null)) {
         render();
+        return;
+      }
+      state.dirty = false;
+      draw();
+      if (selected !== null) {
+        select(selected);
       }
     },
+    setLocked,
+    isLocked,
     // Resolves with the save state once no save is waiting or in flight; null when not editable.
     flush() {
       return state.saver ? state.saver.flush() : Promise.resolve(null);
