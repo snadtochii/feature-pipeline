@@ -326,7 +326,8 @@ fresh run whose notes file is created at that path.
 2. **Root, scope and diagram.** The file's `root` (when a string) and `scope` (when an array)
    apply unless `--root` or `--scope` is given. The two are independent: `--root` given alone
    keeps the stored scope, resolved under the new root. The file's `diagram` (when a string)
-   applies unless `--diagram` is given; the diagram it names is read and checked as a named
+   applies unless `--diagram` is given, a relative value resolving against the working
+   directory as `--diagram`'s does; the diagram it names is read and checked as a named
    one is (§15), so one that is missing or refused exits 1 and writes nothing.
 3. **Notes.** Every stored note is checked for shape by §7 with the anchor check against the
    listing skipped, so a resumed note keeps its anchor (§7). An accepted note is normalised:

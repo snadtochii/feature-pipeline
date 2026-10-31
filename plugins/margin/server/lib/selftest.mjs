@@ -54,7 +54,8 @@
 // text, and its document on Finish and on SIGTERM with nothing else written, a submit, a `wait` child, finish,
 // and exactly one result document, a run ended by SIGTERM, a run serving its overview and
 // sending a candidate note, a run given `--diagram` listing its linked files, taking a box note,
-// recording the diagram and reopening it on resume, with its refusals, and
+// recording the diagram and reopening it on resume — a relative recorded path made absolute and
+// kept out of the listing — with its refusals, and
 // `measure` then `assemble` writing an overview the shape check accepts.
 // Every fixture is a real file in a temp directory, and every expectation is written by hand,
 // never computed by the code under test. Requests go to 127.0.0.1 only. A failing case throws
@@ -3542,6 +3543,15 @@ const CASES = [
       assertEqual(data.session.annotations.map((a) => a.anchor), [{ kind: 'box', id: 'cli', label: 'cli.mjs' }], 'the box note after a resume');
       assertEqual((await request(port, { target: '/api/diagram', headers })).json.file, diagramFile, 'the diagram a resume reopens');
     });
+
+    const recorded = JSON.parse(fs.readFileSync(out, 'utf8'));
+    fs.writeFileSync(out, `${JSON.stringify({ ...recorded, diagram: path.relative(process.cwd(), diagramFile) }, null, 2)}\n`);
+    await live(['--out', out, '--scope', '.'], async ({ port, headers, stderr }) => {
+      assert(stderr().includes(`  diagram: ${diagramFile}\n`), `the diagram line of a resume recording a relative diagram: ${stderr()}`);
+      assertEqual((await request(port, { headers })).json.files, ['src/a.js', 'src/b.js'], 'listing of a resume recording a relative diagram, without the diagram file');
+      assertEqual((await request(port, { target: '/api/diagram', headers })).json.file, diagramFile, 'the diagram route of a resume recording a relative diagram');
+    });
+    assertEqual(JSON.parse(fs.readFileSync(out, 'utf8')).diagram, diagramFile, 'the diagram path a resume records, made absolute');
 
     await live(['--root', root, '--out', path.join(dir, 'empty.json'), '--diagram', emptyFile], async ({ port, headers, stderr }) => {
       assert(stderr().includes('  scope: diagram links (0 files)\n'), `the scope line of a diagram with no links: ${stderr()}`);

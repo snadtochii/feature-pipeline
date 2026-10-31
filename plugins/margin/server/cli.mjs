@@ -143,7 +143,7 @@ async function annotate(argv) {
   const scopeArgs = values.scope.length > 0 ? values.scope : Array.isArray(stored?.scope) ? stored.scope : [];
   const scope = scopeArgs.map((raw) => scopePath(root, raw));
   const out = resolve(values.out ?? join(root, 'claudedocs', 'margin', `${stamp()}.json`));
-  const diagramFile = values.diagram !== undefined ? resolve(values.diagram) : typeof stored?.diagram === 'string' ? stored.diagram : null;
+  const diagramFile = values.diagram !== undefined ? resolve(values.diagram) : typeof stored?.diagram === 'string' ? resolve(stored.diagram) : null;
   const document = diagramFile ? readDiagram(diagramFile).document : null;
   const own = [out, overviewFile, diagramFile].filter((file) => file !== null);
   const files = runListing(root, scope, own, document);
