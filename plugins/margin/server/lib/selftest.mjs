@@ -13,7 +13,9 @@
 // layout that is deterministic, never moves a positioned box, ranks through cycles and keeps each
 // group's members contiguous inside frames that are their bounds, places a new member of a
 // positioned group beside its members without its frame meeting another group's, and the diagram file's reading
-// refusals and size limit. It checks the note rules (the anchor rule per kind,
+// refusals and size limit; arrow geometry (a lone arrow straight between box borders, parallel and
+// opposite arrows spread apart, nested self-loops), the bounds and the fit transform, and a
+// diagram session's listing of linked regular files only. It checks the note rules (the anchor rule per kind,
 // a new candidate note outside the overview refusing the write, range validity, the excerpt cap),
 // resuming a notes file (a stored note keeps its anchor; rounds and note rounds restore; a file
 // without rounds is round 0; the refusals), the atomic save, the sent-note lock, a Send withholding
@@ -29,14 +31,18 @@
 // with its unknown fields dropped, each shape refusal, each reading refusal and the size limit,
 // the overview route behind the token and its 404 without an overview, candidate notes accepted
 // for the overview's names and refused on every write route otherwise, and a listing that never
-// lists the overview file. It checks the overview data: the import scan and its resolution
+// lists the overview file. Against a diagram session's server, with no notes session, it checks
+// the diagram route, the null session, linked-file reads, the notes routes answering 404 and
+// Finish ending it. It checks the overview data: the import scan and its resolution
 // against the listing and tsconfig `paths`, the line count, indent width and indentation, churn
 // from dated commits in a temporary repository, the hotspot table, explorer blocks parsed and
 // dropped, roles merged, each notice, and the size limit. Through `cli.mjs` children it checks
 // the command's own refusals (children that must exit before serving, `wait`'s invocation
 // refusals, each `--overview` refusal leaving `--out` as it was, the `measure` and
-// `assemble` refusals writing nothing, and `diagram --check` exiting 0, 1 and 2 with the file
-// left as it was) and end-to-end runs: a submit, a `wait` child, finish,
+// `assemble` refusals writing nothing, `diagram --check` exiting 0, 1 and 2 with the file
+// left as it was, and a diagram session's refusals exiting before binding) and end-to-end runs:
+// a diagram session's stderr block, root default and override, and its document on Finish and
+// on SIGTERM with nothing written, a submit, a `wait` child, finish,
 // and exactly one result document, a run ended by SIGTERM, a run serving its overview and
 // sending a candidate note, and
 // `measure` then `assemble` writing an overview the shape check accepts.
@@ -185,6 +191,32 @@ function withServer(fn, { overview = null } = {}) {
       assert(parsed.hash === `#${TOKEN}`, `the viewer URL does not carry the token: ${url}`);
       const host = `127.0.0.1:${port}`;
       return await fn({ port, host, root, out, url, session, save, ended, waiting, watching, finished: () => within(ended, 'the end of the run') });
+    } finally {
+      await close();
+    }
+  });
+}
+
+// A diagram session's server on port 0 over a temp root holding `a.txt`, as `cli.mjs diagram
+// <file>` wires it: no notes session, the given listing, and `finished` settling with the
+// diagram session document.
+function withDiagramServer(fn, { document, files }) {
+  return withTemp(async (root) => {
+    write(root, 'a.txt', 'a\n');
+    const file = path.join(root, 'd.diagram.json');
+    const { url, close, ended } = await startServer({
+      port: 0,
+      token: TOKEN,
+      session: null,
+      files,
+      readSource: (p) => readSource(root, p),
+      relist: () => files,
+      onEnd: (status) => ({ status, file }),
+      diagram: { file, root, document },
+    });
+    try {
+      const port = Number(new URL(url).port);
+      return await fn({ port, host: `127.0.0.1:${port}`, root, file, finished: () => within(ended, 'the end of the diagram session') });
     } finally {
       await close();
     }
@@ -1560,11 +1592,17 @@ const CASES = [
     assert(serializeDiagram(moved).includes('\n    {"id":"z","label":"L","kind":"module","files":[],"group":"g","x":1,"y":2}\n'), 'the serializer did not write a box in canonical key order');
   }],
   ['diagram: layout is deterministic and places every box when none is positioned', async () => {
-    const { boxSize, checkDiagram, layoutDiagram } = await loadDiagramModel();
+    const { boxLabel, boxSize, checkDiagram, layoutDiagram } = await loadDiagramModel();
     assertEqual(boxSize({ label: 'ab' }), { w: 120, h: 46 }, 'a short label');
     assertEqual(boxSize({ label: 'x'.repeat(20) }), { w: 182, h: 46 }, 'a 20-character label');
     assertEqual(boxSize({ label: 'x'.repeat(30) }), { w: 230, h: 46 }, 'a long label');
     assertEqual(boxSize({ label: '😀'.repeat(20) }), { w: 182, h: 46 }, 'a label counted in code points');
+    for (let n = 1; n <= 26; n += 1) {
+      assertEqual(boxLabel({ label: 'x'.repeat(n) }), 'x'.repeat(n), `a ${n}-character label boxSize sized its box for`);
+    }
+    assertEqual(boxLabel({ label: 'x'.repeat(27) }), `${'x'.repeat(25)}…`, 'the shortest label wider than the widest box');
+    assertEqual(boxLabel({ label: 'x'.repeat(40) }), `${'x'.repeat(25)}…`, 'a 40-character label');
+    assertEqual(boxLabel({ label: '😀'.repeat(30) }), `${'😀'.repeat(25)}…`, 'a label truncated in code points');
     const chain = checkDiagram(diagramOf({
       boxes: ['a', 'b', 'c', 'd'].map((id) => diagramBox(id)),
       arrows: [diagramArrow('1', 'a', 'b'), diagramArrow('2', 'b', 'c'), diagramArrow('3', 'c', 'd')],
@@ -1700,6 +1738,108 @@ const CASES = [
     const bare = write(dir, 'bare.diagram.json', DIAGRAM_FIXTURE_TEXT.slice(0, -1));
     assertEqual(readDiagram(bare).canonical, false, 'canonical text without its trailing newline');
   })],
+  ['diagram: arrow geometry clips to box borders, spreads parallel arrows and arcs self-loops', async () => {
+    const { arrowGeometry, checkDiagram, layoutDiagram } = await loadDiagramModel();
+    const placed = (arrows) => layoutDiagram(checkDiagram(diagramOf({ boxes: [diagramBox('a', { x: 0, y: 0 }), diagramBox('b', { x: 300, y: 0 })], arrows })));
+    const shapes = (doc) => arrowGeometry(doc).map(({ id, d, lx, ly }) => [id, d, lx, ly]);
+    assertEqual(shapes(placed([diagramArrow('l', 'a', 'b')])), [['l', 'M 120 23 L 300 23', 210, 23]], 'a lone arrow');
+    assertEqual(shapes(placed([diagramArrow('x1', 'a', 'b'), diagramArrow('x2', 'a', 'b')])), [
+      ['x1', 'M 120 16.6 Q 210 7 300 16.6', 210, 11.8],
+      ['x2', 'M 120 29.4 Q 210 39 300 29.4', 210, 34.2],
+    ], 'two parallel arrows');
+    const mixed = placed([diagramArrow('p', 'a', 'b'), diagramArrow('q', 'b', 'a'), diagramArrow('s', 'a', 'a'), diagramArrow('t', 'a', 'a')]);
+    const before = JSON.stringify(mixed);
+    const geometry = arrowGeometry(mixed);
+    assertEqual(geometry.map(({ id, from, to, d, lx, ly }) => [id, from, to, d, lx, ly]), [
+      ['p', 'a', 'b', 'M 120 16.6 Q 210 7 300 16.6', 210, 11.8],
+      ['q', 'b', 'a', 'M 300 29.4 Q 210 39 120 29.4', 210, 34.2],
+      ['s', 'a', 'a', 'M 104 0 C 104 -36 156 16 120 16', 125.5, -13.5],
+      ['t', 'a', 'a', 'M 104 0 C 104 -52 172 16 120 16', 131.5, -19.5],
+    ], 'opposite arrows and two self-loops on one box');
+    assertEqual(Object.keys(geometry[0]), ['id', 'from', 'to', 'd', 'lx', 'ly'], 'geometry key order');
+    assertEqual(arrowGeometry(mixed), geometry, 'geometry for the same document');
+    assert(JSON.stringify(mixed) === before, 'arrowGeometry changed its input');
+  }],
+  ['diagram: bounds cover boxes and frames, and the fit centres and clamps', async () => {
+    const { checkDiagram, diagramBounds, fitTransform, layoutDiagram } = await loadDiagramModel();
+    const doc = layoutDiagram(checkDiagram(diagramOf({ groups: [{ id: 'g', label: 'G' }], boxes: [diagramBox('a', { group: 'g', x: 0, y: 0 }), diagramBox('b', { x: 300, y: 0 })] })));
+    const bounds = diagramBounds(doc);
+    assertEqual(bounds, { x: -20, y: -44, w: 440, h: 110 }, 'bounds over a box, its frame and a box outside it');
+    assertEqual(diagramBounds(checkDiagram(diagramOf({}))), null, 'bounds with no box');
+    assertEqual(fitTransform(bounds, 520, 300), { x: 60, y: 139, k: 1 }, 'a fit at scale 1');
+    assertEqual(fitTransform(bounds, 2000, 2000), { x: 700, y: 983.5, k: 1.5 }, 'a fit clamped to its maximum');
+    assertEqual(fitTransform(bounds, 100, 100, { min: 0.5 }), { x: -50, y: 44.5, k: 0.5 }, 'a fit clamped to its minimum');
+    assertEqual(fitTransform(null, 800, 600), { x: 0, y: 0, k: 1 }, 'a fit with no bounds');
+    assertEqual(fitTransform(bounds, 0, 600), { x: 0, y: 0, k: 1 }, 'a fit in an empty viewport');
+  }],
+  ['diagram: a zoom keeps its anchor point, a pinch moves it, and a wheel notch is one capped step', async () => {
+    const { wheelZoomFactor, zoomView } = await loadDiagramModel();
+    const view = { x: 10, y: 20, k: 1 };
+    const point = { x: 110, y: 220 };
+    assertEqual(zoomView(view, 2, point), { x: -90, y: -180, k: 2 }, 'a zoom about one point');
+    assertEqual(zoomView(view, 10, point), { x: -290, y: -580, k: 4 }, 'a zoom clamped to its maximum');
+    assertEqual(zoomView(view, 0.01, point), { x: 90, y: 180, k: 0.2 }, 'a zoom clamped to its minimum');
+    assertEqual(zoomView(view, 2, point, { x: 130, y: 240 }), { x: -70, y: -160, k: 2 }, 'a pinch whose midpoint moved');
+    assertEqual(view, { x: 10, y: 20, k: 1 }, 'zoomView changed its input');
+    assertEqual(wheelZoomFactor(100, 0), Math.exp(-0.1), 'a mouse-wheel notch zooming out');
+    assertEqual(wheelZoomFactor(-100, 0), Math.exp(0.1), 'a mouse-wheel notch zooming in');
+    assertEqual(wheelZoomFactor(3, 1), Math.exp(-0.1), 'a line-mode notch');
+    assertEqual(wheelZoomFactor(2.5, 0), Math.exp(-0.025), 'a small trackpad pinch delta');
+  }],
+  ['diagram: a diagram session lists the linked regular files only', () => withTemp(async (root) => {
+    const { checkDiagram } = await loadDiagramModel();
+    const { linkedFiles } = await loadDiagramReader();
+    write(root, 'a.txt', 'a\n');
+    write(root, 'sub/b.txt', 'b\n');
+    fs.mkdirSync(path.join(root, 'folder'));
+    fs.symlinkSync(path.join(root, 'a.txt'), path.join(root, 'link.txt'));
+    const own = write(root, 'd.diagram.json', '{}');
+    const doc = checkDiagram(diagramOf({
+      boxes: [
+        diagramBox('one', { files: ['sub/b.txt', 'a.txt', 'missing.txt'] }),
+        diagramBox('two', { files: ['a.txt', 'folder', 'link.txt', 'd.diagram.json'] }),
+      ],
+    }));
+    assertEqual(linkedFiles(root, doc, [own]), ['a.txt', 'sub/b.txt'], 'the linked listing');
+    assertEqual(linkedFiles(root, doc), ['a.txt', 'd.diagram.json', 'sub/b.txt'], 'the linked listing with no own file');
+    assertEqual(linkedFiles(root, checkDiagram(diagramOf({ boxes: [diagramBox('none')] }))), [], 'a diagram with no links');
+  })],
+  ['diagram session: the server serves the diagram with no notes session, and Finish ends it', async () => {
+    const { checkDiagram } = await loadDiagramModel();
+    const document = checkDiagram(diagramOf({ boxes: [diagramBox('a', { files: ['a.txt', 'gone.txt'] })] }));
+    await withDiagramServer(async ({ port, host, root, file, finished }) => {
+      const headers = { host, 'x-margin-token': TOKEN };
+      const noToken = await request(port, { target: '/api/diagram', headers: { host } });
+      assert(noToken.status === 403, `the diagram without the token got ${noToken.status}`);
+      const served = await request(port, { target: '/api/diagram', headers });
+      assertEqual([served.status, served.json], [200, { file, root, document }], 'the served diagram');
+      assertEqual((await request(port, { headers })).json, { session: null, files: ['a.txt'], changes: 0 }, 'the session route in a diagram session');
+      const read = await request(port, { target: '/api/file?path=a.txt', headers });
+      assertEqual([read.status, read.json], [200, { path: 'a.txt', text: 'a\n' }], 'a listed link');
+      const unlisted = await request(port, { target: '/api/file?path=gone.txt', headers });
+      assertEqual([unlisted.status, unlisted.json], [404, { error: 'gone.txt is not in scope' }], 'an unlisted link');
+      for (const [method, target] of [['PUT', '/api/session'], ['POST', '/api/submit'], ['POST', '/api/reply'], ['POST', '/api/cancel'], ['GET', '/api/wait']]) {
+        const res = await request(port, { method, target, headers, body: method === 'GET' ? undefined : { annotations: [] } });
+        assertEqual([res.status, res.json], [404, { error: 'not found' }], `${method} ${target} in a diagram session`);
+      }
+      const finish = await request(port, { method: 'POST', target: '/api/finish', headers, body: { annotations: [{ id: 'n1', anchor: { kind: 'scope' }, body: 'x' }] } });
+      assertEqual([finish.status, finish.json], [200, { ok: true, status: 'finished' }], 'Finish in a diagram session');
+      assertEqual(await finished(), { status: 'finished', file }, 'the diagram session document');
+      const again = await request(port, { method: 'POST', target: '/api/finish', headers });
+      assertEqual([again.status, again.json], [409, { error: 'the run has ended' }], 'Finish after the end');
+      const changes = await request(port, { target: '/api/changes?after=0', headers });
+      assertEqual(changes.json, { status: 'finished', changes: 0 }, 'the change wait after the end');
+      assertEqual(fs.readdirSync(root), ['a.txt'], 'files under the root after a diagram session');
+    }, { document, files: ['a.txt'] });
+    await withServer(async ({ port, host }) => {
+      const none = await request(port, { target: '/api/diagram', headers: { host, 'x-margin-token': TOKEN } });
+      assertEqual([none.status, none.json], [404, { error: 'no diagram' }], 'the diagram route on a run without one');
+      for (const asset of ['/diagram.js', '/diagram-view.js']) {
+        const res = await request(port, { target: asset, headers: { host } });
+        assert(res.status === 200 && res.type === 'text/javascript; charset=utf-8', `${asset} got ${res.status} ${res.type}`);
+      }
+    });
+  }],
   ['overview: the route serves the document behind the token, 404 without one', async () => {
     await withServer(async ({ port, host }) => {
       const noToken = await request(port, { target: '/api/overview', headers: { host } });
@@ -2626,7 +2766,7 @@ const CASES = [
     const refused = write(dir, 'refused.diagram.json', JSON.stringify(unknown));
     assertErrorDoc(runCli(['diagram', '--check', refused]), 1, `diagram ${refused}: arrows[0] has unknown key weight`, 'a refused diagram file');
     for (const [args, fragment] of [
-      [['diagram', good], 'diagram needs --check'],
+      [['diagram', '--check', '--no-open', good], '--check takes no other flag'],
       [['diagram', '--check'], 'usage: cli.mjs diagram --check <file>'],
       [['diagram', '--check', good, good], 'usage: cli.mjs diagram --check <file>'],
       [['diagram', '--check', ''], 'bad <file>: empty'],
@@ -2637,6 +2777,81 @@ const CASES = [
     }
     assert(fs.readFileSync(good, 'utf8') === DIAGRAM_FIXTURE_TEXT, 'diagram --check changed the file');
     assertEqual(fs.readdirSync(dir).sort(), ['good.diagram.json', 'pretty.diagram.json', 'refused.diagram.json'], 'files after diagram --check');
+  })],
+  ['cli: a diagram session serves the file under its root and prints one document when it ends', () => withTemp(async (dir) => {
+    const repo = path.join(dir, 'repo');
+    write(repo, 'a.txt', 'a\n');
+    execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore' });
+    const fixture = diagramFixture();
+    fixture.boxes[0].files = ['a.txt', 'server/cli.mjs'];
+    const text = JSON.stringify(fixture);
+    const file = write(repo, 'docs/d.diagram.json', text);
+    const sessionArgs = (target, ...flags) => ['diagram', target, '--port', '0', '--token', TOKEN, '--no-open', ...flags];
+    const server = spawnCli(sessionArgs(file));
+    try {
+      const url = await serverUrl(server);
+      const port = Number(new URL(url).port);
+      const headers = { host: `127.0.0.1:${port}`, 'x-margin-token': TOKEN };
+      assertEqual(server.stderr(), `margin: ${url}\n  root:    ${repo}\n  diagram: ${file} (1 linked files)\n`, 'the diagram session stderr block');
+      const served = await request(port, { target: '/api/diagram', headers });
+      assertEqual([served.json.file, served.json.root], [file, repo], 'the served diagram file and root');
+      assertEqual((await request(port, { headers })).json.files, ['a.txt'], 'the diagram session listing');
+      const finish = await request(port, { method: 'POST', target: '/api/finish', headers });
+      assertEqual(finish.json, { ok: true, status: 'finished' }, 'finish reply');
+      const exit = await server.exited();
+      assert(exit.code === 0, `the diagram session exited ${exit.code ?? exit.signal}: ${exit.stdout}`);
+      assertEqual(JSON.parse(exit.stdout), { status: 'finished', file }, 'the diagram session document');
+      assert(exit.stdout.endsWith('}\n') && !exit.stdout.endsWith('\n\n'), 'the diagram session document has not one trailing newline');
+    } finally {
+      server.child.kill('SIGKILL');
+    }
+    assert(fs.readFileSync(file, 'utf8') === text, 'a diagram session changed the diagram file');
+    assertEqual(fs.readdirSync(repo).sort(), ['.git', 'a.txt', 'docs'], 'files under the root after a diagram session');
+    assertEqual(fs.readdirSync(path.join(repo, 'docs')), ['d.diagram.json'], 'files beside the diagram after a diagram session');
+
+    const plain = path.join(dir, 'plain');
+    const loose = write(plain, 'x.diagram.json', DIAGRAM_FIXTURE_TEXT);
+    assert(!isRepository(plain), `${plain} is inside a git repository`);
+    const docs = path.join(repo, 'docs');
+    for (const [args, root] of [[sessionArgs(loose), plain], [sessionArgs(file, '--root', docs), docs]]) {
+      const run = spawnCli(args);
+      try {
+        const url = await serverUrl(run);
+        assertEqual(run.stderr(), `margin: ${url}\n  root:    ${root}\n  diagram: ${args[1]} (0 linked files)\n`, `the stderr block of ${args.join(' ')}`);
+        run.child.kill('SIGTERM');
+        const exit = await run.exited();
+        assert(exit.code === 0, `${args.join(' ')} exited ${exit.code ?? exit.signal} on SIGTERM: ${exit.stdout}`);
+        assertEqual(JSON.parse(exit.stdout), { status: 'interrupted', file: args[1] }, `the document of ${args.join(' ')} on SIGTERM`);
+      } finally {
+        run.child.kill('SIGKILL');
+      }
+    }
+  })],
+  ['cli: diagram session refusals exit before binding a port', () => withTemp((dir) => {
+    const good = write(dir, 'good.diagram.json', DIAGRAM_FIXTURE_TEXT);
+    const unknown = diagramFixture();
+    unknown.arrows[0].weight = 2;
+    const refused = write(dir, 'refused.diagram.json', JSON.stringify(unknown));
+    const invalid = runCli(['diagram', refused, '--port', '0', '--no-open']);
+    assertErrorDoc(invalid, 1, `diagram ${refused}: arrows[0] has unknown key weight`, 'a diagram session on a refused file');
+    assertEqual(invalid.stderr, '', 'stderr of a refused diagram session');
+    assertErrorDoc(runCli(['diagram', good, '--root', good, '--port', '0', '--no-open']), 1, `root ${good} is not a directory`, '--root naming a file');
+    for (const [args, fragment] of [
+      [['diagram', '--check', '--port', '0', good], '--check takes no other flag'],
+      [['diagram', '--check', '--root', dir, good], '--check takes no other flag'],
+      [['diagram', '--check', '--token', TOKEN, good], '--check takes no other flag'],
+      [['diagram', good, good, '--no-open'], 'usage: cli.mjs diagram --check <file>'],
+      [['diagram', '', '--no-open'], 'bad <file>: empty'],
+      [['diagram', good, '--root', '', '--no-open'], 'bad --root: empty'],
+      [['diagram', good, '--port', '70000', '--no-open'], 'bad --port 70000'],
+      [['diagram', good, '--token', 'short', '--no-open'], 'bad --token'],
+      [['diagram', good, '--scope', 'x', '--no-open'], "'--scope'"],
+      [['diagram', good, '--out', 'x', '--no-open'], "'--out'"],
+    ]) {
+      assertErrorDoc(runCli(args), 2, fragment, JSON.stringify(args));
+    }
+    assert(fs.readFileSync(good, 'utf8') === DIAGRAM_FIXTURE_TEXT, 'a refused diagram session changed the file');
+    assertEqual(fs.readdirSync(dir).sort(), ['good.diagram.json', 'refused.diagram.json'], 'files after the diagram session refusals');
   })],
   ['cli: --explorer-unavailable gives its reason as the candidates notice; its refusals write nothing', () => withTemp((dir) => {
     const root = path.join(dir, 'repo');

@@ -1,12 +1,15 @@
 // margin viewer. One page, no build step. Renders the tree, the code pane, the composer and the
-// notes with their replies, and switches between the Code and Overview tabs; ./rounds.js holds the
-// session and talks to ../server/lib/server.mjs for it, ./overview-view.js renders the Overview
-// tab, and this file reads files through GET /api/file.
+// notes with their replies, and switches between the surfaces the run serves — Overview, Diagram
+// and Code; ./rounds.js holds the session and talks to ../server/lib/server.mjs for it,
+// ./overview-view.js renders the Overview tab, ./diagram-view.js the Diagram tab, and this file
+// reads files through GET /api/file. In a diagram session the page is read-only: every notes
+// control leaves it.
 
 import { highlightLines } from './syntax.js';
 import { createRounds, isSent } from './rounds.js';
 import { noteCounts } from './overview.js';
 import { createOverviewView } from './overview-view.js';
+import { createDiagramView } from './diagram-view.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -32,7 +35,8 @@ const state = {
   fileSeq: 0,
   // A message from the last action, { text, error }, or null.
   notice: null,
-  // The center pane shown: 'code', or 'overview' on a run with an overview.
+  // The center pane shown: the name of one of the registered surfaces, 'code' until load()
+  // registers them.
   surface: 'code',
 };
 
@@ -43,9 +47,11 @@ const el = {
   filter: $('#filter'),
   tabs: $('#tabs'),
   tabOverview: $('#tab-overview'),
+  tabDiagram: $('#tab-diagram'),
   tabCode: $('#tab-code'),
   toggleFiles: $('#toggle-files'),
   toggleNotes: $('#toggle-notes'),
+  diagram: $('#diagram'),
   overview: $('#overview'),
   overviewNotice: $('#overview-notice'),
   overviewBody: $('#overview-body'),
@@ -139,6 +145,20 @@ const overviewView = createOverviewView({
   annotate: (anchor) => openComposer(anchor),
 });
 
+const diagramView = createDiagramView({
+  nodes: { pane: el.diagram },
+  listed: (path) => rounds.listed({ kind: 'file', path }),
+  openCode: (path) => {
+    showSurface('code');
+    expandTo(path);
+    openFile(path);
+  },
+});
+
+// The center panes the run serves, in tab order — Overview, Diagram, Code — each
+// { name, tab, pane, view }. load() fills it once; Code is always one of them.
+const surfaces = [];
+
 const byName = (a, b) => a.name.localeCompare(b.name);
 const annotations = () => rounds.session.annotations;
 
@@ -162,49 +182,81 @@ function anchorLabel(anchor) {
 // ---- loading -------------------------------------------------------------
 
 async function load() {
-  const [session, overview] = await Promise.all([rounds.load(), loadOverview()]);
+  const [session, overview, diagram] = await Promise.all([rounds.load(), loadOptional('/api/overview'), loadOptional('/api/diagram')]);
   if (overview === null) {
     rounds.setCandidates([]);
   } else {
     rounds.setCandidates(overview.doc ? overview.doc.candidates.map((candidate) => candidate.name) : null);
   }
   overviewView.setOverview(overview);
-  el.scope.textContent = `${session.root} · ${session.scope.join(', ') || '.'}`;
-  el.overall.value = session.overall || '';
+  diagramView.setDiagram(diagram);
+  if (rounds.readOnly) {
+    enterReadOnly(diagram);
+  } else {
+    el.scope.textContent = `${session.root} · ${session.scope.join(', ') || '.'}`;
+    el.overall.value = session.overall || '';
+  }
   applyDefaultCollapse();
   renderTree();
   renderList();
   renderStatus();
-  if (overview) {
-    el.tabs.classList.remove('hidden');
-    showSurface('overview');
-  }
+  registerSurfaces(overview, diagram);
   rounds.watchChanges();
 }
 
-async function loadOverview() {
+// A route the run may not serve: null on its 404, { doc } once read, { error } when the read failed.
+async function loadOptional(url) {
   try {
-    return { doc: await api('GET', '/api/overview') };
+    return { doc: await api('GET', url) };
   } catch (err) {
     return err.status === 404 ? null : { error: err.message };
   }
 }
 
+// A diagram session keeps no notes, so Send, Cancel and the notes panel leave the page.
+function enterReadOnly(diagram) {
+  document.body.classList.add('read-only');
+  for (const control of [el.send, el.cancel, el.toggleNotes]) {
+    control.classList.add('hidden');
+  }
+  setPanel('hide-notes', el.toggleNotes, false);
+  el.finish.title = 'End the diagram session';
+  el.scope.textContent = diagram?.doc ? `${diagram.doc.root} · ${diagram.doc.file}` : '';
+  showEmpty('Pick a file to read it.');
+}
+
 // ---- center tabs and side panels ----------------------------------------
 
+// The tab strip shows once the run serves more than the Code pane, opening on the first other one.
+function registerSurfaces(overview, diagram) {
+  if (overview) {
+    surfaces.push({ name: 'overview', tab: el.tabOverview, pane: el.overview, view: overviewView });
+  }
+  if (diagram) {
+    surfaces.push({ name: 'diagram', tab: el.tabDiagram, pane: el.diagram, view: diagramView });
+  }
+  surfaces.push({ name: 'code', tab: el.tabCode, pane: el.code, view: null });
+  for (const surface of surfaces) {
+    surface.tab.classList.remove('hidden');
+  }
+  if (surfaces.length > 1) {
+    el.tabs.classList.remove('hidden');
+    showSurface(surfaces[0].name);
+  }
+}
+
 function showSurface(name) {
-  if (!overviewView.overview || state.surface === name) {
+  if (state.surface === name || !surfaces.some((surface) => surface.name === name)) {
     return;
   }
   state.surface = name;
-  const overview = name === 'overview';
-  el.overview.classList.toggle('off', !overview);
-  el.code.classList.toggle('off', overview);
-  el.tabOverview.classList.toggle('on', overview);
-  el.tabCode.classList.toggle('on', !overview);
-  el.tabOverview.setAttribute('aria-selected', String(overview));
-  el.tabCode.setAttribute('aria-selected', String(!overview));
-  overviewView.show(overview);
+  for (const surface of surfaces) {
+    const shown = surface.name === name;
+    surface.pane.classList.toggle('off', !shown);
+    surface.tab.classList.toggle('on', shown);
+    surface.tab.setAttribute('aria-selected', String(shown));
+    surface.view?.show(shown);
+  }
 }
 
 function setPanel(className, button, shown) {
@@ -215,7 +267,7 @@ function setPanel(className, button, shown) {
 const togglePanel = (className, button) => setPanel(className, button, el.layout.classList.contains(className));
 
 function showPanel(name) {
-  if (!overviewView.overview) {
+  if (surfaces.length < 2) {
     return;
   }
   if (name === 'notes') {
@@ -338,6 +390,10 @@ function treeRow(kind, node, depth, view) {
     }
   });
 
+  row.append(name);
+  if (rounds.readOnly) {
+    return row;
+  }
   const count = view.counts.get(`${kind}:${node.path}`) ?? 0;
   const btn = document.createElement('button');
   btn.className = `note-btn${count ? ' has' : ''}`;
@@ -347,7 +403,7 @@ function treeRow(kind, node, depth, view) {
     event.stopPropagation();
     openComposer({ kind, path: node.path });
   });
-  row.append(name, btn);
+  row.append(btn);
   return row;
 }
 
@@ -390,9 +446,9 @@ function showEmpty(text) {
 // Says why a file cannot be shown and drops its cached text, so nothing stale stays on screen.
 function showFileError(path, err) {
   if (err.status === 404 && /no longer exists/.test(err.message)) {
-    showEmpty(`${path} no longer exists. Its notes are kept.`);
+    showEmpty(rounds.readOnly ? `${path} no longer exists.` : `${path} no longer exists. Its notes are kept.`);
   } else if (err.status === 404) {
-    showEmpty(`${path} is not in this review's listing. Its notes are kept.`);
+    showEmpty(rounds.readOnly ? `${path} is not a file this diagram can open.` : `${path} is not in this review's listing. Its notes are kept.`);
   } else {
     showEmpty(`Could not read ${path}: ${err.message}`);
   }
@@ -405,7 +461,7 @@ function showBinary(path, reason) {
   state.current = { path, lines: null };
   state.selection = null;
   state.view = null;
-  showEmpty(`${path}: ${reason}. Annotate it as a file from the tree.`);
+  showEmpty(rounds.readOnly ? `${path}: ${reason}.` : `${path}: ${reason}. Annotate it as a file from the tree.`);
 }
 
 // Reads a file. `fresh` is false when a newer file fetch began before this one answered.
@@ -518,12 +574,14 @@ function renderCode() {
   const box = document.createElement('div');
   box.className = 'lines';
   // One delegated listener for every gutter, however long the file.
-  box.addEventListener('click', (event) => {
-    const gutter = event.target.closest('.gutter');
-    if (gutter) {
-      selectLine(Number(gutter.parentElement.dataset.n), event.shiftKey);
-    }
-  });
+  if (!rounds.readOnly) {
+    box.addEventListener('click', (event) => {
+      const gutter = event.target.closest('.gutter');
+      if (gutter) {
+        selectLine(Number(gutter.parentElement.dataset.n), event.shiftKey);
+      }
+    });
+  }
   const nodes = [];
   const tokens = highlightLines(lines, path);
   lines.forEach((text, i) => {
@@ -634,6 +692,9 @@ function applySelection() {
 
 // `existing` is the unsent note being edited; `intent` presets the intent of a new note.
 function openComposer(anchor, { existing = null, intent = existing?.intent ?? 'change' } = {}) {
+  if (rounds.readOnly) {
+    return;
+  }
   showPanel('notes');
   state.editing = existing?.id ?? null;
   el.composer.classList.remove('hidden');
@@ -1077,6 +1138,8 @@ function renderStatus() {
   } else if (state.notice) {
     text = state.notice.text;
     kind = state.notice.error ? 'error' : '';
+  } else if (rounds.readOnly) {
+    text = 'Read-only diagram: no notes are taken in this session.';
   } else if (round === 0) {
     text = 'Notes go out when you press Send.';
   } else if (waiting()) {
@@ -1114,7 +1177,11 @@ function showEnd(status) {
   card.className = 'card';
   const title = document.createElement('h2');
   const text = document.createElement('p');
-  if (status === 'finished') {
+  if (rounds.readOnly) {
+    const interrupted = status === 'interrupted';
+    title.textContent = interrupted ? 'Diagram session interrupted' : 'Diagram session finished';
+    text.textContent = interrupted ? 'The server stopped. You can close this tab.' : 'You can close this tab.';
+  } else if (status === 'finished') {
     title.textContent = 'Review finished';
     text.append(`${sent} `);
     if (rounds.session.out) {
@@ -1147,6 +1214,7 @@ el.cancel.addEventListener('click', rounds.cancelRun);
 el.filter.addEventListener('input', () => setFilter(el.filter.value));
 
 el.tabOverview.addEventListener('click', () => showSurface('overview'));
+el.tabDiagram.addEventListener('click', () => showSurface('diagram'));
 el.tabCode.addEventListener('click', () => showSurface('code'));
 el.toggleFiles.addEventListener('click', () => togglePanel('hide-tree', el.toggleFiles));
 el.toggleNotes.addEventListener('click', () => togglePanel('hide-notes', el.toggleNotes));

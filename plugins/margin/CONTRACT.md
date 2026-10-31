@@ -5,7 +5,7 @@ reviews code in the viewer. The contract fixes the verbs, their flags, the stdou
 output, the exit codes, resume, the notes-file schema, the anchor rule, the HTTP routes and
 their guards, the file-listing and reading rules, the seam between the skill and the
 server, the self-test, the overview document, the overview data verbs that produce it, and the
-diagram document with the `diagram` verb that checks it. The implementation under `server/` and `ui/` is private and may change without
+diagram document with the `diagram` verb that checks it and shows it. The implementation under `server/` and `ui/` is private and may change without
 changing this file. Header comments in `server/` and `ui/` explain mechanics only; where one
 restates a fact this file fixes and disagrees with it, this file governs.
 
@@ -25,13 +25,14 @@ node <plugin-root>/server/cli.mjs wait <url> [--after <n>]
 node <plugin-root>/server/cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>
 node <plugin-root>/server/cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file> | --explorer-unavailable <reason>] --out <file>
 node <plugin-root>/server/cli.mjs diagram --check <file>
+node <plugin-root>/server/cli.mjs diagram <file> [--root <dir>] [--port <n>] [--token <token>] [--no-open]
 node <plugin-root>/server/cli.mjs --self-test
 ```
 
 | Part | Meaning |
 |---|---|
 | `<plugin-root>` | The installed `margin` plugin directory. The skill runs it as `${CLAUDE_PLUGIN_ROOT}`. |
-| `annotate`, `wait`, `measure`, `assemble`, `diagram` | The five verbs. `wait`, `measure`, `assemble` and `diagram` are recognised only as the first argument, and their positional arguments must be exactly the verb — `wait <url>` for `wait`, `diagram <file>` for `diagram`. Otherwise the first positional argument must be `annotate`; further positional arguments are ignored. |
+| `annotate`, `wait`, `measure`, `assemble`, `diagram` | The five verbs. `wait`, `measure`, `assemble` and `diagram` are recognised only as the first argument, and their positional arguments must be exactly the verb — `wait <url>` for `wait`, `diagram <file>` for `diagram`. Otherwise the first positional argument must be `annotate`; further positional arguments are ignored. `diagram` has two forms: `diagram --check <file>` checks the file, and `diagram <file>` without `--check` starts a diagram session. |
 | flags | §4. |
 | `--self-test` | Runs the self-test (§12) instead of a review. It takes no verb and no other argument; given with anything else it is a bad invocation (§3). |
 
@@ -77,10 +78,19 @@ exits 0. The file it writes is the one `annotate --overview` reads.
 `diagram --check` validates its arguments (§3), reads and checks the diagram file (§15),
 prints the diagram document (§2) and exits 0. It binds no port and writes nothing.
 
+A diagram session (`diagram <file>`) is a read-only run that shows the diagram in the viewer.
+It validates its arguments (§3), reads and checks the diagram file (§15), resolves the root —
+`--root` when given, else the top level of the git repository holding the diagram file's
+directory, else that directory — lists the files the diagram links (§10), binds the port,
+prints the stderr block (§2) and opens the viewer unless `--no-open` is given. It keeps no
+notes file and sends no rounds. The session ends once, on Finish (`POST /api/finish`, §8) or
+`SIGINT` / `SIGTERM`; the process then prints the diagram session document (§2) and exits 0.
+It writes nothing.
+
 ## §2 Output rules
 
 **stdout** carries exactly one JSON document on every handled exit, with two-space
-indentation and one trailing newline, and nothing else. It has one of seven shapes.
+indentation and one trailing newline, and nothing else. It has one of eight shapes.
 
 The result document, on exit 0 from `annotate`, printed once, when the run ends, with its keys
 in this order:
@@ -139,6 +149,14 @@ The diagram document, on exit 0 from `diagram --check`, with its keys in this or
 | `canonical` | `true` when the file's text is exactly the canonical form of its document (§15), `false` otherwise. |
 | `groups`, `boxes`, `arrows`, `walkthroughs` | The number of entries in each. |
 
+The diagram session document, on exit 0 from a diagram session (§1), printed once, when the
+session ends, with its keys in this order:
+
+| Key | Value |
+|---|---|
+| `status` | `finished` when Finish ended the session, `interrupted` when `SIGINT` / `SIGTERM` did. |
+| `file` | The absolute path of the diagram file shown. |
+
 The notes themselves never appear on stdout; the reader opens `out` (§11).
 
 **stderr** carries one block, written once, after the port is bound and the first draft is
@@ -151,24 +169,33 @@ margin: http://127.0.0.1:<port>/#<token>
   notes: <out>
 ```
 
+A diagram session writes its block once the port is bound, with the number of files it lists
+(§10):
+
+```text
+margin: http://127.0.0.1:<port>/#<token>
+  root:    <root>
+  diagram: <file> (<N> linked files)
+```
+
 The first line is written once the port is bound, so the URL it names is live, and it is the
-one line a caller may parse (§11); its URL is the one `wait` takes (§4). The rest of the block
-is for the human; a caller may show it but does not parse it. `wait` and `--self-test` print
-no stderr block.
+one line a caller may parse (§11); for `annotate`, its URL is the one `wait` takes (§4). The
+rest of the block is for the human; a caller may show it but does not parse it. `wait` and
+`--self-test` print no stderr block.
 
 `measure` and `assemble` print no stderr block either. On exit 0, after their files are
 written, they print one line per warning, `margin: <verb>: <warning>` — a skipped or
 unparseable `tsconfig.json` for `measure`, a dropped explorer block or a roles field set to
 `null` for `assemble` (§14). The lines are for the human; a caller may show them but does not
-parse them. A refused run prints none. `diagram` prints nothing on stderr.
+parse them. A refused run prints none. `diagram --check` prints nothing on stderr.
 
 ## §3 Exit codes
 
 | Code | Meaning | Document |
 |---|---|---|
-| `0` | `annotate`: the run ended — Finish (`finished`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). `wait`: a round was sent or the run ended. `measure` and `assemble`: their files were written. `diagram --check`: the file passed the check (§15). Or every self-test case passed (§12). | Result, wait, measure, assemble, diagram, or self-test |
-| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), the `--overview` file is refused (§13), the port cannot be bound (`could not listen on port <n>: <code>`), or the end of the run cannot save the notes file. `wait`: the server is unreachable — the connection is refused, or it drops before the reply ends (`server unreachable at <origin>: <code>`) — or it answers with an error (`wait: <status> <error>`). `measure`: no files are listed under the scope (`no files under <scope>`), or an output cannot be written (`could not write <file>: <code>`). `assemble`: the measurement file is refused (§14), the assembled document fails the shape check of §13 (`assembled overview: <violation>`), it is above 2 MiB once serialised (`overview <out>: <x.y> MB is above the 2 MB overview limit`), or `--out` cannot be written. `diagram`: the file is refused (§15). Or a self-test case failed (§12). | Error |
-| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), an empty `--overview` (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. For `wait`: no URL or another positional argument, a URL that is not a run URL (§4), or an `--after` that is not a whole number of decimal digits. For `measure`: another positional argument, a missing or empty `--root`, `--out` or `--hotspots` (`measure needs --<flag>`, `bad --<flag>: empty`), a `--hotspots` that names the same file as `--out`, or a `--scope` outside the root. For `assemble`: another positional argument, a missing or empty `--measurements` or `--out`, an empty `--roles` or `--explorer`, or an `--explorer-unavailable` given together with `--explorer` (`--explorer and --explorer-unavailable are exclusive`), holding a control character such as a line break (`bad --explorer-unavailable: not one line`), or blank once trimmed and stripped of one trailing `.` (`bad --explorer-unavailable: empty`). For `diagram`: no `<file>` or another positional argument, `--check` absent (`diagram needs --check`) or given a value, or an empty `<file>` (`bad <file>: empty`). | Error |
+| `0` | `annotate`: the run ended — Finish (`finished`), Cancel (`cancelled`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). `wait`: a round was sent or the run ended. `measure` and `assemble`: their files were written. `diagram --check`: the file passed the check (§15). A diagram session: it ended — Finish (`finished`), or `SIGINT` / `SIGTERM` after the port was bound (`interrupted`). Or every self-test case passed (§12). | Result, wait, measure, assemble, diagram, diagram session, or self-test |
+| `1` | The run could not proceed: the `--out` file is refused on resume (§5), no files are listed under the scope (§10), the `--overview` file is refused (§13), the port cannot be bound (`could not listen on port <n>: <code>`), or the end of the run cannot save the notes file. `wait`: the server is unreachable — the connection is refused, or it drops before the reply ends (`server unreachable at <origin>: <code>`) — or it answers with an error (`wait: <status> <error>`). `measure`: no files are listed under the scope (`no files under <scope>`), or an output cannot be written (`could not write <file>: <code>`). `assemble`: the measurement file is refused (§14), the assembled document fails the shape check of §13 (`assembled overview: <violation>`), it is above 2 MiB once serialised (`overview <out>: <x.y> MB is above the 2 MB overview limit`), or `--out` cannot be written. `diagram`: the file is refused (§15); a diagram session also when its `--root` is not a directory (`root <dir> is not a directory`) or the port cannot be bound (`could not listen on port <n>: <code>`). Or a self-test case failed (§12). | Error |
+| `2` | The invocation is wrong: an unknown flag, a flag missing its value or given a value it does not take, a missing or different verb, `--self-test` given with any other argument, a `--port` whose `Number()` value is not an integer from 0 to 65535 (§4), a `--token` outside its class (§4), an empty `--overview` (§4), or a scope path — given by `--scope` or read from a resumed file — that resolves outside the root. For `wait`: no URL or another positional argument, a URL that is not a run URL (§4), or an `--after` that is not a whole number of decimal digits. For `measure`: another positional argument, a missing or empty `--root`, `--out` or `--hotspots` (`measure needs --<flag>`, `bad --<flag>: empty`), a `--hotspots` that names the same file as `--out`, or a `--scope` outside the root. For `assemble`: another positional argument, a missing or empty `--measurements` or `--out`, an empty `--roles` or `--explorer`, or an `--explorer-unavailable` given together with `--explorer` (`--explorer and --explorer-unavailable are exclusive`), holding a control character such as a line break (`bad --explorer-unavailable: not one line`), or blank once trimmed and stripped of one trailing `.` (`bad --explorer-unavailable: empty`). For `diagram`: no `<file>` or another positional argument, `--check` given a value or given together with `--root`, `--port`, `--token` or `--no-open` (`--check takes no other flag`), an empty `<file>` (`bad <file>: empty`), or, in a diagram session, a `--port` or `--token` refused as for `annotate` or an empty `--root` (`bad --root: empty`). | Error |
 
 `annotate`'s checks run in this order, and the first failure is the one reported: arguments
 and verb, then `--port`, then `--token`, then an empty `--overview`, then the resumed file's
@@ -196,9 +223,12 @@ file exactly as it was. A roles file or explorer output that is missing or unrea
 is not a refusal (§14).
 
 `diagram`'s checks run in this order: its arguments parse, its positional arguments are
-exactly `diagram` and one `<file>`, `--check` is given, `<file>` is non-empty, then the read —
-not found, not a regular file, the size limit, the read itself, the JSON — and then the shape
-check (§15). It writes nothing, so a refused file is left exactly as it was.
+exactly `diagram` and one `<file>`, `--check` is not given with a session flag, `<file>` is
+non-empty, then — in a diagram session — `--port`, `--token` and an empty `--root`, then the
+read — not found, not a regular file, the size limit, the read itself, the JSON — and the
+shape check (§15), then — in a diagram session — the root and the port binding. Neither form
+writes anything, so a refused file is left exactly as it was, and a refused session binds no
+port.
 
 ## §4 Flags
 
@@ -247,12 +277,18 @@ renamed over the target, as the notes file is (§6), so a reader never sees a pa
 `measure` run never lists its own two outputs (§14), but a later run lists them when they lie
 under its root and scope, so they belong outside the root.
 
-**`diagram`** takes one positional argument and one flag, in any order after the verb:
+**`diagram`** takes one positional argument and up to five flags, in any order after the verb.
+`--check` selects the check form; without it the invocation is a diagram session (§1), and the
+other four flags belong to the session form only:
 
 | Argument | Default | Meaning |
 |---|---|---|
 | `<file>` | required | The diagram file (§15). A relative path resolves against the working directory. |
-| `--check` | required | Check the file and print the diagram document (§2). It takes no value. |
+| `--check` | off | Check the file and print the diagram document (§2). It takes no value and no other flag. |
+| `--root <dir>` | see meaning | Session form only. The directory the diagram's paths are relative to (§15) and its linked files are read from (§10). When absent, the top level of the git repository holding the diagram file's directory, else that directory. A relative value resolves against the working directory; a value that is not an existing directory exits 1, an empty one exits 2. |
+| `--port <n>` | `0` | Session form only. As for `annotate`. |
+| `--token <token>` | minted | Session form only. As for `annotate`. |
+| `--no-open` | off | Session form only. As for `annotate`. |
 
 ## §5 Resume
 
@@ -404,13 +440,14 @@ all predate unsent ones; the list otherwise stays in creation order, sent notes 
 
 The server listens on `127.0.0.1` only, at the bound port. Every response carries
 `cache-control: no-store`; JSON responses are `application/json; charset=utf-8`. Every
-request passes the guards of §9 first. Eleven routes:
+request passes the guards of §9 first. Twelve routes:
 
 | Route | Token | Request | Response |
 |---|---|---|---|
-| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/rounds.js`, `/overview.js`, `/overview-view.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
+| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/rounds.js`, `/overview.js`, `/overview-view.js`, `/diagram.js`, `/diagram-view.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
 | `GET /api/overview` | yes | — | 200 with the overview document as checked (§13). 404 `{"error": "no overview"}` when the run has none. Served until the process exits. |
-| `GET /api/session` | yes | — | 200 `{"session": <the notes file object, §6>, "files": [<the current listing, §10>], "changes": <the run's change count>}`. The change count is `0` when the process starts, is kept in memory only, and goes up by one on every accepted reply post. |
+| `GET /api/diagram` | yes | — | 200 `{"file", "root", "document"}`: the diagram file's absolute path, the session's root, and the diagram document as checked (§15), not laid out. 404 `{"error": "no diagram"}` when the run has none. Served until the process exits. |
+| `GET /api/session` | yes | — | 200 `{"session": <the notes file object, §6>, "files": [<the current listing, §10>], "changes": <the run's change count>}`. The change count is `0` when the process starts, is kept in memory only, and goes up by one on every accepted reply post. In a diagram session (§1) `session` is `null`. |
 | `GET /api/file?path=<p>` | yes | — | `<p>` not in the current listing: 404 `{"error": "<p> is not in scope"}`. A listed path that no longer exists — removed, or a parent folder replaced by a file: 404 `{"error": "<p> no longer exists"}`. Otherwise 200 with `{"path", "text"}` or a refusal `{"path", "binary": true, "reason"}` (§10). |
 | `GET /api/changes?after=<n>` | yes | — | `after` absent or not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`, `<value>` empty when absent. Once the end of the run has begun: 200 `{"status": <the end's status>, "changes": <count>}`, at once. When the change count exceeds `<n>`: 200 `{"status": "changed", "changes": <count>}`, at once. Otherwise the reply is held until an accepted reply post brings the count above `<n>`, which answers it `changed` with the new count, or the end of the run answers it. |
 | `GET /api/wait?after=<n>` | yes | — | `after` present and not a whole number of decimal digits: 400 `{"error": "bad after: <value>"}`. Without `after`, `<n>` is the round count the run started with (§4). Once the end of the run has begun: 200 with that end's wait document (§2), at once. When the round count exceeds `<n>`: 200 `{"status": "sent", "round": <count>, "out"}`, at once. Otherwise the reply is held until a Send brings the round count above `<n>`, which answers it with `sent` and the new round, or the end of the run answers it. |
@@ -437,6 +474,15 @@ replies with
 `curl -s -X POST -H 'x-margin-token: <token>' -H 'content-type: application/json' --data-binary @- http://127.0.0.1:<port>/api/reply`,
 the JSON body on standard input from a quoted heredoc, so no shell quoting touches it:
 curl sends the `Host` the guard expects and no `Origin` (§9).
+
+**A diagram session.** The run has no notes file (§1). `PUT /api/session`, `POST /api/submit`,
+`POST /api/reply`, `POST /api/cancel` and `GET /api/wait` answer 404 `{"error": "not found"}`.
+`POST /api/finish` applies nothing from its body, ends the session as `finished` and answers
+200 `{"ok": true, "status": "finished"}`; `SIGINT` / `SIGTERM` end it as `interrupted`. Once
+the end has begun, `POST /api/finish` answers 409 `{"error": "the run has ended"}` and a
+`GET /api/changes` its change document; the change count never moves. The process prints the
+diagram session document (§2) and exits 0 once the Finish reply has been handed to its socket,
+or after 1000 ms, whichever is sooner.
 
 **Syntax colouring.** The viewer colours a file in the language its extension names, or its
 whole file name when it has no extension (`Dockerfile`, `Makefile`), resolved through
@@ -499,7 +545,13 @@ keeps the previous listing, and one that finds no files is served as an empty li
   listing unchanged. The exclusion compares root-relative path text, so a file outside the
   root never matches.
 - Paths are root-relative with `/` separators, without duplicates, sorted by code unit. An
-  empty scope lists the whole root. A listing with no files when the run starts exits 1 (§3).
+  empty scope lists the whole root. An `annotate` listing with no files when the run starts
+  exits 1 (§3).
+- A diagram session (§1) has no scope. Its listing is every path a box's `files` names (§15)
+  that is a regular file under the root — present on disk, not a directory, not a symbolic
+  link — without duplicates, sorted by code unit, and without the diagram file itself. The
+  repository's ignore rules do not apply: a linked file is listed when it exists. It is
+  computed once, when the session starts, and never again. A listing with no files is valid.
 
 **Reading.** `GET /api/file` reads only a listed path, then:
 
@@ -601,8 +653,12 @@ is positioned, never moves a positioned box and keeps placed boxes clear of it, 
 cycles and self-loops, keeps each group's members contiguous with frames that are their
 members' bounds and never overlap, places a new member of a positioned group beside its
 members — to the right when a group lies below, below when every side is taken — without its
-frame meeting another group's, and leaves its input unchanged — and the diagram file's
-reading refusals and size limit; the anchor rule of §7 for every kind — a `candidate` anchor kept for a name of the
+frame meeting another group's, and leaves its input unchanged — the diagram file's
+reading refusals and size limit, arrow geometry — a lone arrow straight between box borders,
+parallel and opposite arrows spread to either side, self-loops nested off a box's top-right
+corner, the same output for the same document and its input unchanged — the diagram's bounds
+over boxes and frames with a fit that centres and clamps, and a diagram session's listing of
+§10, linked regular files only, deduplicated and sorted, without the diagram file; the anchor rule of §7 for every kind — a `candidate` anchor kept for a name of the
 run's overview, dropped for any other name or a name that breaks §13's rule, and checked for
 shape only when read back — a new candidate note outside the overview, a name that breaks
 §13's rule or is missing included, refusing the write with each failing entry named, while a
@@ -651,7 +707,12 @@ on Finish, held past a refused reply post, and refusing a missing or malformed `
 overview route of §8 behind the token, with its 404 without an overview, and candidate notes
 against the run's overview — a known one accepted and sent, an unknown one beside valid notes
 refused 400 on `PUT /api/session`, submit, cancel and finish with nothing applied or saved and
-the run still serving, and every candidate note refused on a run without an overview. A few cases run
+the run still serving, and every candidate note refused on a run without an overview; and a
+diagram session's server with no notes session — the diagram route of §8 behind the token,
+`session` `null` on the session route, a listed link read and an unlisted one refused, the
+notes routes and the wait answering 404, Finish ending it with the diagram session document
+and a second Finish refused 409 — a run without a diagram answering `no diagram`, and
+`/diagram.js` and `/diagram-view.js` served. A few cases run
 `cli.mjs` itself: each refusal of §5, the scope check and each `--overview` refusal of §13 exit
 with the error document and leave an existing `--out` file byte for byte as it was, and an
 empty `--overview` exits 2; `wait`'s invocation
@@ -673,7 +734,12 @@ beside it, and its refusals — an empty or blank reason, a reason with a line b
 flag given with `--explorer` — exit 2 before the measurement file is read, leaving an existing
 `--out` file byte for byte as it was; and `diagram --check` exits 0 with the diagram document
 for a valid file, 1 with the error document for a missing or refused one, and 2 for each
-invocation refusal of §3, leaving the file byte for byte as it was.
+invocation refusal of §3, leaving the file byte for byte as it was; a diagram session prints
+its stderr block of §2 with the git top level as its root, the file's directory outside a
+repository and `--root` when given, serves the diagram and its listing, and ends with exactly
+one diagram session document on Finish and on `SIGTERM`, leaving the file byte for byte as it
+was and writing nothing; and its refusals of §3 — a refused file, a `--root` that is not a
+directory, and each invocation refusal — exit before a port is bound.
 
 It opens no browser, sends requests to `127.0.0.1` only, and binds no fixed port. It prints
 `{"cases": <n>, "ok": true}` and exits 0 when every case passes; otherwise it prints
@@ -921,7 +987,8 @@ required array that may be empty.
 **Ids.** A string matching `^[A-Za-z0-9][A-Za-z0-9_.-]*$`. Group, box and arrow ids are each
 unique within their own collection.
 
-**Diagram paths.** Relative to the root of the run that shows the diagram, with `/` separators:
+**Diagram paths.** Relative to the root of the run that shows the diagram — for a diagram
+session, its root (§1) — with `/` separators:
 a non-empty string with no `\`, not starting with `/` or with a drive letter and `:`, and with
 no empty, `.` or `..` segment, so none ends in `/`. The form is checked as text; whether the
 file exists is not.

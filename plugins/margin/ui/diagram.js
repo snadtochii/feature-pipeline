@@ -2,6 +2,8 @@
 // document, its canonical text, and its layered layout. `checkDiagram` returns a copy rebuilt
 // from the known keys in canonical order, or throws a `DiagramViolation` naming the first
 // violation by its location; `serializeDiagram` writes a checked document in canonical form.
+// `arrowGeometry`, `diagramBounds` and `fitTransform` give every number the viewer draws beyond
+// the box positions, so the drawing math is testable without a browser.
 // It touches no DOM and imports nothing, so the server, the self-test and the viewer all load it.
 
 export const KINDS = Object.freeze(['module', 'process', 'agent', 'actor', 'store', 'concept']);
@@ -258,9 +260,26 @@ const FRAME_LABEL = 24;
 const CLEAR = 24;
 const SWEEPS = 4;
 
+const LABEL_CHAR_WIDTH = 7.4;
+const LABEL_PADDING = 34;
+const BOX_MIN_WIDTH = 120;
+const BOX_MAX_WIDTH = 230;
+
+const labelWidth = (chars) => Math.round(chars * LABEL_CHAR_WIDTH + LABEL_PADDING);
+
 export function boxSize(box) {
-  const n = [...box.label].length;
-  return { w: Math.min(230, Math.max(120, Math.round(n * 7.4 + 34))), h: BOX_HEIGHT };
+  return { w: Math.min(BOX_MAX_WIDTH, Math.max(BOX_MIN_WIDTH, labelWidth([...box.label].length))), h: BOX_HEIGHT };
+}
+
+// The text a box shows: its whole label when boxSize widened the box to hold it, otherwise as
+// many code points as the widest box holds, the last of them replaced by an ellipsis.
+export function boxLabel(box) {
+  const chars = [...box.label];
+  if (labelWidth(chars.length) <= BOX_MAX_WIDTH) {
+    return box.label;
+  }
+  const room = Math.floor((BOX_MAX_WIDTH - LABEL_PADDING) / LABEL_CHAR_WIDTH);
+  return `${chars.slice(0, room - 1).join('')}…`;
 }
 
 function isPositioned(box) {
@@ -546,4 +565,154 @@ export function groupFrames(doc) {
     frames.push({ id: group.id, ...frameOf(rects) });
   }
   return frames;
+}
+
+export const ZOOM_MIN = 0.2;
+export const ZOOM_MAX = 4;
+
+const ZOOM_RATE = 0.01;
+const WHEEL_LINE = 16;
+const WHEEL_PAGE = 400;
+const WHEEL_STEP_MAX = 10;
+
+// The view at scale `k`, clamped to [ZOOM_MIN, ZOOM_MAX], that puts the world point under screen
+// point `from` in `view` at screen point `to`: a zoom about one point when the two are the same,
+// a pinch that also pans when they differ. The input is unchanged.
+export function zoomView(view, k, from, to = from) {
+  const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, k));
+  const wx = (from.x - view.x) / view.k;
+  const wy = (from.y - view.y) / view.k;
+  return { x: to.x - wx * next, y: to.y - wy * next, k: next };
+}
+
+// The factor one zooming wheel event scales by. Its deltaY is read in pixels — a line or page
+// delta converted — and capped at WHEEL_STEP_MAX each way, so a mouse-wheel notch zooms by about
+// a tenth while a trackpad pinch's small deltas pass through unchanged.
+export function wheelZoomFactor(deltaY, deltaMode) {
+  const pixels = deltaY * (deltaMode === 1 ? WHEEL_LINE : deltaMode === 2 ? WHEEL_PAGE : 1);
+  return Math.exp(-Math.min(WHEEL_STEP_MAX, Math.max(-WHEEL_STEP_MAX, pixels)) * ZOOM_RATE);
+}
+
+const PARALLEL_STEP = 32;
+const LOOP_INSET = 16;
+const LOOP_REACH = 36;
+const LOOP_STEP = 16;
+const LOOP_LABEL_LIFT = 8;
+
+function round1(n) {
+  return Math.round(n * 10) / 10;
+}
+
+function centreOf(rect) {
+  return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
+}
+
+// Where the ray from the centre of `rect` along (dx, dy) leaves it; (dx, dy) is never (0, 0).
+function exitPoint(rect, dx, dy) {
+  const c = centreOf(rect);
+  const scale = Math.min(dx === 0 ? Infinity : rect.w / 2 / Math.abs(dx), dy === 0 ? Infinity : rect.h / 2 / Math.abs(dy));
+  return { x: c.x + dx * scale, y: c.y + dy * scale };
+}
+
+// The direction from `a` to `b`, or `fallback` when the two points coincide.
+function direction(a, b, fallback) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  return dx === 0 && dy === 0 ? fallback : { x: dx, y: dy };
+}
+
+function pointText(...points) {
+  return points.map((p) => `${round1(p.x)} ${round1(p.y)}`).join(' ');
+}
+
+function selfLoop(rect, index) {
+  const reach = LOOP_REACH + LOOP_STEP * index;
+  const start = { x: rect.x + rect.w - LOOP_INSET, y: rect.y };
+  const end = { x: rect.x + rect.w, y: rect.y + LOOP_INSET };
+  const c1 = { x: start.x, y: start.y - reach };
+  const c2 = { x: end.x + reach, y: end.y };
+  const mid = {
+    x: 0.125 * start.x + 0.375 * c1.x + 0.375 * c2.x + 0.125 * end.x,
+    y: 0.125 * start.y + 0.375 * c1.y + 0.375 * c2.y + 0.125 * end.y,
+  };
+  return { d: `M ${pointText(start)} C ${pointText(c1, c2, end)}`, lx: round1(mid.x), ly: round1(mid.y - LOOP_LABEL_LIFT) };
+}
+
+// Arrows between two different boxes. The arrows sharing an unordered pair of boxes spread
+// across the perpendicular of the pair's own direction — from the box whose id sorts first —
+// so arrows running both ways separate; a lone arrow (offset 0) is a straight line.
+function pairArrow(fromRect, toRect, offset, flip) {
+  const a = centreOf(fromRect);
+  const b = centreOf(toRect);
+  const along = direction(flip ? b : a, flip ? a : b, { x: 1, y: 0 });
+  const length = Math.hypot(along.x, along.y);
+  const normal = { x: -along.y / length, y: along.x / length };
+  const control = { x: (a.x + b.x) / 2 + normal.x * offset, y: (a.y + b.y) / 2 + normal.y * offset };
+  const toward = offset === 0 ? b : control;
+  const backFrom = offset === 0 ? a : control;
+  const forward = direction(a, toward, flip ? { x: -1, y: 0 } : { x: 1, y: 0 });
+  const back = direction(b, backFrom, { x: -forward.x, y: -forward.y });
+  const p1 = exitPoint(fromRect, forward.x, forward.y);
+  const p2 = exitPoint(toRect, back.x, back.y);
+  if (offset === 0) {
+    return { d: `M ${pointText(p1)} L ${pointText(p2)}`, lx: round1((p1.x + p2.x) / 2), ly: round1((p1.y + p2.y) / 2) };
+  }
+  const label = { x: 0.25 * p1.x + 0.5 * control.x + 0.25 * p2.x, y: 0.25 * p1.y + 0.5 * control.y + 0.25 * p2.y };
+  return { d: `M ${pointText(p1)} Q ${pointText(control, p2)}`, lx: round1(label.x), ly: round1(label.y) };
+}
+
+// The drawn shape of every arrow of a laid-out document, in `arrows` order: `{id, from, to, d,
+// lx, ly}`, where `d` is an SVG path from the `from` box's border to the `to` box's border and
+// (lx, ly) is the point its label sits at. A self-loop arcs off its box's top-right corner, and
+// several on one box nest outward. Coordinates are rounded to one decimal; the input is unchanged.
+export function arrowGeometry(doc) {
+  const rects = new Map(doc.boxes.map((box) => [box.id, rectOf(box, box.x, box.y)]));
+  const pairKey = (arrow) => [arrow.from, arrow.to].sort().join('\u0000');
+  const pairCount = new Map();
+  for (const arrow of doc.arrows) {
+    if (arrow.from !== arrow.to) {
+      pairCount.set(pairKey(arrow), (pairCount.get(pairKey(arrow)) ?? 0) + 1);
+    }
+  }
+  const seen = new Map();
+  return doc.arrows.map((arrow) => {
+    const key = arrow.from === arrow.to ? arrow.from : pairKey(arrow);
+    const index = seen.get(key) ?? 0;
+    seen.set(key, index + 1);
+    const shape =
+      arrow.from === arrow.to
+        ? selfLoop(rects.get(arrow.from), index)
+        : pairArrow(rects.get(arrow.from), rects.get(arrow.to), (index - (pairCount.get(key) - 1) / 2) * PARALLEL_STEP, arrow.from > arrow.to);
+    return { id: arrow.id, from: arrow.from, to: arrow.to, ...shape };
+  });
+}
+
+// The rectangle covering every positioned box and every group frame, or null with no box.
+export function diagramBounds(doc) {
+  const rects = [
+    ...doc.boxes.filter(isPositioned).map((box) => rectOf(box, box.x, box.y)),
+    ...groupFrames(doc),
+  ];
+  if (!doc.boxes.some(isPositioned)) {
+    return null;
+  }
+  const left = Math.min(...rects.map((r) => r.x));
+  const top = Math.min(...rects.map((r) => r.y));
+  return {
+    x: left,
+    y: top,
+    w: Math.max(...rects.map((r) => r.x + r.w)) - left,
+    h: Math.max(...rects.map((r) => r.y + r.h)) - top,
+  };
+}
+
+// The view transform `{x, y, k}` — screen = world × k + (x, y) — that centres `bounds` in a
+// `width` × `height` viewport with `pad` around it, its scale clamped to [min, max]. No bounds
+// or an empty viewport gives the identity.
+export function fitTransform(bounds, width, height, { pad = 40, max = 1.5, min = ZOOM_MIN } = {}) {
+  if (bounds === null || width <= 0 || height <= 0) {
+    return { x: 0, y: 0, k: 1 };
+  }
+  const k = Math.min(max, Math.max(min, Math.min((width - 2 * pad) / bounds.w, (height - 2 * pad) / bounds.h)));
+  return { x: width / 2 - (bounds.x + bounds.w / 2) * k, y: height / 2 - (bounds.y + bounds.h / 2) * k, k };
 }

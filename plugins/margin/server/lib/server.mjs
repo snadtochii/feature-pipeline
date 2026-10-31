@@ -5,10 +5,12 @@
 // reads source through /api/file). Every request must carry the Host of this server, and
 // every /api route must carry the per-run token that only the URL the server printed knows.
 // A run spans rounds: Send ends a round and the server keeps serving; Finish, Cancel or a
-// signal ends the run, once. Eleven routes:
+// signal ends the run, once. A diagram session has no notes session (`session` is null): the
+// notes routes and the wait answer 404, and Finish ends it without reading edits. Twelve routes:
 //   GET  /                    the viewer
 //   GET  /api/session         { session, files, changes }
 //   GET  /api/overview        the overview document; 404 when the run has none
+//   GET  /api/diagram         { file, root, document }; 404 when the run has none
 //   GET  /api/file?path=      { path, text } | { path, binary, reason }; 404 when the path is
 //                             not listed or no longer exists
 //   GET  /api/wait?after=     held until the round count exceeds `after` or the run ends, then
@@ -44,6 +46,8 @@ const STATIC = {
   '/rounds.js': ['rounds.js', 'text/javascript; charset=utf-8'],
   '/overview.js': ['overview.js', 'text/javascript; charset=utf-8'],
   '/overview-view.js': ['overview-view.js', 'text/javascript; charset=utf-8'],
+  '/diagram.js': ['diagram.js', 'text/javascript; charset=utf-8'],
+  '/diagram-view.js': ['diagram-view.js', 'text/javascript; charset=utf-8'],
   '/vendor/highlight.min.js': ['vendor/highlight.min.js', 'text/javascript; charset=utf-8'],
   '/vendor/dockerfile.min.js': ['vendor/dockerfile.min.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
@@ -131,8 +135,10 @@ function flush(pending) {
 // throws, after `res` has been answered 500. `waiting()` is the number of held waits and
 // `watching()` the number of held change waits. `overview` is the run's checked overview
 // document, or null when it has none; it is served as is, and its candidate names are the ones
-// a new candidate note may carry.
-export function startServer({ port, token: givenToken, session, files: initialFiles, readSource, onSave, onSend, onReply, onEnd, relist, overview = null }) {
+// a new candidate note may carry. `diagram` is `{ file, root, document }` for a run that shows a
+// diagram, or null; it is served as is. A null `session` is a diagram session: `onSave`,
+// `onSend` and `onReply` are never called, and the end document carries only its status.
+export function startServer({ port, token: givenToken, session, files: initialFiles, readSource, onSave, onSend, onReply, onEnd, relist, overview = null, diagram = null }) {
   let files = initialFiles;
   const candidates = candidateNames(overview);
   let allowed = { paths: new Set(files), candidates };
@@ -143,7 +149,7 @@ export function startServer({ port, token: givenToken, session, files: initialFi
   let origin = null; // set once the port is known
   // A wait with no `after` counts from the round the run started at, so a first wait on a
   // resumed file does not return at once for rounds an earlier run sent.
-  const startRound = session.round;
+  const startRound = session ? session.round : 0;
   const waiters = new Map(); // held wait response -> its `after`
   const watchers = new Map(); // held change wait response -> its `after`
   let closed = false; // no route mutates the session once the end has begun
@@ -170,7 +176,7 @@ export function startServer({ port, token: givenToken, session, files: initialFi
       flush(res ? [reply(res, { error: String(err?.message ?? err) }, 500)] : []).then(() => rejectEnded(err));
       return ended;
     }
-    endDoc = { status, round: session.round, out: doc.out };
+    endDoc = session ? { status, round: session.round, out: doc.out } : { status };
     const pending = [...answerWaiters(waiters, endDoc), ...answerWaiters(watchers, { status, changes })];
     if (res) {
       pending.push(reply(res, { ok: true, status }));
@@ -200,6 +206,9 @@ export function startServer({ port, token: givenToken, session, files: initialFi
       if (req.method === 'GET' && url.pathname === '/api/overview') {
         return overview ? sendJson(res, overview) : sendJson(res, { error: 'no overview' }, 404);
       }
+      if (req.method === 'GET' && url.pathname === '/api/diagram') {
+        return diagram ? sendJson(res, diagram) : sendJson(res, { error: 'no diagram' }, 404);
+      }
       if (req.method === 'GET' && url.pathname === '/api/file') {
         const path = url.searchParams.get('path') ?? '';
         if (!allowed.paths.has(path)) {
@@ -226,7 +235,7 @@ export function startServer({ port, token: givenToken, session, files: initialFi
         res.on('close', () => watchers.delete(res));
         return undefined;
       }
-      if (req.method === 'GET' && url.pathname === '/api/wait') {
+      if (req.method === 'GET' && url.pathname === '/api/wait' && session) {
         const raw = url.searchParams.get('after');
         if (raw !== null && !/^\d+$/.test(raw)) {
           return sendJson(res, { error: `bad after: ${raw}` }, 400);
@@ -245,7 +254,7 @@ export function startServer({ port, token: givenToken, session, files: initialFi
       const mutating =
         (req.method === 'PUT' && url.pathname === '/api/session') ||
         (req.method === 'POST' && (url.pathname === '/api/submit' || url.pathname === '/api/reply' || END_ROUTES[url.pathname]));
-      if (!mutating) {
+      if (!mutating || (!session && url.pathname !== '/api/finish')) {
         return sendJson(res, { error: 'not found' }, 404);
       }
       // Checked after the body is read, so a request that was in flight when the end began
@@ -253,6 +262,10 @@ export function startServer({ port, token: givenToken, session, files: initialFi
       const body = await readJson(req);
       if (closed) {
         return sendJson(res, { error: 'the run has ended' }, 409);
+      }
+      if (!session) {
+        end('finished', res);
+        return undefined;
       }
       // A reply post carries no viewer edits. Once its replies are saved it is the round's
       // boundary: the listing is recomputed, the change count bumped and held change waits woken.
