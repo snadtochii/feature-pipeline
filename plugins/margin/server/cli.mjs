@@ -6,6 +6,7 @@
 //   cli.mjs wait <url> [--after <n>]
 //   cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>
 //   cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file> | --explorer-unavailable <reason>] --out <file>
+//   cli.mjs diagram --check <file>
 //   cli.mjs --self-test
 //
 // `annotate` serves a read-only code viewer for the files under the scope paths and collects
@@ -28,14 +29,19 @@
 // document, a roles JSON and a deepen explorer's output into the overview document --overview
 // reads. Both print one success document on stdout and their warnings on stderr.
 //
-// Exit: 0 the run ended (finished, cancelled or interrupted), the wait returned, or the files
-// were written, 1 could not run or the server was unreachable, 2 bad invocation.
+// `diagram --check` reads and checks one diagram file, prints one document saying whether its
+// text is canonical with its entry counts, and writes nothing.
+//
+// Exit: 0 the run ended (finished, cancelled or interrupted), the wait returned, the files
+// were written or the diagram passed, 1 could not run or the server was unreachable, 2 bad
+// invocation.
 // Zero dependencies: Node 22+ built-ins only. Everything under lib/ is private.
 
 import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { assembleOverview, readMeasurement, readOptional, serialiseOverview } from './lib/assemble.mjs';
+import { readDiagram } from './lib/diagram.mjs';
 import { listFiles, readSource, revision } from './lib/files.mjs';
 import { measureScope } from './lib/measure.mjs';
 import { readOverview } from './lib/overview.mjs';
@@ -46,9 +52,10 @@ import { TOKEN_PATTERN, parseRunUrl, waitForRound } from './lib/wait.mjs';
 const WAIT_USAGE = 'usage: cli.mjs wait <url> [--after <n>]';
 const MEASURE_USAGE = 'usage: cli.mjs measure --root <dir> [--scope <path>]... --out <file> --hotspots <file>';
 const ASSEMBLE_USAGE = 'usage: cli.mjs assemble --measurements <file> [--roles <file>] [--explorer <file> | --explorer-unavailable <reason>] --out <file>';
+const DIAGRAM_USAGE = 'usage: cli.mjs diagram --check <file>';
 const USAGE = [
   'usage: cli.mjs annotate --root <dir> [--scope <path>]... [--out <file>] [--overview <file>] [--port <n>] [--token <hex>] [--no-open]',
-  ...[WAIT_USAGE, MEASURE_USAGE, ASSEMBLE_USAGE].map((line) => `       ${line.slice('usage: '.length)}`),
+  ...[WAIT_USAGE, MEASURE_USAGE, ASSEMBLE_USAGE, DIAGRAM_USAGE].map((line) => `       ${line.slice('usage: '.length)}`),
 ].join('\n');
 
 function writeDoc(doc) {
@@ -296,6 +303,39 @@ function assembleCmd(argv) {
   process.exit(0);
 }
 
+// Checks in order: the arguments parse, the positionals are exactly `diagram <file>`, --check
+// is given, and <file> is non-empty. Then the read and the shape check, and its document.
+function diagramCmd(argv) {
+  let parsed;
+  try {
+    parsed = parseArgs({ args: argv, allowPositionals: true, options: { check: { type: 'boolean' } } });
+  } catch (err) {
+    fail(`${err.message}\n${DIAGRAM_USAGE}`, 2);
+  }
+  const { values, positionals } = parsed;
+  if (positionals.length !== 2 || positionals[0] !== 'diagram') {
+    fail(DIAGRAM_USAGE, 2);
+  }
+  if (values.check !== true) {
+    fail('diagram needs --check', 2);
+  }
+  if (positionals[1] === '') {
+    fail('bad <file>: empty', 2);
+  }
+  const file = resolve(positionals[1]);
+  const { document, canonical } = readDiagram(file);
+  writeDoc({
+    status: 'ok',
+    file,
+    canonical,
+    groups: document.groups.length,
+    boxes: document.boxes.length,
+    arrows: document.arrows.length,
+    walkthroughs: document.walkthroughs.length,
+  });
+  process.exit(0);
+}
+
 // `--self-test` is recognised only on its own; with any other argument it falls through to
 // the argument parser and is a bad invocation. A rule that refuses throws a RunError, and
 // this is the one place that turns it into the error document and the exit code.
@@ -315,6 +355,10 @@ async function main(argv) {
     }
     if (argv[0] === 'assemble') {
       assembleCmd(argv);
+      return;
+    }
+    if (argv[0] === 'diagram') {
+      diagramCmd(argv);
       return;
     }
     await annotate(argv);
