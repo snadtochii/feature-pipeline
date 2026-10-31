@@ -66,8 +66,8 @@ const SESSION_ENDED = 'the run has ended';
 //   saveState(text)  the header's save indicator
 // F fits, J and K step the walkthrough, only while the tab is shown, with no Ctrl, ⌘ or Alt, and
 // never while typing. While editable, Delete or Backspace deletes the selection and L re-lays
-// out, under the same rules and never with a button focused. Escape while a card is open closes
-// it and marks the event handled (defaultPrevented).
+// out, under the same rules and never with a button focused or a press on the canvas in
+// progress. Escape while a card is open closes it and marks the event handled (defaultPrevented).
 export function createDiagramView({ nodes, listed, openCode, ended = () => false, saveState = () => {} }) {
   const { pane } = nodes;
   const state = {
@@ -964,7 +964,9 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       step(1);
     } else if (key === 'k') {
       step(-1);
-    } else if (!canEdit() || focusOnButton()) {
+    } else if (!canEdit() || focusOnButton() || state.pointer !== null) {
+      // A press in progress ends in an edit of the document it started from, so an edit made
+      // before its drop would be undone by it.
       return;
     } else if ((event.key === 'Delete' || event.key === 'Backspace') && state.selected !== null) {
       event.preventDefault();
