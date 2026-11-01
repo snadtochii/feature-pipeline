@@ -25,7 +25,7 @@ Every automated review embeds one HTML comment, invisible in GitHub's rendered v
 <!-- fp-review agent=<codex|claude> head=<SHA> -->
 ```
 
-- `head=<SHA>` is **load-bearing** — it is the full current head SHA of the PR at review time (`gh pr view <N> --json headRefOid --jq '.headRefOid'`). `review` writes the SHA it pinned and verified (its Step 3), so the marker always names the code it read. Idempotency is keyed on `agent` plus `head`: a PR is "already reviewed" by a model only when that model's marker for its **current** head SHA exists. A marker for the current head from the other model does not count. When new commits land (head moves), the old marker no longer matches and the PR is reviewed again.
+- `head=<SHA>` is **load-bearing** — it is the full current head SHA of the PR at review time (`gh pr view <N> --json headRefOid --jq '.headRefOid'`). `review` writes the SHA it pinned at its Step 1 and re-checked before posting (its Step 4), so the marker always names the head the post was pinned to. Idempotency is keyed on `agent` plus `head`: a PR is "already reviewed" by a model only when that model's marker for its **current** head SHA exists. A marker for the current head from the other model does not count. When new commits land (head moves), the old marker no longer matches, so that model has not reviewed the new head.
 - `agent=<codex|claude>` is **load-bearing** and supplied by the posting caller: `review` from its required `--agent` value, ship's reviewer from the Pipeline runtime block in its brief. There is no environment detection and no fallback.
 
 The marker goes in the **review body** on the Reviews-API path (§4), or in the **single issue comment** on the fallback path (§5). Either way it must be findable by the idempotency scan (§3), which reads both surfaces.
@@ -49,7 +49,7 @@ printf '%s' "$PR_JSON" \
 - **Exit 1** — not reviewed by that model at this head.
 - **Exit 2** — the scan failed. The caller reports the failure and does not review; a failure never reads as "not reviewed", which would post a duplicate.
 
-A PR is **already reviewed** by a model iff a comment or review authored by the viewer's `gh` login carries that exact marker. Another model's marker or another account's marker does not count. The `auto-reviewed` label never gates this decision — it tracks the review⇄address cycle (§8), not the head. A label present without this model's current-head marker means review.
+A PR is **already reviewed** by a model iff a comment or review authored by the viewer's `gh` login carries that exact marker. Another model's marker or another account's marker does not count. The `auto-reviewed` label never gates this decision — it tracks the review⇄address cycle (§8), not the head. A label present without this model's current-head marker means this model has not reviewed this head.
 
 `<N>` is a controlled integer PR number (from `gh pr list`) or, for `review`, the PR URL `gh` returned, quoted; `<AGENT>` is a validated `claude` or `codex`, never free text; `VIEWER`, `PR_JSON` and `HEAD_SHA` are loaded via command substitution — never interpolate free-text into the command (see §7). The JSON goes through `printf` rather than `echo` because zsh's `echo` expands the `\n` escapes inside it, which `jq` then rejects.
 
@@ -143,7 +143,7 @@ Mirror `../build/references/pr-creation.md`'s discipline for every `gh`/`git` ca
 
 ## §8 The `auto-reviewed` label
 
-A coarse, model-neutral **cycle signal**: label **present** = the latest automated action on the PR was a review, and its findings await an address pass (or the author's attention); label **absent** = the PR awaits (re-)review — either never reviewed, or its review comments were addressed since. The §2/§9 hidden markers — never the label — are the precise idempotency keys (`fp-review` on reviewer plus head, `fp-address` per head); the label never gates a skill's skip decision.
+A coarse, model-neutral **cycle signal**: label **present** = the latest automated action on the PR was a review, and its findings await an address pass (or the author's attention); label **absent** = no review awaits an address pass — either never reviewed, or its review comments were addressed since. The §2/§9 hidden markers — never the label — are the precise idempotency keys (`fp-review` on reviewer plus head, `fp-address` per head); the label never gates a skill's skip decision.
 
 Two writers, one direction each:
 
@@ -159,7 +159,7 @@ Two writers, one direction each:
   gh pr edit "<N>" --remove-label auto-reviewed 2>/dev/null || true
   ```
 
-One glance at the label answers "has the latest review round been responded to?": the reviewer posts → label on; the addresser replies (usually pushing fixes, which moves the head) → label off; the next review round re-adds it. `review` never removes the label; `address-review` never adds it.
+One glance at the label answers "has the latest review been responded to?": the reviewer posts → label on; the addresser replies (usually pushing fixes, which moves the head) → label off; a later review re-adds it. `review` never removes the label; `address-review` never adds it.
 
 ## §9 Reply to a review finding (the `address-review` side)
 
