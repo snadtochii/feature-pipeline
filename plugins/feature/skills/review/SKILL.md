@@ -1,6 +1,6 @@
 ---
 name: review
-description: "Review every unreviewed open PR in the current repo (or one given PR) against the embedded maintainability rubric and post signed, idempotent findings."
+description: "Review your unreviewed open non-draft PRs into the current repo's default branch (or one given PR) against the embedded maintainability rubric and post signed, idempotent findings."
 disable-model-invocation: true
 allowed-tools:
   - Read
@@ -8,12 +8,12 @@ allowed-tools:
   - Grep
   - Bash
   - TodoWrite
-argument-hint: "[pr-number-or-url]"
+argument-hint: "--agent <claude|codex> [pr-number-or-url]"
 ---
 
 # Review — repo-scoped PR reviewer with an embedded maintainability rubric
 
-Enumerate the current repo's open pull requests, skip any whose **current head SHA** was already reviewed, apply the embedded maintainability rubric ([`references/review-rubric.md`](references/review-rubric.md)) to each remaining PR, and post findings — inline where line-anchored, plus one summary comment, or a single signed "no blocking issues" comment when clean. Add the model-neutral `auto-reviewed` label (removal belongs to `feature:address-review`), then print a per-run summary.
+Enumerate the viewer's open non-draft pull requests into the current repo's default branch, or take one given PR; skip any whose **current head SHA** this model already reviewed, apply the embedded maintainability rubric ([`references/review-rubric.md`](references/review-rubric.md)) to each remaining PR, and post findings — inline where line-anchored, plus one summary comment, or a single signed "no blocking issues" comment when clean. Add the model-neutral `auto-reviewed` label (removal belongs to `feature:address-review`), then print a per-run summary.
 
 **This skill runs in the main conversation, standalone** — **not a pipeline stage**. It spawns **no subagents** (no `Task`) and uses **no MCP**, so it behaves identically on Claude Code and Codex, including headless/scheduled runs. It is **repo-scoped and PR-coupled**: it operates on the repo it is invoked in and never resolves a ticket.
 
@@ -25,9 +25,18 @@ It **never approves a PR and never mutates repository code** — it only posts c
 /feature:review $ARGUMENTS
 ```
 
-`$1` (optional) = a single PR number (e.g. `42`) or PR URL to review just that one PR. Omit it to scan **all** open PRs in the current repo.
+- `--agent <claude|codex>` (required) = `<AGENT>`, the model running this review. It is the posted marker's `agent=` value and the identity the idempotency scan keys on.
+- `<PR>` (optional) = a single PR number (e.g. `42`) or PR URL to review just that one PR. Omit it to scan the viewer's open non-draft PRs into the repo's default branch.
 
-The external scheduler (the automation that lists repos and sets the cadence) is **out of scope** — it stays external and simply runs `/feature:review` inside each repo. This skill is **stateless per invocation**: each run is a fresh scan, with all persisted state living on GitHub (the `auto-reviewed` label + the hidden head-SHA markers).
+The two may appear in either order.
+
+**Arguments gate.** This runs first, before the preconditions and any `gh` call. A missing or repeated `--agent`, a value other than exact lowercase `claude` or `codex`, the `--agent=<value>` form, any other flag, or a second positional prints only this line, then stops with no read and no post:
+
+```
+usage: /feature:review --agent <claude|codex> [<pr-number-or-url>]
+```
+
+The external scheduler (the automation that lists repos and sets the cadence) is **out of scope** — it stays external and simply runs `/feature:review --agent <claude|codex>` inside each repo. This skill is **stateless per invocation**: each run is a fresh scan, with all persisted state living on GitHub (the `auto-reviewed` label + the hidden head-SHA markers).
 
 ## When NOT to run
 - To build/implement a ticket → `/feature:build`.
@@ -37,27 +46,31 @@ The external scheduler (the automation that lists repos and sets the cadence) is
 
 ## Preconditions (fail-closed)
 
-Review reads and posts PR state via `gh`. Before any work, run the shared fail-closed check sequence in [`references/gh-preconditions.md`](references/gh-preconditions.md); review's skip message is "couldn't review (gh unavailable: `<reason>`)".
+Review reads and posts PR state via `gh`. After the arguments gate and before any other work, run the shared fail-closed check sequence in [`references/gh-preconditions.md`](references/gh-preconditions.md); review's skip message is "couldn't review (gh unavailable: `<reason>`)".
 
 ## Process
 
 ### 1. Enumerate the PRs to review
 
-- **All (no arg)**: list open PRs and their current head SHAs (`--limit` is required — `gh pr list` caps at 30 by default, which would silently drop the overflow on busy repos):
+- **All (no `<PR>`)**: list the viewer's open non-draft PRs into the repo's default branch, with their current head SHAs (`--limit` is required — `gh pr list` caps at 30 by default, which would silently drop the overflow on busy repos):
   ```bash
-  gh pr list --state open --limit 200 --json number,headRefOid,title,isDraft
+  DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name') \
+    && [ -n "$DEFAULT_BRANCH" ] \
+    && gh pr list --state open --limit 200 --author "@me" --base "$DEFAULT_BRANCH" \
+         --json number,headRefOid,title,isDraft --jq '[.[] | select(.isDraft | not)]'
   ```
-  Review every open PR (drafts included — the external loop reviews everything unreviewed). An empty list → "No open PRs." and exit cleanly.
-- **Single (`$1` given)**: accept a PR number or URL. `gh pr view "$1" --json number,headRefOid,title` resolves either form. If it doesn't resolve to an open PR, report "`$1` is not an open PR" and exit.
+  Drafts, other authors' PRs and PRs into other branches are not reviewed. A non-zero exit — a failed or empty default-branch lookup, or a failed list — prints the one line "couldn't review (PR list unavailable: `<reason>`)" and exits. An empty list → "No open PRs." and exit cleanly.
+- **Single (`<PR>` given)**: accept a PR number or URL. `gh pr view "<PR>" --json number,headRefOid,title` resolves either form, and the PR's author, draft state and base do not filter it. If it doesn't resolve to an open PR, report "`<PR>` is not an open PR" and exit.
 
 Build a TodoWrite item per PR so the per-run summary (Step 5) is recoverable.
 
 ### 2. Per PR — idempotency check (skip already-reviewed head SHAs)
 
-For each PR, resolve its current head SHA and scan its existing comment surfaces for a marker matching that SHA, per [`references/pr-comments.md`](references/pr-comments.md) §3:
+For each PR, run the scan in [`references/pr-comments.md`](references/pr-comments.md) §3 with `<AGENT>`:
 
-- An `fp-review` marker with `head=<current-SHA>` already exists → **skip**: record it as *already reviewed*, leave its label untouched, move to the next PR.
-- No current-SHA marker exists → this head is **unreviewed**; continue to Step 3. (The label never gates this decision — a PR may carry `auto-reviewed` with a stale marker, or carry no label because `address-review` removed it; only the current-SHA marker decides.)
+- **Exit 0** — this model's marker for the current head already exists → **skip**: record it as *already reviewed*, leave its label untouched, move to the next PR.
+- **Exit 1** — no such marker exists → this head is **unreviewed** by this model; continue to Step 3. (The label never gates this decision — a PR may carry `auto-reviewed` with a stale marker or another model's marker, or carry no label because `address-review` removed it; only this model's current-head marker decides.)
+- **Exit 2** — the scan failed → record it under `⚠ Failures`, do not review this PR, move to the next PR.
 
 ### 3. Per unreviewed PR — review against the embedded rubric
 
@@ -69,7 +82,7 @@ For each PR, resolve its current head SHA and scan its existing comment surfaces
 
 Post per [`references/pr-comments.md`](references/pr-comments.md):
 
-- **Has findings** → post the summary + inline comments as **one logical review** via the Reviews API (§4): one review object, `event=COMMENT`, the summary `body` carrying the §1 role footer (`_— 🔎 review (automated)_`) and the §2 hidden marker (`<!-- fp-review agent=<codex|claude> head=<SHA> -->`), and a `comments[]` array for the line-anchored findings. On a Reviews-API error or a self-review block, fall back (§5) to a single `gh pr comment <N> --body-file <file>` carrying the same summary (inline findings folded in as `path:line` references), footer, and marker.
+- **Has findings** → post the summary + inline comments as **one logical review** via the Reviews API (§4): one review object, `event=COMMENT`, the summary `body` carrying the §1 role footer (`_— 🔎 review (automated)_`) and the §2 hidden marker (`<!-- fp-review agent=<AGENT> head=<SHA> -->`), and a `comments[]` array for the line-anchored findings. On a Reviews-API error or a self-review block, fall back (§5) to a single `gh pr comment <N> --body-file <file>` carrying the same summary (inline findings folded in as `path:line` references), footer, and marker.
 - **No blocking findings** → post the single signed empty-review comment (§6) — never an approval.
 - **Label** (§8): ensure `auto-reviewed` exists (`gh label create … || true`), then add it (idempotent). The label signals "reviewed, awaiting address" — `address-review` removes it when it replies; review only ever adds.
 
@@ -84,7 +97,7 @@ After the scan, print a grouped summary with counts (omit empty groups):
 
 ✓ Reviewed (<n>):
   - #<num> <title> — <k> finding(s) [or "no blocking issues"] — PR <url>
-↺ Skipped, already reviewed at current head (<n>):
+↺ Skipped, already reviewed by this model at current head (<n>):
   - #<num> <title> — PR <url>
 🏷  Labels updated (<n>):
   - #<num> — auto-reviewed (added | already present)

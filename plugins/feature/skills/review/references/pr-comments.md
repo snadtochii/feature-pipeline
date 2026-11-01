@@ -11,7 +11,7 @@ Every comment an agent posts carries a one-line footer naming its **role**, on i
 - **Review** (the `review` skill): `_— 🔎 review (automated)_`
 - **Addressed reply** (the `address-review` skill): `_— 🛠️ addressed (automated)_`
 
-**Role, not model.** The footer names what the comment *is* (a review, or a reply addressing one), never which model wrote it — the same skill runs on Claude Code and Codex, so a `Claude:`/`Codex:` label would go wrong the moment the other platform executes it. The role answers the reader's real question ("is this a review or a reply?"); footer **presence** answers the other ("is this an agent's comment or my own manual note?"). Model identity, when it matters for debugging, rides only in the hidden marker (§2).
+**Role, not model.** The footer names what the comment *is* (a review, or a reply addressing one), never which model wrote it — the same skill runs on Claude Code and Codex, so a `Claude:`/`Codex:` label would go wrong the moment the other platform executes it. The role answers the reader's real question ("is this a review or a reply?"); footer **presence** answers the other ("is this an agent's comment or my own manual note?"). Model identity rides only in the hidden marker (§2).
 
 **The author's own manual comments carry no footer** — that absence is the tell that distinguishes a human note from an automated one. Never add a footer to anything but an automated post.
 
@@ -25,25 +25,33 @@ Every automated review embeds one HTML comment, invisible in GitHub's rendered v
 <!-- fp-review agent=<codex|claude> head=<SHA> -->
 ```
 
-- `head=<SHA>` is **load-bearing** — it is the full current head SHA of the PR at review time (`gh pr view <N> --json headRefOid --jq '.headRefOid'`). Idempotency is keyed on it: a PR is "already reviewed" only when a marker for its **current** head SHA exists. When new commits land (head moves), the old marker no longer matches and the PR is reviewed again.
-- `agent=<codex|claude>` is **informational** (which runtime posted). Detect it from the runtime that already discriminates the two harnesses: `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`. This is the same predicate build uses to pick the primary instruction file: `PLUGIN_ROOT` (Codex) vs `CLAUDE_PLUGIN_ROOT` (Claude Code). It never gates idempotency — only `head` does.
+- `head=<SHA>` is **load-bearing** — it is the full current head SHA of the PR at review time (`gh pr view <N> --json headRefOid --jq '.headRefOid'`). Idempotency is keyed on `agent` plus `head`: a PR is "already reviewed" by a model only when that model's marker for its **current** head SHA exists. A marker for the current head from the other model does not count. When new commits land (head moves), the old marker no longer matches and the PR is reviewed again.
+- `agent=<codex|claude>` is **load-bearing** and supplied by the posting caller: `review` from its required `--agent` value, ship's reviewer from the Pipeline runtime block in its brief. There is no environment detection and no fallback.
 
 The marker goes in the **review body** on the Reviews-API path (§4), or in the **single issue comment** on the fallback path (§5). Either way it must be findable by the idempotency scan (§3), which reads both surfaces.
 
 ## §3 Idempotency scan (fetch existing markers)
 
-Before reviewing a PR, resolve its current head SHA and scan its existing comment surfaces for a marker matching that SHA. A match → already reviewed at this head → skip. Read **both** surfaces (a prior run may have used either the Reviews-API or the fallback path):
+`review` runs this scan before each review, with its `--agent` value as `<AGENT>`. Ship's orchestrator runs it on resume, with its verified runtime identity as `<AGENT>`. Ship's reviewer never runs it. The scan reads **both** surfaces (a prior run may have used either the Reviews-API or the fallback path), as one Bash call:
 
 ```bash
-HEAD_SHA=$(gh pr view "<N>" --json headRefOid --jq '.headRefOid')
-# Issue-level comments + review bodies in one read:
-gh pr view "<N>" --json comments,reviews \
-  --jq '[.comments[].body, .reviews[].body] | .[]'
+VIEWER=$(gh api user --jq .login) \
+  && PR_JSON=$(gh pr view "<N>" --json headRefOid,comments,reviews) \
+  && HEAD_SHA=$(printf '%s' "$PR_JSON" | jq -r '.headRefOid') \
+  && [ -n "$VIEWER" ] && [ -n "$HEAD_SHA" ] \
+  || { echo "idempotency scan failed" >&2; exit 2; }
+printf '%s' "$PR_JSON" \
+  | jq -r --arg viewer "$VIEWER" '(.comments + .reviews)[] | select(.author.login == $viewer) | .body' \
+  | grep -qF -- "<!-- fp-review agent=<AGENT> head=$HEAD_SHA -->"
 ```
 
-A PR is **already reviewed** iff that text contains `head=<HEAD_SHA>` inside an `fp-review` marker. The `auto-reviewed` label never gates this decision — it tracks the review⇄address cycle (§8), not the head. A label present without a current-SHA marker means the head moved since the last review, so re-review.
+- **Exit 0** — already reviewed by that model at this head.
+- **Exit 1** — not reviewed by that model at this head.
+- **Exit 2** — the scan failed. The caller reports the failure and does not review; a failure never reads as "not reviewed", which would post a duplicate.
 
-`<N>` is a controlled integer PR number (from `gh pr list`), quoted; `HEAD_SHA` is loaded via command substitution — never interpolate free-text into the command (see §7).
+A PR is **already reviewed** by a model iff a comment or review authored by the viewer's `gh` login carries that exact marker. Another model's marker or another account's marker does not count. The `auto-reviewed` label never gates this decision — it tracks the review⇄address cycle (§8), not the head. A label present without this model's current-head marker means review.
+
+`<N>` is a controlled integer PR number (from `gh pr list`), quoted; `<AGENT>` is a validated `claude` or `codex`, never free text; `VIEWER`, `PR_JSON` and `HEAD_SHA` are loaded via command substitution — never interpolate free-text into the command (see §7). The JSON goes through `printf` rather than `echo` because zsh's `echo` expands the `\n` escapes inside it, which `jq` then rejects.
 
 ## §4 Post a review — Reviews API (inline + summary as one review)
 
@@ -123,19 +131,19 @@ _— 🔎 review (automated)_
 <!-- fp-review agent=<codex|claude> head=<SHA> -->
 ```
 
-Posted via `gh pr comment <N> --body-file <file>` (no inline anchors needed). It still carries the footer + marker, so the §3 scan counts the head SHA as reviewed and a re-run is idempotent.
+Posted via `gh pr comment <N> --body-file <file>` (no inline anchors needed). It still carries the footer + marker, so the §3 scan counts this head as reviewed by that model and a re-run is idempotent.
 
 ## §7 Injection discipline
 
 Mirror `../build/references/pr-creation.md`'s discipline for every `gh`/`git` call here:
 
-- PR numbers are controlled integers from `gh pr list`; SHAs and `OWNER`/`REPO` are loaded via command substitution from `gh` — never pasted free-text.
+- PR numbers are controlled integers from `gh pr list`; SHAs, `VIEWER` and `OWNER`/`REPO` are loaded via command substitution from `gh` — never pasted free-text. `<AGENT>` is a validated `claude` or `codex`, never free text.
 - Comment/review **bodies and payloads** ride in files (`--body-file`, `--input`), never in a `--body "…"` literal — a double-quoted assignment does **not** neutralize backticks / `$()` / quotes, and review text is model-generated.
 - Never `eval`. Never interpolate a diff snippet, finding text, or PR title into a command string.
 
 ## §8 The `auto-reviewed` label
 
-A coarse, model-neutral **cycle signal**: label **present** = the latest automated action on the PR was a review, and its findings await an address pass (or the author's attention); label **absent** = the PR awaits (re-)review — either never reviewed, or its review comments were addressed since. The §2/§9 hidden markers — never the label — are the precise per-head idempotency keys; the label never gates a skill's skip decision.
+A coarse, model-neutral **cycle signal**: label **present** = the latest automated action on the PR was a review, and its findings await an address pass (or the author's attention); label **absent** = the PR awaits (re-)review — either never reviewed, or its review comments were addressed since. The §2/§9 hidden markers — never the label — are the precise idempotency keys (`fp-review` on reviewer plus head, `fp-address` per head); the label never gates a skill's skip decision.
 
 Two writers, one direction each:
 
@@ -166,7 +174,7 @@ Its work set is **not limited to automated findings**: a **human comment** — a
   ```
   - `head=<SHA>` is **load-bearing** — the full current head SHA of the PR at address time (`gh pr view <N> --json headRefOid --jq '.headRefOid'`). It keys reply idempotency: a finding is "already addressed" only when its thread already carries an `fp-address` reply for the **current** head SHA. When new commits land (head moves), a prior reply no longer matches and the finding is addressed again.
   - `re=<review|comment>:<id>[#F<k>]` is the **source key** — **load-bearing on every top-level reply**, where GitHub gives no threading to pair a reply with what it answers. It names the source by shape and REST id: an automated summary finding → `re=review:<id>#F<k>` (Reviews-API summary) or `re=comment:<id>#F<k>` (fallback issue-comment summary), with the finding's `[F<k>]` ordinal; a human review summary → `re=review:<id>`; a human issue comment → `re=comment:<id>`. **Omitted on threaded inline replies** — the inline thread (`in_reply_to_id`) is the pairing there. The ids are controlled integers from the fetch (§7).
-  - `agent=<codex|claude>` is **informational** — the runtime that posted, detected exactly as §2 (`agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`). It never gates idempotency — only `head` and `re` do.
+  - `agent=<codex|claude>` is **informational** — the runtime that posted: `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`. It never gates idempotency — only `head` and `re` do.
 
 Both ACCEPTed findings (reply notes the fix) and DISMISSed findings (reply explains why it doesn't apply) get a signed reply in this exact shape.
 
