@@ -175,7 +175,7 @@ Not every stage runs as a subagent. The rule:
 | `build` standalone (non-interactive implement loop in the main conversation, interactive only through the close stage's relayed stops; sequences `review-stage` and `close-stage` as stage subagents from the same briefs flow uses) | `plan`, `build` (implement), `review-stage` and `close-stage` under `flow` — each a stage subagent spawned from `skills/flow/references/stage-briefs.md`; their user-facing stops pause the subagent and flow relays them (`stage-briefs.md` §5) |
 | `debug` (interactive runtime-debugging loop; spawns no subagents) | |
 | `sync` (standalone PR reconciler; reads PR state via `gh`, performs Transition 6; spawns no subagents) | |
-| `review` (standalone repo-scoped PR reviewer; reads/posts PR state via `gh`; spawns no subagents) | |
+| `review` (standalone PR reviewer; reads/posts PR state via `gh` and reads the PR's head in a throwaway checkout; spawns no subagents) | |
 | `address-review` (standalone PR feedback addresser; reads/posts PR state via `gh`, edits code to apply accepted fixes; spawns no subagents) | |
 | `ship` (standalone autonomous build→review→merge orchestrator; spawns the per-ticket implementer subagent, never runs as one) | |
 | `lessons-consolidate` (standalone `_lessons.md` sweep; proposes a diff, rewrites on approval; spawns no subagents) | |
