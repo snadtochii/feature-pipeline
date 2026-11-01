@@ -81,7 +81,7 @@ For each PR, run the scan in [`references/pr-comments.md`](references/pr-comment
 **Round decision.** With `--full` the review is full and no round is read. Otherwise run [`references/review-memory.md`](references/review-memory.md) §1, then §2 or §3 as it directs:
 
 - **Full or follow-up with commits** → Step 3.
-- **Follow-up with no commits** → skip Step 3 and go to Step 4's empty-review path.
+- **Follow-up with no commits** → skip Step 3 and go to Step 4's merge-only comment.
 - **At the limit** → §3 flags the PR, and the run moves to the next PR with no Step 3 or Step 4.
 
 ### 3. Per unreviewed PR — review against the embedded rubric
@@ -110,7 +110,8 @@ Exit 3 → a `⚠ Failures` row "head moved or PR closed before posting, nothing
 Post per [`references/pr-comments.md`](references/pr-comments.md), with `<PR_URL>` as `<N>`:
 
 - **Has findings** → post the summary + inline comments as **one logical review** via the Reviews API (§4): one review object, `event=COMMENT`, the summary `body` carrying the §1 role footer (`_— 🔎 review (automated)_`) and the §2 hidden marker (`<!-- fp-review agent=<AGENT> head=<HEAD_SHA> -->`), and a `comments[]` array for the line-anchored findings. On a Reviews-API error or a self-review block, fall back (§5) to a single `gh pr comment "<PR_URL>" --body-file <file>` carrying the same summary (inline findings folded in as `path:line` references), footer, and marker. A failed fallback is a `⚠ Failures` row, with no label.
-- **No blocking findings** → post the single signed empty-review comment (§6) — never an approval. This includes a filter that dropped every finding and a follow-up whose range holds only merge commits; the text and marker stay §6's.
+- **No blocking findings** → post the single signed empty-review comment (§6) — never an approval. This includes a filter that dropped every finding; the text and marker stay §6's.
+- **A follow-up whose range holds only merge commits** → post the merge-only comment in [`references/review-memory.md`](references/review-memory.md) §2 the way §6 posts its comment, head guard first — never an approval.
 - **Label** (§8, with `<PR_URL>` and `<OWNER>/<REPO>`): ensure `auto-reviewed` exists (`gh label create … || true`), then add it (idempotent). The label signals "reviewed, awaiting address" — `address-review` removes it when it replies; review only ever adds.
 
 Build the review body / payload / comment in a **file** and post via `--input` / `--body-file` — never interpolate model-generated finding text into a command literal, never `eval` (§7).
