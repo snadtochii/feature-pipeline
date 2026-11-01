@@ -1,7 +1,7 @@
 ---
 name: annotate
-description: "Open a read-only viewer over the given paths, optionally with an overview of the area's file measurements, roles and deepening candidates, so the human can leave notes on code ranges, files, folders, candidates and the scope as a whole, then work through each round they send: answer the questions, plan and make the structural changes, hand behavioural ones and accepted candidates off, and reply beside every note, until the human finishes."
-argument-hint: "[path ...] [--overview] [--resume <notes-file>] [--port <n>]"
+description: "Open a viewer over the given paths, optionally with an overview of the area's file measurements, roles and deepening candidates, and with a diagram of the area — an existing diagram file, or one the agent draws from a topic — so the human can leave notes on code ranges, files, folders, candidates, diagram boxes and arrows and the scope as a whole, and edit the diagram, then work through each round they send: answer the questions, plan and make the structural changes, keep, revert or redraw the diagram's changes, hand behavioural ones and accepted candidates off, and reply beside every note, until the human finishes."
+argument-hint: '[path ...] [--overview] [--diagram <file> | --diagram "<topic>"] [--resume <notes-file>] [--port <n>]'
 disable-model-invocation: true
 allowed-tools:
   - Bash
@@ -20,8 +20,9 @@ allowed-tools:
 The human reads code the agent wrote and says how it should be shaped — types out of this
 file, these twenty components into a tree, this helper renamed — with every remark pinned to
 the line, file or folder it is about. This skill opens the viewer and, round by round, turns
-each batch the human sends into work and a reply beside every note. Nothing is edited before
-the round's confirmation in §3.
+each batch the human sends into work and a reply beside every note. With a diagram, notes also
+sit on its boxes and arrows, and the human's edits to it arrive with the round as structural
+changes. Nothing is edited before the round's confirmation in §3.
 
 ## Arguments
 
@@ -42,6 +43,25 @@ the round's confirmation in §3.
   kind and role, and deepening candidates — and open it with an Overview tab (§1a). It needs at
   least one path: with none, ask for a folder and wait. On `--resume` it is ignored with one
   line saying so: a resume reopens the overview its notes were written against.
+- `--diagram <value>` — open the viewer with a Diagram tab, where the human edits the diagram
+  and leaves notes on its boxes and arrows ([CONTRACT.md](../../CONTRACT.md) §15). `<value>`
+  resolves against the working directory, never the root:
+  - an existing regular file → that diagram is opened. Paths given alongside are the scope as
+    usual; with none, the listing is the diagram's linked files, so the rule above about the
+    whole repository does not apply.
+  - an existing path that is not a regular file, or a missing path ending in `.json` → say
+    `diagram file not found: <absolute path>` and stop.
+  - anything else is a topic: the agent reads the code in scope and draws the diagram before
+    the viewer opens (§1b). A topic needs at least one path: with none, ask for a folder and
+    wait.
+  - no value, or an empty one → say that `--diagram` takes a diagram file or a topic, and stop.
+
+  A drawn diagram is a throwaway, `<root>/claudedocs/margin/<stamp>.diagram.json` beside the
+  notes file; §7 offers to keep a copy under `docs/diagrams/`. With `--overview` too, §1a builds
+  the overview and then §1b draws, all three files under one stamp; an existing file with
+  `--overview` builds the overview and opens the file. On `--resume`, the diagram the notes file
+  records reopens with it; an existing-file `--diagram` reopens the notes against that file
+  instead, and a topic is ignored with one line saying so.
 - `--port <n>` — optional. Without it the server binds a free port.
 
 ## §1 Open the viewer and loop over rounds
@@ -56,13 +76,22 @@ the round's confirmation in §3.
    round sent before `<last>` is read would be skipped.
 
    ```bash
-   node -p 'const n = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const notes = Array.isArray(n.annotations) ? n.annotations : []; `round ${Array.isArray(n.rounds) ? n.rounds.length : 0}, ${notes.filter((a) => a && a.round !== undefined && !(a.replies && a.replies.length)).length} sent without a reply`' "<absolute-notes-file>"
+   node -p 'const n = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const notes = Array.isArray(n.annotations) ? n.annotations : []; const rounds = Array.isArray(n.rounds) ? n.rounds.length : 0; const diagram = typeof n.diagram === "string" ? n.diagram : null; const answered = notes.some((a) => a && Array.isArray(a.replies) && a.replies.some((r) => r && r.round === rounds)) || (Array.isArray(n.overallReplies) ? n.overallReplies : []).some((r) => r && r.round === rounds); const out = diagram !== null && rounds > 0 && !answered; `round ${rounds}, ${notes.filter((a) => a && a.round !== undefined && !(a.replies && a.replies.length) && !(out && a.round === rounds)).length} sent without a reply, diagram ${diagram === null ? "none" : JSON.stringify(diagram)}${out ? ", last round out" : ""}`' "<absolute-notes-file>"
    ```
 
    `<last>` is the printed round: the number of stored `rounds`, which the server keeps as
    stored and resumes from ([CONTRACT.md](../../CONTRACT.md) §5). Keep the count of notes sent
    without a reply for step 6. A file this cannot parse prints an error → go on to step 3; the
    server refuses the file, and step 7 reports why.
+
+   The line also names the diagram the notes file records, or `none`. With `last round out`,
+   an earlier run sent that round and never replied, so the server keeps the diagram read-only
+   until it is answered ([CONTRACT.md](../../CONTRACT.md) §8): `<last>` is the printed round
+   minus one, and the first wait returns that round at once. Its starting file is no longer
+   recoverable — the recorded `baseline` is the document it sent — so §3 offers no revert of
+   its `remove-box` and `remove-arrow` changes. A topic given as `--diagram` on a resume is
+   ignored with one line; an existing-file `--diagram` reopens the notes against that file
+   (step 4).
 
    Then the notes file's overview: `<sibling>` is the absolute notes path with its trailing
    `.json` replaced by `.overview.json`; a notes path that does not end in `.json` has none.
@@ -77,7 +106,10 @@ the round's confirmation in §3.
 4. **Start** the server **in the background with the maximum timeout** — a review takes as
    long as the human needs, and the command returns only when the run ends — Finish, Cancel or
    a signal. With `--overview` on a fresh run, §1a builds the overview first; the server starts
-   only once it has, so generation finishes before step 5's wait begins.
+   only once it has, so generation finishes before step 5's wait begins. With a `--diagram`
+   topic on a fresh run, §1b draws the diagram next, after §1a when `--overview` was given.
+   Every run with a diagram — drawn, opened or resumed — takes §1b's snapshot of the round's
+   starting file before the server starts.
    A fresh run:
 
    ```bash
@@ -93,13 +125,24 @@ the round's confirmation in §3.
    `<notes>` does not exist yet, so the run is fresh and its notes file is created there, beside
    the overview.
 
+   A fresh diagram run, with `<diagram>` the absolute path of the opened file or of the file
+   §1b drew:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" annotate --root "<root>" [--scope "<path>" ...] --diagram "<diagram>" [--out "<notes>"] [--overview "<overview>"] [--port <n>] 2> "<stderr-file>"
+   ```
+
+   `--out` exactly when §1a or §1b minted `<notes>`, and `--overview` when §1a built one.
+
    A resume:
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" annotate --out "<absolute-notes-file>" [--scope "<path>" ...] [--overview "<sibling>"] [--port <n>] 2> "<stderr-file>"
+   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" annotate --out "<absolute-notes-file>" [--scope "<path>" ...] [--overview "<sibling>"] [--diagram "<diagram>"] [--port <n>] 2> "<stderr-file>"
    ```
 
-   `--overview` only when step 2 found the sibling.
+   `--overview` only when step 2 found the sibling, and `--diagram` only for an existing-file
+   `--diagram` given with `--resume`, as its absolute path: the server reopens the diagram the
+   notes file records by itself ([CONTRACT.md](../../CONTRACT.md) §5).
 
    One `--scope` per path given; none means the whole repository on a fresh run and the
    recorded scope on a resume. A resume passes no `--root`: the server applies the recorded
@@ -122,18 +165,24 @@ the round's confirmation in §3.
    the block's `notes:` line as printed, naming the file that saves as the human goes. Add
    that each Send hands a round over, and that Finish in the viewer, or saying so here, ends
    the review. When the run was given an overview, add that the viewer has an Overview tab,
-   where a candidate takes a note like a file does.
+   where a candidate takes a note like a file does. When the run has a diagram — the block
+   names it on its `diagram:` line — add that the viewer has a Diagram tab: an edit saves to
+   the diagram file as it is made, the diagram is read-only from a Send until that round's
+   reply, and N leaves a note on the selected box or arrow. A diagram outside `<root>` adds one
+   line: its file links resolve under `<root>`.
 
    `<last>`, the last round handled, is what every wait carries: `0` on a fresh run, and on a
    resume the round step 2 read. On a resume, a count above `0` of notes sent without a reply
    (step 2) is named once: an earlier run sent them and never answered; the viewer's reply
-   action on one sends a follow-up in the next round.
+   action on one sends a follow-up in the next round. With `last round out`, that count leaves
+   the out round's notes out, and the announcement adds that the out round is answered first,
+   in this run, so its notes need no follow-up.
 7. **No block** within the wait → check whether the background command has exited.
    - **Still running** → the server is still listing the scope or reading the resumed file,
      which it does before binding. Run step 5's wait once more; the block appears → step 6.
      Still none → stop the background command, report that the server did not bind within
      two minutes and suggest a narrower scope, delete the stderr file, apply the overview
-     cleanup (§1a) and stop.
+     cleanup (§1a) and the diagram cleanup (§1b) and stop.
    - **Exited** → the server stopped before binding the port. Report its stdout error document
      verbatim, with its cause in one line:
      - `could not listen on port <n>: EADDRINUSE` — that port is taken; running without
@@ -142,9 +191,13 @@ the round's confirmation in §3.
        recorded root.
      - `overview <file>: …` on a resume — the overview beside the notes file was refused; name
        the file, and say that moving it aside resumes the notes without an overview.
+     - `diagram <file>: …` — the diagram named, or on a resume the one the notes file records,
+       was refused; name the file. On a resume, `--resume <notes-file> --diagram <file>`
+       reopens the notes against another diagram file.
      - any other error — as printed.
 
-     Then delete the stderr file, apply the overview cleanup (§1a) and stop.
+     Then delete the stderr file, apply the overview cleanup (§1a) and the diagram cleanup (§1b)
+     and stop.
 8. **Wait for a round**, **in the background with the maximum timeout**, with `<url>` the
    viewer URL exactly as printed and `<last>` written as a number:
 
@@ -261,14 +314,16 @@ exploration, so it takes minutes; say so once before step 1.
      plugin, which is not installed`. Any other error, or an empty return → `<reason>` is
      `the explorer failed: <the error in one line>`, with every `"`, `\`, `` ` `` and `$`
      removed from it.
-7. **Notes stamp.** Mint the run's stamp and check that neither file of the pair exists yet:
+7. **Notes stamp.** Mint the run's stamp and check that no file of the set — notes, overview
+   and diagram — exists yet:
 
    ```bash
-   for i in 1 2 3; do s=$(date -u +%Y-%m-%dT%H-%M-%S); if [ -e "<root>/claudedocs/margin/$s.json" ] || [ -e "<root>/claudedocs/margin/$s.overview.json" ]; then sleep 1; else echo "$s"; break; fi; done
+   for i in 1 2 3; do s=$(date -u +%Y-%m-%dT%H-%M-%S); if [ -e "<root>/claudedocs/margin/$s.json" ] || [ -e "<root>/claudedocs/margin/$s.overview.json" ] || [ -e "<root>/claudedocs/margin/$s.diagram.json" ]; then sleep 1; else echo "$s"; break; fi; done
    ```
 
    `<notes>` is `<root>/claudedocs/margin/<stamp>.json` and `<overview>` is
-   `<root>/claudedocs/margin/<stamp>.overview.json`, both written literally from here on. No
+   `<root>/claudedocs/margin/<stamp>.overview.json`, both written literally from here on, and
+   for a draw (§1b) `<diagram>` is `<root>/claudedocs/margin/<stamp>.diagram.json`. No
    stamp printed → report that three stamps in a row were taken, `rm -rf "<tmp>"`, delete the
    stderr file and stop.
 8. **Assemble**, with `--roles` only when step 6 wrote the roles file, and `--explorer` or
@@ -284,10 +339,110 @@ exploration, so it takes minutes; say so once before step 1.
    and `notices` counts in one line, and its stderr warning lines as printed. Back to §1 step 4.
 
 **Overview cleanup.** An overview file belongs to the notes file beside it. Wherever a run that
-used one ends — §1 step 7 and §7 — check the notes file with `test -f "<notes-file>"`, the
+used one ends — §1 step 7, §1b step 5 and §7 — check the notes file with `test -f "<notes-file>"`, the
 `<notes>` path on a fresh run and the resumed file on a resume. When it no longer exists,
 `rm -f "<overview-file>"` and say the overview went with it. A notes file that still exists
 keeps its overview.
+
+## §1b Draw the diagram
+
+Run from §1 step 4 on every run with a diagram, before the server starts. Steps 1–5 draw, only
+on a fresh run with a `--diagram` topic, after §1a when `--overview` was given; the snapshot
+and the cleanup below apply to every diagram run — drawn, opened or resumed. The main
+conversation draws: no subagent.
+
+1. **Stamp.** After §1a, the stamp §1a step 7 minted. Without an overview, mint it with §1a
+   step 7's loop, which tests the diagram path too; no stamp printed → report that three stamps
+   in a row were taken, delete the stderr file and stop. `<notes>` is
+   `<root>/claudedocs/margin/<stamp>.json` and `<diagram>` is
+   `<root>/claudedocs/margin/<stamp>.diagram.json`, both written literally from here on.
+2. **Read the code** in scope with `Read`, `Glob` and `Grep` — enough to name the units the topic
+   is about, what each one does, and what calls, starts, reads or writes what.
+3. **Draw** the document by [CONTRACT.md](../../CONTRACT.md) §15 and these rules:
+   - one box per unit a reader would name, not one per file, with the kind that fits it —
+     `module`, `process`, `agent`, `actor`, `store` or `concept`. Past about fifteen units, fold
+     the small ones into the box that owns them and say in one line what was folded.
+   - `files`: the root-relative files the box stands for, `/`-separated, with no leading `/`
+     and no `.` or `..` segment; a `concept` or `actor` box may have none.
+   - groups for the area's natural parts — a package, a layer — each box in at most one.
+   - arrows for the relations that matter, each with a short `label`, the verb (`calls`,
+     `reads`, `starts`), and a `why` sentence saying what crosses it and why.
+   - one walkthrough when the topic names a flow — one step per hop, each naming the arrows it
+     follows and saying what happens — and none otherwise.
+   - no `x` or `y`: the layout places every box.
+   - ids: lowercase words joined by `-`, unique within their collection.
+   - canonical form, as §15's example shows: the top-level keys in the order `groups`, `boxes`,
+     `arrows`, `walkthroughs`, each group, box and arrow one compact JSON line with its keys in
+     the order of its table, each walkthrough a block with one compact line per step.
+4. **Write** the document to `<diagram>` with `Write`, which creates `claudedocs/margin/` when
+   it does not exist yet.
+5. **Check** it, the linked files first — `--check` checks a path's form, not that the file
+   exists:
+
+   ```bash
+   node -e '
+   const fs = require("fs"), { join } = require("path");
+   const [file, root] = process.argv.slice(1);
+   const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+   const missing = (Array.isArray(doc.boxes) ? doc.boxes : []).flatMap((b) => (Array.isArray(b.files) ? b.files : []).filter((f) => typeof f !== "string" || !fs.statSync(join(root, f), { throwIfNoEntry: false })?.isFile()).map((f) => `box ${JSON.stringify(b.id)}: no file ${JSON.stringify(f)}`));
+   console.log(missing.length ? missing.join("\n") : "every linked file exists");
+   ' "<diagram>" "<root>"
+   ```
+
+   Each line it prints names a box and a link with no regular file under `<root>`: fix the
+   box's `files` and `Write` the file again, then run it again. Then the format:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/server/cli.mjs" diagram --check "<diagram>"
+   ```
+
+   Exit 0 with `"canonical": true` → relay its `groups`, `boxes`, `arrows` and `walkthroughs`
+   counts in one line, and go on. Exit 0 with `"canonical": false` → rewrite the file in
+   canonical form. Exit 1 → its error document names the first violation; fix it, and rerun the
+   linked-files check when a box's `files` changed. At most five `--check` runs: the fifth
+   still failing → report its last violation, `rm -f "<diagram>"`, delete the stderr file,
+   apply the overview cleanup (§1a) and stop.
+
+**Snapshot.** The skill keeps the round's starting file of its own: the notes file's `baseline`
+moves to the sent document at Send, and a revert in §4 needs the file the human started the
+round from. `mktemp -d "${TMPDIR:-/tmp}/margin-diagram.XXXXXX"` → `<snap>`; print its path once
+and write that literal path into every later command. `mktemp` fails → report its error, delete
+the stderr file, apply the overview cleanup (§1a) and the diagram cleanup below, and stop. Then,
+before the server starts, write `<snap>/start.diagram.json` — on a fresh run with `""` for the
+notes file and `<diagram>` for the diagram; on a resume with the resumed notes file and the
+existing-file `--diagram` given with it, as an absolute path, or `""`:
+
+```bash
+node -e '
+const fs = require("fs"), { resolve } = require("path");
+const [snap, notesFile, named] = process.argv.slice(1);
+const notes = notesFile ? JSON.parse(fs.readFileSync(notesFile, "utf8")) : null;
+const recorded = notes && typeof notes.diagram === "string" ? resolve(notes.diagram) : null;
+const file = named ? resolve(named) : recorded;
+if (/[$`"\\\u0000-\u001f\u007f]/.test(file)) { console.log(`diagram path not usable in a command: ${JSON.stringify(file)}`); process.exit(2); }
+const baseline = recorded !== null && file === recorded && notes.baseline !== null && typeof notes.baseline === "object";
+fs.writeFileSync(`${snap}/start.diagram.json`, baseline ? `${JSON.stringify(notes.baseline, null, 2)}\n` : fs.readFileSync(file, "utf8"));
+console.log(`diagram: ${JSON.stringify(file)}, snapshot: ${baseline ? "the recorded baseline" : "the file as read"}`);
+' "<snap>" "<notes-file or empty>" "<diagram or empty>"
+```
+
+It takes the round's starting file as the server does ([CONTRACT.md](../../CONTRACT.md) §5): the
+notes file's `baseline` when the run reopens the diagram the notes record, else the file as
+read. On a resume, `<diagram>` is the path it prints, written literally from here on. Every
+later command carries `<diagram>` inside double quotes, where the shell still expands `$`
+and backticks, and a resumed path comes from the notes file, not from the human: a path
+holding `$`, a backtick, `"`, `\` or a control character prints `diagram path not usable in a
+command: <path>` and exits 2 → report that line, `rm -rf "<snap>"`, delete the stderr file
+and stop, naming `--resume <notes-file> --diagram <file>` as the way to reopen the notes
+against a file at a plain path. It fails otherwise — the file missing or unreadable → go on
+to §1 step 4 without a snapshot: the server refuses the same file, and §1 step 7 reports why. §6 refreshes the snapshot after every reply that
+closes a round.
+
+**Diagram cleanup.** Wherever a run with a diagram ends — §1 step 7, step 5 above and §7, after
+§7's keep question — `rm -rf "<snap>"` when one was made. A drawn diagram belongs to the notes
+file beside it: when `test -f "<notes-file>"` fails and `<diagram>` is the notes path with its
+trailing `.json` replaced by `.diagram.json`, `rm -f "<diagram>"` and say the diagram went with
+the notes file. A diagram the human named, and a kept copy (§7), is never deleted.
 
 ## §2 Read the round
 
@@ -302,14 +457,21 @@ shape; [CONTRACT.md](../../CONTRACT.md) §6 and §7 define every field:
   "root": "/abs/repo",
   "scope": ["src/features/orders"],
   "out": "/abs/repo/claudedocs/margin/2026-10-11T09-14-41.json",
+  "diagram": "/abs/repo/claudedocs/margin/2026-10-11T09-14-41.diagram.json",
+  "baseline": { "groups": [], "boxes": [], "arrows": [], "walkthroughs": [] },
   "revision": { "head": "<sha>", "dirty": true },
   "createdAt": "2026-10-11T09:14:41.512Z",
   "updatedAt": "2026-10-11T09:31:07.204Z",
   "overall": "free text about the whole scope",
   "overallReplies": [{ "body": "…", "round": 1, "createdAt": "…" }],
   "round": 1,
-  "rounds": [{ "round": 1, "sentAt": "2026-10-11T09:31:07.204Z", "overall": "…" }],
+  "rounds": [{ "round": 1, "sentAt": "2026-10-11T09:31:07.204Z", "overall": "…",
+               "changes": [{ "op": "rename-box", "id": "client", "was": "client", "now": "HTTP client" }] }],
   "annotations": [
+    { "id": "<uuid>", "anchor": { "kind": "box", "id": "client", "label": "client" },
+      "intent": "change", "body": "…", "createdAt": "…" },
+    { "id": "<uuid>", "anchor": { "kind": "arrow", "id": "reads-config", "label": "reads" },
+      "intent": "question", "body": "…", "createdAt": "…" },
     { "id": "<uuid>",
       "anchor": { "kind": "range", "path": "src/a.ts", "start": 12, "end": 30, "excerpt": "…" },
       "intent": "change | question", "body": "…", "createdAt": "…", "round": 1,
@@ -326,7 +488,13 @@ shape; [CONTRACT.md](../../CONTRACT.md) §6 and §7 define every field:
 }
 ```
 
-`revision` is `null` when the root is not in a git repository. `annotations` are stored in the
+`revision` is `null` when the root is not in a git repository. In a run without a diagram,
+`diagram` and `baseline` are `null` and no `rounds` entry carries `changes`. In a run with one,
+`baseline` is the current round's starting file, and a round's `changes` lists the human's
+structural edits to the diagram since the round before, one op each — `remove-box`, `add-box`,
+`rename-box`, `change-kind`, `move-box`, `remove-arrow`, `add-arrow`, `relabel-arrow`, as
+[CONTRACT.md](../../CONTRACT.md) §6's op table defines them, in the order it gives; `[]` when
+the diagram did not change. `annotations` are stored in the
 order they were created, except that a Send moves the candidate notes it withholds after the
 notes it stamps; §3 sorts them. Ids are not guaranteed unique, so the table and the
 drift check never key on them; §6's reply post must, so notes that share an id are named
@@ -342,9 +510,20 @@ wherever they occur.
   const after = Number(process.argv[2]), upto = Number(process.argv[3]);
   const span = ({ kind, path, start, end, name, label, id }) => (kind === "scope" ? "scope" : kind === "candidate" ? `candidate ${name}` : kind === "box" || kind === "arrow" ? `${kind} ${label || id}` : kind === "range" ? `range ${path}:${start}-${end}` : `${kind} ${path}`);
   const same = (x, y) => x.kind === y.kind && x.path === y.path && x.name === y.name && x.id === y.id && x.start === y.start && x.end === y.end;
+  const boxes = notes.baseline && Array.isArray(notes.baseline.boxes) ? notes.baseline.boxes : [];
+  const box = (id) => { const b = boxes.find((x) => x.id === id); return b ? `${JSON.stringify(b.label)} (${id})` : id; };
+  const group = (id) => (id === null ? "no group" : id);
+  const op = (c) => (c.op === "remove-box" ? `remove-box ${c.id} ${JSON.stringify(c.label)}` : c.op === "add-box" ? `add-box ${c.id} ${JSON.stringify(c.label)} ${c.kind} in ${group(c.group)}` : c.op === "move-box" ? `move-box ${c.id}: ${group(c.was)} → ${group(c.now)}` : c.op === "remove-arrow" || c.op === "add-arrow" ? `${c.op} ${c.id} ${box(c.from)} → ${box(c.to)} ${JSON.stringify(c.label)}` : `${c.op} ${c.id}: ${JSON.stringify(c.was)} → ${JSON.stringify(c.now)}`);
+  let changed = 0;
   for (let r = after + 1; r <= upto; r += 1) {
     const sent = notes.rounds[r - 1].overall, before = r > 1 ? notes.rounds[r - 2].overall : "";
     if (sent !== before || r === upto) { console.log(`overall (round ${r})${sent === before ? " (unchanged)" : ""}: ${JSON.stringify(sent)}`); }
+    const changes = notes.rounds[r - 1].changes;
+    if (Array.isArray(changes) && changes.length) {
+      changed += changes.length;
+      console.log(`changes (round ${r}): ${changes.length}`);
+      changes.forEach((c, k) => console.log(`  change ${k + 1}: ${op(c)}`));
+    }
   }
   const round = notes.annotations.map((a, i) => ({ a, i })).filter(({ a }) => a.round > after && a.round <= upto);
   round.forEach(({ a, i }) => {
@@ -357,13 +536,20 @@ wherever they occur.
       console.log(`  last reply${reply ? ` (round ${reply.round}): ${JSON.stringify(reply.body)}` : ": none"}`);
     });
   });
-  console.log(`${round.length} notes in ${after + 1 === upto ? `round ${upto}` : `rounds ${after + 1}-${upto}`}`);
+  console.log(`${round.length} notes${typeof notes.diagram === "string" ? ` and ${changed} changes` : ""} in ${after + 1 === upto ? `round ${upto}` : `rounds ${after + 1}-${upto}`}`);
   ' "<absolute-notes-file>" <last> <R>
   ```
 
   It prints the `overall` text each round in range sent, when it differs from the round
   before, and always round `<R>`'s, marked `(unchanged)` when the human left it as it was;
-  then one line per note of the round, in the file's order — its position in
+  under it, when the round carries structural changes, `changes (round <r>): <m>` and one line
+  per op, numbered within the round, in stored order — `remove-box <id> "<label>"`, `add-box <id>
+  "<label>" <kind> in <group>`, `rename-box`, `change-kind` and `relabel-arrow` as `<id>:
+  "<was>" → "<now>"`, `move-box <id>: <group> → <group>` (`no group` for none), and
+  `remove-arrow` and `add-arrow` as `<id> <from> → <to> "<label>"`, an end shown as `"<label>"
+  (<id>)` when `baseline` holds that box and as its id alone when it does not, as for a removed
+  box. The server locks the diagram from a Send to its reply, so in a wait that covered more
+  than one Send only the first round can carry changes. Then one line per note of the round, in the file's order — its position in
   `annotations`, round, id (with the other sent notes sharing it), span, intent and body —
   and under each, every note sent in an earlier round on the same anchor (kind, path or
   candidate name, and for a range the same lines) with the agent's last reply to it; then the count. Earlier notes
@@ -410,26 +596,37 @@ wherever they occur.
   line endings. Equal text holds, an empty excerpt included; an excerpt of exactly 4000
   characters was truncated by the server's cap, so it holds when the current text starts with
   it. Different text, an `end` past the file's last line, or a missing file has drifted, and so
-  has a `file` or `folder` anchor whose path is missing. A `scope` or `candidate` note points
-  at no code, so it has nothing to drift. It prints one line per drifted
+  has a `file` or `folder` anchor whose path is missing. A `scope`, `candidate`, `box` or
+  `arrow` note points at no code, so it has nothing to drift. It prints one line per drifted
   anchor — the note's position in `annotations`, its span, and the first line that differs,
   quoted from the excerpt and from the current file — then `<n> drifted` or `no drift`.
   Drifted anchors go into §3's Reading list; never guess which version the note meant.
 - A `folder` note is about the folder's shape (what lives in it, how it is split), not about
   any one file. A `file` note is about the file as a unit. A `scope` note is about everything.
-  A `candidate` note is about the overview's deepening candidate of that name.
+  A `candidate` note is about the overview's deepening candidate of that name. A `box` note is
+  about that box of the diagram — what it stands for, its kind, its files — and an `arrow` note
+  about the relation that arrow draws; each names its element by `id`, with the `label` it had
+  when the note was written.
 
 ## §3 Plan before touching anything
 
 Open with the count: "N notes read (round <R>)", or "(rounds <last+1>–<R>)" when the wait
 covered more than one Send — the same N as the round view's count, so the human can see
-nothing was dropped. Then one table for the round, **one row per note of the round**; notes of
+nothing was dropped; in a run with a diagram, "N notes and M changes read", M the round view's
+change count. Then one table for the round, **one row per note of the round**; notes of
 earlier rounds are context and never become rows. Rows are sorted as the viewer
-lists them: scope notes first, then candidate notes by name, then by path, then folder before
-file before range on the same path, then by start line; notes that tie keep the file's order.
-Names and paths compare as the viewer compares them, with JavaScript's `localeCompare`, not by code point: case only breaks ties
+lists them: scope notes first, then candidate notes by name, then box notes, then arrow notes,
+each by label and then by id, then by path, then folder before file before range on the same
+path, then by start line; notes that tie keep the file's order.
+Names, labels, ids and paths compare as the viewer compares them, with JavaScript's `localeCompare`, not by code point: case only breaks ties
 and punctuation sorts before digits and letters, so `a.ts` precedes `B.ts`. When two paths
 differ in case or punctuation, settle their order with `node -p '"<a>".localeCompare("<b>")'`.
+
+After every note row comes **one row per structural change** of the round, in the round view's
+order, numbered on from the notes: anchor `box <label>` or `arrow <label>`, intent `edit`, the
+op as the round view printed it in the note column, and kind `change`. A round that resumed
+with its last round out (§1 step 2) offers no `revert` for its `remove-box` and `remove-arrow`
+rows: their action is `keep`, and a Reading bullet says the starting file was not recoverable.
 
 | # | anchor | intent | note | action | kind | risk |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -456,6 +653,15 @@ differ in case or punctuation, settle their order with `node -p '"<a>".localeCom
   `noted: <the reading>`. A reading that is not the literal note gets a Reading bullet. A
   candidate is never implemented in this session, whatever the note asks: an accepted one
   leaves through §5, as a ticket or as a deepen run.
+- **redraw** — a `change` note on a `box` or `arrow` anchor: a correction to the diagram — a
+  box that stands for something else, a missing relation, a wrong kind — done in §4 by
+  rewriting the diagram file; action `redraw: <what changes in the diagram>`. A `question`
+  note on one is an **answer**. One whose honest reading asks for a change to the code is
+  **structural** or **behavioural** as above, with a Reading bullet.
+- **change** — a structural change the human made to the diagram. Action `keep` — the file
+  stays as the human left it — by default; `revert` only when the change contradicts the code,
+  with a Reading bullet giving the evidence (the file and lines that show it); `redraw:
+  <action>` when a redraw row's action replaces it.
 
 Below the table, a **Reading** list: one bullet for every place the plan is not the literal
 note — two notes merged into one action, a name the note did not use (`utils` asked for,
@@ -466,15 +672,19 @@ check's line for it — its span and the first line that differs, quoted once fr
 and once from the current file, or `missing`; the full text of both on request. A follow-up —
 a note on the same anchor as a note of an earlier round — gets a bullet quoting the earlier
 note and the agent's last reply to it, from the round view. Notes that share an id get a
-bullet naming them, since §6 answers them in one reply. Omit the list only when it would be
-empty.
+bullet naming them, since §6 answers them in one reply. A note and a change row on the same box
+or arrow get a bullet tying them, saying how the one action covers both. Omit the list only
+when it would be empty.
 
 A round that sent no notes — only a changed `overall` — opens with "0 notes read (round
 <R>)" and has no table. Its `overall` is answered in §6, or planned like a row, and put to the
-gate, when it asks for edits.
+gate, when it asks for edits. A round that sent structural changes and no notes opens with "0
+notes and M changes read (round <R>)" and its table holds the change rows alone.
 
 Then ask one question: do the structural rows here, hand everything to `/feature:discover`,
-or adjust the table? A `held:` row is done in §4 only when the answer names it; otherwise it is
+or adjust the table? When the table holds change rows, the same question asks keep, revert or
+redraw for each, defaulting to its planned action, and names any removal a resumed round
+cannot revert. A `held:` row is done in §4 only when the answer names it; otherwise it is
 left out of §4 and stays available to §5. When the table holds accepted candidate rows, the
 same question asks which route each takes: a `/feature:discover` ticket or a `/deepen:run --pin`
 run. Handing everything to `/feature:discover` sends them as tickets; a declined candidate
@@ -485,8 +695,34 @@ round. An answer that ends the review is §1 step 9.
 
 ## §4 Act in this session
 
-Order: answers first, then structural actions, file by file in table order. Candidate rows
-are never acted on here: §5 hands them off.
+Order: answers first, then the diagram rows — reverts, then redraws — then structural actions,
+file by file in table order. Candidate rows are never acted on here: §5 hands them off. A
+change row whose action is `keep` needs nothing: the file stays as the human left it.
+
+**Diagram rows.** Every edit to the diagram file is made here, before §6's post: the reply that
+closes the round is the one time the server reads the file again ([CONTRACT.md](../../CONTRACT.md)
+§8), so an edit made after it is never adopted. Before the first one, `cp "<diagram>"
+"<snap>/round.diagram.json"` — the file as the human sent it.
+
+- **Revert** from `<snap>/start.diagram.json`, the round's starting file, with `Edit` on
+  `<diagram>`. A `remove-box` or `remove-arrow` copies the entry back verbatim, with the
+  arrow's references in the snapshot's walkthrough steps where those steps remain; a box whose
+  group is gone returns in no group, and an arrow whose end box is gone cannot return — the
+  reply says either. An `add-box` removes the box, its arrows and their step references, and an
+  `add-arrow` the arrow and its step references; a `rename-box`, `change-kind`, `move-box` or
+  `relabel-arrow` sets the field back to `was`.
+- **Redraw** with `Edit` on `<diagram>`, or a `Write` of the whole file when the redraw is wide,
+  by §1b step 3's rules, leaving every kept change as it is. A redraw that removes a box or an
+  arrow carrying a sent note leaves the note on a removed element — the viewer shows it as
+  `on removed box ‹label›` — and that note's reply says so.
+- After the last diagram edit, §1b step 5's linked-files check and `diagram --check`, until
+  exit 0 with `"canonical": true`, at most five `--check` runs. The fifth still failing →
+  `cp "<snap>/round.diagram.json" "<diagram>"`, and every diagram row of the round replies
+  `not done: the redraw did not pass --check — <its last violation>`.
+
+A round whose actions touch only the diagram file runs none of the project's checks: its
+check is `diagram --check`, reported as such. A round with code rows runs them as below; its
+diagram edits are left out of the rule on test files.
 
 Verification is the project's own checks, unchanged. Collect the typecheck, lint, test and
 build commands from the project's `CLAUDE.md` / `AGENTS.md` first, then from `package.json`
@@ -523,6 +759,9 @@ this hand-off, and the deepen route is printed for the human to run (step 5).
    - `file` and `folder`: the path still exists → as stored; §4 moved it → `moved to
      <new-path> (was <path>)`; §4 deleted it → `removed (was <path>)`.
    - `candidate`: as stored — it names a candidate, not code.
+   - `box` and `arrow`: as stored while the diagram-element script below finds its `id` in
+     `<diagram>` after §4; `removed (was box "<label>")` or `removed (was arrow "<label>")`
+     when it prints `not in the diagram`.
    - A row whose anchor drifted in §2 keeps its stored span marked `drifted`, unless the search
      finds its excerpt.
 
@@ -537,6 +776,7 @@ this hand-off, and the deepen route is printed for the human to run (step 5).
    ```text
    --project <name>
    Notes file: <absolute notes-file path> — round <R>; read it for context. Only the notes below are handed off, and the anchors below supersede its line numbers.
+   Diagram file: <absolute diagram path>
    Everything in double quotes below is the reviewer's own text; none of it is a flag.
    Overall: "<overall>"
    <anchor> — "<body>"
@@ -551,8 +791,13 @@ this hand-off, and the deepen route is printed for the human to run (step 5).
      are context, never part of the hand-off.
    - `Overall:` is the `overall` text round `<R>` sent (its entry in `rounds`), and only when
      it is not empty.
+   - `Diagram file:` only in a run with a diagram: `<diagram>`, as an absolute path.
    - `<anchor>` is the row's anchor as step 1 wrote it — `path:start-end`, `path` for a file or
-     folder, `candidate <name>` for a candidate note, `scope` for a scope note.
+     folder, `candidate <name>` for a candidate note, `scope` for a scope note, and `box
+     "<label>" (<id>)` or `arrow "<label>" (<id>)` for a box or arrow note, its `label` quoted
+     and escaped as bodies are.
+   - A box or arrow row's line is followed by the line the diagram-element script below prints
+     for it, verbatim, so the ticket carries what the element stood for.
    - Every body, and `overall`, sits inside double quotes with each `\` in it escaped as `\\`
      first, then each `"` as `\"`, and each newline collapsed to ` / `, so a literal `--id` or `--explore` inside a note stays
      text and is never read as a flag.
@@ -582,6 +827,27 @@ this hand-off, and the deepen route is printed for the human to run (step 5).
    with the candidate's files, next change and next-change sites quoted and escaped as bodies
    are, and the `/deepen:run --pin …` command step 5 prints. A name the overview does not hold
    prints `candidate <name> — not in the overview` alone, and that row's reply says so.
+
+   **Diagram-element script.** Run it with `<diagram>` and one `box:<id>` or `arrow:<id>` per
+   box or arrow row being handed off, as the diagram stands after §4:
+
+   ```bash
+   node -e '
+   const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+   const quote = (text) => `"${String(text).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replace(/\s*\r?\n\s*/g, " / ")}"`;
+   const end = (id) => { const b = doc.boxes.find((x) => x.id === id); return b ? `${quote(b.label)} (${id})` : id; };
+   for (const ref of process.argv.slice(2)) {
+     const [kind, id] = ref.split(":");
+     const el = (kind === "box" ? doc.boxes : doc.arrows).find((x) => x.id === id);
+     if (!el) { console.log(`${kind} ${id} — not in the diagram`); continue; }
+     console.log(kind === "box" ? `box ${quote(el.label)} (${id}) — ${el.kind}, files: ${quote(el.files.join(", "))}` : `arrow ${quote(el.label)} (${id}) — from ${end(el.from)} to ${end(el.to)}: ${quote(el.why)}`);
+   }
+   ' "<diagram>" box:<id> arrow:<id> ...
+   ```
+
+   It prints one line per element: a box's current label, kind and files, an arrow's current
+   label, its ends and its `why`, quoted and escaped as bodies are; an id the diagram no longer
+   holds prints `<kind> <id> — not in the diagram`, which step 1 reads as removed.
 4. **Invoke** the `Skill` tool with skill `feature:discover` and the idea text as its
    arguments. Note the ticket id discover reports for each row, or the epic id and its child
    ids when it makes an epic; §6 replies with them. Once discover has written its ticket or
@@ -626,8 +892,13 @@ notes. Every note of the round gets exactly one reply:
   - an accepted candidate the overview no longer holds → `not handed off: <name> is not in
     the overview`;
   - a declined candidate → `noted: <the reading>`, one line acknowledging it.
+  - a redraw row done → `redrawn: <what changed in the diagram>`, plus — when it removed the
+    element the note sits on — that the note now sits on a removed box or arrow.
 - `overall` — always present: one or two sentences summarizing the round, answering the
-  round's own `overall` text when it sent one.
+  round's own `overall` text when it sent one. A change row has no note to reply beside, so in
+  a round with change rows `overall` also gives their outcomes: `kept <n> changes`, then each
+  other one — `reverted <op> "<label>" — <the evidence>`, `redrew: <what>`, or `not done:
+  <reason>`.
 
 The request is `{"round": <R>, "replies": [{"id": "<id>", "body": "<text>"}], "overall":
 "<text>"}`, with `replies` left out when the round has no notes. Every string escapes `\` as
@@ -644,11 +915,20 @@ MARGIN_REPLY
 The delimiter cannot occur inside the request, since every newline in it is escaped. The last
 line printed is the status code:
 
-- `200` → `{"ok": true, "replied": <k>}`: the replies are posted. Back to §1 step 8, or
-  Finish (step 9) when the human asked to end after this round.
-- `400` or `500` → nothing was applied. Fix what the error names — an entry, the JSON — and
-  post once more; a second failure → print the replies in chat, then step 8.
-- `409` → the run has ended: print the replies in chat, then §7.
+- `200` → `{"ok": true, "replied": <k>}`: the replies are posted. In a run with a diagram the
+  reply closed the round, and the file as it stands is the next round's starting file:
+  `cp "<diagram>" "<snap>/start.diagram.json"`. Back to §1 step 8, or Finish (step 9) when the
+  human asked to end after this round.
+- `400` whose error starts `diagram ` → the server refused the rewritten diagram file and
+  applied nothing. Fix the file, run §1b step 5's checks, and post once more. A second such
+  failure → `cp "<snap>/round.diagram.json" "<diagram>"`, the file as the human sent it, which
+  the server checked when it was saved; post the replies once more with each redraw and revert
+  reply turned into `not done: the diagram was refused — <reason>` and an `overall` saying the
+  diagram was left as sent; print the intended redraw in chat.
+- any other `400`, or a `500` → nothing was applied. Fix what the error names — an entry, the
+  JSON — and post once more; a second failure → print the replies in chat, then step 8.
+- `409` → the run has ended: print the replies in chat, then §7. A diagram edit made for the
+  round stays in the file; say so.
 - `000` → curl reached no server or lost the answer, so whether the replies were applied is
   unknown. Never post them again, since a repeated post appends them twice: print them in
   chat, then step 8, whose own exit says whether the server is still there.
@@ -664,9 +944,10 @@ Reached from §1 step 8 (a wait reporting the end), step 9 (Finish from chat) or
    result document `{ status, out, annotations, rounds, root, scope }`. Delete the stderr
    file (`rm -f "<stderr-file>"`).
 2. **Nothing to summarize.** `cancelled` with `out: null` → say no round was sent and no notes
-   file remains, apply the overview cleanup (§1a) — the notes file is gone, so its overview
-   goes too — and stop. An error document (`"status": "error"`) → report it verbatim, apply the
-   overview cleanup and stop.
+   file remains, ask step 5's keep question for a drawn diagram, apply the overview cleanup
+   (§1a) and the diagram cleanup (§1b) — the notes file is gone, so its overview and its drawn
+   diagram go too — and stop. An error document (`"status": "error"`) → report it verbatim,
+   ask step 5's keep question, apply the two cleanups and stop.
 3. **Summary.** Otherwise read the run back from the notes file, the durable record of every
    round and reply, with its absolute path (`out`):
 
@@ -676,9 +957,10 @@ Reached from §1 step 8 (a wait reporting the end), step 9 (Finish from chat) or
    const span = ({ kind, path, start, end, name, label, id }) => (kind === "scope" ? "scope" : kind === "candidate" ? `candidate ${name}` : kind === "box" || kind === "arrow" ? `${kind} ${label || id}` : kind === "range" ? `${path}:${start}-${end}` : path);
    const first = (text) => JSON.stringify(text.split("\n")[0]);
    const tickets = new Set(), offers = new Set();
-   notes.rounds.forEach(({ round }) => {
+   notes.rounds.forEach(({ round, changes }) => {
      const sent = notes.annotations.filter((a) => a.round === round);
      console.log(`round ${round}: ${sent.length} notes`);
+     if (Array.isArray(changes)) { console.log(`  changes: ${changes.length}`); }
      sent.forEach((a) => {
        const replies = a.replies || [];
        replies.forEach(({ body }) => {
@@ -695,14 +977,32 @@ Reached from §1 step 8 (a wait reporting the end), step 9 (Finish from chat) or
    ' "<absolute-notes-file>"
    ```
 
-   It prints, per round, `round <r>: <k> notes`, one line per note sent in it — its span,
-   intent and the first line of each of its replies — and the round's overall reply; then
+   It prints, per round, `round <r>: <k> notes`, in a run with a diagram `changes: <m>`, one
+   line per note sent in it — its span, intent and the first line of each of its replies — and
+   the round's overall reply; then
    `tickets:` with every id taken from a `handed off:` reply, `deepen offers:` with every
    candidate name taken from an `offered: /deepen:run --pin` reply — only when there is one —
    and `unsent:` with the number of notes never sent.
 4. **Report**, in this order: the status — `finished`, `cancelled` or `interrupted` — with
    `rounds` and `annotations` from the result document; when the run used an overview, the
-   notes file and the overview file beside it; the per-round list; the tickets created; the
+   notes file and the overview file beside it; when it had a diagram, the diagram file; the per-round list; the tickets created; the
    deepen runs offered, when there are any, whose commands are in the chat; the rounds whose
    replies were printed in chat only, from this conversation; and the unsent notes, with `/margin:annotate --resume <out>` to send them in a later run.
-   Unsent notes are not acted on.
+   Unsent notes are not acted on. Then step 5.
+5. **Keep the diagram**, only for a throwaway — one §1b drew, or on a resume a `<diagram>` that
+   is the notes path with `.json` replaced by `.diagram.json`; a diagram opened from another
+   file is already where the human keeps it. Ask once whether to keep it: it is a throwaway
+   beside the notes file, and kept, a copy goes to `<root>/docs/diagrams/<slug>.diagram.json`,
+   `<slug>` the topic in lowercase words joined by `-` (on a resume, a name the human gives), or
+   to a path the human names, relative to `<root>`.
+   Keep → `test -e "<target>"` succeeds → ask before overwriting it. Then:
+
+   ```bash
+   mkdir -p "<target-parent>" && cp "<diagram>" "<target>"
+   ```
+
+   It is a copy: the throwaway stays where the notes file records it, so `--resume` still
+   reopens it, and later rounds edit the throwaway, not the copy. The skill never commits it —
+   name the copy and print `git -C "<root>" add "<target>"` as the human's next step. Then,
+   kept or not, apply the diagram cleanup (§1b) and, when the run used an overview, the
+   overview cleanup (§1a).
