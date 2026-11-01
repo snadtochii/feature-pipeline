@@ -93,9 +93,20 @@ Where `id`, `title`, and the `--body-file` path come from — the `sed` reads ab
 
 ## §5 Finalize
 
-- **Success** (PR opened, URL captured) → Transition 5 (`in-progress → review`, status `in-review`). Record the PR URL + branch (PR linkage on the ticket: the close stage's [`storage-fs.md`](../../close-stage/references/storage-fs.md) / [`storage-server.md`](../../close-stage/references/storage-server.md) §6, for the detected mode). The user-facing PR line is the close stage's: it prints it from the finalizer's result (`close-stage/SKILL.md` §6).
-- **Degradation** (any precondition/push/PR failure) → Transition 2 (`done/`). Record the reason + branch in `06-summary.md`. Print the specific degradation line. A degraded run opens no PR, so it attaches nothing.
+- **Success** (PR opened, URL captured) → Transition 5 (`in-progress → review`, status `in-review`). Append the linkage lines below (where the summary lives and what else the mode records: the close stage's [`storage-fs.md`](../../close-stage/references/storage-fs.md) / [`storage-server.md`](../../close-stage/references/storage-server.md) §6, for the detected mode). The user-facing PR line is the close stage's: it prints it from the finalizer's result (`close-stage/SKILL.md` §6).
+- **Degradation** (any precondition/push/PR failure) → Transition 2 (`done/`). Append the degraded linkage lines below. Print the specific degradation line. A degraded run opens no PR, so it attaches nothing.
 - The verdict stays `pass` in both cases — degradation is not a failed close.
+
+**The linkage lines — the one definition.** Appended to `06-summary.md` as one block after a blank line, each at column 0 with a lowercase key, and with no list marker, bold, backticks or trailing text:
+
+```
+pr: <url>
+branch: <branch>
+```
+
+A degraded run writes `pr: none — <reason>` in place of the URL. `<url>` is the URL `gh` printed; `<branch>` is the branch holding the commit. On re-entry a block already carrying these values is left as it is, never appended twice.
+
+Readers take the last match of each key, because the append follows everything the close stage authored: [`ticket-resolution-fs.md`](../../flow/references/ticket-resolution-fs.md) Step 6 reads `pr:`, where a `none` value fails its URL check, and [`worktree.md`](worktree.md) §1 and the Merge predicate below read `branch:`.
 
 ## Merge predicate (single definition — referenced by the close stage's `review/` merge-check row and the `sync` skill)
 
@@ -105,7 +116,7 @@ Determine whether a ticket's PR has merged. The scan set depends on the caller: 
   ```bash
   gh pr view "<branch>" --json state,mergeCommit,baseRefName --jq '.state + " " + (.mergeCommit.oid // "") + " " + .baseRefName'
   ```
-  `<branch>` is the ticket's pushed branch (recorded in `06-summary.md`) or the current checkout; how the close stage recovers it, and whether its mode supplies the PR directly instead: the close stage's [`storage-fs.md`](../../close-stage/references/storage-fs.md) / [`storage-server.md`](../../close-stage/references/storage-server.md) §7. The output is `state`, the merge-commit SHA (`MERGE_SHA`) when merged, and the PR's own base branch (`PR_BASE`), all fed into the reachability gate below.
+  `<branch>` is the ticket's pushed branch (the `branch:` line of `06-summary.md`, §5) or the current checkout; how the close stage recovers it, and whether its mode supplies the PR directly instead: the close stage's [`storage-fs.md`](../../close-stage/references/storage-fs.md) / [`storage-server.md`](../../close-stage/references/storage-server.md) §7. The output is `state`, the merge-commit SHA (`MERGE_SHA`) when merged, and the PR's own base branch (`PR_BASE`), all fed into the reachability gate below.
 - **ID-keyed** — the `sync` skill's batch scan, which has no reliable branch (the slug is judgment-distilled and the branch matrix may reuse a non-convention branch). GitHub's title search is tokenized, so anchor on the `<TICKET-ID>:` title convention:
   ```bash
   gh pr list --search "<TICKET-ID> in:title" --state all --json number,state,url,createdAt,title,mergeCommit,baseRefName --jq '[.[] | select(.title | startswith("<TICKET-ID>:"))] | sort_by(.createdAt) | last | .state + " " + (.mergeCommit.oid // "") + " " + .baseRefName'

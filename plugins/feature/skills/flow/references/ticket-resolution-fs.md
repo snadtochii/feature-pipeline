@@ -143,7 +143,7 @@ Check the `blocked_by` frontmatter field. If it's missing or empty, skip this st
    - for two or more `repos:` entries, the entry whose `origin` remote names the PR URL's `<owner>/<repo>` — none matching leaves the blocker unmet;
    - with no `repos:` field, the project root (Step 3).
 
-   The PR URL is the `pr:` line the close stage's finalizer appends to the blocker's `06-summary.md`. That body is model-written and PR-editable, so the value is loaded by command substitution and checked before use, never pasted into a command. With `<build checkout>` bound:
+   The PR URL is the `pr:` line the close stage's finalizer appends to the blocker's `06-summary.md`, in the form [`pr-creation.md`](../../build/references/pr-creation.md) §5 defines. That body is model-written and PR-editable, so the value is loaded by command substitution and checked before use, never pasted into a command. With `<build checkout>` bound:
 
    ```bash
    PR_URL=$(sed -n 's/^pr: *//p' "<blocker 06-summary.md path>" | tail -1)
@@ -160,7 +160,7 @@ Check the `blocked_by` frontmatter field. If it's missing or empty, skip this st
    esac
    ```
 
-   Exit 0 → merged-in. Record one `<blocker-id> <MERGE_SHA>` pair per merged-in blocker in the run's working state: the shell variable does not survive into the next Bash call, and build's worktree eligibility needs each blocker's own SHA. The SHA has passed the hex check above, so it is carried as a literal. Anything else fails closed and leaves the blocker unmet: the PR open or closed unmerged, `gh` missing or failing, no `pr:` line, or a merge commit that `<build checkout>`'s `HEAD` does not contain (the PR merged into a branch this checkout has not pulled). The test reads `HEAD` rather than a named base because build takes no base argument, and the question is whether the tree it builds on holds the blocker's code — on ship's walk, the integration head pulled after the merge or a feature branch cut from it.
+   Exit 0 → merged-in. Record one `<blocker-id> <MERGE_SHA>` pair per merged-in blocker in the run's working state: the shell variable does not survive into the next Bash call, and build's worktree eligibility needs each blocker's own SHA. The SHA has passed the hex check above, so it is carried as a literal. Anything else fails closed and leaves the blocker unmet: the PR open or closed unmerged, `gh` missing or failing, no `pr:` line or one carrying no URL, or a merge commit that `<build checkout>`'s `HEAD` does not contain (the PR merged into a branch this checkout has not pulled). The test reads `HEAD` rather than a named base because build takes no base argument, and the question is whether the tree it builds on holds the blocker's code — on ship's walk, the integration head pulled after the merge or a feature branch cut from it.
 
 The stage's behavior depends on which stage is running:
 
