@@ -57,4 +57,6 @@ This runs once findings are formed, and on any failure after Create, before the 
 
 ## Failure rule
 
-Any non-zero result, a SHA mismatch or a refused read is a `⚠ Failures` row for that PR: no post, no marker, no label, and never a review from the diff alone. The next run retries.
+A non-zero result from Create, Fetch and verify or `review` Step 3's `gh pr diff` and `gh pr view`, a SHA mismatch, or a checkout read the runtime's permissions refuse is a `⚠ Failures` row for that PR: no post, no marker, no label, and never a review from the diff alone. The next run retries.
+
+A search that matches nothing and a read of a path the tree does not hold are answers, not failures. Removal is the one exception to this rule: a failed removal follows Remove above.

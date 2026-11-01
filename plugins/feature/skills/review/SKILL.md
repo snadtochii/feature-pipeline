@@ -81,7 +81,7 @@ For each PR, run the scan in [`references/pr-comments.md`](references/pr-comment
 
 In order:
 
-- Make the checkout per [`references/pr-checkout.md`](references/pr-checkout.md). It proves its commit equals `<HEAD_SHA>`, and its failure rule covers every step until it is removed.
+- Make the checkout per [`references/pr-checkout.md`](references/pr-checkout.md). It proves its commit equals `<HEAD_SHA>`, and its failure rule covers this step's reads.
 - Fetch the change: `gh pr diff "<PR_URL>"` and `gh pr view "<PR_URL>" --json title,body,headRefName,baseRefName,files`. Read surrounding source and tests from the checkout as the rubric demands, never from the invoking directory.
 - Apply [`references/review-rubric.md`](references/review-rubric.md) to the diff. Produce a **small number of high-conviction findings**, prioritized structural-regression → missed-simplification → spaghetti → boundary → file-size → modularity → legibility. Do not flood with low-value nits; prefer fewer, sharper findings. Do **not** narrate whether to comment — just review.
 - Classify each finding: **line-anchored** (maps to a `path:line` in the diff) → an inline comment; **not cleanly line-anchored** → folded into the summary body.
