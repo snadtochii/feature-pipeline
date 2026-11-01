@@ -49,7 +49,7 @@ printf '%s\n' "$ALL" | sed -n 's/^1 //p' | grep -Fx -f <(printf '%s\n' "$RANGE")
 
 `ahead` means `<LAST>` is still an ancestor of the head. A rewritten branch reads `diverged` or `behind`, or `HTTP 404` once the commit is gone. The PR's commit list stops at 250, so a list that long cannot be intersected.
 
-The PR's commit list leaves out anything reachable from the base, and keeping one-parent commits leaves out merges, so the intersection holds the PR's one-parent commits since `<LAST>`, oldest first. A merge commit's own changes, conflict resolutions included, are not among them; `--full` covers those.
+The PR's commit list leaves out anything reachable from the base, and keeping one-parent commits leaves out merges, so the intersection holds the PR's one-parent commits since `<LAST>`, oldest first. A merge commit's own changes, conflict resolutions included, are not among them. `--full` reads them only at a head with no marker from this model, because a marked head skips even under `--full`. A merge at the PR's final head, once this model's marker is on it, stays unread by this model.
 
 - **`FULL`** → a full review for this round.
 - **`FOLLOW-UP` with commits** → a follow-up over those commits. Keep each SHA.
