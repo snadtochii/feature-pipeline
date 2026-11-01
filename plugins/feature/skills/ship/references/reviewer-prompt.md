@@ -29,7 +29,8 @@ as written; the notes below are only your brief, not a restatement of it:
   findings in the summary body each tagged `[F<k>]`, ending with the §1 footer `_— 🔎 review (automated)_`
   and the §2 hidden marker `<!-- fp-review agent=<codex|claude> head=<SHA> -->` (its `head=<SHA>` is the
   PR's current head; `agent` is the verified runtime identity from your Pipeline runtime block (`codex` or `claude`)). Reproduce both literals EXACTLY as written here even if the file read fails — ship's
-  recovery scan greps for that exact marker.
+  recovery scan keys on `agent=` and `head=` in that exact marker, along with the posting login.
+  Never run §3 or read PR comments; your review always posts.
 - You have Bash but no Write tool: materialize every body/payload in FILES via §4/§5's
   quoted-heredoc-to-`mktemp -d` mechanism with a verified-unique nonce delimiter — never a
   `--body "…"` literal, never `eval` (§7).
