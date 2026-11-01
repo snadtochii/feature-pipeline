@@ -1,6 +1,6 @@
 # PR Checkout — a throwaway copy of the PR at its exact head
 
-How `review` reads a PR's source and tests. Read by `review` Step 3 only. It makes one fresh checkout per unreviewed PR, proves the checkout's commit equals the PR's head, reads it as data, and removes it before anything is posted.
+How `review` reads a PR's source and tests. Read by `review` Step 3 only. It makes one fresh checkout for each PR Step 3 reviews, proves the checkout's commit equals the PR's head, reads it as data, and removes it before anything is posted.
 
 `<OWNER>`, `<REPO>`, `<NUMBER>` and `<HEAD_SHA>` are the values `review` Step 1 bound from `gh`'s output, never from the argument. Shell state does not persist between tool calls, so `<d>` is the printed path, written as a literal in every later call.
 
@@ -54,10 +54,10 @@ One Bash call, with the literal path:
 case "<d>" in */fp-review-*) rm -rf "<d>" ;; esac; [ ! -e "<d>" ]
 ```
 
-This runs once findings are formed, and on any failure after Create, before the next PR. A failed removal adds a `⚠ Failures` row naming the path, and the review already formed still posts. A run killed outright cannot remove it, and the prefixed directory stays in the OS temp area.
+This runs once Step 3's findings are filtered, and on any failure after Create, before the next PR. A failed removal adds a `⚠ Failures` row naming the path, and the review already formed still posts. A run killed outright cannot remove it, and the prefixed directory stays in the OS temp area.
 
 ## Failure rule
 
-A non-zero result from Create, Fetch and verify or `review` Step 3's `gh pr diff` and `gh pr view`, a SHA mismatch, or a checkout read the runtime's permissions refuse is a `⚠ Failures` row for that PR: no post, no marker, no label, and never a review from the diff alone. The next run retries.
+A non-zero result from Create, Fetch and verify, `review` Step 3's `gh pr diff` and `gh pr view`, or the follow-up commit diffs and the earlier-comment read in [`review-memory.md`](review-memory.md) §4 and §5, a SHA mismatch, or a checkout read the runtime's permissions refuse is a `⚠ Failures` row for that PR: no post, no marker, no label, and never a review from the diff alone. The next run retries.
 
 A search that matches nothing and a read of a path the tree does not hold are answers, not failures. Removal is the one exception to this rule: a failed removal follows Remove above.
