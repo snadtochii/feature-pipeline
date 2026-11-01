@@ -1,8 +1,10 @@
 # margin
 
-Notes in the margin of code the agent wrote. A read-only viewer in the browser — file tree,
-line numbers, light syntax colouring from a vendored highlight.js, nothing else — where you pin remarks to a line range, a file, a folder or the
-whole scope, or to a deepening candidate in an overview of the area, then press Send. Each
+Notes in the margin of code the agent wrote. A viewer in the browser — file tree, line numbers,
+light syntax colouring from a vendored highlight.js, nothing else; the code itself is never
+edited there — where you pin remarks to a line range, a file, a folder or the
+whole scope, to a deepening candidate in an overview of the area, or to a box or arrow of a
+diagram of the area that you can edit, then press Send. Each
 Send hands that round to the `annotate` skill, which plans, does the structural work or hands
 the rest to the feature pipeline, and replies beside every note; you read the replies next to the code and send the next round. Finish ends the
 review. Every note and reply lives in a JSON file in the repository.
@@ -29,6 +31,8 @@ Node 22+ built-ins only; the viewer ships one vendored library, highlight.js (se
 /margin:annotate src/a.ts src/b.ts              # named files
 /margin:annotate                                # whole repository (small repos)
 /margin:annotate --overview src/features/orders # with an overview: measurements, file roles, candidates
+/margin:annotate --diagram docs/diagrams/inbox.diagram.json                       # open a diagram
+/margin:annotate --diagram "how the inbox flows" apps/web/src/features/inbox      # the agent draws one
 /margin:annotate --resume claudedocs/margin/2026-10-11T14-05-33.json   # same root and scope as before
 ```
 
@@ -47,8 +51,8 @@ session that you are done, ends the review; Cancel ends it without sending the u
 `--resume` reopens a file with its rounds and replies and continues with the next round.
 
 For each round, the skill ([skills/annotate/SKILL.md](skills/annotate/SKILL.md)) presents one
-table — note, action, kind (`answer` / `structural` / `behavioural` / `candidate`), risk — and
-asks once. A note whose code differs from the excerpt you saw is quoted both ways and held
+table — note, action, kind (`answer` / `structural` / `behavioural` / `candidate` / `redraw` /
+`change`), risk — and asks once. A note whose code differs from the excerpt you saw is quoted both ways and held
 until you name it. Structural actions run in the session behind the project's own checks, run
 before and after, with test edits limited to moved imports and the test list unchanged.
 Behavioural ones go to `/feature:discover` with the anchors attached. When the review ends, the
@@ -73,6 +77,28 @@ route you pick at the round's question: a `/feature:discover` ticket carrying th
 files and next change, or a `/deepen:run --pin <hint>` command printed for you to run from
 deepen's loop clone.
 
+### Diagram
+
+With `--diagram`, the viewer gains a Diagram tab: groups, boxes with a kind and the files they
+stand for, and arrows with a label and a reason, in the format [CONTRACT.md](CONTRACT.md) §15
+specifies. `--diagram <file>` opens an existing diagram file. `--diagram "<topic>" <path> ...`
+has the agent read the code in scope and draw the diagram before the viewer opens — no
+coordinates, the layout places every box — checking it with `cli.mjs diagram --check` until
+it passes.
+
+In the tab you edit the diagram — rename a box, change its kind, move it between groups,
+relabel an arrow, add or delete boxes and arrows — and each edit saves to the diagram file as you make it. N leaves a note on
+the selected box or arrow. A Send hands over the notes and the round's structural changes
+together, and the diagram is read-only from the Send until the agent's reply. For each change
+the agent keeps it, reverts it when it contradicts the code, or redraws the file; a `change`
+note on a box or arrow is a correction it makes by redrawing. Its reply answers the notes and
+names what it kept, reverted and redrew.
+
+A drawn diagram is a throwaway, `claudedocs/margin/<timestamp>.diagram.json`, beside the notes
+file, and a run that leaves no notes file removes it. When the review ends the skill offers to
+keep a copy under `docs/diagrams/<name>.diagram.json`, or at a path you name; it never commits
+it. `--resume` reopens the diagram the notes file records.
+
 ## Standalone
 
 ```bash
@@ -85,14 +111,19 @@ every API call must carry, so a page on another origin cannot plant notes or rea
 (`--token` fixes it in advance). The server keeps serving across rounds and exits on Finish,
 Cancel or a signal, printing one JSON document with the notes file path.
 `node plugins/margin/server/cli.mjs wait <url> --after <n>` blocks until a round after `<n>`
-is sent or the run ends. [CONTRACT.md](CONTRACT.md) specifies the flags, the output
+is sent or the run ends. `node plugins/margin/server/cli.mjs diagram --check <file>` checks a
+diagram file and says whether it is in canonical form, and
+`node plugins/margin/server/cli.mjs diagram <file> --root <dir>` opens it alone in the viewer
+for editing, saving each edit back to the file, so a committed diagram's changes show in
+`git diff` line by line. [CONTRACT.md](CONTRACT.md) specifies the flags, the output
 documents, the routes — replies and Finish included — and the exit codes.
 
 ## Notes file
 
 [CONTRACT.md](CONTRACT.md) specifies the notes-file schema and the anchor rule. Anchors are
-`range` (path, start, end, excerpt of the lines as seen), `file`, `folder`, `scope`, or
-`candidate` (the name of a candidate in the run's overview). The excerpt lets the reader
+`range` (path, start, end, excerpt of the lines as seen), `file`, `folder`, `scope`,
+`candidate` (the name of a candidate in the run's overview), or `box` and `arrow` (the id of a
+box or arrow in the run's diagram, with its label as it was when the note was made). The excerpt lets the reader
 detect drift when the code has changed since the note was written.
 
 ## Runtime dependencies
@@ -161,3 +192,5 @@ To update:
 
 - Diff view against a base revision.
 - Codex support.
+- A Learn mode for diagrams.
+- A static export of kept diagrams.

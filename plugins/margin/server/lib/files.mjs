@@ -14,18 +14,24 @@ export function git(root, args) {
   return execFileSync('git', args, { cwd: root, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 }).toString('utf8');
 }
 
-// `ownFiles` are the run's own absolute file paths — its notes file and its overview file. They
-// are never listed, so the listing does not change when the first save creates the notes file
-// under the root, and the overview is not offered as a file to annotate.
 export function listFiles(root, scope, ownFiles = []) {
   const targets = scope.length > 0 ? scope : ['.'];
-  const own = new Set(ownFiles.map((file) => relative(root, file).split(sep).join('/')));
   let paths;
   try {
     paths = git(root, ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...targets]).split('\0');
   } catch {
     paths = walk(root, targets);
   }
+  return listPaths(root, paths, ownFiles);
+}
+
+// The listing rule (CONTRACT §10) over candidate root-relative `paths`: the regular files among
+// them, deduplicated and sorted. `ownFiles` are the run's own absolute file paths — its notes
+// file, its overview file, its diagram file. They are never listed, so the listing does not
+// change when the first save creates the notes file under the root, and the run's own files are
+// not offered as files to read or annotate.
+export function listPaths(root, paths, ownFiles = []) {
+  const own = new Set(ownFiles.map((file) => relative(root, file).split(sep).join('/')));
   return [...new Set(paths)].filter((p) => p !== '' && !own.has(p) && isRegularFile(join(root, p))).sort();
 }
 
@@ -91,6 +97,16 @@ export function readSource(root, path) {
     return { path, binary: true, reason: 'binary file' };
   }
   return { path, text: buffer.toString('utf8') };
+}
+
+// The top level of the git repository holding `dir`, or null when there is none — not a
+// repository, a bare one, or no git.
+export function gitRoot(dir) {
+  try {
+    return git(dir, ['rev-parse', '--show-toplevel']).trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 export function revision(root) {

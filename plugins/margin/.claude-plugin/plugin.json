@@ -1,7 +1,7 @@
 {
   "name": "margin",
-  "description": "Read code in a local browser viewer, optionally with an overview of the area's measurements, file roles and deepening candidates, leave notes on lines, files, folders, candidates and the scope as a whole, send them to the agent round by round, and read its reply beside each note.",
-  "version": "0.5.0",
+  "description": "Read code in a local browser viewer, optionally with an overview of the area's measurements, file roles and deepening candidates, or with a diagram of the area that the agent draws or opens, leave notes on lines, files, folders, candidates, diagram boxes and arrows and the scope as a whole, send them to the agent round by round with your edits to the diagram, and read its reply beside each note.",
+  "version": "0.11.1",
   "author": {
     "name": "Serhii Nadtochii"
   },

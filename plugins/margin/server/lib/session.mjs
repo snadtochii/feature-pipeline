@@ -11,7 +11,7 @@
 // rule in-process.
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { cleanAnnotation, cleanReply } from './annotations.mjs';
 
@@ -94,8 +94,12 @@ function restoreOverallReplies(stored, out, maxRound) {
   });
 }
 
+const isChange = (op) => op !== null && typeof op === 'object' && typeof op.op === 'string' && typeof op.id === 'string';
+const changesValid = (changes) => changes === undefined || (Array.isArray(changes) && changes.every(isChange));
+
 // The sent rounds of a resumed file, in order: entry `i` is round `i + 1`, with the time it was
-// sent and the overall comment it carried. Anything else stops the run before the notes are read.
+// sent, the overall comment it carried and, for a run with a diagram, its structural changes.
+// Anything else stops the run before the notes are read.
 function restoreRounds(stored, out) {
   if (stored.rounds === undefined) {
     return [];
@@ -104,29 +108,37 @@ function restoreRounds(stored, out) {
     throw new RunError(`${out}: rounds is not a list; fix it or pass another --out`, 1);
   }
   return stored.rounds.map((entry, i) => {
-    if (!entry || entry.round !== i + 1 || typeof entry.sentAt !== 'string' || typeof entry.overall !== 'string') {
+    if (!entry || entry.round !== i + 1 || typeof entry.sentAt !== 'string' || typeof entry.overall !== 'string' || !changesValid(entry.changes)) {
       throw new RunError(`${out}: rounds entry ${i} is malformed; fix it or pass another --out`, 1);
     }
-    return { round: entry.round, sentAt: entry.sentAt, overall: entry.overall };
+    const kept = { round: entry.round, sentAt: entry.sentAt, overall: entry.overall };
+    return entry.changes === undefined ? kept : { ...kept, changes: entry.changes };
   });
 }
 
 // The session a run serves: the resumed notes, or a fresh record at round 0, as a `draft` over
-// `root` and `scope` that saves to `out`.
-export function createSession({ stored, out, root, scope, revision }) {
+// `root` and `scope` that saves to `out`. `diagram` is the absolute path of the run's diagram
+// file, or null; a resume reads it back from the stored file (CONTRACT §5). `baseline` is the
+// current round's starting file as a diagram document, or null without a diagram; a Send and the
+// reply that closes a round move it (CONTRACT §6).
+export function createSession({ stored, out, root, scope, revision, diagram = null, baseline = null }) {
   const now = new Date().toISOString();
   const session = stored ? restoreSession(stored, out) : { version: 1, createdAt: now, overall: '', overallReplies: [], round: 0, rounds: [], annotations: [] };
-  return Object.assign(session, { status: 'draft', root, scope, out, revision, updatedAt: now });
+  return Object.assign(session, { status: 'draft', root, scope, diagram, baseline, out, revision, updatedAt: now });
 }
 
 // Writes `text` to a temporary file in the same directory as `file`, then renames it over
-// `file`; a failed write or rename removes the temporary file and rethrows.
+// `file`, keeping an existing file's permission bits; a failed write, chmod or rename removes
+// the temporary file and rethrows.
 export function writeAtomic(file, text) {
   const dir = dirname(file);
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `.${basename(file)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
   try {
     writeFileSync(tmp, text);
+    if (existsSync(file)) {
+      chmodSync(tmp, statSync(file).mode & 0o7777);
+    }
     renameSync(tmp, file);
   } catch (err) {
     rmSync(tmp, { force: true });
@@ -140,18 +152,40 @@ export function saveSession(session) {
   writeAtomic(session.out, `${JSON.stringify(session, null, 2)}\n`);
 }
 
+// Whether the last round sent is out: sent, and answered by no note reply and no overall reply
+// for it yet. While a round is out an `annotate` run's diagram takes no save (CONTRACT §8); the
+// viewer's `roundOut()` in `ui/rounds.js` is the same rule.
+export function roundOut(session) {
+  const round = session.round;
+  if (round === 0) {
+    return false;
+  }
+  const answered = (replies) => (replies ?? []).some((reply) => reply.round === round);
+  return !answered(session.overallReplies) && !session.annotations.some((a) => answered(a.replies));
+}
+
 // A Send: stamps every unsent note with the next round number, records the round with the
-// overall comment it carries, and saves. A withheld note — an unsent candidate note whose name is
-// not in `candidates`, the names of the run's overview candidates — is not stamped, and the
-// stamped notes move ahead of it, so sent notes still lead the list. Returns the new round
-// number, or null when there is nothing to send — no unsent note other than withheld ones and the
-// same overall comment the last round sent. A failed save undoes the stamps, the reordering
-// and the round entry and rethrows, so a retried Send sends the round.
-export function sendRound(session, candidates) {
-  const withheld = (a) => a.anchor.kind === 'candidate' && !candidates.has(a.anchor.name);
+// overall comment it carries and, when `changes` is a list, the diagram's structural changes
+// (CONTRACT §6), and saves. `allowed` is what the run's anchors may name now: `candidates`, the
+// overview's candidate names, and `boxes` and `arrows`, maps keyed by the current diagram's ids.
+// A withheld note — an unsent candidate note whose name is not a candidate, or an unsent box or
+// arrow note whose id the diagram no longer holds — is not stamped, and the stamped notes move
+// ahead of it, so sent notes still lead the list. Returns the new round number, or null when
+// there is nothing to send — no unsent note other than withheld ones, the same overall comment
+// the last round sent and no change. When `changes` is a list, `sent` — the diagram document the
+// Send diffed — becomes `baseline`, the next round's starting file the notes file records.
+// A failed save undoes the stamps, the reordering, the round entry and the baseline and
+// rethrows, so a retried Send sends the round.
+export function sendRound(session, allowed, changes = null, sent = null) {
+  const absent = {
+    candidate: (anchor) => !allowed.candidates.has(anchor.name),
+    box: (anchor) => !allowed.boxes.has(anchor.id),
+    arrow: (anchor) => !allowed.arrows.has(anchor.id),
+  };
+  const withheld = (a) => absent[a.anchor.kind]?.(a.anchor) ?? false;
   const unsent = session.annotations.filter((a) => a.round === undefined && !withheld(a));
   const last = session.rounds.at(-1)?.overall ?? '';
-  if (unsent.length === 0 && session.overall.trim() === last.trim()) {
+  if (unsent.length === 0 && session.overall.trim() === last.trim() && (changes === null || changes.length === 0)) {
     return null;
   }
   const round = session.round + 1;
@@ -160,8 +194,13 @@ export function sendRound(session, candidates) {
     note.round = round;
   }
   session.annotations = [...before.filter((a) => a.round !== undefined), ...before.filter((a) => a.round === undefined)];
-  session.rounds.push({ round, sentAt: new Date().toISOString(), overall: session.overall });
+  const entry = { round, sentAt: new Date().toISOString(), overall: session.overall };
+  session.rounds.push(changes === null ? entry : { ...entry, changes });
   session.round = round;
+  const baseline = session.baseline;
+  if (changes !== null) {
+    session.baseline = sent;
+  }
   try {
     saveSession(session);
   } catch (err) {
@@ -171,6 +210,7 @@ export function sendRound(session, candidates) {
     session.annotations = before;
     session.rounds.pop();
     session.round = round - 1;
+    session.baseline = baseline;
     throw err;
   }
   return round;
@@ -181,10 +221,13 @@ export function sendRound(session, candidates) {
 // optional `overall` appends an overall reply. The whole request is checked before anything
 // changes: a problem returns `{ error }` and nothing is applied. A request-level problem is
 // the whole error; otherwise the error joins each entry's first problem.
+// Once those checks pass, `gate()` runs — the server's re-read of a redrawn diagram (CONTRACT
+// §8): `{ error }` refuses the post with nothing applied, and `{ baseline }` names the re-read
+// document, which becomes the next round's starting file the notes file records.
 // Otherwise the replies are appended with one server time and saved, and `{ replied }` is the
-// number of note replies appended. A failed save undoes every append and rethrows, so a
-// retried post does not duplicate.
-export function postReplies(session, body) {
+// number of note replies appended. A failed save undoes every append and the baseline and
+// rethrows, so a retried post does not duplicate.
+export function postReplies(session, body, gate = () => ({})) {
   const round = body?.round;
   if (!Number.isInteger(round) || round < 1 || round > session.round) {
     return { error: `bad round: ${JSON.stringify(round) ?? 'none'}` };
@@ -227,6 +270,14 @@ export function postReplies(session, body) {
   if (problems.length > 0) {
     return { error: problems.join('; ') };
   }
+  const gated = gate();
+  if (gated.error !== undefined) {
+    return { error: gated.error };
+  }
+  const baseline = session.baseline;
+  if (gated.baseline !== undefined) {
+    session.baseline = gated.baseline;
+  }
   const createdAt = new Date().toISOString();
   const appended = [];
   const created = [];
@@ -255,6 +306,7 @@ export function postReplies(session, body) {
     if (overall !== undefined) {
       session.overallReplies.pop();
     }
+    session.baseline = baseline;
     throw err;
   }
   return { replied: appended.length };

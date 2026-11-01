@@ -1,7 +1,11 @@
 // Round and session orchestration for the margin viewer: the notes file as the viewer holds it,
 // the write queue that keeps it current through PUT /api/session, the merge of the server's copy
-// after every change, the change-wait loop, and the Send, Finish and Cancel lifecycle. It touches
-// no DOM, so the self-test imports it in Node; everything it shows goes through `view`.
+// after every change, the change-wait loop, and the Send, Finish and Cancel lifecycle. It mirrors
+// the server's round rules — what a Send sends, the diagram's structural changes since the round's
+// starting file, which notes are withheld, and when a round is out. It touches no DOM, so the
+// self-test imports it in Node; everything it shows goes through `view`.
+
+import { diffDiagrams } from './diagram-diff.js';
 
 // A note is sent once the server has stamped it with the round it went out in.
 export const isSent = (a) => typeof a.round === 'number';
@@ -37,6 +41,10 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     files: [], // repo-relative paths in scope, sorted
     fileSet: new Set(), // state.files as a set, rebuilt with it
     candidates: new Set(), // the names of the run's overview candidates; null while unknown
+    boxIds: new Set(), // the box ids of the run's diagram; none for a run without one
+    arrowIds: new Set(), // the arrow ids of the run's diagram
+    changeCount: 0, // the diagram's structural changes since the round's starting file
+    storedIds: new Set(), // the ids of the unsent notes the server held at the last read or write
     saveTimer: null,
     // The last write sent to the server. Writes run one after another, so an older snapshot can
     // never land after a newer one; each sends the session as it stands when its turn comes.
@@ -50,6 +58,9 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     // The server has begun ending the run: autosave stops until the end overlay comes up.
     ending: false,
     ended: false, // true once the end-of-run overlay is up
+    // A diagram session: the server holds no notes session, so nothing is saved or merged, and
+    // `session` is an empty one the renderers read.
+    standalone: false,
   };
 
   const annotations = () => state.session.annotations;
@@ -65,8 +76,21 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     state.candidates = names === null ? null : new Set(names);
   }
 
-  // The contract's anchor rule (CONTRACT.md §7) against the current listing and the run's
-  // overview candidates: whether the server would accept a new note on this anchor now.
+  // The box and arrow ids of the diagram the server holds now, and the number of structural
+  // changes a Send would record against `baseline`, the round's starting file; none for a run
+  // without a diagram (`document` null) and no changes without a baseline.
+  function setDiagram(document, baseline = null) {
+    state.boxIds = new Set((document?.boxes ?? []).map((box) => box.id));
+    state.arrowIds = new Set((document?.arrows ?? []).map((arrow) => arrow.id));
+    state.changeCount = document && baseline ? diffDiagrams(baseline, document).length : 0;
+  }
+
+  // A box or arrow anchor whose id the current diagram does not hold, as when its box was deleted
+  // or the agent's redraw dropped it.
+  const removed = (anchor) => (anchor.kind === 'box' || anchor.kind === 'arrow') && !listed(anchor);
+
+  // The contract's anchor rule (CONTRACT.md §7) against the current listing, the run's overview
+  // candidates and its diagram: whether the server would accept a new note on this anchor now.
   function listed(anchor) {
     switch (anchor.kind) {
       case 'scope':
@@ -75,6 +99,10 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
         return anchor.path !== '' && anchor.path !== '.' && state.files.some((path) => path.startsWith(`${anchor.path}/`));
       case 'candidate':
         return state.candidates?.has(anchor.name) ?? false;
+      case 'box':
+        return state.boxIds.has(anchor.id);
+      case 'arrow':
+        return state.arrowIds.has(anchor.id);
       default:
         return state.fileSet.has(anchor.path);
     }
@@ -82,10 +110,14 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
 
   const unsent = () => annotations().filter((a) => !isSent(a));
 
-  // An unsent candidate note whose candidate the run's overview does not name: the server
-  // withholds it at every Send, so it is never sent, and the viewer shows it read-only. While the
-  // names are unknown, every unsent candidate note is shown read-only.
-  const withheld = (a) => !isSent(a) && a.anchor.kind === 'candidate' && !listed(a.anchor);
+  const WITHHELD_KINDS = new Set(['candidate', 'box', 'arrow']);
+
+  // An unsent candidate note whose candidate the run's overview does not name, or an unsent box
+  // or arrow note whose id the current diagram does not hold: the server withholds it at every
+  // Send, and the viewer shows it read-only — a box or arrow note can still be deleted. A box or
+  // arrow note is sent again once its id returns. While the candidate names are unknown, every
+  // unsent candidate note is read-only.
+  const withheld = (a) => !isSent(a) && WITHHELD_KINDS.has(a.anchor.kind) && !listed(a.anchor);
 
   const sendable = () => unsent().filter((a) => !withheld(a));
 
@@ -98,9 +130,20 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     return view.overall().trim() !== (state.session.rounds?.at(-1)?.overall ?? '').trim();
   }
 
-  // The server's rule for a Send: an unsent note it does not withhold, or an overall text the last
-  // round did not send — unless Send is held.
-  const canSend = () => !sendHeld() && (sendable().length > 0 || overallChanged());
+  // The server's rule for a Send: an unsent note it does not withhold, an overall text the last
+  // round did not send, or a structural change to the diagram — unless Send is held.
+  const canSend = () => !sendHeld() && (sendable().length > 0 || overallChanged() || state.changeCount > 0);
+
+  // The server's lock rule (`roundOut` in `server/lib/session.mjs`): the last round sent has no
+  // note reply and no overall reply yet, so the diagram takes no save until the agent answers.
+  function roundOut() {
+    const round = state.session?.round ?? 0;
+    if (round === 0) {
+      return false;
+    }
+    const answered = (replies) => (replies ?? []).some((reply) => reply.round === round);
+    return !answered(state.session.overallReplies) && !annotations().some((a) => answered(a.replies));
+  }
 
   // ---- the viewer's own notes ----------------------------------------------
 
@@ -121,6 +164,23 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     state.session.annotations = annotations().filter((a) => !(a.id === id && !isSent(a)));
   }
 
+  const unsentIds = (list) => new Set(list.filter((a) => !isSent(a)).map((a) => a.id));
+
+  // The server refuses a whole write that carries a new note on an anchor it does not list
+  // (CONTRACT.md §7), as when a box is deleted before its note's first save. Returns the notes
+  // removed.
+  function dropUnstored() {
+    const dropped = annotations().filter((a) => !isSent(a) && !state.storedIds.has(a.id) && !listed(a.anchor));
+    if (dropped.length > 0) {
+      state.session.annotations = annotations().filter((a) => !dropped.includes(a));
+      if (dropped.some((a) => a.id === view.editing())) {
+        view.closeComposer();
+      }
+      scheduleSave();
+    }
+    return dropped;
+  }
+
   // ---- persistence ---------------------------------------------------------
 
   function payload() {
@@ -133,7 +193,7 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
   }
 
   function scheduleSave() {
-    if (state.ending || state.ended) {
+    if (state.standalone || state.ending || state.ended) {
       return;
     }
     clearTimeout(state.saveTimer);
@@ -152,7 +212,9 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
   // PUTs the session as it stands when the write's turn comes.
   async function writeSession() {
     try {
-      const res = await api('PUT', '/api/session', payload());
+      const body = payload();
+      const res = await api('PUT', '/api/session', body);
+      state.storedIds = unsentIds(body.annotations);
       view.saveState(`saved ${new Date(res.updatedAt).toLocaleTimeString()}`);
     } catch (err) {
       if (err.status === 409) {
@@ -173,8 +235,10 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
   // Reads the session the page opens with. The caller renders it, then starts watchChanges.
   async function load() {
     const data = await api('GET', '/api/session');
-    state.session = data.session;
+    state.standalone = data.session === null;
+    state.session = data.session ?? { root: '', scope: [], out: null, overall: '', round: 0, rounds: [], overallReplies: [], annotations: [] };
     setFiles(data.files);
+    state.storedIds = unsentIds(state.session.annotations);
     state.changes = data.changes;
     return data.session;
   }
@@ -190,6 +254,7 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     const sentIds = new Set(sent.map((a) => a.id));
     const stored = server.annotations.filter((a) => !isSent(a));
     const storedIds = new Set(stored.map((a) => a.id));
+    state.storedIds = storedIds;
     const local = annotations().filter((a) => !isSent(a) && !sentIds.has(a.id));
     const keep = (a) => storedIds.has(a.id) || listed(a.anchor);
     const kept = local.filter(keep);
@@ -212,6 +277,9 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
   // Flushes a pending save, reads the session behind every queued write, merges it, and has the
   // view re-render what depends on it.
   async function refresh() {
+    if (state.standalone) {
+      return;
+    }
     const pending = state.saveTimer !== null;
     stopSaveTimer();
     let dropped = [];
@@ -358,6 +426,10 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
   // Finish adds a note still open in the composer, then asks before ending the run. Unsent work
   // stays in the notes file without a round, and the dialog names it.
   async function finishRun() {
+    if (state.standalone) {
+      await endRun('/api/finish', 'finished');
+      return;
+    }
     commitComposer();
     const count = unsent().length;
     const kept = [];
@@ -418,17 +490,25 @@ export function createRounds({ api, view, sleep = pause, saveDelay = 400 }) {
     get ended() {
       return state.ended;
     },
+    get standalone() {
+      return state.standalone;
+    },
+    changeCount: () => state.changeCount,
     setCandidates,
+    setDiagram,
     listed,
+    removed,
     unsent,
     withheld,
     sendable,
     sendHeld,
     overallChanged,
     canSend,
+    roundOut,
     addNote,
     updateNote,
     deleteNote,
+    dropUnstored,
     load,
     scheduleSave,
     save,

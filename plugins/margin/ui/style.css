@@ -23,6 +23,21 @@
   --tok-deletion: #cf222e;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --d-frame: #f2f4f7;
+  --d-frame-edge: #d5dae1;
+  --d-arrow: #8a93a0;
+  --kind-module-fill: #eef4ff;
+  --kind-module-stroke: #5b8def;
+  --kind-process-fill: #eefaf3;
+  --kind-process-stroke: #3f9e6b;
+  --kind-agent-fill: #f6efff;
+  --kind-agent-stroke: #8b5cf6;
+  --kind-actor-fill: #fff6e8;
+  --kind-actor-stroke: #d08a1c;
+  --kind-store-fill: #fdeeee;
+  --kind-store-stroke: #d0544f;
+  --kind-concept-fill: #f4f5f7;
+  --kind-concept-stroke: #8a93a0;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -48,6 +63,21 @@
     --tok-regexp: #f38ba8;
     --tok-addition: #7ee787;
     --tok-deletion: #ff7b72;
+    --d-frame: #141920;
+    --d-frame-edge: #2a313b;
+    --d-arrow: #7d8696;
+    --kind-module-fill: #16233d;
+    --kind-module-stroke: #6e9dff;
+    --kind-process-fill: #132a20;
+    --kind-process-stroke: #4fbf86;
+    --kind-agent-fill: #231a38;
+    --kind-agent-stroke: #a98bff;
+    --kind-actor-fill: #2e2414;
+    --kind-actor-stroke: #e0a845;
+    --kind-store-fill: #2f1918;
+    --kind-store-stroke: #ef7a74;
+    --kind-concept-fill: #1b2028;
+    --kind-concept-stroke: #8b93a1;
   }
 }
 
@@ -77,7 +107,7 @@ kbd { font: 11px var(--mono); opacity: .7; margin-left: 4px; }
 
 .layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 280px minmax(0, 1fr) 380px; }
 /* Each pane lays out on its own, so re-rendering the tree or the notes list never re-lays out a long file. */
-.tree, .code, .notes, .overview { min-height: 0; overflow: auto; contain: strict; }
+.tree, .code, .notes, .overview, .diagram { min-height: 0; overflow: auto; contain: strict; }
 .tree { border-right: 1px solid var(--line); padding: 0 0 8px; font-family: var(--mono); font-size: 12px; }
 .filter-box { position: sticky; top: 0; z-index: 1; padding: 8px 8px 6px; background: var(--bg); }
 .filter-box input { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; width: 100%; }
@@ -250,6 +280,81 @@ kbd { font: 11px var(--mono); opacity: .7; margin-left: 4px; }
 .layout.hide-tree.hide-notes { grid-template-columns: 0 minmax(0, 1fr) 0; }
 .layout.hide-tree .tree, .layout.hide-notes .notes { visibility: hidden; border: 0; padding: 0; }
 
+.standalone .gutter { cursor: default; }
+.standalone .gutter:hover { color: var(--muted); background: none; }
+
+/* The Diagram tab: the canvas fills the pane, and the toolbar, card and caption float over it, so
+   opening the card or stepping a walkthrough moves nothing. */
+.diagram { position: relative; overflow: hidden; background: var(--bg); }
+.d-canvas { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; cursor: grab; }
+.d-canvas.panning { cursor: grabbing; }
+.d-frame rect { fill: var(--d-frame); stroke: var(--d-frame-edge); stroke-width: 1; }
+.d-frame-label { fill: var(--muted); font: 600 11px var(--sans); }
+.d-line { fill: none; stroke: var(--d-arrow); stroke-width: 1.5; marker-end: url(#d-head); }
+.d-hit { fill: none; stroke: transparent; stroke-width: 12; }
+.d-head path { fill: var(--d-arrow); }
+.d-head-hl path { fill: var(--accent); }
+.d-label-bg { fill: var(--bg); stroke: var(--line); }
+.d-label { fill: var(--text); font: 11px var(--sans); text-anchor: middle; }
+.d-box { cursor: pointer; }
+.d-box > rect { fill: var(--d-fill); stroke: var(--d-stroke); stroke-width: 1.5; }
+.d-box-label { fill: var(--text); font: 600 12.5px var(--sans); text-anchor: middle; }
+.d-box-kind { fill: var(--muted); font: 10px var(--mono); text-anchor: middle; }
+.kind-module { --d-fill: var(--kind-module-fill); --d-stroke: var(--kind-module-stroke); }
+.kind-process { --d-fill: var(--kind-process-fill); --d-stroke: var(--kind-process-stroke); }
+.kind-agent { --d-fill: var(--kind-agent-fill); --d-stroke: var(--kind-agent-stroke); }
+.kind-actor { --d-fill: var(--kind-actor-fill); --d-stroke: var(--kind-actor-stroke); }
+.kind-store { --d-fill: var(--kind-store-fill); --d-stroke: var(--kind-store-stroke); }
+.kind-concept { --d-fill: var(--kind-concept-fill); --d-stroke: var(--kind-concept-stroke); }
+.kind-process > rect { stroke-dasharray: 6 3; }
+.kind-concept > rect { stroke-dasharray: 2 3; }
+.kind-actor > rect { rx: 18px; }
+.d-world.dim .d-box:not(.hl), .d-world.dim .d-arrow:not(.hl) { opacity: .25; }
+.d-world.dim .d-frame { opacity: .5; }
+.d-arrow.hl .d-line { stroke: var(--accent); stroke-width: 2.5; marker-end: url(#d-head-hl); }
+.d-box.hl > rect, .d-box.open > rect { stroke: var(--accent); stroke-width: 2.5; }
+.d-arrow { cursor: pointer; }
+.d-canvas.editable .d-box { cursor: move; }
+.d-canvas.moving, .d-canvas.moving .d-box { cursor: move; }
+.d-handle { visibility: hidden; fill: var(--bg); stroke: var(--accent); stroke-width: 1.5; cursor: crosshair; }
+.d-box:hover .d-handle, .d-box.open .d-handle { visibility: visible; }
+.d-rubber { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 4; pointer-events: none; }
+.d-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); pointer-events: none; }
+.d-rename { position: absolute; z-index: 4; height: 28px; box-sizing: border-box; padding: 2px 8px; font: 600 12.5px var(--sans); color: var(--text); background: var(--bg); border: 1px solid var(--accent); border-radius: 6px; outline: none; box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+.d-arrow.open .d-line { stroke: var(--accent); stroke-width: 2.5; marker-end: url(#d-head-hl); }
+.d-arrow.open .d-label-bg { stroke: var(--accent); }
+.d-toolbar { position: absolute; top: 8px; left: 8px; right: 8px; display: flex; align-items: center; gap: 6px; pointer-events: none; }
+.d-toolbar > * { pointer-events: auto; }
+.d-toolbar > button { flex: none; white-space: nowrap; }
+/* The save bar keeps its height whether it is empty or holds a message, so no state moves the
+   toolbar. */
+.d-save { display: flex; align-items: center; gap: 6px; min-width: 0; height: 24px; font-size: 12px; pointer-events: none; }
+.d-save.error { pointer-events: auto; padding: 0 4px 0 8px; color: var(--danger); background: var(--bg); border: 1px solid var(--danger); border-radius: 6px; }
+.d-save-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-save button { flex: none; padding: 0 8px; }
+.d-save.locked { padding: 0 8px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.d-card { position: absolute; top: 8px; right: 8px; z-index: 3; width: max-content; max-width: min(22em, calc(100% - 24px)); max-height: calc(100% - 72px); overflow: auto; padding: 10px 12px; background: var(--bg); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.3); }
+.d-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.d-card-label { font-weight: 600; overflow-wrap: anywhere; }
+.d-card-kind { flex: none; font: 11px var(--mono); color: var(--muted); }
+.d-card-head button { flex: none; margin-left: auto; }
+.d-card-files { display: flex; flex-direction: column; gap: 4px; }
+.d-card-file { display: flex; align-items: baseline; gap: 6px; }
+.d-card-file .link { min-width: 0; overflow-wrap: anywhere; }
+.d-missing { flex: none; font-size: 11px; color: var(--danger); }
+.d-card-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.d-pick { min-width: 0; max-width: 12em; font: 12px var(--sans); color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; }
+.d-card-ends { margin-bottom: 6px; font-size: 12px; overflow-wrap: anywhere; }
+.d-card-why { margin-bottom: 8px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.d-caption { position: absolute; left: 0; right: 0; bottom: 0; height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: var(--panel); border-top: 1px solid var(--line); white-space: nowrap; font-size: 12px; }
+.d-caption select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; }
+.d-walk { flex: 0 1 auto; min-width: 0; max-width: 14em; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.d-caption button { flex: none; }
+.d-pos { flex: none; min-width: 3.5em; text-align: center; font: 11px var(--mono); color: var(--muted); }
+.d-step { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.d-badge rect { fill: var(--accent); stroke: var(--bg); stroke-width: 1.5; }
+.d-badge text { fill: #fff; font: 600 10px var(--sans); text-anchor: middle; }
+
 /* Narrow screens: the panes stack as rows of fixed height inside one scrolling layout, so each
    keeps the explicit size its containment needs. */
 @media (max-width: 760px) {
@@ -262,4 +367,9 @@ kbd { font: 11px var(--mono); opacity: .7; margin-left: 4px; }
   .notes { border-left: none; border-top: 1px solid var(--line); }
   #scope { display: none; }
   .bar { gap: 8px; padding: 0 8px; }
+  .d-caption { gap: 6px; padding: 0 6px; }
+  .d-toolbar { flex-wrap: wrap; }
+  .d-save { flex-basis: 100%; }
+  .d-card { top: 72px; max-height: calc(100% - 136px); }
+  .d-walk { max-width: 8em; }
 }

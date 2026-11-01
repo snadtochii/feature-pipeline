@@ -1,19 +1,21 @@
 // The outline model for the margin viewer's Overview tab: it turns a checked overview document
 // (CONTRACT.md §13) into groups of rows, one per folder scope entry, with folder rows above their files,
 // and works out imported-by, candidate membership and bar fractions per file. It also counts
-// notes per file, folder and candidate, for the tree and the outline alike. It touches no DOM, so the
+// notes per file, folder, candidate, box and arrow, for the tree, the outline and the diagram. It touches no DOM, so the
 // self-test imports it in Node; app.js renders what it returns.
 
 export const CANDIDATE_COLOURS = ['#3b82c4', '#d0702c', '#3f9a5a', '#9a5cc4', '#c49a2c', '#2c9a9a', '#c44f7a', '#7a8a3b'];
 
 // `folder:<path>` counts folder notes, `file:<path>` file and range notes, `candidate:<name>`
-// candidate notes; a scope note counts nowhere.
+// candidate notes, `box:<id>` and `arrow:<id>` box and arrow notes; a scope note counts nowhere.
 export function noteCounts(annotations) {
   const counts = new Map();
   const add = (key) => counts.set(key, (counts.get(key) ?? 0) + 1);
   for (const a of annotations) {
     if (a.anchor.kind === 'candidate') {
       add(`candidate:${a.anchor.name}`);
+    } else if (a.anchor.kind === 'box' || a.anchor.kind === 'arrow') {
+      add(`${a.anchor.kind}:${a.anchor.id}`);
     } else if (a.anchor.path) {
       add(`${a.anchor.kind === 'folder' ? 'folder' : 'file'}:${a.anchor.path}`);
     }

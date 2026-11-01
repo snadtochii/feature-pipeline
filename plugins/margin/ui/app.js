@@ -1,12 +1,15 @@
 // margin viewer. One page, no build step. Renders the tree, the code pane, the composer and the
-// notes with their replies, and switches between the Code and Overview tabs; ./rounds.js holds the
-// session and talks to ../server/lib/server.mjs for it, ./overview-view.js renders the Overview
-// tab, and this file reads files through GET /api/file.
+// notes with their replies, and switches between the surfaces the run serves — Overview, Diagram
+// and Code; ./rounds.js holds the session and talks to ../server/lib/server.mjs for it,
+// ./overview-view.js renders the Overview tab, ./diagram-view.js the Diagram tab, and this file
+// reads files through GET /api/file. A diagram session is standalone: it keeps no notes, so every
+// notes control leaves the page, and the Diagram tab saves the human's edits to the diagram file.
 
 import { highlightLines } from './syntax.js';
 import { createRounds, isSent } from './rounds.js';
 import { noteCounts } from './overview.js';
 import { createOverviewView } from './overview-view.js';
+import { createDiagramView, UNLOCKED } from './diagram-view.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -32,8 +35,15 @@ const state = {
   fileSeq: 0,
   // A message from the last action, { text, error }, or null.
   notice: null,
-  // The center pane shown: 'code', or 'overview' on a run with an overview.
+  // The center pane shown: the name of one of the registered surfaces, 'code' until load()
+  // registers them.
   surface: 'code',
+  // The run's diagram document as the server holds it — served, then each accepted save — or
+  // null: what names an unlabelled arrow's note.
+  diagram: null,
+  // The current round's starting file in an `annotate` run with a diagram, or null: what the
+  // diagram's structural changes are counted against.
+  baseline: null,
 };
 
 const el = {
@@ -43,9 +53,11 @@ const el = {
   filter: $('#filter'),
   tabs: $('#tabs'),
   tabOverview: $('#tab-overview'),
+  tabDiagram: $('#tab-diagram'),
   tabCode: $('#tab-code'),
   toggleFiles: $('#toggle-files'),
   toggleNotes: $('#toggle-notes'),
+  diagram: $('#diagram'),
   overview: $('#overview'),
   overviewNotice: $('#overview-notice'),
   overviewBody: $('#overview-body'),
@@ -118,9 +130,13 @@ const rounds = createRounds({
     refreshed: async () => {
       renderTree();
       overviewView.render();
+      diagramView.notesChanged();
       renderStatus();
       await refreshOpenFile();
       renderList();
+      if (lockedRoundAnswered()) {
+        await reloadDiagram();
+      }
     },
     showEnd,
   },
@@ -139,6 +155,32 @@ const overviewView = createOverviewView({
   annotate: (anchor) => openComposer(anchor),
 });
 
+const diagramView = createDiagramView({
+  nodes: { pane: el.diagram },
+  listed: (path) => rounds.listed({ kind: 'file', path }),
+  openCode: (path) => {
+    showSurface('code');
+    expandTo(path);
+    openFile(path);
+  },
+  ended: () => rounds.ended,
+  saveState: (text) => {
+    el.saveState.textContent = text;
+  },
+  counts: () => noteCounts(annotations()),
+  saved: (document) => {
+    state.diagram = document;
+    rounds.setDiagram(document, state.baseline);
+    dropUnstoredNotes();
+    renderList();
+  },
+  seenIds: () => annotations().flatMap((a) => (a.anchor.kind === 'box' || a.anchor.kind === 'arrow' ? [a.anchor.id] : [])),
+});
+
+// The center panes the run serves, in tab order — Overview, Diagram, Code — each
+// { name, tab, pane, view }. load() fills it once; Code is always one of them.
+const surfaces = [];
+
 const byName = (a, b) => a.name.localeCompare(b.name);
 const annotations = () => rounds.session.annotations;
 
@@ -152,6 +194,10 @@ function anchorLabel(anchor) {
       return `${anchor.path}/`;
     case 'candidate':
       return `candidate ${anchor.name}`;
+    case 'box':
+      return `box ${anchor.label || anchor.id}`;
+    case 'arrow':
+      return `arrow ${anchor.label || arrowEnds(anchor.id)}`;
     case 'scope':
       return 'whole scope';
     default:
@@ -159,52 +205,167 @@ function anchorLabel(anchor) {
   }
 }
 
+// An unlabelled arrow by the boxes it joins in the run's diagram, or by its id once it is gone.
+function arrowEnds(id) {
+  const arrow = state.diagram?.arrows.find((entry) => entry.id === id);
+  if (!arrow) {
+    return id;
+  }
+  const boxLabel = (boxId) => state.diagram.boxes.find((box) => box.id === boxId)?.label ?? boxId;
+  return `${boxLabel(arrow.from)} → ${boxLabel(arrow.to)}`;
+}
+
 // ---- loading -------------------------------------------------------------
 
 async function load() {
-  const [session, overview] = await Promise.all([rounds.load(), loadOverview()]);
+  const [session, overview, diagram] = await Promise.all([rounds.load(), loadOptional('/api/overview'), loadOptional('/api/diagram')]);
   if (overview === null) {
     rounds.setCandidates([]);
   } else {
     rounds.setCandidates(overview.doc ? overview.doc.candidates.map((candidate) => candidate.name) : null);
   }
   overviewView.setOverview(overview);
-  el.scope.textContent = `${session.root} · ${session.scope.join(', ') || '.'}`;
-  el.overall.value = session.overall || '';
+  state.diagram = diagram?.doc?.document ?? null;
+  state.baseline = diagram?.doc?.baseline ?? null;
+  rounds.setDiagram(state.diagram, state.baseline);
+  if (diagram?.doc) {
+    diagramView.setEditable((edited) => api('PUT', '/api/diagram', { document: edited }));
+  }
+  if (!rounds.standalone) {
+    diagramView.setAnnotate((anchor) => openComposer(anchor));
+  }
+  diagramView.setDiagram(diagram);
+  if (roundRun()) {
+    lockDiagram(roundLock());
+  }
+  if (rounds.standalone) {
+    enterStandalone(diagram);
+  } else {
+    el.scope.textContent = `${session.root} · ${session.scope.join(', ') || (state.diagram ? 'diagram links' : '.')}`;
+    el.overall.value = session.overall || '';
+  }
   applyDefaultCollapse();
   renderTree();
   renderList();
   renderStatus();
-  if (overview) {
-    el.tabs.classList.remove('hidden');
-    showSurface('overview');
-  }
+  registerSurfaces(overview, diagram);
   rounds.watchChanges();
 }
 
-async function loadOverview() {
+// A route the run may not serve: null on its 404, { doc } once read, { error } when the read failed.
+async function loadOptional(url) {
   try {
-    return { doc: await api('GET', '/api/overview') };
+    return { doc: await api('GET', url) };
   } catch (err) {
     return err.status === 404 ? null : { error: err.message };
   }
 }
 
+// ---- the diagram in a round -----------------------------------------------
+
+// An `annotate` run with a diagram: edits are saved, counted as the round's changes, and locked
+// from Send until the agent replies.
+const roundRun = () => !rounds.standalone && state.diagram !== null;
+
+const roundLock = () => (rounds.roundOut() ? rounds.session.round : UNLOCKED);
+
+const lockedRoundAnswered = () => roundRun() && diagramView.isLocked() && !rounds.roundOut();
+
+function lockDiagram(round) {
+  diagramView.setLocked(round);
+}
+
+// Re-reads the diagram the server holds — after a Send moved the round's starting file, or after
+// the reply that may carry the agent's redraw — and draws it in place. The lock lifts only once
+// the new document is drawn, so no edit is saved over a redraw; a failed read keeps the lock.
+async function reloadDiagram() {
+  const diagram = await loadOptional('/api/diagram');
+  if (!diagram?.doc) {
+    notify(`The diagram could not be reloaded: ${diagram?.error ?? 'no diagram'} — reload the page to edit it.`, { error: true });
+    return;
+  }
+  state.diagram = diagram.doc.document;
+  state.baseline = diagram.doc.baseline ?? null;
+  rounds.setDiagram(state.diagram, state.baseline);
+  dropUnstoredNotes();
+  diagramView.setDiagram(diagram, { keep: true });
+  lockDiagram(roundLock());
+  renderList();
+}
+
+function dropUnstoredNotes() {
+  const dropped = rounds.dropUnstored();
+  if (dropped.length > 0) {
+    notifyDropped(dropped);
+  }
+}
+
+// Send in a round run locks the diagram first and waits for the last edit to reach the server, so
+// the round carries every change the human made; a Send that sent nothing unlocks again.
+async function send() {
+  if (!roundRun()) {
+    await rounds.sendRound();
+    return;
+  }
+  const before = rounds.session.round;
+  lockDiagram(before + 1);
+  const flushed = await diagramView.flush();
+  if (flushed?.phase === 'failed' && !window.confirm('The last diagram edit was not saved. Send anyway?')) {
+    lockDiagram(roundLock());
+    return;
+  }
+  await rounds.sendRound();
+  if (rounds.session.round > before) {
+    await reloadDiagram();
+  } else {
+    lockDiagram(roundLock());
+  }
+}
+
+// A diagram session keeps no notes, so Send, Cancel and the notes panel leave the page.
+function enterStandalone(diagram) {
+  document.body.classList.add('standalone');
+  for (const control of [el.send, el.cancel, el.toggleNotes]) {
+    control.classList.add('hidden');
+  }
+  setPanel('hide-notes', el.toggleNotes, false);
+  el.finish.title = 'End the diagram session';
+  el.scope.textContent = diagram?.doc ? `${diagram.doc.root} · ${diagram.doc.file}` : '';
+  showEmpty('Pick a file to read it.');
+}
+
 // ---- center tabs and side panels ----------------------------------------
 
+// The tab strip shows once the run serves more than the Code pane, opening on the first other one.
+function registerSurfaces(overview, diagram) {
+  if (overview) {
+    surfaces.push({ name: 'overview', tab: el.tabOverview, pane: el.overview, view: overviewView });
+  }
+  if (diagram) {
+    surfaces.push({ name: 'diagram', tab: el.tabDiagram, pane: el.diagram, view: diagramView });
+  }
+  surfaces.push({ name: 'code', tab: el.tabCode, pane: el.code, view: null });
+  for (const surface of surfaces) {
+    surface.tab.classList.remove('hidden');
+  }
+  if (surfaces.length > 1) {
+    el.tabs.classList.remove('hidden');
+    showSurface(surfaces[0].name);
+  }
+}
+
 function showSurface(name) {
-  if (!overviewView.overview || state.surface === name) {
+  if (state.surface === name || !surfaces.some((surface) => surface.name === name)) {
     return;
   }
   state.surface = name;
-  const overview = name === 'overview';
-  el.overview.classList.toggle('off', !overview);
-  el.code.classList.toggle('off', overview);
-  el.tabOverview.classList.toggle('on', overview);
-  el.tabCode.classList.toggle('on', !overview);
-  el.tabOverview.setAttribute('aria-selected', String(overview));
-  el.tabCode.setAttribute('aria-selected', String(!overview));
-  overviewView.show(overview);
+  for (const surface of surfaces) {
+    const shown = surface.name === name;
+    surface.pane.classList.toggle('off', !shown);
+    surface.tab.classList.toggle('on', shown);
+    surface.tab.setAttribute('aria-selected', String(shown));
+    surface.view?.show(shown);
+  }
 }
 
 function setPanel(className, button, shown) {
@@ -215,7 +376,7 @@ function setPanel(className, button, shown) {
 const togglePanel = (className, button) => setPanel(className, button, el.layout.classList.contains(className));
 
 function showPanel(name) {
-  if (!overviewView.overview) {
+  if (surfaces.length < 2) {
     return;
   }
   if (name === 'notes') {
@@ -338,6 +499,10 @@ function treeRow(kind, node, depth, view) {
     }
   });
 
+  row.append(name);
+  if (rounds.standalone) {
+    return row;
+  }
   const count = view.counts.get(`${kind}:${node.path}`) ?? 0;
   const btn = document.createElement('button');
   btn.className = `note-btn${count ? ' has' : ''}`;
@@ -347,7 +512,7 @@ function treeRow(kind, node, depth, view) {
     event.stopPropagation();
     openComposer({ kind, path: node.path });
   });
-  row.append(name, btn);
+  row.append(btn);
   return row;
 }
 
@@ -390,9 +555,9 @@ function showEmpty(text) {
 // Says why a file cannot be shown and drops its cached text, so nothing stale stays on screen.
 function showFileError(path, err) {
   if (err.status === 404 && /no longer exists/.test(err.message)) {
-    showEmpty(`${path} no longer exists. Its notes are kept.`);
+    showEmpty(rounds.standalone ? `${path} no longer exists.` : `${path} no longer exists. Its notes are kept.`);
   } else if (err.status === 404) {
-    showEmpty(`${path} is not in this review's listing. Its notes are kept.`);
+    showEmpty(rounds.standalone ? `${path} is not a file this diagram can open.` : `${path} is not in this review's listing. Its notes are kept.`);
   } else {
     showEmpty(`Could not read ${path}: ${err.message}`);
   }
@@ -405,7 +570,7 @@ function showBinary(path, reason) {
   state.current = { path, lines: null };
   state.selection = null;
   state.view = null;
-  showEmpty(`${path}: ${reason}. Annotate it as a file from the tree.`);
+  showEmpty(rounds.standalone ? `${path}: ${reason}.` : `${path}: ${reason}. Annotate it as a file from the tree.`);
 }
 
 // Reads a file. `fresh` is false when a newer file fetch began before this one answered.
@@ -518,12 +683,14 @@ function renderCode() {
   const box = document.createElement('div');
   box.className = 'lines';
   // One delegated listener for every gutter, however long the file.
-  box.addEventListener('click', (event) => {
-    const gutter = event.target.closest('.gutter');
-    if (gutter) {
-      selectLine(Number(gutter.parentElement.dataset.n), event.shiftKey);
-    }
-  });
+  if (!rounds.standalone) {
+    box.addEventListener('click', (event) => {
+      const gutter = event.target.closest('.gutter');
+      if (gutter) {
+        selectLine(Number(gutter.parentElement.dataset.n), event.shiftKey);
+      }
+    });
+  }
   const nodes = [];
   const tokens = highlightLines(lines, path);
   lines.forEach((text, i) => {
@@ -634,6 +801,9 @@ function applySelection() {
 
 // `existing` is the unsent note being edited; `intent` presets the intent of a new note.
 function openComposer(anchor, { existing = null, intent = existing?.intent ?? 'change' } = {}) {
+  if (rounds.standalone) {
+    return;
+  }
   showPanel('notes');
   state.editing = existing?.id ?? null;
   el.composer.classList.remove('hidden');
@@ -663,7 +833,9 @@ function openComposer(anchor, { existing = null, intent = existing?.intent ?? 'c
       ? 'Something about the scope as a whole.'
       : anchor.kind === 'candidate'
         ? 'Accept, reject or reshape this candidate — and why.'
-        : 'What should change here, or what do you want to know?';
+        : anchor.kind === 'box' || anchor.kind === 'arrow'
+          ? `What should change about this ${anchor.kind}, or what do you want to know?`
+          : 'What should change here, or what do you want to know?';
   body.value = existing?.body ?? '';
 
   const actions = document.createElement('div');
@@ -740,6 +912,7 @@ function afterChange() {
   renderList();
   renderTree();
   overviewView.render();
+  diagramView.notesChanged();
   // Patch the open file in place; commit clears the selection, so repaint it too.
   if (state.view) {
     refreshMarks();
@@ -749,10 +922,11 @@ function afterChange() {
 
 // ---- notes list ----------------------------------------------------------
 
-const KIND_ORDER = { scope: 0, candidate: 1, folder: 2, file: 3, range: 4 };
-const SORT_GROUP = { scope: 0, candidate: 1 };
-const PATH_GROUP = 2;
+const KIND_ORDER = { scope: 0, candidate: 1, box: 2, arrow: 3, folder: 4, file: 5, range: 6 };
+const SORT_GROUP = { scope: 0, candidate: 1, box: 2, arrow: 3 };
+const PATH_GROUP = 4;
 const sortGroup = (anchor) => SORT_GROUP[anchor.kind] ?? PATH_GROUP;
+const sortName = (anchor) => anchor.name ?? anchor.label ?? anchor.path ?? '';
 
 function sortedAnnotations() {
   return [...annotations()].sort((a, b) => {
@@ -760,7 +934,7 @@ function sortedAnnotations() {
     if (groupDiff !== 0) {
       return groupDiff;
     }
-    const nameDiff = (a.anchor.name ?? a.anchor.path ?? '').localeCompare(b.anchor.name ?? b.anchor.path ?? '');
+    const nameDiff = sortName(a.anchor).localeCompare(sortName(b.anchor)) || (a.anchor.id ?? '').localeCompare(b.anchor.id ?? '');
     if (nameDiff !== 0) {
       return nameDiff;
     }
@@ -774,10 +948,13 @@ const SEND_TITLE = el.send.title;
 // Send is offered when the server's rule holds or when the open composer holds a note Send would
 // add first (rounds.sendRound commits it before checking the rule), and never while Send is held.
 function updateSend() {
-  const count = rounds.sendable().length;
+  const notes = rounds.sendable().length;
+  const changes = rounds.changeCount();
+  const count = notes + changes;
   const held = rounds.sendHeld();
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
   el.send.textContent = count ? `Send ${count}` : 'Send';
-  el.send.title = held ? 'The overview could not be loaded: reload the page to send' : SEND_TITLE;
+  el.send.title = held ? 'The overview could not be loaded: reload the page to send' : changes ? `${plural(notes, 'note')}, ${plural(changes, 'diagram change')}` : SEND_TITLE;
   el.send.disabled = rounds.busy || rounds.ended || held || !(rounds.canSend() || Boolean(state.composer?.dirty()));
 }
 
@@ -874,7 +1051,7 @@ function noteItem(a) {
   head.className = 'head';
   const anchor = document.createElement('span');
   anchor.className = 'anchor';
-  anchor.textContent = anchorLabel(a.anchor);
+  anchor.textContent = sent && state.diagram !== null && rounds.removed(a.anchor) ? removedLabel(a.anchor) : anchorLabel(a.anchor);
   anchor.addEventListener('click', () => revealAnchor(a.anchor));
   const tags = document.createElement('span');
   tags.className = 'tags';
@@ -911,9 +1088,15 @@ function noteItem(a) {
   if (sent) {
     item.append(lockedOps(a));
   } else {
-    item.append(rounds.withheld(a) ? withheldOps() : editOps(a));
+    item.append(rounds.withheld(a) ? withheldOps(a) : editOps(a));
   }
   return item;
+}
+
+// A sent box or arrow note whose element the diagram no longer holds, named from its label
+// snapshot.
+function removedLabel(anchor) {
+  return `on removed ${anchor.kind} ‹${anchor.label || anchor.id}›`;
 }
 
 function editOps(a) {
@@ -922,6 +1105,11 @@ function editOps(a) {
   const edit = document.createElement('button');
   edit.textContent = 'edit';
   edit.addEventListener('click', () => openComposer(a.anchor, { existing: a }));
+  ops.append(edit, deleteButton(a));
+  return ops;
+}
+
+function deleteButton(a) {
   const del = document.createElement('button');
   del.className = 'del';
   del.textContent = 'delete';
@@ -934,18 +1122,24 @@ function editOps(a) {
     }
     afterChange();
   });
-  ops.append(edit, del);
-  return ops;
+  return del;
 }
 
-function withheldOps() {
+// A withheld note cannot be edited or sent. A box or arrow note can still be deleted, since its
+// element may never return: new ids never reuse the id a note names.
+function withheldOps(a) {
   const ops = document.createElement('div');
   ops.className = 'ops';
   const label = document.createElement('span');
   label.className = 'muted';
   label.textContent = 'read-only';
-  label.title = "This candidate is not in this run's overview: the note cannot be edited, deleted or sent";
-  ops.append(label);
+  if (a.anchor.kind === 'candidate') {
+    label.title = "This candidate is not in this run's overview: the note cannot be edited, deleted or sent";
+    ops.append(label);
+  } else {
+    label.title = `Its ${a.anchor.kind} is not in the diagram: the note is held back until it returns, and can be deleted but not edited`;
+    ops.append(label, deleteButton(a));
+  }
   return ops;
 }
 
@@ -961,10 +1155,13 @@ function lockedOps(a) {
     reply.addEventListener('click', () => replyTo(a));
   } else {
     reply.disabled = true;
+    const kind = a.anchor.kind;
     reply.title =
-      a.anchor.kind === 'candidate'
+      kind === 'candidate'
         ? `${anchorLabel(a.anchor)} is not a candidate of this run's overview`
-        : `${a.anchor.path} is no longer in this review's listing`;
+        : kind === 'box' || kind === 'arrow'
+          ? `${anchorLabel(a.anchor)} is not in this run's diagram`
+          : `${a.anchor.path} is no longer in this review's listing`;
   }
   ops.append(reply);
   return ops;
@@ -985,6 +1182,12 @@ async function replyTo(a) {
     showSurface('overview');
     overviewView.revealCandidate(anchor.name);
     openComposer({ kind: 'candidate', name: anchor.name }, options);
+    return;
+  }
+  if (anchor.kind === 'box' || anchor.kind === 'arrow') {
+    showSurface('diagram');
+    diagramView.reveal(anchor);
+    openComposer({ kind: anchor.kind, id: anchor.id, label: anchor.label }, options);
     return;
   }
   if (anchor.kind === 'folder') {
@@ -1047,23 +1250,15 @@ function revealAnchor(anchor) {
       showSurface('overview');
       overviewView.revealCandidate(anchor.name);
     }
+  } else if (anchor.kind === 'box' || anchor.kind === 'arrow') {
+    showSurface('diagram');
+    diagramView.reveal(anchor);
   } else {
     el.overall.focus();
   }
 }
 
 // ---- status --------------------------------------------------------------
-
-// Waiting: a round has been sent and the agent has posted no reply for it yet.
-function waiting() {
-  const round = rounds.session.round ?? 0;
-  const forRound = (reply) => reply.round === round;
-  return (
-    round > 0 &&
-    !annotations().some((a) => a.replies?.some(forRound)) &&
-    !(rounds.session.overallReplies ?? []).some(forRound)
-  );
-}
 
 // The strip shows one message, in this order: a lost connection, the last action's message,
 // then the round state.
@@ -1077,10 +1272,14 @@ function renderStatus() {
   } else if (state.notice) {
     text = state.notice.text;
     kind = state.notice.error ? 'error' : '';
+  } else if (rounds.standalone) {
+    text = 'Edits save to the diagram file as you make them; no notes are taken in this session.';
   } else if (round === 0) {
     text = 'Notes go out when you press Send.';
-  } else if (waiting()) {
-    text = `Round ${round} sent — the agent is working. You can keep reading and adding notes.`;
+  } else if (rounds.roundOut()) {
+    text = roundRun()
+      ? `Round ${round} sent — the agent is working. The diagram is read-only until it replies; you can keep adding notes.`
+      : `Round ${round} sent — the agent is working. You can keep reading and adding notes.`;
     kind = 'waiting';
   } else {
     text = `Round ${round} answered — replies are under the notes.`;
@@ -1096,16 +1295,23 @@ function notify(text, { error = false } = {}) {
   renderStatus();
 }
 
-// Says which unsent notes were removed because their anchor left the listing.
+// Says which unsent notes were removed because their anchor left the listing or the diagram.
 function notifyDropped(dropped) {
-  const labels = dropped.map((a) => anchorLabel(a.anchor)).join(', ');
+  const onDiagram = (a) => a.anchor.kind === 'box' || a.anchor.kind === 'arrow';
+  const labels = (list) => list.map((a) => anchorLabel(a.anchor)).join(', ');
+  const listing = dropped.filter((a) => !onDiagram(a));
+  const diagram = dropped.filter(onDiagram);
+  const reasons = [
+    ...(listing.length ? [`${labels(listing)} left this review's listing`] : []),
+    ...(diagram.length ? [`${labels(diagram)} ${diagram.length === 1 ? 'is' : 'are'} not in the diagram`] : []),
+  ];
   const lead = dropped.length === 1 ? 'An unsent note was' : `${dropped.length} unsent notes were`;
-  notify(`${lead} removed: ${labels} left this review's listing.`, { error: true });
+  notify(`${lead} removed: ${reasons.join('; ')}.`, { error: true });
 }
 
 // Disables every control and raises the end-of-run overlay; rounds.js calls it once per run.
 function showEnd(status) {
-  for (const control of document.querySelectorAll('button, textarea, input')) {
+  for (const control of document.querySelectorAll('button, textarea, input, select')) {
     control.disabled = true;
   }
   const count = rounds.session.round ?? 0;
@@ -1114,7 +1320,11 @@ function showEnd(status) {
   card.className = 'card';
   const title = document.createElement('h2');
   const text = document.createElement('p');
-  if (status === 'finished') {
+  if (rounds.standalone) {
+    const interrupted = status === 'interrupted';
+    title.textContent = interrupted ? 'Diagram session interrupted' : 'Diagram session finished';
+    text.textContent = interrupted ? 'The server stopped. You can close this tab.' : 'You can close this tab.';
+  } else if (status === 'finished') {
     title.textContent = 'Review finished';
     text.append(`${sent} `);
     if (rounds.session.out) {
@@ -1140,13 +1350,33 @@ function showEnd(status) {
   document.body.append(overlay);
 }
 
-el.send.addEventListener('click', rounds.sendRound);
-el.finish.addEventListener('click', rounds.finishRun);
-el.cancel.addEventListener('click', rounds.cancelRun);
+// A run that edits a diagram ends once the last diagram edit has reached the server, or once the
+// human accepts that it did not.
+async function finish() {
+  if (rounds.standalone || roundRun()) {
+    const saved = await diagramView.flush();
+    if (saved?.phase === 'failed' && !window.confirm('The last diagram edit was not saved. Finish anyway?')) {
+      return;
+    }
+  }
+  await rounds.finishRun();
+}
+
+async function cancel() {
+  if (roundRun()) {
+    await diagramView.flush();
+  }
+  await rounds.cancelRun();
+}
+
+el.send.addEventListener('click', send);
+el.finish.addEventListener('click', finish);
+el.cancel.addEventListener('click', cancel);
 
 el.filter.addEventListener('input', () => setFilter(el.filter.value));
 
 el.tabOverview.addEventListener('click', () => showSurface('overview'));
+el.tabDiagram.addEventListener('click', () => showSurface('diagram'));
 el.tabCode.addEventListener('click', () => showSurface('code'));
 el.toggleFiles.addEventListener('click', () => togglePanel('hide-tree', el.toggleFiles));
 el.toggleNotes.addEventListener('click', () => togglePanel('hide-notes', el.toggleNotes));
