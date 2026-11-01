@@ -59,7 +59,7 @@ Review reads and posts PR state via `gh`. After the arguments gate and before an
     && gh pr list --state open --limit 200 --author "@me" --base "$DEFAULT_BRANCH" \
          --json number,headRefOid,title,isDraft --jq '[.[] | select(.isDraft | not)]'
   ```
-  Drafts, other authors' PRs and PRs into other branches are not reviewed. A non-zero exit — a failed or empty default-branch lookup, or a failed list — prints the one line "couldn't review (PR list unavailable: `<reason>`)" and exits. An empty list → "No open PRs." and exit cleanly.
+  Drafts, other authors' PRs and PRs into other branches are not reviewed. A non-zero exit — a failed or empty default-branch lookup, or a failed list — prints the one line "couldn't review (PR list unavailable: `<reason>`)" and exits. An empty list → "No open non-draft PRs of yours into `<default branch>`." and exit cleanly.
 - **Single (`<PR>` given)**: accept a PR number or URL. `gh pr view "<PR>" --json number,headRefOid,title` resolves either form, and the PR's author, draft state and base do not filter it. If it doesn't resolve to an open PR, report "`<PR>` is not an open PR" and exit.
 
 Build a TodoWrite item per PR so the per-run summary (Step 5) is recoverable.
