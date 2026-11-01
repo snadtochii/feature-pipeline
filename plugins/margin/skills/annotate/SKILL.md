@@ -73,10 +73,11 @@ changes. Nothing is edited before the round's confirmation in §3.
    absolute path and check that it exists (`test -f`). Missing → say the notes file was not
    found, name the absolute path, and stop. Then read `<last>`, the last round handled, from
    it now, before the server starts: the viewer can send a round as soon as it opens, and a
-   round sent before `<last>` is read would be skipped.
+   round sent before `<last>` is read would be skipped. Pass the existing-file `--diagram`
+   given with `--resume`, as an absolute path, or `""` when there is none or it is a topic:
 
    ```bash
-   node -p 'const n = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const notes = Array.isArray(n.annotations) ? n.annotations : []; const rounds = Array.isArray(n.rounds) ? n.rounds.length : 0; const diagram = typeof n.diagram === "string" ? n.diagram : null; const answered = notes.some((a) => a && Array.isArray(a.replies) && a.replies.some((r) => r && r.round === rounds)) || (Array.isArray(n.overallReplies) ? n.overallReplies : []).some((r) => r && r.round === rounds); const out = diagram !== null && rounds > 0 && !answered; `round ${rounds}, ${notes.filter((a) => a && a.round !== undefined && !(a.replies && a.replies.length) && !(out && a.round === rounds)).length} sent without a reply, diagram ${diagram === null ? "none" : JSON.stringify(diagram)}${out ? ", last round out" : ""}`' "<absolute-notes-file>"
+   node -p 'const n = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const named = process.argv[2] || ""; const notes = Array.isArray(n.annotations) ? n.annotations : []; const rounds = Array.isArray(n.rounds) ? n.rounds.length : 0; const diagram = typeof n.diagram === "string" ? n.diagram : null; const answered = notes.some((a) => a && Array.isArray(a.replies) && a.replies.some((r) => r && r.round === rounds)) || (Array.isArray(n.overallReplies) ? n.overallReplies : []).some((r) => r && r.round === rounds); const out = (diagram !== null || named !== "") && rounds > 0 && !answered; `round ${rounds}, ${notes.filter((a) => a && a.round !== undefined && !(a.replies && a.replies.length) && !(out && a.round === rounds)).length} sent without a reply, diagram ${diagram === null ? "none" : JSON.stringify(diagram)}${out ? ", last round out" : ""}`' "<absolute-notes-file>" "<diagram or empty>"
    ```
 
    `<last>` is the printed round: the number of stored `rounds`, which the server keeps as
@@ -86,7 +87,8 @@ changes. Nothing is edited before the round's confirmation in §3.
 
    The line also names the diagram the notes file records, or `none`. With `last round out`,
    an earlier run sent that round and never replied, so the server keeps the diagram read-only
-   until it is answered ([CONTRACT.md](../../CONTRACT.md) §8): `<last>` is the printed round
+   until it is answered ([CONTRACT.md](../../CONTRACT.md) §8) — the diagram the run reopens,
+   whether the notes file records it or `--diagram` names it: `<last>` is the printed round
    minus one, and the first wait returns that round at once. Its starting file is no longer
    recoverable — the recorded `baseline` is the document it sent — so §3 offers no revert of
    its `remove-box` and `remove-arrow` changes. A topic given as `--diagram` on a resume is
