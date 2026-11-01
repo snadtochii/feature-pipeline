@@ -699,7 +699,9 @@ notes and M changes read (round <R>)" and its table holds the change rows alone.
 Then ask one question: do the structural rows here, hand everything to `/feature:discover`,
 or adjust the table? When the table holds change rows, the same question asks keep, revert or
 redraw for each, defaulting to its planned action, and names any removal a resumed round
-cannot revert. A `held:` row is done in §4 only when the answer names it; otherwise it is
+cannot revert. Handing everything to `/feature:discover` hands off no `redraw` or `change` row:
+they are the round's edits to the diagram, which only this round's reply can bring back to
+the server (§4), so each still takes its planned action in §4. A `held:` row is done in §4 only when the answer names it; otherwise it is
 left out of §4 and stays available to §5. When the table holds accepted candidate rows, the
 same question asks which route each takes: a `/feature:discover` ticket or a `/deepen:run --pin`
 run. Handing everything to `/feature:discover` sends them as tickets; a declined candidate
@@ -760,8 +762,8 @@ here is what §6 replies to its note.
 
 Behavioural rows, or a batch too large for one sitting, go to the pipeline through
 `/feature:discover`. Handing everything off from §3 sends every row, open questions included,
-except the candidate rows §3 never hands off: a declined candidate, and an accepted one the
-overview no longer holds. The anchors travel into the ticket so the implementer finds the places the human meant.
+except the `redraw` and `change` rows §4 settles and the candidate rows §3 never hands off: a
+declined candidate, and an accepted one the overview no longer holds. The anchors travel into the ticket so the implementer finds the places the human meant.
 Accepted candidate rows take the route §3's answer named for each: the discover route joins
 this hand-off, and the deepen route is printed for the human to run (step 5).
 
