@@ -674,7 +674,12 @@ longer exists — removed, or a parent folder replaced by a file — answers 404
    is fresh and its notes file is created there (§5), and `--overview` naming the overview
    file assembled beside it, `<stamp>.overview.json`. A resume passes `--overview` with the
    notes file's sibling — its path with the trailing `.json` replaced by `.overview.json` —
-   when that file exists. It passes `--port` only when the
+   when that file exists. A run with a diagram passes `--diagram` with the diagram file as an
+   absolute path (§4, §15). A fresh run whose diagram the agent draws passes `--out
+   <root>/claudedocs/margin/<stamp>.json` too, with the drawn diagram beside it at
+   `<stamp>.diagram.json` — one stamp names the notes file, the overview and the diagram. A
+   resume passes `--diagram` only to reopen the notes against another file than the one they
+   record (§5). It passes `--port` only when the
    user gave one, so the server otherwise binds a free port, and no `--token`, so the server
    mints the token.
 3. **Read the URL.** It waits, bounded, for the stderr block's first line (§2), `margin:
@@ -686,7 +691,10 @@ longer exists — removed, or a parent folder replaced by a file — answers 404
    and the notes file the block names. The last round it treats as handled is `0` on a fresh
    run; on a resume, it is the number of `rounds` in the notes file it passes as `--out`, read
    before step 2 starts the server, since the viewer can send a round as soon as it opens.
-   The server keeps those rounds as stored and resumes from their count (§5).
+   The server keeps those rounds as stored and resumes from their count (§5). In a run with a
+   diagram whose last stored round has no reply yet — the diagram stays locked until it has
+   one (§8) — it is that count minus one, so the first wait returns that round at once and
+   its reply lifts the lock.
 5. **Wait for a round.** It runs `cli.mjs wait <url> --after <n>` (§1, §4) as a background
    command, with the URL from step 3 and `<n>` the last round handled, one wait at a time,
    and does not read the notes file while the wait is held. A `sent` wait document → step 6;
@@ -699,7 +707,10 @@ longer exists — removed, or a parent folder replaced by a file — answers 404
    `changes` of its `rounds` entries (§6), and the agent may rewrite the diagram file before
    step 7's reply, which the server re-reads and checks (§8).
 7. **Reply.** After acting on the round, it sends one `POST /api/reply` (§8) with that
-   `round`, one entry per distinct note `id` of the round, and an overall reply. A 400 or 500
+   `round`, one entry per distinct note `id` of the round, and an overall reply. In a run with
+   a diagram, the agent rewrites the diagram file only before this reply — reverting or
+   redrawing the round's changes — and runs `cli.mjs diagram --check` (§1) on it first; a 400
+   `diagram <file>: <reason>` is fixed and sent once more. A 400 or 500
    applied nothing and may be sent again; a request whose outcome is unknown is not sent
    again, since a repeat appends twice (§16, retried replies). A 409 means the run has ended
    → step 9. Otherwise step 5, with `<n>` that round.
@@ -710,7 +721,7 @@ longer exists — removed, or a parent folder replaced by a file — answers 404
    file at `out` for the run's summary.
 
 The server never reads the skill's state: its whole input is its argument vector, the files
-under the root, the overview file `--overview` names (§13), and the requests of the viewer and of the skill (Finish, replies). The skill's
+under the root, the overview file `--overview` names (§13), the diagram file `--diagram` names (§15), and the requests of the viewer and of the skill (Finish, replies). The skill's
 whole input from the server is the stdout result document, the wait documents, the answers to
 its reply and Finish requests, the URL on the stderr block's first line, and the notes file —
 between rounds and after exit; the rest of the stderr block is for the human.
