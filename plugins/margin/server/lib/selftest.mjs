@@ -22,7 +22,9 @@
 // untouched), the bounds and the fit transform, and a
 // diagram session's listing of linked regular files only. It checks the viewer's diagram edits:
 // each edit checked and its input untouched, removals cleaning walkthrough steps, ids, the group
-// a dropped box lands in, the layouts, the positions an edit writes, and the save ordering with its failures. It checks the note rules (the anchor rule per kind,
+// a dropped box lands in, the layouts, the positions an edit writes, and the save ordering with its failures. It checks
+// the diagram canvas's gestures over a fake canvas: what a click and a double-click report, a
+// move's preview, drop and cancel, a connect's drop, pan, wheel and pinch. It checks the note rules (the anchor rule per kind,
 // a new candidate note outside the overview refusing the write, a box or arrow note taking its
 // label from the diagram and a new one outside it refusing the write, range validity, the
 // excerpt cap),
@@ -528,6 +530,7 @@ const loadDiagramModel = () => import('../../ui/diagram.js');
 const loadDiagramReader = () => import('./diagram.mjs');
 const loadDiagramEdit = () => import('../../ui/diagram-edit.js');
 const loadDiagramDiff = () => import('../../ui/diagram-diff.js');
+const loadDiagramGestures = () => import('../../ui/diagram-gestures.js');
 
 const tick =() => new Promise((resolve) => setImmediate(resolve));
 
@@ -536,6 +539,81 @@ const tick =() => new Promise((resolve) => setImmediate(resolve));
 const diagramBox = (id, extra = {}) => ({ id, label: id.toUpperCase(), kind: 'module', files: [], ...extra });
 const diagramArrow = (id, from, to) => ({ id, from, to, label: '', why: '' });
 const diagramOf = (parts) => ({ groups: [], boxes: [], arrows: [], walkthroughs: [], ...parts });
+
+function fakeCanvas() {
+  const listeners = new Map();
+  const classes = new Set();
+  const captured = new Set();
+  return {
+    classes,
+    captured,
+    addEventListener: (name, listener) => listeners.set(name, listener),
+    fire: (name, event = {}) => listeners.get(name)({ button: 0, pointerId: 1, pointerType: 'mouse', clientX: 0, clientY: 0, hit: {}, preventDefault() {}, ...event }),
+    getBoundingClientRect: () => ({ left: 0, top: 0 }),
+    setPointerCapture: (id) => captured.add(id),
+    hasPointerCapture: (id) => captured.has(id),
+    releasePointerCapture: (id) => captured.delete(id),
+    classList: {
+      add: (...names) => names.forEach((name) => classes.add(name)),
+      remove: (...names) => names.forEach((name) => classes.delete(name)),
+    },
+  };
+}
+
+// Gestures over a fake canvas: `log` records what they report, in order, and a press's `hit` is
+// what it landed on.
+async function gestureRig({ doc, editable = true }) {
+  const { createGestures } = await loadDiagramGestures();
+  const rig = { canvas: fakeCanvas(), log: [], doc, editable, view: { x: 0, y: 0, k: 1 }, time: 1000, bands: [] };
+  const report = (name) => (...args) => rig.log.push([name, ...args]);
+  rig.gestures = createGestures({
+    now: () => rig.time,
+    host: {
+      canEdit: () => rig.editable,
+      document: () => rig.doc,
+      view: () => rig.view,
+      setView(view) {
+        rig.view = view;
+      },
+      hit: (event) => ({ box: null, arrow: null, handle: false, ...event.hit }),
+      settle: report('settle'),
+      preview(next) {
+        rig.doc = next;
+        rig.log.push(['preview']);
+      },
+      moved: report('moved'),
+      connected: report('connected'),
+      select: report('select'),
+      clearSelection: report('clear'),
+      rename: report('rename'),
+      add: report('add'),
+      rubberBand(from, to) {
+        const band = { from, to, removed: false, moveTo(point) { band.to = point; }, remove() { band.removed = true; } };
+        rig.bands.push(band);
+        return band;
+      },
+    },
+  });
+  rig.gestures.attach(rig.canvas);
+  rig.reported = () => rig.log.filter(([name]) => name !== 'settle');
+  rig.press = (clientX, clientY, hit = {}, extra = {}) => rig.canvas.fire('pointerdown', { clientX, clientY, hit, ...extra });
+  rig.drag = (clientX, clientY, extra = {}) => rig.canvas.fire('pointermove', { clientX, clientY, ...extra });
+  rig.lift = (clientX, clientY, extra = {}) => rig.canvas.fire('pointerup', { clientX, clientY, ...extra });
+  rig.click = (clientX, clientY, hit = {}) => {
+    rig.press(clientX, clientY, hit);
+    rig.lift(clientX, clientY);
+  };
+  return rig;
+}
+
+async function gestureDocument() {
+  const { checkDiagram } = await loadDiagramModel();
+  return checkDiagram(diagramOf({
+    groups: [{ id: 'g', label: 'G' }],
+    boxes: [diagramBox('a', { x: 0, y: 0 }), diagramBox('b', { x: 300, y: 0 }), diagramBox('c', { group: 'g', x: 600, y: 0 })],
+    arrows: [diagramArrow('ab', 'a', 'b')],
+  }));
+}
 
 // Every field present somewhere, every entry's keys written out of canonical order, one box with
 // both optional fields and one with neither, and a group with no members.
@@ -2175,7 +2253,7 @@ const CASES = [
     await withServer(async ({ port, host }) => {
       const none = await request(port, { target: '/api/diagram', headers: { host, 'x-margin-token': TOKEN } });
       assertEqual([none.status, none.json], [404, { error: 'no diagram' }], 'the diagram route on a run without one');
-      for (const asset of ['/diagram.js', '/diagram-edit.js', '/diagram-diff.js', '/diagram-view.js']) {
+      for (const asset of ['/diagram.js', '/diagram-edit.js', '/diagram-gestures.js', '/diagram-rename.js', '/diagram-diff.js', '/diagram-view.js']) {
         const res = await request(port, { target: asset, headers: { host } });
         assert(res.status === 200 && res.type === 'text/javascript; charset=utf-8', `${asset} got ${res.status} ${res.type}`);
       }
@@ -2319,6 +2397,186 @@ const CASES = [
     assertEqual(moved.boxes.map((box) => [box.x, box.y]), laid.boxes.map((box) => (box.id === 'a' ? [10, 20] : [box.x, box.y])), 'a move wrote positions other than the ones drawn');
     assert(placed(edit.addBox(laid, { id: 'box-1', x: 0, y: 300, label: 'New' })), 'an added box left a box unpositioned');
     assert(placed(edit.relayout(stored)), 'a re-layout left a box unpositioned');
+  }],
+  ['diagram gestures: a click selects what it landed on, and only a second close click is a double-click', async () => {
+    const rig = await gestureRig({ doc: await gestureDocument() });
+    rig.click(10, 10, { box: 'a' });
+    rig.time += 1000;
+    rig.click(100, 100, { arrow: 'ab' });
+    rig.time += 1000;
+    rig.click(500, 500);
+    assertEqual(rig.reported(), [['select', { type: 'box', id: 'a' }], ['select', { type: 'arrow', id: 'ab' }], ['clear']], 'single clicks');
+    assertEqual(rig.log.filter(([name]) => name === 'settle').length, 3, 'each press settles the rename field first');
+    rig.canvas.fire('pointerdown', { button: 2, clientX: 10, clientY: 10, hit: { box: 'a' } });
+    assert(!rig.gestures.pressing(), 'a press with another button is no press');
+
+    const twice = async (first, second, gap = 100, far = 0) => {
+      const r = await gestureRig({ doc: await gestureDocument() });
+      r.click(10, 10, first);
+      r.time += gap;
+      r.click(10 + far, 10, second);
+      return r;
+    };
+    assertEqual((await twice({ box: 'a' }, { box: 'a' })).reported().at(-1), ['rename', { type: 'box', id: 'a' }], 'a double-click on a box');
+    assertEqual((await twice({ arrow: 'ab' }, { arrow: 'ab' })).reported().at(-1), ['rename', { type: 'arrow', id: 'ab' }], 'a double-click on an arrow');
+    const added = await twice({}, {});
+    assertEqual(added.reported().at(-1), ['add', { x: 10, y: 10 }], 'a double-click on empty canvas, at its world point');
+    assert(added.gestures.takeClick(), 'the click after an add is swallowed');
+    assert(!added.gestures.takeClick(), 'and only that one');
+    assertEqual((await twice({ box: 'a' }, { box: 'b' })).reported().at(-1), ['select', { type: 'box', id: 'b' }], 'a second click on something else');
+    assertEqual((await twice({ box: 'a' }, { box: 'a' }, 401)).reported().at(-1), ['select', { type: 'box', id: 'a' }], 'a second click too late');
+    assertEqual((await twice({ box: 'a' }, { box: 'a' }, 100, 7)).reported().at(-1), ['select', { type: 'box', id: 'a' }], 'a second click too far');
+
+    const locked = await gestureRig({ doc: await gestureDocument(), editable: false });
+    locked.click(10, 10, { box: 'a' });
+    locked.click(10, 10, { box: 'a' });
+    assertEqual(locked.reported().at(-1), ['select', { type: 'box', id: 'a' }], 'a double-click that may not edit selects');
+
+    const third = await twice({ box: 'a' }, { box: 'a' });
+    third.click(10, 10, { box: 'a' });
+    assertEqual(third.reported().at(-1), ['select', { type: 'box', id: 'a' }], 'a third click starts over');
+
+    const dragged = await gestureRig({ doc: await gestureDocument() });
+    dragged.click(10, 10, { box: 'a' });
+    dragged.press(10, 10, { box: 'a' });
+    dragged.drag(50, 10);
+    dragged.drag(10, 10);
+    dragged.lift(10, 10);
+    dragged.time += 1;
+    dragged.click(10, 10, { box: 'a' });
+    assertEqual(dragged.reported().at(-1), ['select', { type: 'box', id: 'a' }], 'a drag between two clicks is no half of a double-click');
+  }],
+  ['diagram gestures: a move previews, drops as one edit and goes back on a cancel', async () => {
+    const base = await gestureDocument();
+    const rig = await gestureRig({ doc: base });
+    rig.press(10, 10, { box: 'a' });
+    assert(rig.gestures.pressing(), 'a press is in progress');
+    rig.drag(14, 10);
+    assertEqual(rig.reported(), [], 'a drag within the threshold is nothing yet');
+    rig.drag(60, 30);
+    assert(rig.canvas.classes.has('moving') && rig.canvas.captured.has(1), 'the move captures the pointer');
+    assertEqual([rig.doc.boxes[0].x, rig.doc.boxes[0].y], [50, 20], 'the preview follows the pointer');
+    rig.lift(110, 40);
+    const [name, id, from, next] = rig.reported().at(-1);
+    assertEqual([name, id], ['moved', 'a'], 'the drop reports the move');
+    assert(from === base, 'the move reports the document it started from');
+    assertEqual([next.boxes[0].x, next.boxes[0].y], [100, 30], 'the drop lands where the pointer did');
+    assert(!('group' in next.boxes[0]), 'a drop outside every frame keeps no group');
+    assert(!rig.gestures.pressing() && rig.canvas.captured.size === 0 && !rig.canvas.classes.has('moving'), 'the drop ends the press');
+    assert(rig.gestures.takeClick(), 'the click after a drop is swallowed');
+    await sleep(5);
+    rig.canvas.fire('pointermove', { clientX: 200, clientY: 200 });
+    assert(!rig.gestures.takeClick(), 'an unclaimed swallow does not outlive its click');
+
+    const grouped = await gestureRig({ doc: base });
+    grouped.press(0, 0, { box: 'a' });
+    grouped.drag(600, 0);
+    grouped.lift(600, 0);
+    assertEqual(grouped.reported().at(-1)[3].boxes[0].group, 'g', 'a drop inside a frame takes the box into the group');
+
+    const cancelled = await gestureRig({ doc: base });
+    assert(!cancelled.gestures.cancel(), 'nothing to cancel without a press');
+    cancelled.press(10, 10, { box: 'a' });
+    cancelled.drag(60, 30);
+    assert(cancelled.gestures.cancel(), 'a move cancels');
+    assert(cancelled.doc === base, 'the cancelled move puts the box back');
+    assert(!cancelled.gestures.pressing() && cancelled.canvas.captured.size === 0, 'the cancel ends the press');
+    cancelled.lift(60, 30);
+    assert(!cancelled.reported().some(([what]) => what === 'moved'), 'a cancelled move reports no drop');
+
+    const interrupted = await gestureRig({ doc: base });
+    interrupted.press(10, 10, { box: 'a' });
+    interrupted.drag(60, 30);
+    interrupted.canvas.fire('pointercancel');
+    assert(interrupted.doc === base && !interrupted.gestures.pressing(), 'a pointercancel puts the box back');
+
+    const redrawn = await gestureRig({ doc: base });
+    redrawn.press(10, 10, { box: 'a' });
+    redrawn.gestures.attach(fakeCanvas());
+    assert(!redrawn.gestures.pressing(), 'a new canvas ends the press on the old one');
+    redrawn.press(10, 10, { box: 'a' });
+    redrawn.gestures.detach();
+    assert(!redrawn.gestures.pressing() && !redrawn.gestures.cancel(), 'with no canvas there is nothing to press or cancel');
+  }],
+  ['diagram gestures: the handle connects only to another box, and a press that may not edit pans', async () => {
+    const base = await gestureDocument();
+    const rig = await gestureRig({ doc: base });
+    rig.press(150, 20, { box: 'a', handle: true });
+    assertEqual(rig.bands.length, 1, 'the handle draws the rubber band at once');
+    rig.drag(250, 25);
+    assertEqual(rig.bands[0].to, { x: 250, y: 25 }, 'the band follows the pointer');
+    rig.lift(310, 10);
+    assertEqual(rig.reported().at(-1), ['connected', 'a', 'b'], 'a drop on another box connects');
+    assert(rig.bands[0].removed && rig.canvas.captured.size === 0, 'the drop removes the band and the capture');
+
+    const missed = async (x, y) => {
+      const r = await gestureRig({ doc: base });
+      r.press(150, 20, { box: 'a', handle: true });
+      r.drag(x, y);
+      r.lift(x, y);
+      return r;
+    };
+    assertEqual((await missed(100, 500)).reported(), [], 'a drop on empty canvas draws nothing');
+    assertEqual((await missed(10, 10)).reported(), [], 'a drop on the source box draws nothing');
+
+    const refused = await gestureRig({ doc: base });
+    refused.press(150, 20, { box: 'a', handle: true });
+    refused.editable = false;
+    refused.lift(310, 10);
+    assertEqual(refused.reported(), [], 'a drop that may no longer edit draws nothing');
+
+    const cancelled = await gestureRig({ doc: base });
+    cancelled.press(150, 20, { box: 'a', handle: true });
+    assert(cancelled.gestures.cancel() && cancelled.bands[0].removed, 'a connect cancels and removes its band');
+    assertEqual(cancelled.reported(), [], 'a cancelled connect reports nothing');
+
+    const locked = await gestureRig({ doc: base, editable: false });
+    locked.press(150, 20, { box: 'a', handle: true });
+    assertEqual(locked.bands.length, 0, 'a handle that may not edit draws no band');
+    locked.drag(170, 40);
+    assert(locked.canvas.classes.has('panning'), 'a drag on a box that may not edit pans');
+    assertEqual(locked.view, { x: 20, y: 20, k: 1 }, 'the pan follows the pointer');
+    assertEqual(locked.reported(), [], 'a pan reports nothing');
+    assert(!locked.gestures.cancel(), 'a pan is not a gesture to cancel');
+    locked.lift(170, 40);
+    assert(!locked.canvas.classes.has('panning') && locked.gestures.takeClick(), 'the end of a pan swallows its click');
+  }],
+  ['diagram gestures: the wheel pans and zooms, and a second finger turns the press into a pinch', async () => {
+    const base = await gestureDocument();
+    const rig = await gestureRig({ doc: base });
+    let prevented = 0;
+    const wheel = (extra) => rig.canvas.fire('wheel', { deltaX: 0, deltaY: 0, deltaMode: 0, preventDefault() { prevented += 1; }, ...extra });
+    wheel({ deltaX: 5, deltaY: 7 });
+    assertEqual(rig.view, { x: -5, y: -7, k: 1 }, 'a plain wheel pans');
+    wheel({ clientX: 0, clientY: 0, deltaY: -100, ctrlKey: true });
+    assert(rig.view.k > 1, 'a Ctrl wheel zooms in');
+    assertEqual([prevented, rig.log.filter(([name]) => name === 'settle').length], [2, 2], 'a wheel turn is handled and settles the rename field');
+
+    const touch = { pointerType: 'touch' };
+    const pinched = await gestureRig({ doc: base });
+    pinched.press(100, 100, { box: 'a' }, { ...touch, pointerId: 1 });
+    pinched.drag(150, 100, { ...touch, pointerId: 1 });
+    assert(pinched.doc !== base, 'one finger moves the box');
+    pinched.press(250, 100, {}, { ...touch, pointerId: 2 });
+    assert(pinched.doc === base, 'the second finger puts the box back');
+    assert(!pinched.gestures.pressing(), 'and ends the press');
+    const before = pinched.reported().length;
+    pinched.drag(350, 100, { ...touch, pointerId: 2 });
+    assert(pinched.view.k > 1, 'the fingers spreading zoom in');
+    assertEqual(pinched.reported().length, before, 'a pinch reports no edit');
+    pinched.lift(350, 100, { ...touch, pointerId: 2 });
+    assert(pinched.gestures.takeClick(), 'a lifted finger ends the pinch and swallows its click');
+    const zoom = pinched.view.k;
+    pinched.drag(500, 100, { ...touch, pointerId: 1 });
+    pinched.lift(500, 100, { ...touch, pointerId: 1 });
+    assertEqual(pinched.view.k, zoom, 'the last finger neither zooms nor pans');
+    assert(!pinched.reported().some(([what]) => what === 'select' || what === 'moved'), 'nor does its lift select or drop');
+
+    const other = await gestureRig({ doc: base });
+    other.press(10, 10, { box: 'a' }, { pointerId: 1 });
+    other.drag(100, 100, { pointerId: 9 });
+    other.lift(100, 100, { pointerId: 9 });
+    assert(other.gestures.pressing() && other.reported().length === 0, 'another pointer does not touch the press');
   }],
   ['diagram edit: the saver keeps one save in flight and sends the newest document next', async () => {
     const { createSaver } = await loadDiagramEdit();

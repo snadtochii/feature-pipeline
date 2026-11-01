@@ -530,7 +530,7 @@ request passes the guards of §9 first. Thirteen routes:
 
 | Route | Token | Request | Response |
 |---|---|---|---|
-| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/rounds.js`, `/overview.js`, `/overview-view.js`, `/diagram.js`, `/diagram-edit.js`, `/diagram-diff.js`, `/diagram-view.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
+| `GET /` | no | — | The viewer page. Its static assets, `GET /app.js`, `/syntax.js`, `/rounds.js`, `/overview.js`, `/overview-view.js`, `/diagram.js`, `/diagram-edit.js`, `/diagram-gestures.js`, `/diagram-rename.js`, `/diagram-diff.js`, `/diagram-view.js`, `/vendor/highlight.min.js`, `/vendor/dockerfile.min.js` and `/style.css`, are served the same way and belong to this route. |
 | `GET /api/overview` | yes | — | 200 with the overview document as checked (§13). 404 `{"error": "no overview"}` when the run has none. Served until the process exits. |
 | `GET /api/diagram` | yes | — | 200 `{"file", "root", "document"}`: the diagram file's absolute path, the run's root, and the diagram document as checked (§15) when the run started, as last saved, or as re-read at a reply, not laid out. In an `annotate` run the body also carries `baseline`, the current round's starting file (§6). 404 `{"error": "no diagram"}` when the run has none — an `annotate` run without a diagram (§4). Served until the process exits. |
 | `PUT /api/diagram` | yes | `{"document": <diagram>}` | Saves the diagram file, in a diagram session and in an `annotate` run with a diagram. In an `annotate` run, while a round is out — the round count is above 0 and neither a note nor `overallReplies` holds a reply for the last round — the reply is 409 `{"error": "a round is out"}` and nothing is written; this is checked after the body is read, before the checks below. The checks run in this order, each answering 400 `{"error"}` with the file untouched: `document` missing or not an object (`document is not an object`); the document fails §15 (the violation, worded as `diagram --check` words it after `diagram <file>:`); its canonical text exceeds 2 MiB (`diagram too large`). The file is then read again: when it is gone, unreadable, or not the text the session last read or wrote, the reply is 409 `{"error": "the diagram file changed on disk"}` and nothing is written. Otherwise the canonical text (§15) is written atomically — to a temporary file in the same directory, renamed over the file, keeping the file's permission bits — becomes the document `GET /api/diagram` serves, and the reply is 200 `{"ok": true, "savedAt": <ISO time>}`. A write that fails answers 500 `{"error"}` and the file keeps its previous text. In an `annotate` run the saved document also becomes the one the anchor rule checks new `box` and `arrow` notes against (§7) and the one the listing's next computation takes its linked files from (§10). In an `annotate` run without a diagram the route answers 404 `{"error": "not found"}`. |
@@ -787,7 +787,12 @@ centre and keeping its group outside every frame, the re-layout, an edit that pl
 changing only its own element's line and positioning no box, and a move, an added box or a
 re-layout positioning every box — and the save ordering:
 one save in flight, the newest document sent next, a 4xx dropping the waiting document and any
-other failure keeping it for a retry; the anchor rule of §7 for every kind — a `candidate` anchor kept for a name of the
+other failure keeping it for a retry; the diagram canvas's gestures over a fake canvas — a click
+selecting what it landed on, a double-click only for a second close click on the same target and
+never across a drag, a move previewing, dropping as one edit into the frame holding the box's
+centre and going back on a cancel or a second finger, a connect only onto another box, a press
+that may not edit panning, the wheel panning and zooming, and the click that ends a drag or a
+pinch swallowed once; the anchor rule of §7 for every kind — a `candidate` anchor kept for a name of the
 run's overview, dropped for any other name or a name that breaks §13's rule, and checked for
 shape only when read back — a new candidate note outside the overview, a name that breaks
 §13's rule or is missing included, refusing the write with each failing entry named, while a
@@ -878,7 +883,8 @@ document included, and a save over a file changed on disk or deleted answering 4
 leaving the file byte for byte and mode as it was with no temporary file; a save after the end
 refused 409; and the route answering 404 in a diagram session without a writer and in an
 `annotate` run without one — a run without a diagram answering `no diagram`, and `/diagram.js`,
-`/diagram-edit.js`, `/diagram-diff.js` and `/diagram-view.js` served. A few cases run
+`/diagram-edit.js`, `/diagram-gestures.js`, `/diagram-rename.js`, `/diagram-diff.js` and
+`/diagram-view.js` served. A few cases run
 `cli.mjs` itself: each refusal of §5, the scope check and each `--overview` refusal of §13 exit
 with the error document and leave an existing `--out` file byte for byte as it was, and an
 empty `--overview` exits 2; `wait`'s invocation

@@ -8,25 +8,20 @@
 // screen become the file's; every other edit runs on the saved one, so a box the file leaves
 // unpositioned stays unpositioned. Every position comes from
 // ./diagram.js's model, and diagram text reaches the page through textContent only. It owns its
-// nodes, the open card and the keys and clicks that drive them; leaving the tab goes through the
-// callbacks createDiagramView takes.
+// nodes, the open card and the keys that drive them; what a press on the canvas means is
+// ./diagram-gestures.js, and the rename field is ./diagram-rename.js. Leaving the tab goes through
+// the callbacks createDiagramView takes.
 
-import { KINDS, arrowGeometry, boxLabel, boxSize, diagramBounds, fitTransform, groupFrames, wheelZoomFactor, zoomView } from './diagram.js';
-import { addBox, connect, createIds, createSaver, dropFrames, dropGroup, freeze, groupAt, moveBox, relabelArrow, relayout, removeArrow, removeBox, renameBox, setGroup, setKind } from './diagram-edit.js';
+import { KINDS, arrowGeometry, boxLabel, boxSize, diagramBounds, fitTransform, groupFrames } from './diagram.js';
+import { addBox, connect, createIds, createSaver, freeze, groupAt, relabelArrow, relayout, removeArrow, removeBox, renameBox, setGroup, setKind } from './diagram-edit.js';
+import { createGestures } from './diagram-gestures.js';
+import { createRenameField } from './diagram-rename.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const PAN_THRESHOLD = 4;
 const ARROW_LABEL_CHAR = 6.2;
 const HANDLE_RADIUS = 6;
 const BADGE_HEIGHT = 16;
-// Two clicks this close in time and space are a double-click; it is timed here because a press
-// that ends a drag must never count as half of one.
-const DOUBLE_CLICK_MS = 400;
-const DOUBLE_CLICK_PX = 6;
 const NEW_BOX_LABEL = 'New box';
-const RENAME_HEIGHT = 28;
-const RENAME_BOX_MIN = 160;
-const RENAME_ARROW_WIDTH = 180;
 
 function svg(tag, attrs, parent) {
   const node = document.createElementNS(SVG_NS, tag);
@@ -96,10 +91,6 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     saver: null, // the save ordering of ./diagram-edit.js while editable
     ids: null, // the session's id allocator, seeded from the served document
     bar: null, // the save bar's message: { text, retry }, or null
-    // The rename field open: { type, id, input }, plus for a box being added { base, spec }: the
-    // document before it and the addBox arguments; null when closed.
-    rename: null,
-    lastClick: null, // the click that may start a double-click: { time, x, y, target }
     shown: false, // the tab is the center pane on screen
     dirty: true, // the tab needs rendering the next time it is shown
     view: { x: 0, y: 0, k: 1 }, // screen = world × k + (x, y)
@@ -109,15 +100,10 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     selected: null, // the box or arrow whose card is open, { type: 'box' | 'arrow', id }, or null
     walkthrough: 0,
     position: 0, // 0 shows every arrow; n shows step n
-    // The press in progress: { id, x, y, view, box, arrow, mode }, `mode` null until it is a
-    // 'pan', a 'move' (with { base, start, origin, frames }) or a 'connect' (with { line }).
-    pointer: null,
-    touches: new Map(), // the fingers on the canvas: pointer id → { x, y } in client coordinates
-    pinch: null, // the two-finger pinch in progress: { rect, view, mid, dist } at its start
-    justPanned: false, // the click that ends a drag or a pinch is not a click on the canvas
   };
 
   function notice(text) {
+    gestures.detach();
     state.drawing = null;
     state.selected = null;
     pane.replaceChildren(html('div', 'empty', text));
@@ -363,16 +349,11 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     const card = html('div', 'd-card hidden');
     const caption = state.doc.walkthroughs.length > 0 ? buildCaption(state.doc) : null;
     const hint = state.saver ? html('div', 'd-hint', 'Double-click to add a box.') : null;
-    // The field goes with the nodes it sat in; its blur must not commit into the new drawing.
-    state.rename = null;
+    renameField.forget();
     pane.replaceChildren(canvas, ...(hint ? [hint] : []), toolbar, card, ...(caption ? [caption.node] : []));
     state.drawing = { canvas, world, layers, card, caption, hint, note: noteButton, relayout: relayoutButton, bar, arrows: new Map(), boxes: new Map() };
     state.selected = null;
-    state.lastClick = null;
-    state.pointer = null;
-    state.touches.clear();
-    state.pinch = null;
-    wireCanvas(canvas);
+    gestures.attach(canvas);
     applyView();
     paint();
     showBar(state.bar);
@@ -415,162 +396,32 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     applyView();
   }
 
-  function swallowClick() {
-    state.justPanned = true;
-    setTimeout(() => {
-      state.justPanned = false;
-    }, 0);
-  }
-
-  // The midpoint and distance of the first two fingers on the canvas.
-  function span() {
-    const [a, b] = [...state.touches.values()];
-    return { mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, dist: Math.hypot(b.x - a.x, b.y - a.y) };
-  }
-
-  // A second finger turns the press into a pinch: the first finger's press ends without a pan
-  // or a card, and the pinch scales by the change in the fingers' distance about their midpoint.
-  function startPinch(canvas) {
-    cancelGesture();
-    state.pointer = null;
-    canvas.classList.remove('panning');
-    state.pinch = { rect: canvas.getBoundingClientRect(), view: { ...state.view }, ...span() };
-  }
-
   // ---- gestures: move, connect, add and rename ------------------------------
 
-  function toWorld(event) {
-    const rect = state.drawing.canvas.getBoundingClientRect();
-    const { x, y, k } = state.view;
-    return { x: (event.clientX - rect.left - x) / k, y: (event.clientY - rect.top - y) / k };
-  }
-
-  const boxById = (id) => state.doc.boxes.find((box) => box.id === id) ?? null;
-
-  // The topmost box under a world point, or null. A captured pointer's events all target the
-  // canvas, so a connect's drop is found by position.
-  function boxAt(point) {
-    for (let i = state.doc.boxes.length - 1; i >= 0; i -= 1) {
-      const box = state.doc.boxes[i];
-      const { w, h } = boxSize(box);
-      if (point.x >= box.x && point.x <= box.x + w && point.y >= box.y && point.y <= box.y + h) {
-        return box;
-      }
-    }
-    return null;
-  }
-
-  function startPan(press, event) {
-    press.mode = 'pan';
-    state.drawing.canvas.setPointerCapture(event.pointerId);
-    state.drawing.canvas.classList.add('panning');
-  }
-
-  // Group frames are taken once, without the box, so its own frame does not follow the drag.
-  function startMove(press, event) {
-    const box = boxById(press.box);
-    press.mode = 'move';
-    press.base = state.doc;
-    press.origin = { x: box.x, y: box.y };
-    press.frames = dropFrames(state.doc, box.id);
-    state.drawing.canvas.setPointerCapture(event.pointerId);
-    state.drawing.canvas.classList.add('moving');
-  }
-
-  function movedTo(press, event) {
-    const point = toWorld(event);
-    return { x: press.origin.x + point.x - press.start.x, y: press.origin.y + point.y - press.start.y };
-  }
-
-  function startConnect(press, event) {
-    const box = boxById(press.box);
-    const { w, h } = boxSize(box);
-    press.mode = 'connect';
-    press.line = svg('line', { class: 'd-rubber', x1: box.x + w, y1: box.y + h / 2, x2: press.start.x, y2: press.start.y }, state.drawing.layers.rubber);
-    state.drawing.canvas.setPointerCapture(event.pointerId);
-  }
-
-  function endPress(press) {
-    state.pointer = null;
-    const { canvas } = state.drawing;
-    canvas.classList.remove('panning', 'moving');
-    if (canvas.hasPointerCapture(press.id)) {
-      canvas.releasePointerCapture(press.id);
-    }
-    press.line?.remove();
-  }
-
-  // Escape, a second finger or a refused save during a move or a connect: the box goes back, no
-  // arrow is drawn, and nothing is saved.
-  function cancelGesture() {
-    const press = state.pointer;
-    if (!press || !state.drawing || (press.mode !== 'move' && press.mode !== 'connect')) {
-      return;
-    }
-    endPress(press);
-    if (press.mode === 'move') {
-      state.doc = press.base;
-      paint();
-    }
-  }
-
-  // A drop decides the group by the box's centre: another group's frame there takes it in, and
-  // anywhere else it keeps its group. The move and the group change are one save.
-  function finishMove(press, event) {
-    const { x, y } = movedTo(press, event);
-    const moved = moveBox(press.base, press.box, x, y);
-    const box = moved.boxes.find((entry) => entry.id === press.box);
-    const { w, h } = boxSize(box);
-    const next = setGroup(moved, press.box, dropGroup(moved, press.box, { x: box.x + w / 2, y: box.y + h / 2 }, press.frames));
-    state.doc = press.base;
-    state.selected = { type: 'box', id: press.box };
-    if (next !== press.base && canEdit()) {
-      commit(next);
-    } else {
-      paint();
-    }
-  }
-
-  // Released on another box, the handle draws a new arrow and selects it; anywhere else,
-  // the source box included, it draws nothing.
-  function finishConnect(press, event) {
-    const target = boxAt(toWorld(event));
-    if (target === null || target.id === press.box || !canEdit()) {
-      return;
-    }
-    const id = state.ids.next('arrow');
-    const next = connect(state.stored, { id, from: press.box, to: target.id });
-    if (next !== state.stored) {
-      state.selected = { type: 'arrow', id };
-      commit(next);
-    }
-  }
-
-  // A click selects what it landed on. The second click of a double-click renames a box or an
-  // arrow, or adds a box on empty canvas, instead.
-  function click(press, event) {
-    const target = press.box ?? press.arrow ?? '';
-    const now = performance.now();
-    const last = state.lastClick;
-    const double = last !== null && last.target === target && now - last.time <= DOUBLE_CLICK_MS
-      && Math.hypot(event.clientX - last.x, event.clientY - last.y) <= DOUBLE_CLICK_PX;
-    state.lastClick = double ? null : { time: now, x: event.clientX, y: event.clientY, target };
-    if (double && canEdit()) {
-      if (press.box !== null) {
-        startRename({ type: 'box', id: press.box });
-      } else if (press.arrow !== null) {
-        startRename({ type: 'arrow', id: press.arrow });
+  // A box being added carries { base, spec }: the document before it and the addBox arguments. An
+  // empty box label keeps the old one; a box being added is dropped instead. An arrow label may be
+  // empty.
+  function renameFinished(target, value, keep) {
+    if (target.base) {
+      state.doc = target.base;
+      const next = keep ? addBox(target.base, { ...target.spec, label: value }) : target.base;
+      if (next !== target.base && canEdit()) {
+        commit(next);
       } else {
-        addPending(toWorld(event));
+        paint();
       }
       return;
     }
-    if (press.box !== null) {
-      select({ type: 'box', id: press.box });
-    } else if (press.arrow !== null) {
-      select({ type: 'arrow', id: press.arrow });
-    } else {
-      closeCard();
+    if (keep) {
+      commit(target.type === 'box' ? renameBox(state.stored, target.id, value) : relabelArrow(state.stored, target.id, value));
+    }
+  }
+
+  const renameField = createRenameField({ pane, view: () => state.view, document: () => state.doc, finished: renameFinished });
+
+  function startRename(target) {
+    if (canEdit() && state.drawing) {
+      renameField.open(target);
     }
   }
 
@@ -583,227 +434,66 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     state.doc = addBox(base, { ...spec, label: NEW_BOX_LABEL });
     state.selected = { type: 'box', id: spec.id };
     paint();
-    // The click that follows this pointerup lands on the canvas; it must not close the new card.
-    swallowClick();
     startRename({ type: 'box', id: spec.id, base, spec });
   }
 
-  // Lays the field over the box, or centred on the arrow's label point, inside the pane.
-  function placeRename(input, type, entry) {
-    const { x: vx, y: vy, k } = state.view;
-    let width;
-    let left;
-    let top;
-    if (type === 'box') {
-      const { w, h } = boxSize(entry);
-      width = Math.max(RENAME_BOX_MIN, w * k);
-      left = entry.x * k + vx + (w * k - width) / 2;
-      top = (entry.y + h / 2) * k + vy - RENAME_HEIGHT / 2;
-    } else {
-      const shape = arrowGeometry(state.doc).find((item) => item.id === entry.id);
-      width = RENAME_ARROW_WIDTH;
-      left = shape.lx * k + vx - width / 2;
-      top = shape.ly * k + vy - RENAME_HEIGHT / 2;
-    }
-    width = Math.min(width, Math.max(0, pane.clientWidth - 8));
-    input.style.width = `${width}px`;
-    input.style.left = `${Math.min(Math.max(4, pane.clientWidth - width - 4), Math.max(4, left))}px`;
-    input.style.top = `${Math.min(Math.max(4, pane.clientHeight - RENAME_HEIGHT - 4), Math.max(4, top))}px`;
-  }
-
-  // `target` is { type, id }, plus { base, spec } for a box being added. Enter or a blur commits,
-  // Escape cancels; both keys are marked handled on the field itself.
-  function startRename(target) {
-    if (!canEdit() || !state.drawing) {
-      return;
-    }
-    finishRename(true);
-    const entry = (target.type === 'box' ? state.doc.boxes : state.doc.arrows).find((item) => item.id === target.id);
-    if (!entry) {
-      return;
-    }
-    const input = html('input', 'd-rename');
-    input.type = 'text';
-    input.value = entry.label;
-    input.spellcheck = false;
-    input.autocomplete = 'off';
-    input.setAttribute('aria-label', target.type === 'box' ? 'Box label' : 'Arrow label');
-    if (target.type === 'arrow') {
-      input.placeholder = 'Label this arrow';
-    }
-    placeRename(input, target.type, entry);
-    input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === 'Escape') {
-        event.preventDefault();
-        finishRename(event.key === 'Enter');
-      }
-    });
-    input.addEventListener('blur', () => finishRename(true));
-    pane.append(input);
-    state.rename = { ...target, input };
-    setTimeout(() => {
-      if (state.rename?.input === input) {
-        input.focus();
-        input.select();
-      }
-    }, 0);
-  }
-
-  // An empty box label keeps the old one; a box being added is dropped instead. An arrow label
-  // may be empty.
-  function finishRename(keep) {
-    const rename = state.rename;
-    if (rename === null) {
-      return;
-    }
-    state.rename = null;
-    const value = rename.input.value;
-    rename.input.remove();
-    if (rename.base) {
-      state.doc = rename.base;
-      const next = keep ? addBox(rename.base, { ...rename.spec, label: value }) : rename.base;
-      if (next !== rename.base && canEdit()) {
-        commit(next);
-      } else {
-        paint();
-      }
-      return;
-    }
-    if (keep) {
-      commit(rename.type === 'box' ? renameBox(state.stored, rename.id, value) : relabelArrow(state.stored, rename.id, value));
-    }
-  }
-
-  function abandonGestures() {
-    finishRename(false);
-    cancelGesture();
-  }
-
-  function movePinch() {
-    const { rect, view, mid, dist } = state.pinch;
-    const now = span();
-    const local = (point) => ({ x: point.x - rect.left, y: point.y - rect.top });
-    state.view = zoomView(view, view.k * (now.dist / Math.max(1, dist)), local(mid), local(now.mid));
-    applyView();
-  }
-
-  function wireCanvas(canvas) {
-    canvas.addEventListener('pointerdown', (event) => {
-      if (event.button !== 0) {
-        return;
-      }
-      finishRename(true);
-      if (event.pointerType === 'touch') {
-        state.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
-        if (state.touches.size === 2) {
-          startPinch(canvas);
-        }
-        if (state.touches.size > 1) {
-          return;
-        }
-      }
-      const target = event.target instanceof Element ? event.target : null;
-      const box = target?.closest('.d-box')?.dataset.id ?? null;
-      const arrow = box === null ? target?.closest('.d-arrow')?.dataset.id ?? null : null;
-      const press = { id: event.pointerId, x: event.clientX, y: event.clientY, view: { ...state.view }, start: toWorld(event), box, arrow, mode: null };
-      state.pointer = press;
-      if (box !== null && canEdit() && target.closest('.d-handle')) {
-        startConnect(press, event);
-      }
-    });
-    canvas.addEventListener('pointermove', (event) => {
-      if (state.touches.has(event.pointerId)) {
-        state.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
-      }
-      if (state.pinch) {
-        if (state.touches.size >= 2) {
-          movePinch();
-        }
-        return;
-      }
-      const press = state.pointer;
-      if (!press || press.id !== event.pointerId) {
-        return;
-      }
-      const dx = event.clientX - press.x;
-      const dy = event.clientY - press.y;
-      if (press.mode === null) {
-        if (Math.hypot(dx, dy) <= PAN_THRESHOLD) {
-          return;
-        }
-        if (press.box !== null && canEdit()) {
-          startMove(press, event);
-        } else {
-          startPan(press, event);
-        }
-      }
-      if (press.mode === 'connect') {
-        const point = toWorld(event);
-        press.line.setAttribute('x2', String(point.x));
-        press.line.setAttribute('y2', String(point.y));
-      } else if (press.mode === 'move') {
-        const { x, y } = movedTo(press, event);
-        state.doc = moveBox(press.base, press.box, x, y);
-        paint();
-      } else {
-        state.view = { ...press.view, x: press.view.x + dx, y: press.view.y + dy };
-        applyView();
-      }
-    });
-    const release = (event) => {
-      state.touches.delete(event.pointerId);
-      if (state.pinch && state.touches.size < 2) {
-        state.pinch = null;
-        swallowClick();
-      }
-      const press = state.pointer;
-      if (!press || press.id !== event.pointerId) {
-        return null;
-      }
-      endPress(press);
-      return press;
-    };
-    canvas.addEventListener('pointerup', (event) => {
-      const press = release(event);
-      if (!press) {
-        return;
-      }
-      if (press.mode === null) {
-        click(press, event);
-        return;
-      }
-      state.lastClick = null;
-      swallowClick();
-      if (press.mode === 'move') {
-        finishMove(press, event);
-      } else if (press.mode === 'connect') {
-        finishConnect(press, event);
-      }
-    });
-    canvas.addEventListener('pointercancel', (event) => {
-      const press = release(event);
-      if (press?.mode === 'move') {
-        state.doc = press.base;
-        paint();
-      }
-    });
-    canvas.addEventListener(
-      'wheel',
-      (event) => {
-        event.preventDefault();
-        finishRename(true);
-        const { x, y, k } = state.view;
-        if (event.ctrlKey || event.metaKey) {
-          const rect = canvas.getBoundingClientRect();
-          const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-          state.view = zoomView(state.view, k * wheelZoomFactor(event.deltaY, event.deltaMode), point);
-        } else {
-          state.view = { x: x - event.deltaX, y: y - event.deltaY, k };
-        }
+  const gestures = createGestures({
+    host: {
+      canEdit,
+      document: () => state.doc,
+      view: () => state.view,
+      setView(view) {
+        state.view = view;
         applyView();
       },
-      { passive: false },
-    );
+      hit(event) {
+        const target = event.target instanceof Element ? event.target : null;
+        const box = target?.closest('.d-box')?.dataset.id ?? null;
+        const arrow = box === null ? target?.closest('.d-arrow')?.dataset.id ?? null : null;
+        return { box, arrow, handle: box !== null && Boolean(target.closest('.d-handle')) };
+      },
+      settle: () => renameField.finish(true),
+      preview(doc) {
+        state.doc = doc;
+        paint();
+      },
+      moved(id, base, next) {
+        state.doc = base;
+        state.selected = { type: 'box', id };
+        if (next !== base && canEdit()) {
+          commit(next);
+        } else {
+          paint();
+        }
+      },
+      connected(from, to) {
+        const id = state.ids.next('arrow');
+        const next = connect(state.stored, { id, from, to });
+        if (next !== state.stored) {
+          state.selected = { type: 'arrow', id };
+          commit(next);
+        }
+      },
+      select,
+      clearSelection: closeCard,
+      rename: startRename,
+      add: addPending,
+      rubberBand(from, to) {
+        const line = svg('line', { class: 'd-rubber', x1: from.x, y1: from.y, x2: to.x, y2: to.y }, state.drawing.layers.rubber);
+        return {
+          moveTo(point) {
+            line.setAttribute('x2', String(point.x));
+            line.setAttribute('y2', String(point.y));
+          },
+          remove: () => line.remove(),
+        };
+      },
+    },
+  });
+
+  function abandonGestures() {
+    renameField.finish(false);
+    gestures.cancel();
   }
 
   // ---- the selection and its card -------------------------------------------
@@ -1072,8 +762,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
       return;
     }
     if (event.key === 'Escape') {
-      if (state.pointer?.mode === 'move' || state.pointer?.mode === 'connect') {
-        cancelGesture();
+      if (gestures.cancel()) {
         event.preventDefault();
       } else if (cardShown()) {
         closeCard();
@@ -1097,7 +786,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
         event.preventDefault();
         noteSelected();
       }
-    } else if (!canEdit() || focusOnButton() || state.pointer !== null) {
+    } else if (!canEdit() || focusOnButton() || gestures.pressing()) {
       // A press in progress ends in an edit of the document it started from, so an edit made
       // before its drop would be undone by it.
       return;
@@ -1112,8 +801,7 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     }
   });
   document.addEventListener('click', (event) => {
-    if (state.justPanned) {
-      state.justPanned = false;
+    if (gestures.takeClick()) {
       return;
     }
     if (cardShown() && !eventInside(event, '.d-card, .d-box, .d-arrow, .d-toolbar, .d-caption, .d-rename, .notes, .composer')) {
@@ -1182,8 +870,8 @@ export function createDiagramView({ nodes, listed, openCode, ended = () => false
     show(shown) {
       state.shown = shown;
       if (!shown) {
-        finishRename(true);
-        cancelGesture();
+        renameField.finish(true);
+        gestures.cancel();
         closeCard();
       } else if (state.dirty) {
         render();
