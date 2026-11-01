@@ -515,13 +515,20 @@ wherever they occur.
   const boxes = notes.baseline && Array.isArray(notes.baseline.boxes) ? notes.baseline.boxes : [];
   const box = (id) => { const b = boxes.find((x) => x.id === id); return b ? `${JSON.stringify(b.label)} (${id})` : id; };
   const group = (id) => (id === null ? "no group" : id);
-  const op = (c) => (c.op === "remove-box" ? `remove-box ${c.id} ${JSON.stringify(c.label)}` : c.op === "add-box" ? `add-box ${c.id} ${JSON.stringify(c.label)} ${c.kind} in ${group(c.group)}` : c.op === "move-box" ? `move-box ${c.id}: ${group(c.was)} → ${group(c.now)}` : c.op === "remove-arrow" || c.op === "add-arrow" ? `${c.op} ${c.id} ${box(c.from)} → ${box(c.to)} ${JSON.stringify(c.label)}` : `${c.op} ${c.id}: ${JSON.stringify(c.was)} → ${JSON.stringify(c.now)}`);
+  const ends = (c) => `${box(c.from)} → ${box(c.to)} ${JSON.stringify(c.label)}`;
+  const op = (c) => (c.op === "remove-box" ? `remove-box ${c.id} ${JSON.stringify(c.label)}` : c.op === "add-box" ? `add-box ${c.id} ${JSON.stringify(c.label)} ${c.kind} in ${group(c.group)}` : c.op === "move-box" ? `move-box ${c.id}: ${group(c.was)} → ${group(c.now)}` : c.op === "rewire-arrow" ? `rewire-arrow ${c.id}: ${ends(c.was)} ⇒ ${ends(c.now)}` : c.op === "remove-arrow" || c.op === "add-arrow" ? `${c.op} ${c.id} ${ends(c)}` : `${c.op} ${c.id}: ${JSON.stringify(c.was)} → ${JSON.stringify(c.now)}`);
+  const rewired = (list, c) => list.find((d) => d.op === (c.op === "remove-arrow" ? "add-arrow" : "remove-arrow") && d.id === c.id);
+  const join = (list) => list.flatMap((c) => {
+    if (c.op === "add-arrow" && rewired(list, c)) { return []; }
+    if (c.op === "remove-arrow" && rewired(list, c)) { return [{ op: "rewire-arrow", id: c.id, was: c, now: rewired(list, c) }]; }
+    return [c];
+  });
   let changed = 0;
   for (let r = after + 1; r <= upto; r += 1) {
     const sent = notes.rounds[r - 1].overall, before = r > 1 ? notes.rounds[r - 2].overall : "";
     if (sent !== before || r === upto) { console.log(`overall (round ${r})${sent === before ? " (unchanged)" : ""}: ${JSON.stringify(sent)}`); }
-    const changes = notes.rounds[r - 1].changes;
-    if (Array.isArray(changes) && changes.length) {
+    const changes = Array.isArray(notes.rounds[r - 1].changes) ? join(notes.rounds[r - 1].changes) : [];
+    if (changes.length) {
       changed += changes.length;
       console.log(`changes (round ${r}): ${changes.length}`);
       changes.forEach((c, k) => console.log(`  change ${k + 1}: ${op(c)}`));
@@ -550,7 +557,10 @@ wherever they occur.
   "<was>" → "<now>"`, `move-box <id>: <group> → <group>` (`no group` for none), and
   `remove-arrow` and `add-arrow` as `<id> <from> → <to> "<label>"`, an end shown as `"<label>"
   (<id>)` when `baseline` holds that box and as its id alone when it does not, as for a removed
-  box. The server locks the diagram from a Send to its reply, so in a wait that covered more
+  box. An arrow whose ends the human changed is stored as a `remove-arrow` and an `add-arrow`
+  with the same id ([CONTRACT.md](../../CONTRACT.md) §6); the view joins the pair into one
+  `rewire-arrow <id>: <from> → <to> "<label>" ⇒ <from> → <to> "<label>"` line, the starting
+  ends on the left, at the removal's place, and counts it as one change. The server locks the diagram from a Send to its reply, so in a wait that covered more
   than one Send only the first round can carry changes. Then one line per note of the round, in the file's order — its position in
   `annotations`, round, id (with the other sent notes sharing it), span, intent and body —
   and under each, every note sent in an earlier round on the same anchor (kind, path or
@@ -626,9 +636,12 @@ differ in case or punctuation, settle their order with `node -p '"<a>".localeCom
 
 After every note row comes **one row per structural change** of the round, in the round view's
 order, numbered on from the notes: anchor `box <label>` or `arrow <label>`, intent `edit`, the
-op as the round view printed it in the note column, and kind `change`. A round that resumed
-with its last round out (§1 step 2) offers no `revert` for its `remove-box` and `remove-arrow`
-rows: their action is `keep`, and a Reading bullet says the starting file was not recoverable.
+op as the round view printed it in the note column, and kind `change`. A `rewire-arrow` is one
+row, kept or reverted as a whole: reverting one half of it alone would leave two arrows with
+one id, or none. A round that resumed with its last round out (§1 step 2) offers no `revert`
+for its `remove-box` and `remove-arrow` rows: their action is `keep`, and a Reading bullet says
+the starting file was not recoverable. A `rewire-arrow` row still offers one, since the row
+itself holds the ends to return to.
 
 | # | anchor | intent | note | action | kind | risk |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -712,7 +725,10 @@ closes the round is the one time the server reads the file again ([CONTRACT.md](
   group is gone returns in no group, and an arrow whose end box is gone cannot return — the
   reply says either. An `add-box` removes the box, its arrows and their step references, and an
   `add-arrow` the arrow and its step references; a `rename-box`, `change-kind`, `move-box` or
-  `relabel-arrow` sets the field back to `was`.
+  `relabel-arrow` sets the field back to `was`. A `rewire-arrow` sets the arrow's `from`, `to`
+  and `label` back to the row's left side, in place, keeping its `why` and every step that
+  names it; when a box on that side is not in the diagram after the round's other reverts, the
+  arrow stays re-wired and the reply says so.
 - **Redraw** with `Edit` on `<diagram>`, or a `Write` of the whole file when the redraw is wide,
   by §1b step 3's rules, leaving every kept change as it is. A redraw that removes a box or an
   arrow carrying a sent note leaves the note on a removed element — the viewer shows it as
