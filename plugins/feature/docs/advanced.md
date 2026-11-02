@@ -14,6 +14,7 @@ Deeper material that doesn't belong in the [README](../../../README.md) front do
 - [Ship flags (`--base`, `--merge`, `--no-ui-testing`, `--attach-screenshots`, `--parallel`, `--worktree`)](#ship-flags---base---merge---no-ui-testing---attach-screenshots---parallel---worktree)
 - [Inbox triage (`/feature:triage`)](#inbox-triage-featuretriage)
 - [Night dispatch](#night-dispatch)
+- [PR review task](#pr-review-task)
 - [Configuration reference](#configuration-reference)
   - [Project conventions (CLAUDE.md)](#project-conventions-claudemd)
   - [Ticket prefix](#ticket-prefix)
@@ -319,6 +320,10 @@ When `run` exits, report in this order:
 - **After every plugin update**, `<plugin-root>` changes with the version. Update the path in the prompt and in that rule; a stale path runs the previous version's dispatcher, or none once that version is removed.
 - **Running.** The Desktop app must be open and the machine awake at the scheduled time. A run that is stopped takes up to about 25 seconds to exit — about 12 to stop the session in progress and about 12 to send the inbox item — and still records the run and writes its report; let it finish.
 - **The report stands alone.** The report file and the inbox item are written by the dispatcher, so a night's result survives a task session that could not relay it.
+
+## PR review task
+
+A T3 Code scheduled task runs `feature:review` once per owed model on the owner's open PRs into `main`, then asks each PR's own thread to run `feature:address-review` when there are findings. Its prompt and settings are in [pr-review-task.md](pr-review-task.md). T3 stores one line that fetches that file from `main`, so the task has no second copy to update.
 
 ## Configuration reference
 
