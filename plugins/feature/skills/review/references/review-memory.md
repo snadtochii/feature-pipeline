@@ -6,7 +6,7 @@ How `review` decides what a run covers for this model, and how it filters findin
 
 ## §1 Rounds
 
-A model's rounds are its distinct reviewed heads on this PR, ship's markers included, since ship posts under the same login. Two markers at one head are one round. A head that added only merge commits since an earlier marked head is not a round: a review there reads only what those merges changed by hand (§4), which is usually nothing. Comments from any other account never count.
+A model's rounds are its distinct reviewed heads on this PR, ship's markers included, since ship posts under the same login. Two markers at one head are one round. A head that added only merge commits since an earlier marked head is not a round, even when a review there has findings: it reads only what those merges changed by hand (§4), which is usually nothing. Comments from any other account never count.
 
 One Bash call. It prints this model's earlier heads and nothing else, so it runs before findings are formed without touching their independence:
 
@@ -26,13 +26,13 @@ printf '%s' "$PR_JSON" | jq -r --arg viewer "$VIEWER" --arg agent "<AGENT>" --ar
 - **Two or more heads** → the count below.
 - **Exit 2** → a `⚠ Failures` row and no review. The next run retries.
 
-The count is one Bash call, with those heads written as literals, space-separated, for `<HEADS>`. It prints the heads that are rounds:
+The count is one Bash call, with those heads written as literals, space-separated, for `<HEADS>`. It prints the heads that are rounds, then a `nearest <sha>` line naming the marked head closest behind `<HEAD_SHA>`, when one is its ancestor:
 
 ```bash
 ALL=$(gh api "repos/<OWNER>/<REPO>/pulls/<NUMBER>/commits?per_page=100" --paginate --jq '.[] | ((.parents | length) | tostring) + " " + .sha') \
   || { echo "commit list failed" >&2; exit 2; }
 [ "$(printf '%s\n' "$ALL" | wc -l)" -ge 250 ] && { printf '%s\n' <HEADS>; exit 0; }
-OWN=$(printf '%s\n' "$ALL" | sed -n 's/^1 //p')
+OWN=$(printf '%s\n' "$ALL" | sed -n 's/^[01] //p')
 for CUR in <HEADS>; do
   ROUND=1
   for PRIOR in <HEADS>; do
@@ -49,12 +49,25 @@ for CUR in <HEADS>; do
   done
   [ "$ROUND" = 0 ] || printf '%s\n' "$CUR"
 done
+BEST_N=
+for CUR in <HEADS>; do
+  OUT=$(gh api "repos/<OWNER>/<REPO>/compare/$CUR...<HEAD_SHA>" --jq '.status + " " + (.ahead_by | tostring)' 2>&1)
+  RC=$?
+  case "$RC:$OUT" in
+    0:ahead*) N=${OUT#ahead } ;;
+    0:*) continue ;;
+    *"HTTP 404"*) continue ;;
+    *) echo "compare failed: $OUT" >&2; exit 2 ;;
+  esac
+  if [ -z "$BEST_N" ] || [ "$N" -lt "$BEST_N" ]; then BEST_N=$N; BEST=$CUR; fi
+done
+[ -z "$BEST_N" ] || printf 'nearest %s\n' "$BEST"
 ```
 
-A head stops being a round only when an earlier marked head is its ancestor and no one-parent PR commit lies between them. The earliest head always counts, and so does a head on a rewritten branch or one whose commit is gone, because each of those got a full review. A commit list of 250 or more cannot be intersected, so every head counts.
+A head stops being a round only when an earlier marked head is its ancestor and no PR commit other than a merge lies between them. The earliest head always counts, and so does a head on a rewritten branch or one whose commit is gone, because each of those got a full review. A commit list of 250 or more cannot be intersected, so every head counts.
 
-- **One head printed** → §2, with that head as `<LAST>`. Commits since it are the same whichever marked head the range starts from.
-- **Two or more printed** → §3.
+- **One head printed** → §2, with the `nearest` head as `<LAST>`, so a merge already read is not read again, or with the printed head when there is no `nearest` line.
+- **Two or more printed** → §3. The `nearest` line plays no part.
 - **Exit 2** → a `⚠ Failures` row and no review. The next run retries.
 
 ## §2 Full or follow-up
@@ -74,13 +87,15 @@ RANGE=$(gh api "repos/<OWNER>/<REPO>/compare/<LAST>...<HEAD_SHA>?per_page=100" -
   && ALL=$(gh api "repos/<OWNER>/<REPO>/pulls/<NUMBER>/commits?per_page=100" --paginate --jq '.[] | ((.parents | length) | tostring) + " " + .sha') \
   || { echo "commit list failed" >&2; exit 2; }
 [ "$(printf '%s\n' "$ALL" | wc -l)" -ge 250 ] && { echo FULL; exit 0; }
+KEPT=$(printf '%s\n' "$ALL" | grep -F -f <(printf '%s\n' "$RANGE")) || true
+printf '%s\n' "$KEPT" | grep -Eq '^([3-9]|[1-9][0-9]+) ' && { echo FULL; exit 0; }
 echo FOLLOW-UP
-printf '%s\n' "$ALL" | sed -n 's/^1 /commit /p; s/^[2-9] /merge /p' | grep -F -f <(printf '%s\n' "$RANGE") || true
+printf '%s\n' "$KEPT" | sed -n 's/^[01] /commit /p; s/^2 /merge /p'
 ```
 
 `ahead` means `<LAST>` is still an ancestor of the head. A rewritten branch reads `diverged` or `behind`, or `HTTP 404` once the commit is gone. The PR's commit list stops at 250, so a list that long cannot be intersected.
 
-The PR's commit list leaves out anything reachable from the base, so the intersection holds the PR's commits since `<LAST>`, oldest first, each as `commit <sha>` or, with two or more parents, `merge <sha>`.
+The PR's commit list leaves out anything reachable from the base, so the intersection holds the PR's commits since `<LAST>`, oldest first, each as `commit <sha>` or, with two parents, `merge <sha>`. A commit with three or more parents means a full review, because git cannot redo that merge to show its hand edits.
 
 - **`FULL`** → a full review for this round.
 - **`FOLLOW-UP` with a `commit` or `merge` line** → a follow-up over those lines. Keep each line's kind and SHA.

@@ -48,7 +48,7 @@ git -C "<d>" remote add origin "https://github.com/<OWNER>/<REPO>.git" \
   && git -C "<d>" config remote.origin.promisor true \
   && git -C "<d>" config remote.origin.partialclonefilter blob:none \
   && git -C "<d>" -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
-       fetch -q --unshallow --filter=blob:none --no-tags origin "refs/pull/<NUMBER>/head" \
+       fetch -q --unshallow --filter=blob:none --no-tags --no-recurse-submodules origin "refs/pull/<NUMBER>/head" \
   && [ "$(git -C "<d>" rev-parse FETCH_HEAD)" = "<HEAD_SHA>" ] \
   && printf '* -filter !merge !diff\n' > "<d>/.git/info/attributes"
 ```
