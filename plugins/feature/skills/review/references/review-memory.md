@@ -8,7 +8,7 @@ How `review` decides what a run covers for this model, and how it filters findin
 
 A model's rounds are its distinct reviewed heads on this PR, ship's markers included, since ship posts under the same login. Two markers at one head are one round. A head that added only merge commits since an earlier marked head is not a round, even when a review there has findings: it reads only what those merges changed by hand (§4), which is usually nothing. Comments from any other account never count.
 
-One Bash call. It prints this model's earlier heads and nothing else, so it runs before findings are formed without touching their independence:
+One Bash call. It prints this model's earlier heads and nothing else, each followed by `merge-only` when its only marker is on §2's merge-only comment, so it runs before findings are formed without touching their independence:
 
 ```bash
 VIEWER=$(gh api user --jq .login) \
@@ -16,9 +16,11 @@ VIEWER=$(gh api user --jq .login) \
   && [ -n "$VIEWER" ] \
   || { echo "round read failed" >&2; exit 2; }
 printf '%s' "$PR_JSON" | jq -r --arg viewer "$VIEWER" --arg agent "<AGENT>" --arg head "<HEAD_SHA>" '
-  [(.comments + .reviews)[] | select(.author.login == $viewer) | .body | split("\n")[]
-   | capture("^<!-- fp-review agent=" + $agent + " head=(?<h>[0-9a-f]{40}) -->\r?$") | .h]
-  | unique | map(select(. != $head)) | .[]'
+  [(.comments + .reviews)[] | select(.author.login == $viewer) | .body as $b | $b | split("\n")[]
+   | capture("^<!-- fp-review agent=" + $agent + " head=(?<h>[0-9a-f]{40}) -->\r?$")
+   | {h, quiet: ($b | startswith("Only base merges landed since my last review"))}]
+  | group_by(.h) | map(select(.[0].h != $head)) | .[]
+  | .[0].h + (if all(.quiet) then " merge-only" else "" end)'
 ```
 
 - **No heads** → a full review.
@@ -26,26 +28,17 @@ printf '%s' "$PR_JSON" | jq -r --arg viewer "$VIEWER" --arg agent "<AGENT>" --ar
 - **Two or more heads** → the count below.
 - **Exit 2** → a `⚠ Failures` row and no review. The next run retries.
 
-The count is one Bash call, with those heads written as literals, space-separated, for `<HEADS>`. It prints the heads that are rounds, then a `nearest <sha>` line naming the marked head closest behind `<HEAD_SHA>`, when one is its ancestor:
+The count is one Bash call, with those heads written as literals, space-separated, for `<HEADS>`, and the ones labelled `merge-only` likewise for `<QUIET>`, which may be empty. It prints the heads that are rounds, then a `nearest <sha>` line naming the marked head closest behind `<HEAD_SHA>`, when one is its ancestor:
 
 ```bash
 ALL=$(gh api "repos/<OWNER>/<REPO>/pulls/<NUMBER>/commits?per_page=100" --paginate --jq '.[] | ((.parents | length) | tostring) + " " + .sha') \
-  && BASE=$(gh pr view "<PR_URL>" --json baseRefName --jq .baseRefName) \
   || { echo "commit list failed" >&2; exit 2; }
 [ "$(printf '%s\n' "$ALL" | wc -l)" -ge 250 ] && { printf '%s\n' <HEADS>; exit 0; }
-LISTED=$(printf '%s\n' "$ALL" | sed -n '/^2 /!s/^[0-9]* //p')
+OWN=$(printf '%s\n' "$ALL" | sed -n '/^2 /!s/^[0-9]* //p')
 for CUR in <HEADS>; do
+  case " <QUIET> " in *" $CUR "*) continue ;; esac
+  printf '%s\n' "$ALL" | grep -q " $CUR\$" || { printf '%s\n' "$CUR"; continue; }
   ROUND=1
-  OWN=$LISTED
-  if ! printf '%s\n' "$ALL" | grep -q " $CUR\$"; then
-    OWN=$(gh api "repos/<OWNER>/<REPO>/compare/$BASE...$CUR?per_page=100" --paginate --jq '.commits[] | select((.parents | length) != 2) | .sha' 2>&1)
-    RC=$?
-    case "$RC:$OWN" in
-      0:*) ;;
-      *"HTTP 404"*) OWN= ;;
-      *) echo "compare failed: $OWN" >&2; exit 2 ;;
-    esac
-  fi
   for PRIOR in <HEADS>; do
     [ "$PRIOR" = "$CUR" ] && continue
     OUT=$(gh api "repos/<OWNER>/<REPO>/compare/$PRIOR...$CUR?per_page=100" --paginate --jq '.status, .commits[].sha' 2>&1)
@@ -75,9 +68,9 @@ done
 [ -z "$BEST_N" ] || printf 'nearest %s\n' "$BEST"
 ```
 
-A head stops being a round only when an earlier marked head is its ancestor and no PR commit other than a two-parent merge lies between them. A head a force-push dropped is gone from the PR's commit list, so its own commits are read from its compare against the base. The earliest head always counts, and so does a head on a rewritten branch or one whose commit is gone, because each of those got a full review. A commit list of 250 or more cannot be intersected, so every head counts.
+A head labelled `merge-only` is never a round, because that comment states nothing was read. A head gone from the PR's commit list, after a force-push or because the base advanced past it, always counts, because the commit list no longer shows what its review read. Any other head stops being a round only when an earlier marked head is its ancestor and no PR commit other than a two-parent merge lies between them. The earliest head always counts, and so does a head on a rewritten branch or one whose commit is gone, because each of those got a full review. A commit list of 250 or more cannot be intersected, so every head counts.
 
-- **One head printed** → §2, with the `nearest` head as `<LAST>`, so a merge already read is not read again, or with the printed head when there is no `nearest` line.
+- **One head printed, or none** → §2, with the `nearest` head as `<LAST>`, so a merge already read is not read again, or with any head of `<HEADS>` when there is no `nearest` line.
 - **Two or more printed** → §3. The `nearest` line plays no part.
 - **Exit 2** → a `⚠ Failures` row and no review. The next run retries.
 
@@ -113,7 +106,7 @@ The PR's commit list leaves out anything reachable from the base, so the interse
 - **`FOLLOW-UP` with no lines** → the range holds only commits already on the base. Make no checkout and read no diff. Step 4 posts the merge-only comment below.
 - **Exit 2** → a `⚠ Failures` row and no review. The next run retries.
 
-The merge-only comment goes on a head with nothing to read, here or in §4. It carries the marker, so the head is not taken up again, uses no round (§1), and is posted the way [`pr-comments.md`](pr-comments.md) §6 posts its comment:
+The merge-only comment goes on a head with nothing to read, here or in §4. It carries the marker, so the head is not taken up again, uses no round (§1, which keys on its opening words), and is posted the way [`pr-comments.md`](pr-comments.md) §6 posts its comment:
 
 ```
 Only base merges landed since my last review, and they add no edits of their own, so I report no blocking issues on this head.
