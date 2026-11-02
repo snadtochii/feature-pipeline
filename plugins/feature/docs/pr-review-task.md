@@ -17,6 +17,7 @@ These are for whoever creates the task. A run ignores this section.
 - **Trigger:** `{ type: 'interval', everyMs: 900000 }`, up to 96 parent turns a day while the machine is awake. T3 skips ticks missed during sleep and ticks that overlap a running one.
 - **Permissions:** `t3_thread_send` rejects a target that runs with broader modes than the sender, and children inherit the parent's mode. A child that hits a permission prompt stops and counts as failed.
 - **Plugin version:** both the Claude and the Codex plugin caches need a `feature` version whose `review` takes `--agent` and a PR URL. An older Codex cache makes every Codex child fail.
+- **Round limit:** a child at the limit posts no marker, so the search skips a model at the limit instead of starting a child every tick. The search has only markers and labels to go on, while `review` also compares commits, so the two can differ. `review-round-limit` is per PR, and a head that added only merges counts as a round here unless it carries the merge-only comment. So when one model has set the label, the other can be skipped one round early if it reviewed such a head with findings. A manual `feature:review --full` covers that case.
 
 ## Run prompt
 
@@ -29,7 +30,7 @@ Prerequisites, listed so a failure is legible: `gh` logged in as the owner, `jq`
 Run this one command exactly as written. It is the run's only search. It keeps PR text out of this session: only URLs, head SHAs and the models still owed come back.
 
 ```bash
-gh api graphql -f query='
+RESPONSE=$(gh api graphql -f query='
 query {
   viewer { login }
   search(query: "is:pr is:open draft:false author:@me user:snadtochii base:main", type: ISSUE, first: 50) {
@@ -45,7 +46,8 @@ query {
       }
     }
   }
-}' | jq -c '
+}') || { echo "search failed" >&2; exit 2; }
+printf '%s' "$RESPONSE" | jq -c '
   .data.viewer.login as $me
   | ["snadtochii/feature-pipeline", "snadtochii/personal-server"] as $repos
   | {issueCount: .data.search.issueCount, returned: (.data.search.nodes | length)},
@@ -54,19 +56,20 @@ query {
      | .headRefOid as $head
      | ((.labels.nodes | map(.name)) | index("review-round-limit") != null) as $limited
      | [(.comments.nodes + .reviews.nodes)[]
-        | select(.author.login == $me) | (.body // "") | split("\n")[]
-        | capture("^<!-- fp-review agent=(?<a>claude|codex) head=(?<h>[0-9a-f]{40}) -->\r?$")] as $markers
+        | select(.author.login == $me) | (.body // "") as $body | $body | split("\n")[]
+        | capture("^<!-- fp-review agent=(?<a>claude|codex) head=(?<h>[0-9a-f]{40}) -->\r?$")
+        | . + {quiet: ($body | startswith("Only base merges landed since my last review"))}] as $markers
      | {url, head: $head,
         owed: [("claude", "codex") as $m
-               | ($markers | map(select(.a == $m) | .h) | unique) as $heads
-               | select(($heads | index($head)) == null)
-               | select(($limited and (($heads | length) >= 2)) | not)
+               | ($markers | map(select(.a == $m))) as $mine
+               | select(($mine | map(.h) | index($head)) == null)
+               | select(($limited and (($mine | map(select(.quiet | not) | .h) | unique | length) >= 2)) | not)
                | $m]})'
 ```
 
-The first output line holds the search counts. Every other line is one PR, and its `owed` list is the only input to step 2. A model is owed unless the viewer's marker for it exists at this head, or the PR carries `review-round-limit` and the viewer's markers for it sit on two or more other heads. Start no child for any other PR, and do not add or remove a model by branch name, the commit's age or any other reason.
+The first output line holds the search counts. Every other line is one PR, and its `owed` list is the only input to step 2. A model is owed unless the viewer's marker for it exists at this head, or the PR carries `review-round-limit` and the viewer's markers for it sit on two or more other heads. A marker on a merge-only comment does not count toward those two. Start no child for any other PR, and do not add or remove a model by branch name, the commit's age or any other reason.
 
-If the command fails, report the error and stop. If `issueCount` exceeds `returned`, note it in the report. If no PR owes a model, report that in one line and end the turn with no T3 call.
+If the command exits non-zero, or its output has no first line holding the search counts, report the error and stop: that is a failed search, not a run with no work. If `issueCount` exceeds `returned`, note it in the report. If no PR owes a model, report that in one line and end the turn with no T3 call.
 
 ### 2. Start the children
 
