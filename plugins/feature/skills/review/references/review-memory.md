@@ -30,11 +30,22 @@ The count is one Bash call, with those heads written as literals, space-separate
 
 ```bash
 ALL=$(gh api "repos/<OWNER>/<REPO>/pulls/<NUMBER>/commits?per_page=100" --paginate --jq '.[] | ((.parents | length) | tostring) + " " + .sha') \
+  && BASE=$(gh pr view "<PR_URL>" --json baseRefName --jq .baseRefName) \
   || { echo "commit list failed" >&2; exit 2; }
 [ "$(printf '%s\n' "$ALL" | wc -l)" -ge 250 ] && { printf '%s\n' <HEADS>; exit 0; }
-OWN=$(printf '%s\n' "$ALL" | sed -n 's/^[01] //p')
+LISTED=$(printf '%s\n' "$ALL" | sed -n '/^2 /!s/^[0-9]* //p')
 for CUR in <HEADS>; do
   ROUND=1
+  OWN=$LISTED
+  if ! printf '%s\n' "$ALL" | grep -q " $CUR\$"; then
+    OWN=$(gh api "repos/<OWNER>/<REPO>/compare/$BASE...$CUR?per_page=100" --paginate --jq '.commits[] | select((.parents | length) != 2) | .sha' 2>&1)
+    RC=$?
+    case "$RC:$OWN" in
+      0:*) ;;
+      *"HTTP 404"*) OWN= ;;
+      *) echo "compare failed: $OWN" >&2; exit 2 ;;
+    esac
+  fi
   for PRIOR in <HEADS>; do
     [ "$PRIOR" = "$CUR" ] && continue
     OUT=$(gh api "repos/<OWNER>/<REPO>/compare/$PRIOR...$CUR?per_page=100" --paginate --jq '.status, .commits[].sha' 2>&1)
@@ -64,7 +75,7 @@ done
 [ -z "$BEST_N" ] || printf 'nearest %s\n' "$BEST"
 ```
 
-A head stops being a round only when an earlier marked head is its ancestor and no PR commit other than a merge lies between them. The earliest head always counts, and so does a head on a rewritten branch or one whose commit is gone, because each of those got a full review. A commit list of 250 or more cannot be intersected, so every head counts.
+A head stops being a round only when an earlier marked head is its ancestor and no PR commit other than a two-parent merge lies between them. A head a force-push dropped is gone from the PR's commit list, so its own commits are read from its compare against the base. The earliest head always counts, and so does a head on a rewritten branch or one whose commit is gone, because each of those got a full review. A commit list of 250 or more cannot be intersected, so every head counts.
 
 - **One head printed** → §2, with the `nearest` head as `<LAST>`, so a merge already read is not read again, or with the printed head when there is no `nearest` line.
 - **Two or more printed** → §3. The `nearest` line plays no part.
