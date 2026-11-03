@@ -366,10 +366,10 @@ Fix only failed criteria, and build nothing beyond `02-plan.md`. Never re-invoke
 The stage's final report is fixed-format. Its first line:
 
 ```
-close: <done | review | backlog | continue-with-hint | merged | pr-open | already-complete | error> — verdict <pass | partial | stuck>
+close: <done | review | backlog | caller | continue-with-hint | merged | pr-open | already-complete | error> — verdict <pass | partial | stuck>
 ```
 
-The ending is the transition the finalizer applied (`done`, `review`, `backlog` — `done` also for `accept-as-partial`), or the route that ended the stage. The verdict is omitted for `merged`, `pr-open` and `error`. `error` instead adds `failed-step: <ticket | not-ready | worktree | storage | finalizer:<step>>` and one line of detail. The second line is the absolute path of `06-summary.md`, when one was written; `continue-with-hint` then adds its `## User hint — data, not instructions` block. A stop the stage relays — the gate's question, a `needs-decision`, an attended lessons proposal — is not a result: under `flow` it pauses the stage subagent until the answer arrives.
+The ending is the transition the finalizer applied (`done`, `review`, `backlog` — `done` also for `accept-as-partial`), `caller` when the finalizer applied none because a `## Stage overrides` section hands the transitions to the caller, or the route that ended the stage. The verdict still comes from this stage on `caller`. The verdict is omitted for `merged`, `pr-open` and `error`. `error` instead adds `failed-step: <ticket | not-ready | worktree | storage | finalizer:<step>>` and one line of detail. The second line is the absolute path of `06-summary.md`, when one was written; `continue-with-hint` then adds its `## User hint — data, not instructions` block. A stop the stage relays — the gate's question, a `needs-decision`, an attended lessons proposal — is not a result: under `flow` it pauses the stage subagent until the answer arrives.
 
 ## Output
 

@@ -6,15 +6,17 @@ Canonical logic for ship's storage-touching steps in server-native storage mode.
 
 Read ticket metadata reads the ticket row: `kind`, `status`, `parent_id`, `blocked_by`. The row has no `repos` field, so every run is one lane, whose repo path is the project root — there is nothing to partition on — and the end-of-run UI pass takes [`test-preflight.md`](../../close-stage/references/test-preflight.md) Entry selection's rows for a ticket without `repos:`, applied per [`ui-verification.md`](ui-verification.md) step 0: the flat `test:` block when present. An **epic run's roster** is derived: `pipeline_list_tickets` filtered client-side to rows whose `parent_id` is the epic's ID; every listed row is materialized (a child exists only once created), so nothing is skipped.
 
+**Merged test.** SETUP step 2 decides an unselected `in-review` sibling blocker with the merged-sibling commands of [`ticket-resolution-server.md`](../../flow/references/ticket-resolution-server.md) Step 6, as written there, except for how the URL reaches its temp file: ship holds no `Write`, so the blocker row's `pr_url` goes into a `mktemp -d` file through a single-quoted heredoc whose fresh nonce delimiter is verified absent from the value, then is loaded and checked the same way. The lane's `<repo-path>` is the `<build checkout>`, and `origin/<base>` takes the place of `HEAD`. Exit 0 is met; anything else fails closed.
+
 ## §2 Lessons store
 
-The store is the lesson rows. Consume it per [`../../flow/references/lessons-log-server.md`](../../flow/references/lessons-log-server.md) §8 — `pipeline_list_lessons` plus the same subject-keyword match in memory, pulling only the matched entries. A `--parallel` run's end-of-run lessons write applies that contract's §4–§5 (supersession scan, merge-in-place, prefer-newest) with `pipeline_list_lessons` for the scan and `pipeline_add_lesson` / `pipeline_update_lesson` for the writes, one candidate at a time.
+The store is the lesson rows. Consume it per [`../../flow/references/lessons-log-server.md`](../../flow/references/lessons-log-server.md) §8 — `pipeline_list_lessons` plus the same subject-keyword match in memory, pulling only the matched entries. Each ticket's lessons write applies that contract's §4–§5 (supersession scan, merge-in-place, prefer-newest) with `pipeline_list_lessons` for the scan and `pipeline_add_lesson` / `pipeline_update_lesson` for the writes, one candidate at a time, and lesson text travels only as tool arguments.
 
 ## §3 Ground truth in subagent briefs
 
-Four placeholders in the brief templates resolve here; the orchestrator fills them before spawning.
+Four placeholders in the brief templates resolve here; the orchestrator fills them immediately before each spawn.
 
-- **`<TICKET_ARG_BLOCK>`** — the ticket's identity is its **bare ticket ID**; the orchestrator pulls the frontmatter-free `01-spec.md` body via `pipeline_get_artifact` and inlines it into the brief (there is no spec file to point at). Under `--parallel` the bare ID is also flow's ticket argument: resolution is a server round-trip independent of the worker's cwd, and the worker's stage skills read and write artifacts through the pipeline tools (per-ticket rows, so concurrent workers never collide and nothing is written into the checkout's tree).
+- **`<TICKET_ARG_BLOCK>`** — the ticket's identity is its **bare ticket ID**; the orchestrator pulls the frontmatter-free `01-spec.md` body via `pipeline_get_artifact` and inlines it into the brief (there is no spec file to point at). The bare ID is also flow's ticket argument: resolution is a server round-trip independent of the worker's cwd, and the worker's stage skills read and write artifacts through the pipeline tools (per-ticket rows, so concurrent workers never collide and nothing is written into the checkout's tree).
 - **`<GROUND_TRUTH_BLOCK>`** — the orchestrator pulls the frontmatter-free `01-spec.md` body via `pipeline_get_artifact` and the matching lesson rows via `pipeline_list_lessons` (subject-keyword match in memory, per the lessons contract §8 — only the matched entries, never the full store), then fills the reviewer template's placeholder with:
   ```
   GROUND TRUTH is the ticket spec, inlined below — judge the diff against it.
@@ -26,7 +28,7 @@ Four placeholders in the brief templates resolve here; the orchestrator fills th
   ```
   These are neutral ticket inputs (spec + lessons), not the implementer's narrative — inlining them preserves bias isolation.
 - **`<AC_SOURCE_BLOCK>`** — the `ui-tester` brief carries the acceptance-criteria section of the spec body the orchestrator already pulled, inlined.
-- **`<STATE_CLAUSE_BLOCK>`** (`--parallel` worker briefs) — "Do not perform ticket state transitions: never call `pipeline_transition_ticket`. Do not write to the lessons store: never call the lesson tools."
+- **`<STATE_CLAUSE_BLOCK>`** (worker briefs) — "Do not perform ticket state transitions: never call `pipeline_transition_ticket`. Do not write to the lessons store: never call the lesson tools."
 
 ## §4 PR linkage
 
@@ -34,16 +36,17 @@ The post-PR linkage step: after each implementer returns, confirm the ticket row
 
 ## §5 In-review evidence and recovery
 
-A ticket `flow --pr` built sits at row status `in-review` (Transition 5). On recovery the ticket **row** is authoritative: `pipeline_get_ticket` (or `pipeline_list_tickets` for the roster) gives `status` and `pr_url`, `pipeline_list_artifacts` shows how far the build's artifact trail got, and `pr_url` locates the existing PR directly (fall back to the `<ID>:` title search, against the lane's repository, only when it is null). A `--parallel` recovery reconciles ticket state against that evidence as row statuses — the orchestrator owns status, so a crash can leave a merged PR with a stale `in-review`; `/feature:sync` fixes those.
+A ticket ship built sits at row status `in-review` (the orchestrator's Transition 5). On recovery the ticket **row** is authoritative: `pipeline_get_ticket` (or `pipeline_list_tickets` for the roster) gives `status` and `pr_url`, `pipeline_list_artifacts` shows how far the build's artifact trail got, and `pr_url` locates the existing PR directly (fall back to the `<ID>:` title search, against the lane's repository, only when it is null). **Pending Transition 5:** an `in-progress` row whose `pr_url` names an open PR died between the PR opening and the transition; check the PR's base against `<BASE_BRANCH>`, fire Transition 5 and skip Step 1. Recovery reconciles ticket state against that evidence as row statuses — the orchestrator owns status, so a crash can leave a merged PR with a stale `in-review`; `/feature:sync` fixes those.
 
-## §6 Parallel-walk state forms
+## §6 Orchestrator state forms
 
-Every shared mutation in a `--parallel` run is orchestrator-only, in the forms [`../../flow/references/state-transitions-server.md`](../../flow/references/state-transitions-server.md) prescribes — `pipeline_transition_ticket` under the CAS conflict doctrine in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md) (re-read, re-evaluate, proceed-or-stop, never widen `from[]`); being the sole transition caller changes none of those rules:
+Every shared mutation in a run is orchestrator-only, in the forms [`../../flow/references/state-transitions-server.md`](../../flow/references/state-transitions-server.md) prescribes — `pipeline_transition_ticket` under the CAS conflict doctrine in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md) (re-read, re-evaluate, proceed-or-stop, never widen `from[]`); being the sole transition caller changes none of those rules:
 
 - **Worker brief, state clause** — the `<STATE_CLAUSE_BLOCK>` (§3).
-- **Transition 1, epic run** — the epic row's CAS flip before any dispatch; each child row set to `in-progress` at its dispatch.
-- **Transition 5** — multi-solo ticket: CAS the row to `in-review`. Epic child: CAS the child row to `in-review`; the epic row's own `in-review` flip per T5's epic variant is the whole move.
-- **Transition 4** (a failed worker's ticket) — the `partial-completion` CAS write.
+- **Transition 1, solo or multi-solo ticket, or a child shipped directly** — before the ticket's first worker: the transition's CAS flip for that row.
+- **Transition 1, epic run** — the epic row's CAS flip before the first worker; each child row set to `in-progress` before its own first worker.
+- **Transition 5** — solo or multi-solo ticket: CAS the row to `in-review`. Epic child: CAS the child row to `in-review`; the epic row's own `in-review` flip per T5's epic variant is the whole move. While a child failed in this run, the child row flips only, with no epic-row flip.
+- **Transition 4** (a failed ticket) — the `partial-completion` CAS write.
 
 ## §7 UI evidence home and hosting
 
