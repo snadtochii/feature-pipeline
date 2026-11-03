@@ -10,4 +10,4 @@ Canonical logic for discover's multi-repo handling. Read when Phase 1's workspac
   - Child spec — exactly one repo, from the Phase 3.5 decomposition table. A child whose scope touches two repos splits further.
 - **Phase 3 confirmation** (one line of the Technical Considerations theme): "This looks like it touches `<repo-a>` + `<repo-b>` — correct?" — inferred by matching the explorer output's file paths against the detected child-repo directory names. The user's answer wins over the inference.
 - **Repo gate** (Phase 3.5): the gate reads the reconciled list — the user's answer at the confirmation, or the explorer's inference when the user moved on before it. Two or more repos means Phase 3.5 lands on N>1 with per-repo children and its checkpoint runs, whatever the scope signals say. Correcting the list to one repo at the confirmation keeps N=1. Discover offers no way to keep one ticket across repos.
-- **No repo matched**: ask which repo, and never write `repos: []`. Work that truly belongs to no repo omits the field.
+- **No repo matched**: ask which repo, and keep asking until the user names one. Never write `repos: []` or omit the field.
