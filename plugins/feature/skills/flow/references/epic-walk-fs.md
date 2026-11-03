@@ -22,6 +22,12 @@ d. For each child in the roster, read its metadata: `id`, `title`, `status`, `bl
 
    If a child folder is missing on disk for a `children` entry, warn the user and skip that child (continue with the others). The data is corrupted but the walk is still useful.
 
+   **One-repo preflight (`--pr` only).** When the walk was invoked with `--pr`, read each child's `repos:` in the same frontmatter read. A child naming 2+ entries whose `status` is not `done`, `partial-completion`, `cancelled` or `in-review` is refused. Print one line per refused child, then the closing line, and exit cleanly — no child runs:
+   ```
+   <ticket-id> names <n> repos (<list>); a PR needs one ticket per repo. Edit its repos: field, or run /feature:discover to split the work.
+   Stopping epic walk before any child runs. Fix the listed tickets, then run /feature:flow <EPIC-ID> --pr again.
+   ```
+
 ## 2. Topological sort
 
 a. Build a directed graph from `blocked_by`: an edge points from each blocker TO its dependent. So blockers come BEFORE dependents in topological order.

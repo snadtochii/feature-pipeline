@@ -51,7 +51,7 @@ Remaining args = pipeline flags (see table below)
 
 | Flag | Effect | Example |
 |------|--------|---------|
-| `--pr` | On verdict `pass`, the close stage opens a GitHub PR and finalizes the ticket into `review/` instead of `done/` (see `build/references/pr-creation.md`). Propagated to the close stage only; in epic-mode, forwarded per child (one PR per child). Degrades to a local commit + `done/` when GitHub tooling is absent. | `--pr` |
+| `--pr` | On verdict `pass`, the close stage opens a GitHub PR and finalizes the ticket into `review/` instead of `done/` (see `build/references/pr-creation.md`). Propagated to the close stage only; in epic-mode, forwarded per child (one PR per child). Degrades to a local commit + `done/` when GitHub tooling is absent. Where the ticket store carries `repos:`, a ticket naming 2+ repos is refused at SETUP before any stage runs, and the epic walk preflights its children the same way. | `--pr` |
 | `--no-ui-testing` | Skip only the browser/ui-tester portion of the close stage's test checkpoint; non-browser verification (lint/typecheck) still runs in implement and still gates the verdict. Use when the run can't get interactive browser-MCP permission (e.g. headless `claude -p`); browser verification then falls to a human at PR review. Propagated to the close stage only; in epic-mode, forwarded per child. | `--no-ui-testing` |
 | `--attach-screenshots` | With `--pr`, the close stage attaches the browser pass's screenshots to the PR body with `gh pr create --attach` — the per-run form of the `git.attach_screenshots: true` config key. Off by default: an upload cannot be undone and is world-readable on a public repository. `gh` without `--attach` (below 2.99.0), or a refused attach, falls back to a path manifest; a run with no browser pass attaches nothing (see `build/references/ui-attach.md`). Propagated to the close stage only; in epic-mode, forwarded per child. | `--pr --attach-screenshots` |
 | `--no-commit` | On verdict `pass`, the close stage leaves the changes uncommitted this run — no commit prompt, beating any `git.commit` config default (see `close-stage`'s commit-mode binding). Contradicts `--pr`: passing both stops at flow SETUP (or at the close stage's or standalone build's own flag validation when invoked directly) with a one-line error, before any stage runs. Propagated to the close stage only; in epic-mode, forwarded per child. | `--no-commit` |
@@ -100,7 +100,7 @@ Each stage reads and writes artifacts in `<ticket-folder>/`. This contract is lo
 
 flow owns:
 1. Ticket resolution (per `references/ticket-resolution-fs.md` / `references/ticket-resolution-server.md`)
-2. Kind validation (epic refusal) and blocker pre-check
+2. Kind validation (epic refusal), the `--pr` one-repo refusal, and blocker pre-check
 3. Resumption auto-detection from on-disk artifacts (see below) — decides the entry stage
 4. Stage invocation — spawning each stage as a subagent from `references/stage-briefs.md`, filling its brief (ticket argument, storage mode, forwarded overrides, flags, model), advancing through the §11 stage chain, relaying what each stage returns, and relaying any user-facing stop back to the stage (`stage-briefs.md` §5)
 
@@ -157,7 +157,9 @@ The user signals "start fresh on a partial ticket" by deleting `02-plan.md` (and
 
 2. **Branch on `kind`** (where it is read: [`keying-fs.md`](references/keying-fs.md) / [`keying-server.md`](references/keying-server.md) §2, for the detected mode):
    - `kind: epic` → epic mode: read and follow [`epic-walk-fs.md`](references/epic-walk-fs.md) / [`epic-walk-server.md`](references/epic-walk-server.md) (for the detected storage mode) (the epic walker); skip the remaining SETUP steps (the walker handles per-child blocker validation and artifact invalidation by recursing into single-ticket flow per child).
-   - Otherwise (no `kind` field, or `kind` has a non-`epic` value) → single-ticket mode; continue with steps 3–4.
+   - Otherwise (no `kind` field, or `kind` has a non-`epic` value) → single-ticket mode; continue with the one-repo refusal and steps 3–4.
+
+**One-repo refusal (`--pr` only).** Where the ticket store carries `repos:` ([`keying-fs.md`](references/keying-fs.md) §2), a ticket naming 2+ repos stops with one line — `<ticket-id> names <n> repos (<list>); a PR needs one ticket per repo. Edit its repos: field, or run /feature:discover to split the work.` — before any stage and with no state change. A ticket whose own `status` is `in-review` passes, because the close stage's merge check owns it.
 
 3. **Validate blockers** per [`ticket-resolution-fs.md`](references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](references/ticket-resolution-server.md) (for the detected storage mode) Step 6. If the ticket has `blocked_by` entries that are neither done (or cancelled) nor an `in-review` sibling, abort with the Step 6 message listing the unblocked blockers. An `in-review` sibling is deferred to the implement stage: Step 6's merged-sibling clause needs `Bash`, which flow does not hold, so `build` applies it and refuses there when the sibling's PR is not yet merged into its checkout.
 
@@ -256,5 +258,6 @@ When the close stage's verdict is `partial` or `stuck`, its verdict gate present
 - **Ticket not found**: defer to the error handling in `references/ticket-resolution-fs.md` / `references/ticket-resolution-server.md` — ask the user for the correct path.
 - **Project path can't be determined**: ask the user.
 - **Blocker validation fails**: abort at SETUP step 3; print the Step 6 message verbatim. The ticket folder stays in `backlog/` and frontmatter `status` is unchanged (flow has not touched state at this point).
+- **One-repo refusal fires** (`--pr` on a ticket naming 2+ repos): stop at SETUP with the refusal line. The ticket's state is untouched, as with a blocker failure.
 
 Plan-mode cancellation, verdict-gate ambiguity, and verdict-vs-summary inconsistencies are all handled inside the stages that produce them (plan and close respectively), not in flow.

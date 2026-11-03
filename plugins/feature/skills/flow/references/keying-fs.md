@@ -17,7 +17,7 @@ The resumption routing table's signals are read from the ticket folder:
 
 ## §2 Kind read
 
-`kind` is read from the frontmatter of `prd.md` if the folder holds one (an epic), else from `01-spec.md` (Read ticket metadata) — `epic` selects epic mode.
+`kind` is read from the frontmatter of `prd.md` if the folder holds one (an epic), else from `01-spec.md` (Read ticket metadata) — `epic` selects epic mode. The one-repo refusal's `repos:` and `status` come from the same `01-spec.md` frontmatter.
 
 ## §3 Start-fresh and invalidation
 

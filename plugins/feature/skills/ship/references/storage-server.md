@@ -4,7 +4,7 @@ Canonical logic for ship's storage-touching steps in server-native storage mode.
 
 ## §1 Ticket metadata and roster
 
-Read ticket metadata reads the ticket row: `kind`, `parent_id`, `blocked_by`. The row has no `repos` field, so every run is one lane — there is nothing to partition on — and the end-of-run UI pass takes [`test-preflight.md`](../../close-stage/references/test-preflight.md) Entry selection's rows for a ticket without `repos:`, applied per [`ui-verification.md`](ui-verification.md) step 0: the flat `test:` block when present. An **epic run's roster** is derived: `pipeline_list_tickets` filtered client-side to rows whose `parent_id` is the epic's ID; every listed row is materialized (a child exists only once created), so nothing is skipped.
+Read ticket metadata reads the ticket row: `kind`, `status`, `parent_id`, `blocked_by`. The row has no `repos` field, so every run is one lane — there is nothing to partition on — and the end-of-run UI pass takes [`test-preflight.md`](../../close-stage/references/test-preflight.md) Entry selection's rows for a ticket without `repos:`, applied per [`ui-verification.md`](ui-verification.md) step 0: the flat `test:` block when present. An **epic run's roster** is derived: `pipeline_list_tickets` filtered client-side to rows whose `parent_id` is the epic's ID; every listed row is materialized (a child exists only once created), so nothing is skipped.
 
 ## §2 Lessons store
 

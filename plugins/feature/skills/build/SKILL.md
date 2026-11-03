@@ -92,6 +92,7 @@ Runs before State setup, so Transition 1 never fires on a decidable error.
 
 - `--pr` and `--no-commit` together contradict — `--pr` must commit and push. Stop with one line — `--pr and --no-commit contradict — --pr must commit and push. Drop one and re-run.` No work happens, no artifacts are written, no transition fires.
 - With `--implement-only`, each of `--pr`, `--no-commit`, `--no-ui-testing` and `--attach-screenshots` that was passed prints one line — `<flag> ignored — no close stage in an implement-only run.` — and the run continues.
+- Without `--implement-only`, where the ticket store carries `repos:` ([`storage-fs.md`](references/storage-fs.md) §2), `--pr` on a ticket naming 2+ repos stops with one line — `<ticket-id> names <n> repos (<list>); a PR needs one ticket per repo. Edit its repos: field, or run /feature:discover to split the work.` — unless the ticket's own status is `in-review`. No work happens, no artifacts are written, no transition fires.
 
 ## Pending-gate check
 
