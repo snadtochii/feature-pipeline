@@ -95,6 +95,7 @@ Otherwise the epic stays in `in-progress/`. A `backlog` sibling and a declared c
 **Invoked by**:
 - `plan` at the start of a run, before Phase 1 synthesis.
 - `build` at the start of a run, before the implement checkpoint (idempotent — if the folder is already in `in-progress/`, no folder move; only frontmatter is touched).
+- `ship`'s orchestrator, on every run, before a ticket's first worker: its worker's `## Stage overrides` section takes this transition away from `plan` and `build` (`ship/references/storage-fs.md` §6).
 
 ### Solo ticket
 
@@ -188,6 +189,7 @@ Always move the folder first, then update frontmatter. If the folder move fails 
 **Invoked by**:
 - `close-stage` when verdict is `partial` or `stuck` AND user choice is `continue-with-hint`. The ticket then re-enters implement with the hint; status flag captures that the prior attempt didn't fully succeed.
 - `close-stage` immediately before invoking Transition 2 when user choice is `accept-as-partial` (sets `partial-completion` status first, then Transition 2 moves the folder to `done/` preserving that status).
+- `ship`'s orchestrator, on a failed ticket whose verdict is not `pass` and which has no PR (`ship/references/storage-fs.md` §6).
 
 ### Solo ticket
 
@@ -209,6 +211,7 @@ A repeat `continue-with-hint` round overwrites `partial-completion` with itself 
 
 **Invoked by**:
 - `close-stage` at its verdict gate on verdict `pass` with `--pr`, after a pull request has been opened for the work — the close stage resolves it at the gate and its finalizer child performs it, alongside the branch/push and the `gh pr create` call in build's `pr-creation.md` reference. This transition owns the folder move + status flag.
+- `ship`'s orchestrator, on every run, once a ticket's PR is confirmed open and correctly based (`ship/references/storage-fs.md` §6).
 
 Ticket lands here when its PR is open but not yet merged — a **non-terminal** state. The work is finished from the pipeline's perspective, but "done" would misrepresent it: an open PR can be reworked or closed.
 
