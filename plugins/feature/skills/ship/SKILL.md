@@ -63,7 +63,7 @@ orchestrator (main)
           orchestrator: PR open and correctly based → Transition 5 → lessons
        2. orchestrator: Hop verification + provenance comment → reviewer subagent → spec + diff only → posts PR review
        3. implementer subagent → Skill feature:address-review <n> --auto (validate → fix → reply → push) → epic run: PR checks green → squash-merge into the integration branch, aimed at the lane's repo; solo/multi-solo: leave the PR open
-  ├─ orchestrator: verify the hop (Hop verification; epic run: merge landed; solo/multi-solo: PR open) → next ticket; a failed ticket costs itself and its dependents (Failure isolation)
+  ├─ orchestrator: verify the hop (Hop verification; epic run: merge landed; solo/multi-solo: PR open) → lessons → next ticket; a failed ticket costs itself and its dependents (Failure isolation)
   └─ end of run: the resulting PR(s) — epic run: one open integration→<base> PR; solo/multi-solo: the already-open ticket PR(s). Left open unless --merge.
 ```
 
@@ -174,7 +174,7 @@ The orchestrator is the run's one writer of ticket state and lessons, and each w
 - **Transition 1** — after the per-ticket checkout and before Step 1's spawn, because the close stage requires `in-progress`. A ticket already at `in-review` takes none.
 - **Transition 5** — once Step 1's PR is confirmed open and correctly based, before Hop verification and Step 2. A close stage under the state clause ends `close: caller — verdict <verdict>`: it applied no transition, and the verdict tells the worker what to report.
 - **Transition 4** — only as Failure isolation states.
-- **Lessons** — right after a ticket's Transition 5 or 4, apply its report's `lesson_candidates` per [`lessons-log-fs.md`](../flow/references/lessons-log-fs.md) / [`lessons-log-server.md`](../flow/references/lessons-log-server.md) §4–§5, one at a time, through §2. A crash loses at most one ticket's candidates.
+- **Lessons** — after each implementer returns, once any transition that follows it has fired, apply its report's `lesson_candidates` per [`lessons-log-fs.md`](../flow/references/lessons-log-fs.md) / [`lessons-log-server.md`](../flow/references/lessons-log-server.md) §4–§5, one at a time, through §2. A crash loses at most one implementer's candidates.
 - **Finalization to `done`** stays `sync`'s job (Ticket-state finalization, under END OF RUN).
 
 ### Readiness (every run)
