@@ -45,7 +45,7 @@ Every shared mutation in a run is orchestrator-only, in the forms [`../../flow/r
 - **Worker brief, state clause** — the `<STATE_CLAUSE_BLOCK>` (§3).
 - **Transition 1, solo or multi-solo ticket, or a child shipped directly** — before the ticket's first worker: the transition's CAS flip for that row.
 - **Transition 1, epic run** — the epic row's CAS flip before the first worker; each child row set to `in-progress` before its own first worker.
-- **Transition 5** — solo or multi-solo ticket: CAS the row to `in-review`. Epic child: CAS the child row to `in-review`; the epic row's own `in-review` flip per T5's epic variant is the whole move. While a child failed in this run, the child row flips only, with no epic-row flip.
+- **Transition 5** — solo or multi-solo ticket: CAS the row to `in-review`. Epic child: CAS the child row to `in-review`; the epic row's own `in-review` flip per T5's epic variant is the whole move. While a child failed or was skipped in this run, the child row flips only, with no epic-row flip.
 - **Transition 4** (a failed ticket) — the `partial-completion` CAS write.
 
 ## §7 UI evidence home and hosting
