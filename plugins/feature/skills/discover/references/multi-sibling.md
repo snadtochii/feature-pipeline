@@ -23,7 +23,7 @@ I recommend splitting this into <N> tickets sharing epic `<epic-slug>`. Here's t
 | 2 | <CHILD-2-ID> | <title> | M | <repo-a> | 3, 4 | <CHILD-1-ID> |
 | 3 | <CHILD-3-ID> | <title> | S | <repo-b> | 5 | <CHILD-1-ID> |
 
-The `Repos` column appears only in a multi-repo workspace (per the Phase 1 detection) — omit the column entirely in a single-repo workspace. Each row names exactly one repo. The column lets the user check whether the split follows repo seams before approving.
+The `Repos` column appears only in a multi-repo workspace (per the Phase 1 detection) — omit the column entirely in a single-repo workspace. The column lets the user check whether the split follows repo seams before approving.
 
 ### Acceptance Criteria Coverage
 - [x] AC 1 → <CHILD-1-ID>
