@@ -101,7 +101,8 @@ Roles stay separated: the implementer owns build + fix authority (and per-ticket
 /feature:ship PB-22                       # a lone child whose integration/PB-20 is still active → its PR merges into that branch
 /feature:ship PB-13 --base develop        # one ticket → PR into develop, left open
 /feature:ship PB-13 --base integration/PB-20   # one ticket → PR merged into integration/PB-20, then an open integration/PB-20→main PR
-/feature:ship PB-41                       # epic with children in two repos → one integration/PB-41 per repo, each with its own PR
+/feature:ship PB-41                       # epic with 2+ children in each of two repos → one integration/PB-41 per repo, each with its own PR
+/feature:ship PB-51                       # epic with one child left, or one child per repo → an independent PR per ticket
 ```
 
 ### Flags ship does not take
@@ -141,7 +142,7 @@ Roles stay separated: the implementer owns build + fix authority (and per-ticket
    - **Target (every run)** — fixed once per ticket, from the selection and the Lane inputs, after the 2+ repos and Unbound tests and before the others, so a later skip cannot change a target; a child those two tests removed does not count, because its repo is unknown. First match wins:
      - (a) `<base>` is `integration/*` and not `<default>`: the target is `<base>`, with no new branch, for any ticket. It takes no state test, because the user named it.
      - (b) A child whose `integration/<epic-id>` is `active`: the target is that branch, even for a lone child.
-     - (c) A child whose epic's ID was named, or one of two or more selected children, none `done` or `cancelled`, sharing its epic and repo: the target is `integration/<epic-id>`, new from `<base>`, when that branch is `absent` or `spent`. When it is `elsewhere` the ticket and its dependents go on the skip list with `integration/<epic-id> leads to <other>, not <base>`.
+     - (c) One of two or more selected children, none `done` or `cancelled`, sharing its epic and repo: the target is `integration/<epic-id>`, new from `<base>`, when that branch is `absent` or `spent`. When it is `elsewhere` the name is taken, so the ticket and its dependents go on the skip list with `integration/<epic-id> leads to <other>, not <base>`.
      - (d) Otherwise: the target is `<base>`.
 
      A target of `integration/*` other than `<default>` makes an **integration ticket**, and any other a **direct ticket**. Ship merges only into such a branch by this definition, never into `<default>`: rule (a) catches every other `integration/*` `<base>`, so a direct ticket's target never is one, and its PR stays open unless `--merge` was passed.
@@ -163,7 +164,7 @@ Roles stay separated: the implementer owns build + fix authority (and per-ticket
    - <ID>: <reason>
    ```
    A `done` or `cancelled` ticket lists under Skipped as `already done` or `cancelled`, and a declared-but-unwritten child as `not written yet`, so an expanded epic's plan is complete.
-3. **Bind each ticket's `<BASE_BRANCH>`: its target (step 1).** Every ticket ships on its own feature branch (build names it from the ticket ID) and opens its own single-ticket PR against `<BASE_BRANCH>`; a direct ticket's PR is a resulting PR of the run. Each integration branch the surviving tickets name is set up once per lane, even when only one child is materialized right now (later siblings join the same branch):
+3. **Bind each ticket's `<BASE_BRANCH>`: its target (step 1).** Every ticket ships on its own feature branch (build names it from the ticket ID) and opens its own single-ticket PR against `<BASE_BRANCH>`; a direct ticket's PR is a resulting PR of the run. Each integration branch the surviving tickets name is set up once per lane:
    - **`active`, or a rule (a) base that exists**: reuse it, as step 2 fetched it.
    - **`absent` under rule (c)**, `<start>` being `<base>`, **or a rule (a) base that is missing**, `<start>` being `<default>`: `git -C "<repo-path>" fetch origin "<start>" && git -C "<repo-path>" push origin "refs/remotes/origin/<start>:refs/heads/<branch>" && git -C "<repo-path>" checkout -B "<branch>" "origin/<branch>"`.
    - **`spent` under rule (c)**, `<start>` being `<base>`: check `<tip>` against `^[0-9a-f]+$`, then the same commands with `--force-with-lease="refs/heads/<branch>:<tip>"` on the push. This resets the ref and loses nothing: `<tip>` is the head of a PR that already merged, no PR from it is still open, and a tip that moved since the lookup fails the lease.
