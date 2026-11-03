@@ -21,7 +21,7 @@ When the run's tickets carry `repos:` frontmatter (a multi-repo workspace — th
 - **One lane** — a single-repo workspace (`repos:` never exists there) or a run whose tickets all name the same repo — means none of the partition rules apply: the walk runs exactly per the rest of this reference, unchanged. The partition rules are a ≥2-lane concept.
 - **A run with nothing to partition on is one lane** — ship's storage file §1 says when `repos:` exists at all; without it the walk runs unchanged.
 - **Per-lane eligibility**: only a lane with ≥2 concurrent-eligible tickets needs the worktree contract. The two degradations above apply **per lane**: a worktree-needing lane in a repo without the contract logs one line — `lane <repo-dirname>: --parallel needs the worktree setup contract (worktree: block); walking this lane serially in its main checkout` — and walks serially in that repo's main checkout; a `worktree.setup` failure drains and degrades **within its lane only**. Other lanes are unaffected either way.
-- **An epic's integration tickets always share one lane** — SETUP step 1's guard STOPs any that would not (the integration branch cannot span repos).
+- **An integration branch belongs to one lane** — each repository holding an epic's integration tickets has its own `integration/<epic-id>`.
 - The lane partition feeds §2 (execution site), §3 (lane-keyed worktree paths), and §7 (per-repo recovery sweep). Everything else — briefs, hops, serialization ownership — is lane-independent.
 
 ## §2 Ready-set scheduling (greedy, no batch barriers)

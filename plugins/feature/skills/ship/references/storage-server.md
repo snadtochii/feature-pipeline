@@ -8,7 +8,7 @@ Read ticket metadata reads the ticket row: `kind`, `status`, `parent_id`, `block
 
 **Not found or unreadable.** `pipeline_get_ticket` reporting no such ticket is SETUP step 1's `ticket not found`, with no question to the user; any other tool failure stays a run stop.
 
-**Merged test.** SETUP step 2 decides an unselected `in-review` sibling blocker with the merged-sibling commands of [`ticket-resolution-server.md`](../../flow/references/ticket-resolution-server.md) Step 6, as written there, except for how the URL reaches its temp file: ship holds no `Write`, so the blocker row's `pr_url` goes into a `mktemp -d` file through a single-quoted heredoc whose fresh nonce delimiter is verified absent from the value, then is loaded and checked the same way. The lane's `<repo-path>` is the `<build checkout>`, and `origin/<the dependent's base>` takes the place of `HEAD`. Exit 0 is met; anything else, a missing branch included, fails closed.
+**Merged test.** SETUP step 2 decides an unselected `in-review` sibling blocker with the merged-sibling commands of [`ticket-resolution-server.md`](../../flow/references/ticket-resolution-server.md) Step 6, as written there, except for how the URL reaches its temp file: ship holds no `Write`, so the blocker row's `pr_url` goes into a `mktemp -d` file through a single-quoted heredoc whose fresh nonce delimiter is verified absent from the value, then is loaded and checked the same way. The lane's `<repo-path>` is the `<build checkout>`, and `origin/<the branch SETUP step 2 names for the dependent>` takes the place of `HEAD`. Exit 0 is met; anything else fails closed.
 
 ## §2 Lessons store
 
@@ -38,7 +38,7 @@ The post-PR linkage step: after each implementer returns, confirm the ticket row
 
 ## §5 In-review evidence and recovery
 
-A ticket ship built sits at row status `in-review` (the orchestrator's Transition 5). On recovery the ticket **row** is authoritative: `pipeline_get_ticket` (or `pipeline_list_tickets` for the roster) gives `status` and `pr_url`, `pipeline_list_artifacts` shows how far the build's artifact trail got, and `pr_url` locates the existing PR directly (fall back to the `<ID>:` title search, against the lane's repository, only when it is null). **Pending Transition 5:** an `in-progress` row whose `pr_url` names an open PR died between the PR opening and the transition; check the PR's base against `<BASE_BRANCH>`, fire Transition 5 and skip Step 1. Recovery reconciles ticket state against that evidence as row statuses — the orchestrator owns status, so a crash can leave a merged PR with a stale `in-review`; `/feature:sync` fixes those.
+A ticket ship built sits at row status `in-review` (the orchestrator's Transition 5). On recovery the ticket **row** is authoritative: `pipeline_get_ticket` (or `pipeline_list_tickets` for the roster) gives `status` and `pr_url`, `pipeline_list_artifacts` shows how far the build's artifact trail got, and `pr_url` locates the existing PR directly (fall back to the `<ID>:` title search, against the lane's repository, only when it is null). **Pending Transition 5:** an `in-progress` row whose `pr_url` names an open PR died between the PR opening and the transition; apply `SKILL.md` Recovery's base check, fire Transition 5 and skip Step 1. Recovery reconciles ticket state against that evidence as row statuses — the orchestrator owns status, so a crash can leave a merged PR with a stale `in-review`; `/feature:sync` fixes those.
 
 ## §6 Orchestrator state forms
 
