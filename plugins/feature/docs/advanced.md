@@ -135,7 +135,7 @@ Run an epic with `/feature:flow <EPIC-ID>` — it walks the children in `blocked
 
 - **`--base <branch>`** — the branch X in the target rules below (default: each repository's own default branch): tickets fork from it and end in it. A value starting `integration/` is created from the default branch when missing, and any other value missing from a repository stops only that repository's tickets. Each ticket's target follows four rules, and the first match wins:
   1. `--base integration/...`: a PR into that branch, with no new branch.
-  2. A child whose repository has an active `integration/<epic-id>` leading to X: a PR into it, even for a single child. A branch whose PR already merged with no commits since counts as not existing, a branch leading elsewhere is ignored, and a branch with no PR yet is assumed to lead to X.
+  2. A child whose repository has an active `integration/<epic-id>` leading to X: a PR into it, even for a single child. A branch whose PR into X or the default branch already merged with no commits since counts as not existing, a branch whose PR went anywhere else is ignored, and a branch with no PR yet is assumed to lead to X.
   3. A child of an epic named by ID, or two or more selected children sharing an epic and a repository: a new `integration/<epic-id>` from X. When that branch leads elsewhere, those tickets are skipped.
   4. Anything else: a PR directly into X.
 

@@ -130,10 +130,12 @@ Roles stay separated: the implementer owns build + fix authority (and per-ticket
        |---|---|---|
        | Missing | n/a | `absent` |
        | Exists | `OPEN` into `<base>` | `active` |
-       | Exists | `OPEN` into another branch, `<other>` | `elsewhere` |
-       | Exists | `MERGED`, `headRefOid` equals `<tip>` | `spent` |
-       | Exists | `MERGED`, tip moved since | `active` |
-       | Exists | `CLOSED`, or none | `active` |
+       | Exists | `MERGED` into `<base>` or `<default>`, `headRefOid` equals `<tip>` | `spent` |
+       | Exists | `MERGED` into `<base>` or `<default>`, tip moved since | `active` |
+       | Exists | `CLOSED` into `<base>`, or none | `active` |
+       | Exists | Any other PR, into another branch, `<other>` | `elsewhere` |
+
+       Step 3 resets only a `spent` branch, so a branch it reset still shows that merged PR with a moved tip and reads `active` on a re-run. Commits pushed after a merge read the same way, and are never reset.
 
      - **Failures.** No `<default>`, or any other non-zero exit, is never read as "no PR" or "no branch": every ticket of that lane and its dependents goes on the skip list with `repo <repo> failed pre-flight: <what failed>`.
    - **Target (every run)** — fixed once per ticket, from the selection and the Lane inputs, after the 2+ repos and Unbound tests and before the others, so a later skip cannot change a target; a child those two tests removed does not count, because its repo is unknown. First match wins:
