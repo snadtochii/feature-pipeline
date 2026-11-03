@@ -20,7 +20,7 @@ All git work runs inline via `Bash`. Every command below is **explicitly path-bo
 | Input | Meaning |
 |---|---|
 | `<TICKET-ID>` | The ticket's `id` — keys the worktree path and the `/tmp` setup script. |
-| `<repo-root>` | **Absolute** path to the git repository the work happens in — the main checkout. In a single-repo workspace, the repo itself; in a multi-repo workspace, the workspace child directory the ticket's work belongs to (build: the ticket's single `repos:` entry, per §1; ship: the lane's repo, per parallel-walk §1). This procedure assumes `<repo-root>` is a main checkout, never itself a worktree. |
+| `<repo-root>` | **Absolute** path to the git repository the work happens in — the main checkout. In a single-repo workspace, the repo itself; in a multi-repo workspace, the workspace child directory the ticket's work belongs to (build: the ticket's single `repos:` entry, per §1; ship: the lane's repo, per its lane record, SETUP step 1 of ship's `SKILL.md`). This procedure assumes `<repo-root>` is a main checkout, never itself a worktree. |
 | `<BASE_BRANCH>` | The **short** branch name the worktree forks from (e.g. `main`, or `integration/<epic-id>` on an epic run) — never the `origin/`-prefixed remote-tracking form, which breaks `git checkout` and `gh --base`. Resolved by the caller: build uses [`pr-creation.md`](pr-creation.md) §1's short-name helper; ship passes its lane's bound base under `--parallel` (on ship's serial path there is no channel for a non-default base — which is why that path drops the flag rather than forking from the wrong trunk). |
 | `<branch>` | `<type>/<TICKET-ID>-<slug>` per [`pr-creation.md`](pr-creation.md) §2 — including its mandatory slug sanitization, since the value is interpolated into shell commands. |
 | `<ticket-folder>` | **Absolute** path to the ticket's artifact location — what it denotes: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §3, for the detected storage mode. Never a relative path and never a path inside the worktree — see §3. |
@@ -31,7 +31,7 @@ All git work runs inline via `Bash`. Every command below is **explicitly path-bo
 
 **Binding order.** `<repo-root>` and `<BASE_BRANCH>` are resolved **as part of §1** — §1 is what picks the repo from `repos:`, and its blocker check needs the base. Everything else in the table binds once §1 passes. A caller that already knows the repo (ship's lane record) supplies `<repo-root>` up front and §1 simply confirms it.
 
-**Interpolation.** Every input above except `<ticket-folder>` reaches a shell command line. `<TICKET-ID>` and `<BASE_BRANCH>` are format-constrained by their sources; `<branch>` carries `pr-creation.md` §2's mandatory `[a-z0-9-]` slug sanitization; `<repo-root>` is ticket-derived (the `repos:` entry) and is gated by §1's must-resolve-to-a-`.git`-directory check. Any value recovered from an **artifact body** is loaded by command substitution and character-class-checked before use — never pasted into a `"…"` literal, per [`pr-creation.md`](pr-creation.md) §4's injection discipline. §1's blocker branch is the one such value here.
+**Interpolation.** Every input above except `<ticket-folder>` reaches a shell command line. `<TICKET-ID>` and `<BASE_BRANCH>` are format-constrained by their sources; `<branch>` carries `pr-creation.md` §2's mandatory `[a-z0-9-]` slug sanitization; `<repo-root>` is ticket-derived (the `repos:` entry) and is gated by §1's format and must-resolve-to-a-`.git`-directory checks. Any value recovered from an **artifact body** is loaded by command substitution and character-class-checked before use — never pasted into a `"…"` literal, per [`pr-creation.md`](pr-creation.md) §4's injection discipline. §1's blocker branch is the one such value here.
 
 ---
 
@@ -40,7 +40,7 @@ All git work runs inline via `Bash`. Every command below is **explicitly path-bo
 Cheapest-first: the `repos:` rules below are pure metadata reads, and only the blocker check touches git. Each miss is a one-line notice and an in-place build — never an error, and never a silent skip.
 
 - **Multi-repo ticket, 2+ `repos:` entries** → **not eligible**. A single worktree cannot span repositories. Notice: `--worktree: <TICKET-ID> spans repos (<repos>); building in place.` (The `repos:` field's semantics are [`../../discover/references/multi-repo.md`](../../discover/references/multi-repo.md); whether the ticket carries it: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §2, for the detected storage mode.)
-- **Exactly one `repos:` entry** → **eligible**; `<repo-root>` is that workspace child directory. A value that does not resolve to an existing child directory containing `.git` is treated as the multi-repo miss above, naming the unresolved value.
+- **Exactly one `repos:` entry** → **eligible**; `<repo-root>` is that workspace child directory. A value that fails the format check in [`ticket-resolution-fs.md`](../../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../../flow/references/ticket-resolution-server.md) Step 3, or does not resolve to an existing child directory containing `.git`, is treated as the multi-repo miss above, naming the unresolved value.
 - **No `repos:` field** → **eligible**; `<repo-root>` is the repository holding `claudedocs/tickets/`.
 - **A `blocked_by` blocker's code is in neither the fork point nor the current checkout** → **not eligible**. A blocker that finished without `--pr` is `done` with its commits on a local branch that was never merged into `<BASE_BRANCH>`, so a worktree cut fresh from `origin/<BASE_BRANCH>` would not contain that code.
 
@@ -153,6 +153,8 @@ Storage-mode requirements on the resolved file — whether the no-source case is
 
 Once a worktree is bound, every command must be aimed explicitly. A missed site does not error; it silently diffs, commits, or serves the **wrong tree**. Enumerated rather than summarized so it can be audited site by site.
 
+A run with no worktree and an in-place repository ([`ticket-resolution-fs.md`](../../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../../flow/references/ticket-resolution-server.md) Step 3) aims the same "Runs in the worktree" sites at that repository, spawn prompts included, and the "Stays in the main checkout" table holds as written. Three rows do not apply there: `worktree.setup` never runs, `test.start` keeps the launch directory [`test-preflight.md`](../../close-stage/references/test-preflight.md) names, and the Merge predicate keeps its caller's working directory.
+
 ### Runs in the worktree — `git -C "<wt-path>"` or `cd "<wt-path>" && …`
 
 | Site | Where |
@@ -176,7 +178,7 @@ The two subagent rows are the ones a `Bash`-only audit misses. A reviewer handed
 
 `git add -A` deserves particular care: it stages from the **repository root** regardless of the working directory, so `-C` is what selects the repository, not a cosmetic prefix. Without it the main checkout's tree is staged.
 
-The [`commit.md`](commit.md) and [`pr-creation.md`](pr-creation.md) rows, and §4 itself, are executed by the close stage's `feature:finalizer` child, which receives `<wt-path>`, `<branch>`, `<repo-root>` and every main-checkout path as absolute values in its spawn prompt. For those sites the binding is a prompt-composition obligation on the caller: a value left out is not something the child can raise, it is a command aimed at the wrong tree.
+The [`commit.md`](commit.md) and [`pr-creation.md`](pr-creation.md) rows, and §4 itself, are executed by the close stage's `feature:finalizer` child, which receives its repository root, `<wt-path>`, `<branch>`, `<repo-root>` and every main-checkout path as absolute values in its spawn prompt. For those sites the binding is a prompt-composition obligation on the caller: a value left out is not something the child can raise, it is a command aimed at the wrong tree.
 
 ### Stays in the main checkout — absolute paths
 

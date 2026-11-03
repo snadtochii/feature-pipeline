@@ -4,7 +4,7 @@ Canonical logic for ship's storage-touching steps in server-native storage mode.
 
 ## §1 Ticket metadata and roster
 
-Read ticket metadata reads the ticket row: `kind`, `status`, `parent_id`, `blocked_by`. The row has no `repos` field, so every run is one lane — there is nothing to partition on — and the end-of-run UI pass takes [`test-preflight.md`](../../close-stage/references/test-preflight.md) Entry selection's rows for a ticket without `repos:`, applied per [`ui-verification.md`](ui-verification.md) step 0: the flat `test:` block when present. An **epic run's roster** is derived: `pipeline_list_tickets` filtered client-side to rows whose `parent_id` is the epic's ID; every listed row is materialized (a child exists only once created), so nothing is skipped.
+Read ticket metadata reads the ticket row: `kind`, `status`, `parent_id`, `blocked_by`. The row has no `repos` field, so every run is one lane, whose repo path is the project root — there is nothing to partition on — and the end-of-run UI pass takes [`test-preflight.md`](../../close-stage/references/test-preflight.md) Entry selection's rows for a ticket without `repos:`, applied per [`ui-verification.md`](ui-verification.md) step 0: the flat `test:` block when present. An **epic run's roster** is derived: `pipeline_list_tickets` filtered client-side to rows whose `parent_id` is the epic's ID; every listed row is materialized (a child exists only once created), so nothing is skipped.
 
 ## §2 Lessons store
 
@@ -34,7 +34,7 @@ The post-PR linkage step: after each implementer returns, confirm the ticket row
 
 ## §5 In-review evidence and recovery
 
-A ticket `flow --pr` built sits at row status `in-review` (Transition 5). On recovery the ticket **row** is authoritative: `pipeline_get_ticket` (or `pipeline_list_tickets` for the roster) gives `status` and `pr_url`, `pipeline_list_artifacts` shows how far the build's artifact trail got, and `pr_url` locates the existing PR directly (fall back to the `<ID>:` title search only when it is null). A `--parallel` recovery reconciles ticket state against that evidence as row statuses — the orchestrator owns status, so a crash can leave a merged PR with a stale `in-review`; `/feature:sync` fixes those.
+A ticket `flow --pr` built sits at row status `in-review` (Transition 5). On recovery the ticket **row** is authoritative: `pipeline_get_ticket` (or `pipeline_list_tickets` for the roster) gives `status` and `pr_url`, `pipeline_list_artifacts` shows how far the build's artifact trail got, and `pr_url` locates the existing PR directly (fall back to the `<ID>:` title search, against the lane's repository, only when it is null). A `--parallel` recovery reconciles ticket state against that evidence as row statuses — the orchestrator owns status, so a crash can leave a merged PR with a stale `in-review`; `/feature:sync` fixes those.
 
 ## §6 Parallel-walk state forms
 
