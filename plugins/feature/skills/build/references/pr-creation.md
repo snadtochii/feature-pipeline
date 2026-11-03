@@ -26,7 +26,7 @@ On any failure: still create the branch + local commit (§1–§3, skipping push
 git -C "<root>" fetch origin --quiet
 ```
 
-Base branch — resolve to the **short** branch name (the matrix below uses `<base>` as a local branch name, so `origin/main` would break `git checkout`/`gh --base`):
+Base branch — the prompt's `Base branch:` value when it names a branch, which is how a caller's named base reaches the matrix below. Otherwise resolve to the **short** branch name (the matrix below uses `<base>` as a local branch name, so `origin/main` would break `git checkout`/`gh --base`):
 ```bash
 base=$(git -C "<root>" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
 [ -n "$base" ] || base=$(git -C "<root>" ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" { sub("^refs/heads/", "", $2); print $2 }')
