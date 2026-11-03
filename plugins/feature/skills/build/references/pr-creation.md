@@ -28,9 +28,10 @@ git -C "<root>" fetch origin --quiet
 
 Base branch — resolve to the **short** branch name (the matrix below uses `<base>` as a local branch name, so `origin/main` would break `git checkout`/`gh --base`):
 ```bash
-base=$(git -C "<root>" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)
+base=$(git -C "<root>" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
+[ -n "$base" ] || base=$(git -C "<root>" ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" { sub("^refs/heads/", "", $2); print $2 }')
 ```
-`<base>` is the short branch name (e.g. `main`); `origin/<base>` (e.g. `origin/main`) is the remote-tracking ref. Current branch: `git -C "<root>" rev-parse --abbrev-ref HEAD`.
+`<base>` is the short branch name (e.g. `main`); `origin/<base>` (e.g. `origin/main`) is the remote-tracking ref. Current branch: `git -C "<root>" rev-parse --abbrev-ref HEAD`. On a run §0 passed, an empty `<base>` is a terminal `result: error` with `failed-step: branch-decision`, naming the repository, before any branch or commit: a branch name is never guessed.
 
 Branch-decision matrix — the first entry is a guard that wins over every row below it:
 - **A worktree was provisioned for this ticket** ([`worktree.md`](worktree.md) §2, via build's `--worktree` or `ship --parallel`) → **reuse `<branch>`**; it is already created and checked out in `<wt-path>`. Skip every row below: never `git checkout <base>` (the base is checked out in the main checkout, and git refuses one branch in two worktrees — that checkout is exactly what fails here), and never re-create the convention branch (it exists, and this worktree is on it). Proceed straight to §3 with all git work bound to `<wt-path>` per [`worktree.md`](worktree.md) §3.
@@ -144,7 +145,7 @@ elif [ -n "$PR_BASE" ]; then
 fi
 # Fallback only when the PR base can't be resolved; an unresolved base is treated as NOT
 # promotable below (never a pass), so this can never wrongly promote.
-[ -n "$base" ] || base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)
+[ -n "$base" ] || base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
 ```
 
 Then, from the lookup's `state` and `MERGE_SHA`:
