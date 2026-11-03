@@ -10,7 +10,7 @@ Canonical logic for the review stage's storage-touching steps in fs-native stora
 
 ## §2 Ticket metadata
 
-Read ticket metadata reads the frontmatter of `01-spec.md`: bind `complexity`, `kind` and `blocked_by`.
+Read ticket metadata reads the frontmatter of `01-spec.md`: bind `complexity`, `kind` and `blocked_by`, and `repos` where present — the input of the in-place repository ([`ticket-resolution-fs.md`](../../flow/references/ticket-resolution-fs.md) Step 3).
 
 ## §3 Artifact writes
 

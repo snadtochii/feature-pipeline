@@ -10,7 +10,7 @@ Canonical logic for the close stage's storage-touching steps in fs-native storag
 
 ## §2 Ticket metadata
 
-Read ticket metadata reads the frontmatter of `01-spec.md`: bind `status`, `kind`, `epic`, `parent`, and `repos` where present — the test checkpoint's selection input ([`test-preflight.md`](test-preflight.md) Entry selection). For an epic child, the epic's declared `children:` roster lives in the epic's `prd.md` frontmatter; the finalizer reads it there from the absolute path the spawn prompt carries, so the stage does not.
+Read ticket metadata reads the frontmatter of `01-spec.md`: bind `status`, `kind`, `epic`, `parent`, and `repos` where present — the test checkpoint's selection input ([`test-preflight.md`](test-preflight.md) Entry selection) and the input of the in-place repository ([`ticket-resolution-fs.md`](../../flow/references/ticket-resolution-fs.md) Step 3). For an epic child, the epic's declared `children:` roster lives in the epic's `prd.md` frontmatter; the finalizer reads it there from the absolute path the spawn prompt carries, so the stage does not.
 
 ## §3 Artifact writes
 

@@ -4,7 +4,7 @@ Build runs the checks the project documents on its own edits as one `&&`-chained
 
 ## Where the commands come from
 
-Build reads the project instruction files for both runtimes — `CLAUDE.md` and `AGENTS.md` — at build start, the current runtime's primary file first (`AGENTS.md` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not, else `CLAUDE.md`), then the other. It collects every check they document — lint, typecheck, and format or tests where declared:
+Build reads the project instruction files for both runtimes — `CLAUDE.md` and `AGENTS.md` — at build start, from `<root>` (State setup binds it), falling back to the project root's when the repository has none, the current runtime's primary file first (`AGENTS.md` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not, else `CLAUDE.md`), then the other. It collects every check they document — lint, typecheck, and format or tests where declared:
 
 - **Headings** — a heading counts when its text *contains* `Commands`, `Validation` or `Testing`, so `## Validation and extension checklists` matches as well as `## Commands`.
 - **Inline references** — a command named in prose, such as `npm run lint`, `pnpm test`, `cargo check` or `pytest`, counts too.

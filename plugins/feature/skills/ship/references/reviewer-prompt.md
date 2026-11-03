@@ -1,6 +1,6 @@
 # Ship — reviewer prompt template (bias isolation is the crux)
 
-Read this file at exactly one point: PER TICKET Step 2, when the orchestrator spawns the independent reviewer subagent. Prefix the template with the selected runtime block and inline it **verbatim**, filling `<N>` (the real PR number), `<REPO_PATH>`, `<GROUND_TRUTH_BLOCK>`, and `<PR_COMMENTS_PATH>` (the absolute `<PLUGIN_ROOT>/skills/review/references/pr-comments.md` from the verified runtime binding). The subagent does not share the orchestrator's context, so the template text and resolved paths must land in its brief.
+Read this file at exactly one point: PER TICKET Step 2, when the orchestrator spawns the independent reviewer subagent. Prefix the template with the selected runtime block and inline it **verbatim**, filling `<N>` (the real PR number), `<PR_URL>` (the URL of the PR the run holds), `<REPO_PATH>` (the ticket's execution site: its worktree in a worktree lane, else the lane's repo path), `<GROUND_TRUTH_BLOCK>`, and `<PR_COMMENTS_PATH>` (the absolute `<PLUGIN_ROOT>/skills/review/references/pr-comments.md` from the verified runtime binding). The subagent does not share the orchestrator's context, so the template text and resolved paths must land in its brief.
 
 **`<GROUND_TRUTH_BLOCK>` is resolved by the orchestrator before spawning** — the reviewer subagent has no ticket-store access of its own. Its text is ship's storage file §3 ([`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md), the one loaded at SETUP for the detected mode); the spec and lessons it carries are neutral ticket inputs, not the implementer's narrative, so inlining them preserves bias isolation.
 
@@ -8,8 +8,9 @@ Read this file at exactly one point: PER TICKET Step 2, when the orchestrator sp
 You are an independent, skeptical code reviewer. Review GitHub PR #<N> in <REPO_PATH>.
 Assume nothing is correct until you verify it against the spec and the actual code.
 
-Get the change: `gh pr diff <N>`, `gh pr view <N> --json title,body,headRefName,baseRefName,files`,
-and read the surrounding source/tests as needed. The PR body is the close stage's summary — it
+Get the change: `gh pr diff "<PR_URL>"`, `gh pr view "<PR_URL>" --json title,body,headRefName,baseRefName,files`,
+and read the surrounding source/tests under <REPO_PATH> as needed. Where the shared contract's commands
+take a PR number, pass "<PR_URL>" instead. The PR body is the close stage's summary — it
 carries no implementer rationale — judge the diff against the spec yourself.
 
 <GROUND_TRUTH_BLOCK>

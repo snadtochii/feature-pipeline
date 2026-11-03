@@ -4,15 +4,15 @@ The shared stage + commit procedure for every pipeline surface that creates a co
 
 Build has no `Skill` tool, so these conventions are inlined here rather than borrowed from a separate skill. All git work runs inline via `Bash`.
 
-**Working tree**: when the caller has a worktree bound, every `git` command below runs as `git -C "<wt-path>" …` per [`worktree.md`](worktree.md) §3, which explains why `-C` is load-bearing here rather than cosmetic. §1 additionally excludes every path on the run's exclusion list — the copied files `worktree.md` §2 step 4 found **not ignored in the worktree** — via `git reset -q -- "<rel-path>"` alongside the `claudedocs` and session-state exclusions. The performer is responsible for that list being current: it is re-derived from the tree at commit time, never read back from the `## Worktree` record (worktree.md §2 step 1), so a resumed run commits with the same protection as the run that provisioned. The message file passed to `git commit -F` is a `/tmp` or scratchpad path and is unaffected.
+**Working tree**: every `git` command below runs as `git -C "<root>" …`, aimed at the repository root the caller names — `<wt-path>` when a worktree is bound — per [`worktree.md`](worktree.md) §3, which explains why `-C` is load-bearing here rather than cosmetic. With a worktree bound, §1 additionally excludes every path on the run's exclusion list — the copied files `worktree.md` §2 step 4 found **not ignored in the worktree** — via `git reset -q -- "<rel-path>"` alongside the `claudedocs` and session-state exclusions. The performer is responsible for that list being current: it is re-derived from the tree at commit time, never read back from the `## Worktree` record (worktree.md §2 step 1), so a resumed run commits with the same protection as the run that provisioned. The message file passed to `git commit -F` is a `/tmp` or scratchpad path and is unaffected.
 
 ## §1 Stage (gitignore-aware — honors the consumer's repo)
 
 ```bash
-if git check-ignore -q claudedocs; then
-  git add -A                                   # claudedocs/ is ignored → safe to sweep
+if git -C "<root>" check-ignore -q claudedocs; then
+  git -C "<root>" add -A                                   # claudedocs/ is ignored → safe to sweep
 else
-  git add -A && git reset -q -- claudedocs/     # claudedocs/ is tracked → exclude ticket bookkeeping
+  git -C "<root>" add -A && git -C "<root>" reset -q -- claudedocs/     # claudedocs/ is tracked → exclude ticket bookkeeping
   echo "claudedocs/ is tracked in this repo — ticket artifacts excluded from the commit."
 fi
 ```

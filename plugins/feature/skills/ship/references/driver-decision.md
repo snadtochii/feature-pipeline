@@ -11,11 +11,11 @@ The decision is made once per run, before the first ticket is built, and only on
 - **No `--parallel`** → at SETUP step 2.
 - **`--parallel`** → at SETUP step 4, and only when the whole run takes the serial walk before its first dispatch: step 4's no-`worktree:` degradation outside a multi-lane run, or a solo run ([`parallel-walk.md`](parallel-walk.md) §1).
 
-In every other case it is never made, and every ticket keeps `--no-ui-testing`. That covers a concurrent walk, whose workers cannot each run a pass ([`parallel-walk.md`](parallel-walk.md) §4), a multi-lane run, and a walk that degrades after its first dispatch. In all three, another worker or lane may still be running.
+In every other case under `--parallel` it is never made, and every ticket keeps `--no-ui-testing`. That covers a concurrent walk, whose workers cannot each run a pass ([`parallel-walk.md`](parallel-walk.md) §4), a multi-lane run, and a walk that degrades after its first dispatch. In all three, another worker or lane may still be running.
 
 ## §2 Driver ticket
 
-For each ticket, apply [`test-preflight.md`](../../close-stage/references/test-preflight.md) [Entry selection](../../close-stage/references/test-preflight.md#entry-selection) to its `repos:` (bound at SETUP step 1) and to the `test:` block. Here read only that subsection and the Browser driver subsection's **Driver location** bullet, never the whole reference.
+For each ticket, apply [`test-preflight.md`](../../close-stage/references/test-preflight.md) [Entry selection](../../close-stage/references/test-preflight.md#entry-selection) to its `repos:` as SETUP step 1 binds it and to the `test:` block. Here read only that subsection and the Browser driver subsection's **Driver location** bullet, never the whole reference.
 
 The ticket is a driver ticket when at least one entry is selected and every selected entry declares `driver: browser-cli`. It is not one when no entry is selected, when the selection mixes driver and MCP entries, or when a `driver` value is unrecognized. An epic run judges each child on its own.
 

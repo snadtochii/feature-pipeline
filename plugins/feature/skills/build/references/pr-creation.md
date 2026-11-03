@@ -9,9 +9,13 @@ Neither the close stage nor its finalizer has a `Skill` tool, so the branch conv
 - The full sequence (§0–§5): only on verdict `pass` with `--pr`, and it is the finalizer that runs it. On `partial`/`stuck`, or without `--pr`, this reference is not used — the verdict gate's commit-mode dispatch (`close-stage/SKILL.md`, verdict gate and finalizer handoff, driven by the bound `commit_mode`) applies instead.
 - The **Merge predicate** section only: referenced by the close stage's `review/` merge-check row, which runs on every invocation of a `review/` ticket regardless of whether `--pr` is on the command line. That row is a resumption check rather than post-gate work, so the close stage runs the predicate itself; the finalizer is not involved.
 
+## Repository root
+
+`<root>` is the `Repository root:` value the finalizer prompt names. Every git and gh command in §0–§4 is aimed at it per [`worktree.md`](worktree.md) §3, including those written in prose below: `git -C "<root>" …` for git, and `cd "<root>" && gh …` for gh, which infers the repository from its working directory. The Merge predicate is not the finalizer's and keeps its caller's working directory.
+
 ## §0 Preconditions (short-circuit to commit-only)
 
-Run the shared check sequence from [`../../review/references/gh-preconditions.md`](../../review/references/gh-preconditions.md) before any branch/push work, in order; first failure → degrade (do NOT proceed to push). Only the sequence is shared — that reference's fail-closed contract (change nothing, exit cleanly) does **not** apply here; §0's consequence is its own:
+Run the shared check sequence from [`../../review/references/gh-preconditions.md`](../../review/references/gh-preconditions.md) before any branch/push work, in order; first failure → degrade (do NOT proceed to push). Its origin check runs against the repository root: `git -C "<root>" remote get-url origin`. Only the sequence is shared — that reference's fail-closed contract (change nothing, exit cleanly) does **not** apply here; §0's consequence is its own:
 
 On any failure: still create the branch + local commit (§1–§3, skipping push/PR), print one specific line (e.g. `--pr: gh not installed — committed to <branch>, finalized to done/.`), finalize via Transition 2 (`done/`), and record the reason in `06-summary.md`. Never abort the verdict gate.
 
@@ -19,14 +23,15 @@ On any failure: still create the branch + local commit (§1–§3, skipping push
 
 **Fetch first** so the base and the "commits ahead" check reflect the real remote, not a stale local ref — a dependency ticket may already be merged into the base while local `main` lags, which would otherwise make the matrix stack onto an already-merged branch instead of forking from the updated base:
 ```bash
-git fetch origin --quiet
+git -C "<root>" fetch origin --quiet
 ```
 
 Base branch — resolve to the **short** branch name (the matrix below uses `<base>` as a local branch name, so `origin/main` would break `git checkout`/`gh --base`):
 ```bash
-base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)
+base=$(git -C "<root>" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
+[ -n "$base" ] || base=$(git -C "<root>" ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" { sub("^refs/heads/", "", $2); print $2 }')
 ```
-`<base>` is the short branch name (e.g. `main`); `origin/<base>` (e.g. `origin/main`) is the remote-tracking ref. Current branch: `git rev-parse --abbrev-ref HEAD`.
+`<base>` is the short branch name (e.g. `main`); `origin/<base>` (e.g. `origin/main`) is the remote-tracking ref. Current branch: `git -C "<root>" rev-parse --abbrev-ref HEAD`. On a run §0 passed, an empty `<base>` is a terminal `result: error` with `failed-step: branch-decision`, naming the repository, before any branch or commit: a branch name is never guessed.
 
 Branch-decision matrix — the first entry is a guard that wins over every row below it:
 - **A worktree was provisioned for this ticket** ([`worktree.md`](worktree.md) §2, via build's `--worktree` or `ship --parallel`) → **reuse `<branch>`**; it is already created and checked out in `<wt-path>`. Skip every row below: never `git checkout <base>` (the base is checked out in the main checkout, and git refuses one branch in two worktrees — that checkout is exactly what fails here), and never re-create the convention branch (it exists, and this worktree is on it). Proceed straight to §3 with all git work bound to `<wt-path>` per [`worktree.md`](worktree.md) §3.
@@ -54,13 +59,13 @@ The commit message this path creates follows [`commit.md`](commit.md) §2 in ful
 Run [`commit.md`](commit.md) §1 (gitignore-aware staging — the `git check-ignore` gates on `claudedocs/` and the session-state backstop), then commit with the `commit.md` §2 message:
 
 ```bash
-git commit -F <message-file>
+git -C "<root>" commit -F <message-file>
 ```
 
 ## §4 Push + open PR (injection-safe)
 
 ```bash
-git push -u origin "<branch>"
+git -C "<root>" push -u origin "<branch>"
 # Load the ID and title from the spec via command substitution — never paste raw text into a "..." literal.
 # A double-quoted assignment does NOT neutralize backticks / $() / quotes; a command-substitution result is not re-evaluated.
 TICKET_ID=$(sed -n 's/^id: *//p' "<01-spec.md path>" | head -1)
@@ -71,7 +76,7 @@ case "$SPEC_TITLE" in
   "$TICKET_ID:"*) PR_TITLE="$SPEC_TITLE" ;;
   *) PR_TITLE="$TICKET_ID: $SPEC_TITLE" ;;
 esac
-gh pr create --base "<base>" --title "$PR_TITLE" --body-file "<06-summary.md path>"
+cd "<root>" && gh pr create --base "<base>" --title "$PR_TITLE" --body-file "<06-summary.md path>"
 ```
 - Ready PR (no `--draft`).
 - **Title** = `<TICKET-ID>: <01-spec.md title>` — the `<TICKET-ID>:` prefix mirrors the commit-message convention ([`commit.md`](commit.md) §2) and is **required** by the §Merge predicate's ID-keyed lookup, which filters on `title startswith "<TICKET-ID>:"`; a prefix-less title makes `sync` miss the PR. **Body** = `06-summary.md` passed via `--body-file` (no shell interpolation of arbitrary text).
@@ -140,7 +145,7 @@ elif [ -n "$PR_BASE" ]; then
 fi
 # Fallback only when the PR base can't be resolved; an unresolved base is treated as NOT
 # promotable below (never a pass), so this can never wrongly promote.
-[ -n "$base" ] || base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)
+[ -n "$base" ] || base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
 ```
 
 Then, from the lookup's `state` and `MERGE_SHA`:
