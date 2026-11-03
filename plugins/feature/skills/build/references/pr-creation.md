@@ -128,17 +128,17 @@ Determine whether a ticket's PR has merged. The scan set depends on the caller: 
   ```
   Every PR/commit title leads with `<TICKET-ID>:`, so the `startswith` post-filter pins the ticket's own PR; `last` picks the newest. More robust than the branch when the branch isn't recoverable. As with the branch-keyed lookup, this yields `state`, the merge-commit SHA (`MERGE_SHA`), and the PR's own base branch (`PR_BASE`) for the reachability gate below.
 
-**Shared rule** (both lookups): a PR promotes to `done/` only when it is `MERGED` **and** its merge commit is **reachable from the base branch** — checking *that* a PR merged is not enough, because an epic child squash-merged only into `integration/<epic-id>` reports `MERGED` identically to a solo PR merged into the base. Gating on reachability keeps `sync` safe to run mid-epic-run: a child stays `in-review` until its code actually lands on `<base>`.
+**Shared rule** (both lookups): a PR promotes to `done/` only when it is `MERGED` **and** its merge commit is **reachable from the base branch** — checking *that* a PR merged is not enough, because an epic child squash-merged only into `integration/<epic-id>` reports `MERGED` identically to a direct PR merged into the base. Gating on reachability keeps `sync` safe to run while children are still merging into an integration branch: a child stays `in-review` until its code actually lands on `<base>`.
 
 Resolve the ticket's **true trunk from the PR itself** — the branch its code must reach to be "done" — not from the repository default, which would ignore a non-default `ship --base <branch>` (a run targeting a non-default base would merge and then stay `in-review` forever, its merge SHA checked against the wrong branch). This section is referenced **standalone** (the close stage's `review/` merge check and `sync`), so it fetches and resolves the base itself:
 ```bash
 git fetch origin --quiet
 # A direct-to-trunk PR's own base IS the trunk (this respects `--base <branch>`).
-# An epic child's PR base is its `integration/<epic-id>` branch — its true trunk is that
+# A PR based on an `integration/<epic-id>` branch has a true trunk of that
 # integration branch's OWN PR base (the epic's `--base`), so the child promotes only once the
-# integration PR lands on the real trunk (preserving the shared rule's mid-epic-run safety).
+# integration PR lands on the real trunk.
 if [ -n "$PR_BASE" ] && [ "${PR_BASE#integration/}" = "$PR_BASE" ]; then
-  base="$PR_BASE"                                                    # solo / direct-to-trunk PR
+  base="$PR_BASE"                                                    # direct-to-trunk PR
 elif [ -n "$PR_BASE" ]; then
   base=$(gh pr list --head "$PR_BASE" --state all --json number,baseRefName \
            --jq 'sort_by(.number) | last | .baseRefName' 2>/dev/null)   # epic child → epic's trunk

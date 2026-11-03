@@ -62,7 +62,7 @@ A passing probe does not promise acceptance. gh refuses the attach itself on a G
    - **(b)** in the desktop capture's slot, when the pass produced no `AC-<n>-desktop`.
 2. The desktop state captures (`error`, `empty`, `disabled`), by name ascending.
 
-No numeric ceiling applies: the whole set is posted, in §6 batches. An epic's integration-PR post applies the rule per child, children in ticket order; a multi-solo run applies it to each ticket's own post. A ticket with per-repo homes builds its set per repo, in pass order, each repo applying the rule above to its own captures and only the failed entries whose `**Repo**` line names it.
+No numeric ceiling applies: the whole set is posted, in §6 batches. An epic's integration-PR post applies the rule per child, children in ticket order; a direct ticket's post applies it to its own. A ticket with per-repo homes builds its set per repo, in pass order, each repo applying the rule above to its own captures and only the failed entries whose `**Repo**` line names it.
 
 **Artifact order** — every capture in the evidence home, for the `05-tests.md` `## Screenshots` section, grouped by viewport under three subheadings in this order:
 
