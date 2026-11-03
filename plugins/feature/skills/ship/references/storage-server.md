@@ -4,9 +4,11 @@ Canonical logic for ship's storage-touching steps in server-native storage mode.
 
 ## §1 Ticket metadata and roster
 
-Read ticket metadata reads the ticket row: `kind`, `status`, `parent_id`, `blocked_by`. The row has no `repos` field, so every run is one lane, whose repo path is the project root — there is nothing to partition on — and the end-of-run UI pass takes [`test-preflight.md`](../../close-stage/references/test-preflight.md) Entry selection's rows for a ticket without `repos:`, applied per [`ui-verification.md`](ui-verification.md) step 0: the flat `test:` block when present. An **epic run's roster** is derived: `pipeline_list_tickets` filtered client-side to rows whose `parent_id` is the epic's ID; every listed row is materialized (a child exists only once created), so nothing is skipped.
+Read ticket metadata reads the ticket row: `kind`, `status`, `parent_id`, `blocked_by`. The row has no `repos` field, so every run is one lane, whose repo path is the project root — there is nothing to partition on — and the end-of-run UI pass takes [`test-preflight.md`](../../close-stage/references/test-preflight.md) Entry selection's rows for a ticket without `repos:`, applied per [`ui-verification.md`](ui-verification.md) step 0: the flat `test:` block when present. An **epic's roster** is derived: `pipeline_list_tickets` filtered client-side to rows whose `parent_id` is the epic's ID; every listed row is materialized (a child exists only once created), so nothing is skipped.
 
-**Merged test.** SETUP step 2 decides an unselected `in-review` sibling blocker with the merged-sibling commands of [`ticket-resolution-server.md`](../../flow/references/ticket-resolution-server.md) Step 6, as written there, except for how the URL reaches its temp file: ship holds no `Write`, so the blocker row's `pr_url` goes into a `mktemp -d` file through a single-quoted heredoc whose fresh nonce delimiter is verified absent from the value, then is loaded and checked the same way. The lane's `<repo-path>` is the `<build checkout>`, and `origin/<base>` takes the place of `HEAD`. Exit 0 is met; anything else fails closed.
+**Not found or unreadable.** `pipeline_get_ticket` reporting no such ticket is SETUP step 1's `ticket not found`, with no question to the user; any other tool failure stays a run stop.
+
+**Merged test.** SETUP step 2 decides an unselected `in-review` sibling blocker with the merged-sibling commands of [`ticket-resolution-server.md`](../../flow/references/ticket-resolution-server.md) Step 6, as written there, except for how the URL reaches its temp file: ship holds no `Write`, so the blocker row's `pr_url` goes into a `mktemp -d` file through a single-quoted heredoc whose fresh nonce delimiter is verified absent from the value, then is loaded and checked the same way. The lane's `<repo-path>` is the `<build checkout>`, and `origin/<the dependent's base>` takes the place of `HEAD`. Exit 0 is met; anything else, a missing branch included, fails closed.
 
 ## §2 Lessons store
 
@@ -32,7 +34,7 @@ Four placeholders in the brief templates resolve here; the orchestrator fills th
 
 ## §4 PR linkage
 
-The post-PR linkage step: after each implementer returns, confirm the ticket row's `pr_url` is set — the close stage's finalizer records it at PR creation (`pr-creation.md` §5); if it is missing (a degraded or interrupted close), backfill it via `pipeline_update_ticket` with the verified PR's URL. An epic run's integration-PR title is read from the epic row (`pipeline_get_ticket`), and the integration PR's URL is recorded on the **epic row** via `pipeline_update_ticket` `pr_url` — ship owns this PR, so ship owns its linkage (per-ticket `pr_url`s were already set by each build).
+The post-PR linkage step: after each implementer returns, confirm the ticket row's `pr_url` is set — the close stage's finalizer records it at PR creation (`pr-creation.md` §5); if it is missing (a degraded or interrupted close), backfill it via `pipeline_update_ticket` with the verified PR's URL. An integration PR's title is read from the epic row (`pipeline_get_ticket` on the child's `parent_id`, since a run that selected children may not have named the epic), and the integration PR's URL is recorded on the **epic row** via `pipeline_update_ticket` `pr_url` — ship owns this PR, so ship owns its linkage (per-ticket `pr_url`s were already set by each build).
 
 ## §5 In-review evidence and recovery
 
@@ -43,9 +45,8 @@ A ticket ship built sits at row status `in-review` (the orchestrator's Transitio
 Every shared mutation in a run is orchestrator-only, in the forms [`../../flow/references/state-transitions-server.md`](../../flow/references/state-transitions-server.md) prescribes — `pipeline_transition_ticket` under the CAS conflict doctrine in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md) (re-read, re-evaluate, proceed-or-stop, never widen `from[]`); being the sole transition caller changes none of those rules:
 
 - **Worker brief, state clause** — the `<STATE_CLAUSE_BLOCK>` (§3).
-- **Transition 1, solo or multi-solo ticket, or a child shipped directly** — before the ticket's first worker: the transition's CAS flip for that row.
-- **Transition 1, epic run** — the epic row's CAS flip before the first worker; each child row set to `in-progress` before its own first worker.
-- **Transition 5** — solo or multi-solo ticket: CAS the row to `in-review`. Epic child: CAS the child row to `in-review`; the epic row's own `in-review` flip per T5's epic variant is the whole move. While a child failed or was skipped in this run, the child row flips only, with no epic-row flip.
+- **Transition 1** — before the ticket's first worker: the transition's solo or child form, whichever fits the ticket. The child form carries the epic row's CAS flip.
+- **Transition 5** — solo ticket: CAS the row to `in-review`. Epic child: CAS the child row to `in-review`; the epic row's own `in-review` flip per T5's epic variant is the whole move. While a child failed or was skipped in this run, the child row flips only, with no epic-row flip.
 - **Transition 4** (a failed ticket) — the `partial-completion` CAS write.
 
 ## §7 UI evidence home and hosting
