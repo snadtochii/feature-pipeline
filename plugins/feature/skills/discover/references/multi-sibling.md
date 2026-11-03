@@ -20,10 +20,10 @@ I recommend splitting this into <N> tickets sharing epic `<epic-slug>`. Here's t
 | # | Tentative ID | Title | Complexity | Repos | Covers AC | blocked_by |
 |---|---|---|---|---|---|---|
 | 1 | <CHILD-1-ID> | <title> | M | <repo-a> | 1, 2 | — |
-| 2 | <CHILD-2-ID> | <title> | M | <repo-a>, <repo-b> | 3, 4 | <CHILD-1-ID> |
+| 2 | <CHILD-2-ID> | <title> | M | <repo-a> | 3, 4 | <CHILD-1-ID> |
 | 3 | <CHILD-3-ID> | <title> | S | <repo-b> | 5 | <CHILD-1-ID> |
 
-The `Repos` column appears only in a multi-repo workspace (per the Phase 1 detection) — omit the column entirely in a single-repo workspace. It lets the user check whether the split follows repo seams before approving.
+The `Repos` column appears only in a multi-repo workspace (per the Phase 1 detection) — omit the column entirely in a single-repo workspace. Each row names exactly one repo. The column lets the user check whether the split follows repo seams before approving.
 
 ### Acceptance Criteria Coverage
 - [x] AC 1 → <CHILD-1-ID>
@@ -47,10 +47,12 @@ The `Repos` column appears only in a multi-repo workspace (per the Phase 1 detec
 - Every gathered acceptance criterion is assigned to at least one child — except the UI-states criterion (SKILL.md, User Experience theme), which appears in **every** UI-facing child and in no child without a rendered surface
 - No child is complexity L or XL (would defeat the split)
 - First child has no `blocked_by` dependencies on siblings
-- Each child has at least 2 acceptance criteria (otherwise fold into adjacent child); the replicated UI-states criterion does not count toward the two
+- Each child has at least 2 acceptance criteria (otherwise fold into an adjacent child in the same repo); the replicated UI-states criterion does not count toward the two. A child with no same-repo sibling is exempt, since a repo split cannot fold across repos
+- In a multi-repo workspace, each child names exactly one repo
+- In a multi-repo workspace, a criterion spanning repos is rewritten into per-repo criteria on the children, and its end-to-end statement stays in the PRD's feature-level criteria
 - Total children: 2-7. If the natural split exceeds 7, present that to the user and offer to group related children.
 
-Iterate with the user until they approve, adjust, or collapse to single-ticket. On "collapse", proceed to Phase 4 single-mode (SKILL.md) using the gathered material.
+Iterate with the user until they approve, adjust, or collapse to single-ticket. On "collapse", proceed to Phase 4 single-mode (SKILL.md) using the gathered material. In a multi-repo workspace, Adjust merges only children in one repo. When the children name different repos, omit the Collapse option; the one route back to a single ticket is correcting the repo list: the user's answer wins at Phase 3, and the correction re-runs this assessment.
 
 ## Phase 4 multi-mode generation (after checkpoint approval)
 

@@ -180,6 +180,8 @@ Once Phase 3 coverage is "enough", assess whether the discovered work is best ex
 - No clean independent slices — splitting would create artificial boundaries
 - Acceptance criteria all relate to one feature, no clear ordering between them
 
+**Repo gate**: in a multi-repo workspace, a ticket that would name 2+ repos is N>1 whatever the signals above say, split into per-repo children per [`references/multi-repo.md`](references/multi-repo.md). It takes the N>1 branch below, so the checkpoint runs.
+
 #### When N=1: skip the checkpoint
 
 Proceed directly to Phase 4 (single-mode). Do not show a checkpoint UI — there is nothing to decide. This keeps the single-ticket UX identical to what it was before discovery learned to split.

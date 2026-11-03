@@ -30,7 +30,7 @@ Deeper material that doesn't belong in the [README](../../../README.md) front do
 
 By default a passing build stops at the close stage's verdict gate and asks whether to commit (configurable — see [Commit behavior](#commit-behavior)). With `--pr`, the close stage ships non-interactively instead: once the gate resolves, a finalizer child detects the base branch, creates a branch (forking from `main` when needed), commits, pushes to `origin`, opens a **GitHub pull request** via `gh`, and lands the ticket in a `review/` state (`status: in-review`) rather than `done/`. You're notified with the PR URL.
 
-Once the PR merges, re-run `/feature:flow <id>` (or `/feature:close-stage <id>`) — the close stage detects the merge and finalizes the ticket to `done/`. To finalize merged reviews in batch or unattended, run `/feature:sync`: it scans every ticket in `backlog/`, `in-progress/`, and `review/` and promotes the merged ones to `done/` in one pass. In epic mode, `--pr` opens one PR per child.
+Once the PR merges, re-run `/feature:flow <id>` (or `/feature:close-stage <id>`) — the close stage detects the merge and finalizes the ticket to `done/`. To finalize merged reviews in batch or unattended, run `/feature:sync`: it scans every ticket in `backlog/`, `in-progress/`, and `review/` and promotes the merged ones to `done/` in one pass. In epic mode, `--pr` opens one PR per child. In a [multi-repo workspace](#multi-repo-workspaces), `flow --pr` and `build --pr` refuse a ticket naming 2+ repos before any code is written.
 
 `--pr` needs the GitHub CLI (`gh`) installed and authenticated and a GitHub `origin` remote. If any is missing, the close stage degrades gracefully — its finalizer commits locally, finalizes to `done/`, and prints one line explaining why the PR step was skipped. It never blocks the verdict gate.
 
@@ -147,12 +147,13 @@ Run an epic with `/feature:flow <EPIC-ID>` — it walks the children in `blocked
 A workspace where `claudedocs/tickets/` sits next to several sibling git repositories (the workspace folder itself is not a git repo, but its immediate children have `.git`) is **multi-repo**. Discover detects this shape automatically — no configuration involved — and appends a `repos:` frontmatter field to the tickets it creates:
 
 ```yaml
-repos: [big-leaves-api, big-leaves-astro]
+repos: [big-leaves-api]
 ```
 
 - Values are **exact on-disk directory names**, never shortened.
-- Epics carry the union of their children's repos; each child carries its own subset. The decomposition tables show a `Repos` column so you can check whether a split follows repo seams.
-- Three consumers parse the field: `ship --parallel` partitions its run into per-repo lanes from `repos:` (see the flag above), [`--worktree`](#worktree-isolation---worktree) eligibility binds the worktree's repository from a single entry and builds in place when the field names 2+ repos, and test entry selection — the close stage's test checkpoint and ship's end-of-run browser pass — selects the [`test.repos`](#app-test-config) entries to browser-test. Everywhere else it is informational — at-a-glance visibility into a ticket's repo footprint.
+- An epic carries the union of its children's repos; each child and each solo ticket names one repo. The decomposition tables show a `Repos` column so you can check whether a split follows repo seams.
+- **One ticket, one repo.** Discover splits work that touches several repos into an epic with per-repo children, and does not offer to collapse them into one ticket. `ship`, `flow --pr` and `build --pr` refuse a non-epic ticket naming 2+ repos before any code is written, with one line telling you to edit its `repos:` field or run `/feature:discover` to split the work. `flow --pr` on an epic checks its unfinished children before any child runs, and `ship` stops the whole run on one offender. A ticket at `status: in-review` is not refused, and `build --implement-only` never refuses. Without `--pr`, `flow` and `build` still run a ticket naming 2+ repos, in place.
+- Four consumers parse the field: `ship --parallel` partitions its run into per-repo lanes from `repos:` (see the flag above), [`--worktree`](#worktree-isolation---worktree) eligibility binds the worktree's repository from a single entry and builds in place when the field names 2+ repos, test entry selection — the close stage's test checkpoint and ship's end-of-run browser pass — selects the [`test.repos`](#app-test-config) entries to browser-test, and the refusal above reads it at `ship`, `flow --pr` and `build --pr`. Everywhere else it is informational — at-a-glance visibility into a ticket's repo footprint.
 - Single-repo workspaces (the common case) never see the field or the table column.
 - The worktree setup contract has a multi-repo convention — workspace-level `worktree.setup`, per-repo `.worktreeinclude` — documented in [Worktree setup](#worktree-setup).
 - The `test:` block has a per-repo form — one `test.repos.<dir-name>` entry per repository — documented in [App test config](#app-test-config).
