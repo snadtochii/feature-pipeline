@@ -16,7 +16,7 @@ These are for whoever creates the task. A run ignores this section.
 - **Model:** create the task from a Sonnet thread. `schedule_task` has no model parameter and stores the creating thread's model. The parent only searches, starts children and hands off, and every child sets its own model.
 - **Trigger:** `{ type: 'interval', everyMs: 900000 }`, up to 96 parent turns a day while the machine is awake. T3 skips ticks missed during sleep and ticks that overlap a running one.
 - **Permissions:** `t3_thread_send` rejects a target that runs with broader modes than the sender, and children inherit the parent's mode. A child that hits a permission prompt stops and counts as failed.
-- **Plugin version:** both the Claude and the Codex plugin caches need a `feature` version whose `review` takes `--agent` and a PR URL. An older Codex cache makes every Codex child fail.
+- **Plugin version:** both the Claude and the Codex plugin caches need a `feature` version whose `review` takes `--agent` and a PR URL and whose `address-review` takes `--hold-decisions`. An older Codex cache makes every Codex child fail, and an older cache in a PR's thread may run the handoff as plain `--auto`, which holds nothing.
 - **Round limit:** a child at the limit posts no marker, so the search skips a model at the limit instead of starting a child every tick. The search has only markers and labels to go on, while `review` also compares commits, so the two can differ. `review-round-limit` is per PR, and a head that added only merges counts as a round here unless it carries the merge-only comment. So when one model has set the label, the other can be skipped one round early if it reviewed such a head with findings. A manual `feature:review --full` covers that case.
 
 ## Run prompt
@@ -124,7 +124,7 @@ Once every child has finished or been cancelled, each PR with findings from this
 4. Call `t3_thread_send` with that `threadId`, `mode: "queue"` and this message, with `<PR_URL>` written out. Never use another mode: `auto` can steer a running turn.
 
    ```text
-   <PR_URL> has new automated review findings. Run the `feature:address-review` skill on that PR interactively: show the triage and wait for the owner. Do not pass `--auto`.
+   <PR_URL> has new automated review findings. Run the `feature:address-review` skill on that PR with `--auto --hold-decisions`.
    ```
 
 With no linked thread, or a failed send, send nothing else. The comments stay on the PR, and the report lists it.
@@ -140,4 +140,4 @@ Report in this order, omitting an empty item:
 5. Each handoff sent: PR URL and the thread's `link`.
 6. Each PR with findings and no handoff: PR URL and the reason (no T3 project, no linked thread or failed send). Its comments stay.
 
-Never post to GitHub, label, approve, merge or close anything yourself. Never edit a file. Never pass `--full` or `--auto`.
+Never post to GitHub, label, approve, merge or close anything yourself. Never edit a file. Never pass `--full`.
