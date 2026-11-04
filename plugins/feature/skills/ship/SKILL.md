@@ -247,7 +247,7 @@ A ticket **fails** when its worker ends `partial` or `stuck`, errors, or reports
 ### Failure label (every run)
 `ship-failed` on a PR records that a ticket failed with that PR open. It reports the failure, and gates no skill's decision and no outcome. The orchestrator owns it, on every run and in both storage modes.
 
-- **Add.** When a ticket fails, before the walk moves on. Locate its PR through the ticket's linkage (§5) and read `gh pr view <n> --repo "<owner/repo>" --json state --jq .state`. On `OPEN`, run these as separate `Bash` calls:
+- **Add.** When a ticket fails, before the walk moves on. Its PR is the one the run verified at Step 1 or at Recovery's base check; a run holding none locates it through the ticket's linkage (§5). Using the verified number means a storage outage cannot lose the label and a matching title cannot move it. Read `gh pr view <n> --repo "<owner/repo>" --json state --jq .state`. On `OPEN`, run these as separate `Bash` calls:
   ```bash
   gh label create ship-failed --repo "<owner/repo>" --description "ship failed on this PR; see its Run report" --color B60205
   gh pr edit <n> --repo "<owner/repo>" --add-label ship-failed
