@@ -88,7 +88,8 @@ export function selectCandidates(rows, { tag, maxAgeDays, now }) {
       const children = childrenOf.get(row.id) ?? [];
       const backlog = children.filter((child) => child.status === 'backlog');
       if (backlog.length === 0) {
-        skip(row, 'no backlog children');
+        const open = waitingOn(children.map((child) => child.id));
+        skip(row, 'no backlog children', open.length > 0 ? `still open: ${open.join(', ')}` : null);
         continue;
       }
       const inside = new Set(children.map((child) => child.id));

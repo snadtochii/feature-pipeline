@@ -1,11 +1,13 @@
 // The self-test's child-session cases (CONTRACT.md §13).
 //
-// Stream parsing over fixture lines, the finish predicate over fixture ticket
-// states, the argument vectors, the preconditions on a temporary repository,
-// the session runner against the stand-in `claude` with millisecond caps, the
-// synchronous inbox helper, and end-to-end runs that ship, get stuck, fail
-// their first `sync`, refuse a dirty tree, survive a failed inbox capture, are
-// signalled mid-session, and leave the checkout off its base branch.
+// Stream parsing over fixture lines, the pull-request reads over an injected
+// runner, the finish predicate over fixture ticket states, the argument
+// vectors, the preconditions on a temporary repository, the session runner
+// against the stand-in `claude` with millisecond caps, the synchronous inbox
+// helper, and end-to-end runs that ship, ship through a child merged into an
+// integration branch or an epic's one direct child, get stuck, fail their first
+// `sync`, refuse a dirty tree, survive a failed inbox capture, are signalled
+// mid-session, and leave the checkout off its base branch.
 // The shared helpers come in as `kit` from selftest.mjs, so neither module
 // imports the other's bindings at load time. No case starts a real `claude`.
 //
@@ -19,12 +21,14 @@ import path from 'node:path';
 import { ITEM_ID_RE, shipArgv, syncArgv } from './dispatch.mjs';
 import { decideItem, inboxBody, resumeHint, summaryLine, syncStatus } from './finish.mjs';
 import { BASE_BRANCH_RE, checkPreconditions, gitBase, gitClean } from './preconditions.mjs';
+import { openPrFromHead, prState } from './prs.mjs';
 import { sendInboxSync } from './server.mjs';
 import { MAX_TIMER_MS, startSession, timerDelay } from './session.mjs';
 import { applyLine, newSessionFacts, parseJsonResult } from './stream.mjs';
 
 const FORBIDDEN_FLAGS = ['--merge', '--parallel', '--bare', '--settings', '--allowedTools', '--permission-mode'];
 const PR = 'https://github.com/acme/my-app/pull/7';
+const LAST = 'https://github.com/acme/my-app/pull/8';
 
 /** Fold lines into fresh facts. */
 function fold(lines) {
@@ -51,7 +55,7 @@ function session(over = {}, factsOver = {}) {
   };
 }
 
-const inReview = (fields = {}, pr = 'OPEN') => ({ row: { status: 'in-review', kind: 'solo', pr_url: PR, ...fields }, pr });
+const inReview = (fields = {}, pr = 'OPEN') => ({ row: { status: 'in-review', kind: 'solo', pr_url: PR, ...fields }, pr, base: 'main' });
 
 /** Wait until `test()` holds or `ms` pass. */
 async function until(test, ms) {
@@ -108,13 +112,23 @@ export function sessionCases(kit) {
     }],
 
     ['finish: the predicate and every stuck reason, in precedence', () => {
+      const decideOn = (s, tickets, baseBranch = 'main') => decideItem({ session: s, tickets, baseBranch });
       const decide = (s, t) => {
-        const d = decideItem({ session: s, ticket: t });
+        const d = decideOn(s, Array.isArray(t) ? t : [t]);
         return d.outcome === 'shipped' ? 'shipped' : d.reason;
       };
+      const merged = (last = LAST) => ({ ...inReview({}, 'MERGED'), base: 'integration/ABC-20', last });
       const matrix = [
         ['shipped', session(), inReview(), 'shipped'],
-        ['epic row', session(), inReview({ kind: 'epic' }), 'shipped'],
+        ['two children merged, one last PR', session(), [merged(), merged()], 'shipped'],
+        ['merged into integration', session(), merged(), 'shipped'],
+        ['merged, no last PR', session(), merged(null), 'no open integration pull request'],
+        ['open into integration', session(), { ...inReview(), base: 'integration/ABC-20' }, 'pull request open into another branch'],
+        ['merged into the base', session(), inReview({}, 'MERGED'), 'pull request not open'],
+        ['merged into another branch', session(), { ...inReview({}, 'MERGED'), base: 'develop' }, 'pull request not open'],
+        ['no tickets', session(), [], 'state unknown'],
+        ['no tickets, denied', session({}, { permission_denied: ['Bash'] }), [], 'permission_denied'],
+        ['one child not landed', session(), [merged(), inReview({ status: 'backlog' }, null)], 'not in review (backlog)'],
         ['closed PR', session(), inReview({}, 'CLOSED'), 'pull request not open'],
         ['no pr_url', session(), inReview({ pr_url: null }, null), 'pull request not open'],
         ['not in review', session(), inReview({ status: 'in-progress' }), 'not in review (in-progress)'],
@@ -136,10 +150,15 @@ export function sessionCases(kit) {
       for (const [label, s, t, want] of matrix) {
         equal(decide(s, t), want, label);
       }
-      const noted = decideItem({ session: session({}, { permission_denied: ['WebFetch'], result: { ...session().facts.result, permission_denials: ['Bash', 'WebFetch'] } }), ticket: inReview() });
+      const noted = decideOn(session({}, { permission_denied: ['WebFetch'], result: { ...session().facts.result, permission_denials: ['Bash', 'WebFetch'] } }), [inReview()]);
       equal([noted.outcome, noted.note], ['shipped', 'shipped with permission denials: Bash, WebFetch'], 'shipped with denials is noted');
-      equal(decideItem({ session: session({ exit_code: 1 }), ticket: inReview() }).pr_url, PR, 'a stuck item keeps the row\'s pr_url');
-      equal(decideItem({ session: session(), ticket: { ...inReview({}, null), unknown: true } }).pr_url, PR, 'an unknown pull request state keeps the row\'s pr_url');
+      equal(decideOn(session({ exit_code: 1 }), [inReview()]).pr_url, PR, 'a stuck item keeps the row\'s pr_url');
+      equal(decideOn(session(), [{ ...inReview({}, null), unknown: true }]).pr_url, PR, 'an unknown pull request state keeps the row\'s pr_url');
+      equal(decideOn(session(), [merged()]).pr_url, LAST, 'a merged child records the last pull request');
+      equal(decideOn(session(), [merged(), inReview({ status: 'backlog', pr_url: null }, null)]).pr_url, PR, 'a stuck item keeps the first pr_url among its rows');
+      const onIntegrationDefault = { ...inReview(), base: 'integration/main' };
+      equal(decideOn(session(), [onIntegrationDefault], 'integration/main').outcome, 'shipped', 'a pull request open into a default branch named integration/* is direct');
+      equal(decideOn(session(), [{ ...onIntegrationDefault, pr: 'MERGED', last: LAST }], 'integration/main').reason, 'pull request not open', 'one merged into that default branch is not open');
 
       const sync = (s, r) => syncStatus({ session: s, result: r });
       const ok = session().facts.result;
@@ -450,6 +469,88 @@ export function sessionCases(kit) {
           assert(res.status === 0, `master run: exit ${res.status} ${res.stdout}`);
           equal(res.doc.items.map((i) => i.outcome), ['shipped'], 'the item ships');
           equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base master', '/feature:sync'], 'ship runs against master');
+        });
+      } finally {
+        fs.rmSync(w.dir, { recursive: true, force: true });
+      }
+    }],
+
+    ['prs: a pull request\'s state and base, and the open one from a head', () => {
+      const answer = (stdout, status = 0) => () => ({ stdout, stderr: '', status });
+      const read = (stdout, status) => prState({ projectRoot: '/', env: {}, url: PR, runner: answer(stdout, status) });
+      equal(read('MERGED integration/ABC-20\n'), { ok: true, state: 'MERGED', base: 'integration/ABC-20' }, 'state and base');
+      equal(read('OPEN\n').ok, false, 'no base is a failed read');
+      equal(read('WEIRD main\n').ok, false, 'an unknown state is a failed read');
+      equal(read('OPEN main\n', 1).ok, false, 'a non-zero exit is a failed read');
+
+      const lookup = (stdout, status) => openPrFromHead({ projectRoot: '/', env: {}, head: 'integration/ABC-20', base: 'main', runner: answer(stdout, status) });
+      const same = (number) => ({ number, url: `https://github.com/acme/my-app/pull/${number}`, isCrossRepository: false });
+      equal(lookup(JSON.stringify([same(3), same(9), { ...same(12), isCrossRepository: true }, { ...same(15), url: 'not a url' }])), { ok: true, url: same(9).url }, 'the newest same-repository pull request');
+      equal(lookup(JSON.stringify([{ ...same(12), isCrossRepository: true }])), { ok: true, url: null }, 'a fork\'s pull request does not count');
+      equal(lookup('[]'), { ok: true, url: null }, 'none open');
+      equal(lookup('not json').ok, false, 'non-JSON is a failed read');
+      equal(lookup('[]', 1).ok, false, 'a non-zero exit is a failed read');
+    }],
+
+    ['end to end: a child merged into an integration branch with an open pull request ships', async () => {
+      const w = world('e2e-merged');
+      try {
+        fs.writeFileSync(w.files.FAKE_GH_VIEW_OUT, 'MERGED integration/ABC-20\n');
+        fs.writeFileSync(w.files.FAKE_GH_HEAD_OUT, JSON.stringify([{ number: 8, url: LAST, isCrossRepository: false }]));
+        await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') } }), async (url) => {
+          const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
+          assert(res.status === 0, `merged child: exit ${res.status} ${res.stdout}`);
+          equal(res.doc.items.map((i) => [i.id, i.outcome, i.reason]), [['ABC-1', 'shipped', null]], 'the item ships');
+          equal(readRuns(w)[0].items[0].pr_url, LAST, 'runs.json records the pull request a human must merge');
+        });
+      } finally {
+        fs.rmSync(w.dir, { recursive: true, force: true });
+      }
+    }],
+
+    ['end to end: a child merged into an integration branch with no open pull request stops the run', async () => {
+      const w = world('e2e-no-last', { config: twoItems });
+      try {
+        fs.writeFileSync(w.files.FAKE_GH_VIEW_OUT, 'MERGED integration/ABC-20\n');
+        await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') } }), async (url) => {
+          const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
+          assert(res.status === 0, `no last PR: exit ${res.status} ${res.stdout}`);
+          equal(res.doc.items.map((i) => [i.id, i.outcome, i.reason]), [['ABC-1', 'stuck', 'no open integration pull request'], ['ABC-2', 'not dispatched', 'run stopped at ABC-1']], 'items');
+          equal(readRuns(w)[0].items[0].pr_url, shippedRow('ABC-1').pr_url, 'the row\'s pr_url is kept');
+        });
+      } finally {
+        fs.rmSync(w.dir, { recursive: true, force: true });
+      }
+    }],
+
+    ['end to end: a pull request open into another branch stops the run', async () => {
+      const w = world('e2e-other-base', { config: twoItems });
+      try {
+        fs.writeFileSync(w.files.FAKE_GH_VIEW_OUT, 'OPEN integration/ABC-20\n');
+        await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') } }), async (url) => {
+          const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
+          assert(res.status === 0, `other base: exit ${res.status} ${res.stdout}`);
+          equal(res.doc.items.map((i) => [i.id, i.outcome, i.reason]), [['ABC-1', 'stuck', 'pull request open into another branch'], ['ABC-2', 'not dispatched', 'run stopped at ABC-1']], 'items');
+          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base main', '/feature:sync'], 'the rest is not dispatched');
+        });
+      } finally {
+        fs.rmSync(w.dir, { recursive: true, force: true });
+      }
+    }],
+
+    ['end to end: an epic whose one remaining child goes direct ships without reading the epic row', async () => {
+      const w = world('e2e-epic-direct');
+      const seen = [];
+      try {
+        const [fresh] = e2eRows();
+        const rows = [{ ...fresh, id: 'ABC-40', kind: 'epic' }, { ...fresh, id: 'ABC-41', kind: 'child', parent_id: 'ABC-40', tags: [] }];
+        const child = shippedRow('ABC-41', { kind: 'child' });
+        await withStub(stubHandler({ rows, tickets: { 'ABC-41': child }, seen }), async (url) => {
+          const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
+          assert(res.status === 0, `epic direct: exit ${res.status} ${res.stdout}`);
+          equal(res.doc.items.map((i) => [i.id, i.kind, i.tickets, i.outcome]), [['ABC-40', 'epic', ['ABC-41'], 'shipped']], 'the epic ships');
+          equal(readRuns(w)[0].items[0].pr_url, child.pr_url, 'the item records the child\'s pull request');
+          assert(!seen.some((request) => request.url.includes('ABC-40')), 'the epic row was read');
         });
       } finally {
         fs.rmSync(w.dir, { recursive: true, force: true });

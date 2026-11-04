@@ -1,8 +1,9 @@
 // Pull requests for the dispatcher: the PR cap (CONTRACT.md §8) and a
 // dispatched item's pull-request state (CONTRACT.md §10).
 //
-// One `gh pr list` call per invocation, and one `gh pr view` per dispatched
-// item, each run in the project root with an argument vector. `countOpenPrs`
+// One `gh pr list` call per invocation, one `gh pr view` per dispatched ticket,
+// and one more `gh pr list` per ticket merged into an integration branch, each
+// run in the project root with an argument vector. `countOpenPrs`
 // is pure: the number of dispatch slots held
 // by open PRs the dispatcher recorded in runs.json and open PRs titled `<ID>:`
 // for a tagged ticket, an epic's PRs holding one slot.
@@ -56,15 +57,15 @@ const PR_URL = /^https:\/\/[A-Za-z0-9.-]+(?::\d+)?\/[A-Za-z0-9._/-]+\/pull\/\d+$
 const PR_STATES = new Set(['OPEN', 'CLOSED', 'MERGED']);
 
 /**
- * One pull request's state: `{ ok: true, state }` (`OPEN`, `CLOSED` or
- * `MERGED`) or `{ ok: false, detail }`. A URL that is not
- * `https://<host>/<path>/pull/<digits>` runs nothing.
+ * One pull request's state and base branch: `{ ok: true, state, base }`
+ * (`state` is `OPEN`, `CLOSED` or `MERGED`) or `{ ok: false, detail }`. A URL
+ * that is not `https://<host>/<path>/pull/<digits>` runs nothing.
  */
 export function prState({ projectRoot, env = process.env, url, runner = spawnSync }) {
   if (typeof url !== 'string' || !PR_URL.test(url)) {
     return { ok: false, detail: 'not a pull-request URL' };
   }
-  const result = runner('gh', ['pr', 'view', url, '--json', 'state', '--jq', '.state'], {
+  const result = runner('gh', ['pr', 'view', url, '--json', 'state,baseRefName', '--jq', '.state + " " + .baseRefName'], {
     cwd: projectRoot,
     env,
     encoding: 'utf8',
@@ -74,11 +75,39 @@ export function prState({ projectRoot, env = process.env, url, runner = spawnSyn
   if (result.error) {
     return { ok: false, detail: result.error.code === 'ENOENT' ? 'gh not found on PATH' : `gh could not run (${result.error.code ?? 'error'})` };
   }
-  const state = (result.stdout ?? '').trim();
-  if (result.status !== 0 || !PR_STATES.has(state)) {
+  const [state, base] = (result.stdout ?? '').trim().split(' ', 2);
+  if (result.status !== 0 || !PR_STATES.has(state) || !base) {
     return { ok: false, detail: `gh pr view exited ${result.status ?? `on ${result.signal}`}` };
   }
-  return { ok: true, state };
+  return { ok: true, state, base };
+}
+
+export function openPrFromHead({ projectRoot, env = process.env, head, base, runner = spawnSync }) {
+  const result = runner('gh', ['pr', 'list', '--head', head, '--base', base, '--state', 'open', '--json', 'number,url,isCrossRepository'], {
+    cwd: projectRoot,
+    env,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: GH_TIMEOUT_MS,
+  });
+  if (result.error) {
+    return { ok: false, detail: result.error.code === 'ENOENT' ? 'gh not found on PATH' : `gh could not run (${result.error.code ?? 'error'})` };
+  }
+  if (result.status !== 0) {
+    return { ok: false, detail: `gh pr list exited ${result.status ?? `on ${result.signal}`}` };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    parsed = null;
+  }
+  if (!Array.isArray(parsed)) {
+    return { ok: false, detail: 'gh pr list printed something other than a pull-request list' };
+  }
+  const sameRepo = parsed.filter((pr) => pr?.isCrossRepository === false && Number.isInteger(pr.number) && PR_URL.test(pr.url));
+  const newest = sameRepo.sort((a, b) => b.number - a.number)[0];
+  return { ok: true, url: newest?.url ?? null };
 }
 
 const TITLE_ID = /^([^\s:]+):/;
