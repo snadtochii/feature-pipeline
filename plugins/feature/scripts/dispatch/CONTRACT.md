@@ -104,7 +104,7 @@ directory:
 - `git rev-parse` (the git common directory), `git status --porcelain` and
   `git symbolic-ref` (the preconditions, §9);
 - `gh pr list` (open pull requests, §8), `gh auth status` (the preconditions) and
-  `gh pr view` (a pull request's state, §10);
+  `gh pr view` and `gh pr checks` (a pull request's state and failing checks, §10);
 - `claude`, during `run` only, with exactly the two argument vectors in §10.
 
 Two exceptions to the working directory, both run in the dispatcher's own working
@@ -220,11 +220,16 @@ A `blocked_by` entry that names no ticket in the list counts as not terminal. A 
 between two children of the same epic is the epic walk's concern, not selection's. An
 unparseable `updated_at` is `stale`, with a line in `notes`.
 
-An epic candidate is one item whose `tickets` are its `backlog` children. Every other
-candidate's `tickets` is the ticket itself.
+`no backlog children` carries the children still open as its detail. An epic whose only
+remaining work is a failed child stays skipped, for a human to resolve.
+
+An epic candidate is one item whose `tickets` are its `backlog` children and whose `others`
+are its other non-terminal children, which the same `ship` session walks. Every other
+candidate's `tickets` is the ticket itself, and its `others` is empty. `others` adds no
+admission weight and does not lengthen the session cap.
 
 **Order.** Candidates, and separately skips, are ordered by `created_at` ascending, ties by
-`id`. `tickets` inside an epic item is ordered by ticket number.
+`id`. `tickets` and `others` inside an epic item are ordered by ticket number.
 
 ## §8 Caps and admission
 
@@ -241,8 +246,9 @@ together hold one slot. Both come from one
 root, so at most 1000 open pull requests are seen.
 
 **Weights.** Every admitted item takes one pull-request slot: a solo ticket opens one pull
-request, and an epic opens one integration pull request. Its ticket weight is the length
-of its `tickets`.
+request, and an epic opens one integration pull request or, with no active integration
+branch, its one remaining child's own pull request. Its ticket weight is the length of its
+`tickets`.
 
 **Rules, in order, for each candidate:**
 
@@ -285,11 +291,11 @@ preconditions → print.
 ```json
 {
   "admitted": [
-    { "created_at": "2026-10-01T09:00:00.000Z", "id": "ABC-12", "kind": "solo", "tickets": ["ABC-12"] }
+    { "created_at": "2026-10-01T09:00:00.000Z", "id": "ABC-12", "kind": "solo", "others": [], "tickets": ["ABC-12"] }
   ],
   "candidates": [
-    { "created_at": "2026-10-01T09:00:00.000Z", "id": "ABC-12", "kind": "solo", "tickets": ["ABC-12"] },
-    { "created_at": "2026-10-03T09:00:00.000Z", "id": "ABC-20", "kind": "epic", "tickets": ["ABC-21", "ABC-22"] }
+    { "created_at": "2026-10-01T09:00:00.000Z", "id": "ABC-12", "kind": "solo", "others": [], "tickets": ["ABC-12"] },
+    { "created_at": "2026-10-03T09:00:00.000Z", "id": "ABC-20", "kind": "epic", "others": [], "tickets": ["ABC-21", "ABC-22"] }
   ],
   "caps": {
     "max_open_prs": 3,
@@ -327,10 +333,10 @@ preconditions → print.
 
 | Key | Meaning |
 |---|---|
-| `candidates` | Every candidate, in §7 order. Each item: `id`, `kind` (`solo`, `child` or `epic`, the row's own kind), `tickets`, `created_at`. |
+| `candidates` | Every candidate, in §7 order. Each item: `id`, `kind` (`solo`, `child` or `epic`, the row's own kind), `tickets`, `others`, `created_at`. |
 | `admitted` | The admitted prefix of `candidates` (§8), same item shape. |
 | `not_admitted` | `{id, reason}` for every candidate not admitted, in candidate order. |
-| `skips` | `{id, reason, detail}` for every skipped tagged ticket, in §7 order. `detail` names the unfinished blockers for `blocked` and the age for `stale`, else `null`. |
+| `skips` | `{id, reason, detail}` for every skipped tagged ticket, in §7 order. `detail` names the unfinished blockers for `blocked`, the age for `stale` and the children still open for `no backlog children`, else `null`. |
 | `caps` | §8. |
 | `config` | The effective `dispatch.*` values (§5). |
 | `preconditions` | One `{name, ok, detail}` per check, sorted by `name` — the table below. |
@@ -425,11 +431,19 @@ finished. Before every item but the first, the lock must still name this run and
 working tree must still be clean; otherwise that item and every later one stay
 `not dispatched` with reason `lock lost` or `working tree not clean`.
 
-After a `ship` child exits, the dispatcher re-reads the item's ticket row — the epic's own
-row for an epic item — and, when the row has a `pr_url`, the pull request's state with
-`gh pr view <url> --json state --jq .state`; the URL must be
-`https://<host>/<path>/pull/<digits>`, or `gh` is not run. A failed read is retried once,
-2 seconds later; a second failure leaves the state unknown.
+After a `ship` child exits, the dispatcher re-reads the row of every ticket in the item's
+`tickets` and `others`, one after another, and never an epic's own row. When a row has a `pr_url`, it
+reads the pull request's state and base branch with
+`gh pr view <url> --json state,baseRefName --jq '.state + " " + .baseRefName'`; the URL must
+be `https://<host>/<path>/pull/<digits>`, or `gh` is not run. For a pull request merged into
+an `integration/*` branch other than the base branch, it also looks up that branch's
+integration pull request with
+`gh pr list --head <branch> --base <base> --state open --json number,url,isCrossRepository`,
+taking the newest same-repository one whose URL has that form. A failed read is retried
+once, 2 seconds later; a second failure leaves the state unknown. For a pull request open
+into the base branch, it also counts its failing checks with
+`gh pr checks <url> --json bucket --jq '[.[] | select(.bucket == "fail")] | length'`; that
+read is not retried, and a failure adds nothing to the item.
 
 The run stops at the first `stuck` item: every later item stays `not dispatched` with
 reason `run stopped at <ID>`.
@@ -445,10 +459,17 @@ report says why the next run will stop. The dispatcher changes nothing in the ch
 
 ### Finish predicate
 
+A ticket has **landed** when its re-read row's status is `in-review` and the row's `pr_url`
+names a pull request that is `OPEN` into the base branch, or `MERGED` into an `integration/*`
+branch other than the base branch that has an open same-repository pull request into the
+base branch.
+
 An item is **`shipped`** when its session exited 0 with no cap fired and a `result` of
-subtype `success` that is not an error, and the re-read row's status is `in-review` with a
-`pr_url` whose pull request is `OPEN`. Every other item is **`stuck`**, with the first
-reason that applies:
+subtype `success` that is not an error, every ticket in its `tickets` has landed, and every
+ticket in its `others` has landed or is terminal. An `others` ticket left unmerged is what a
+failure on it looks like, whether or not an integration pull request is already open. Every
+other item is **`stuck`**, with the first reason that applies; among the ticket reasons, the
+first unlanded ticket's, `tickets` before `others`:
 
 | Reason | When |
 |---|---|
@@ -462,13 +483,26 @@ reason that applies:
 | `result error` | The `result` record has `is_error: true`. |
 | `result <subtype>` | The `result` record's subtype is not `success`. |
 | `permission_denied` | The session ended cleanly with tools denied, and the predicate failed. |
-| `state unknown` | The row or the pull request could not be read. |
+| `state unknown` | The item has no tickets, or a row, a pull request or the integration-pull-request lookup could not be read. |
 | `not in review (<status>)` | The row's status is not `in-review`. |
-| `pull request not open` | The row has no usable `pr_url`, or its pull request is not open. |
+| `pull request open into another branch` | The pull request is open, but not into the base branch. |
+| `no open integration pull request` | The pull request merged into an `integration/*` branch that has no open same-repository pull request into the base branch. |
+| `pull request not open` | The row has no usable `pr_url`, or its pull request is closed, or merged into the base branch or a branch outside `integration/*`. |
+| `child <ID> not landed: <reason>` | A ticket in `others` has not landed, `<reason>` being one of the four above or `state unknown`. |
 
-A `shipped` item whose session had tools denied adds a `notes` line naming them. A `stuck`
-item still records the row's `pr_url` when it has one, so the next run's pull-request cap
-counts it. The one exception is an `interrupted` item: a signal leaves no time to re-read
+A direct pull request left open after a failure inside the `ship` session counts as
+`shipped`, and the next item is dispatched, even though `ship`'s own Run report says
+`failed`: the row and the pull request's state read the same as for one that passed, and
+the open pull request stays the human gate. Failing checks on it add a `notes` line. A
+failure with no failing check, such as a review the session could not address, leaves no
+trace in the item.
+
+A `shipped` item records the pull request a human must merge: the integration pull request for a
+merged ticket, the ticket's own for a direct one, the first landed ticket's when an item
+has several. A `shipped` item whose session had tools denied adds a `notes` line naming
+them, and one with failing checks on a direct pull request adds a `notes` line naming it and
+their count. A `stuck` item still records the first `pr_url` among its tickets' rows when one has
+it, so the next run's pull-request cap counts it. The one exception is an `interrupted` item: a signal leaves no time to re-read
 the row, so it records `pr_url: null`, and a pull request its session already opened is
 counted by the next run only through its `<ID>:` title (§8). A stuck session is resumed by
 hand with `claude --resume <session_id>`, from any directory; the report prints that line
@@ -546,7 +580,7 @@ for every stuck item with a session id.
 | `id`, `kind`, `tickets` | The admitted item (§9). |
 | `outcome` | `shipped`, `stuck` or `not dispatched`. |
 | `reason` | Why the item is `stuck` or `not dispatched` (`run stopped at <ID>`, `lock lost`, `working tree not clean`); `null` when shipped, and for an item the run never reached. |
-| `pr_url` | The re-read row's pull request, or `null`. |
+| `pr_url` | A shipped item's: the pull request a human must merge. A stuck item's: the first `pr_url` among its tickets' rows, or `null`. |
 | `session_id` | The child session's id, or `null`. |
 | `exit_code` | The child's exit code (`128 + n` for an exit by signal `n`), or `null`. |
 | `cost_usd` | The `result` record's `total_cost_usd`, or `null`. |
@@ -728,12 +762,16 @@ takeovers of one stale lock, a leftover reclaim marker, release only by its owne
 temporary git repository, the preconditions (a dirty tree, a branch off base,
 an unset `origin/HEAD`, a failing `gh auth status`), stream parsing over fixture
 `stream-json` lines (`system/init`, `api_retry` rate limits, `permission_denied`, `result`
-records, non-JSON lines, CRLF), the finish predicate and every stuck reason over fixture
+records, non-JSON lines, CRLF), the pull-request state, failing-checks and integration-pull-request reads over an
+injected runner, the finish predicate and every stuck reason over fixture
 ticket states, the `sync` status, the exact argument vectors, the session runner's caps,
 escalation, group kill and timer clamp against stand-in `claude` scripts with millisecond
 caps, the report sections, the inbox body's shape, the signal-path inbox helper against an
 unreachable server, the sorted-key document shape, and end-to-end `plan` and `run`
-invocations — shipped, stuck, a failed first `sync`, a dirty tree, a failed inbox capture,
+invocations — shipped, a child merged into an integration branch, an epic's one direct
+child, stuck, no open integration pull request, a pull request open into another branch, a
+walked child that did not merge beside a reused integration pull request, a direct pull
+request with failing checks, a failed first `sync`, a dirty tree, a failed inbox capture,
 a signal while a session runs (its inbox item included), a repository whose base branch is
 `master`, and a `ship` that leaves the checkout off its base branch — against a loopback stand-in server that
 routes every request in §6, a stand-in `gh` and a stand-in `claude`, with `HOME`
