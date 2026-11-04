@@ -102,6 +102,8 @@ A non-interactive consumer (`review-stage`) never asks: wherever this reference 
 
 **In-place repository.** A ticket whose `repos:` has exactly one entry names `<project-root>/<entry>`, the repository its code work runs in when no worktree is bound. The consumer checks the entry before it reaches any shell line: it must match `^[A-Za-z0-9._-]+$` and be neither `.` nor `..`. An entry failing that counts as a path holding no `.git`. Otherwise the consumer checks that the path holds `.git`. No `repos:`, or two or more entries, names none.
 
+**One-repo refusal.** A PR carries one repository's work, so every entry that opens a PR — `flow --pr`, its epic walk, `build --pr` and `ship` — refuses a ticket whose `repos:` has two or more entries, with this line: `<ticket-id> names <n> repos (<list>); a PR needs one ticket per repo. Edit its repos: field, or run /feature:discover to split the work.` Each entry states which statuses pass and why, because each sees a different set of statuses.
+
 ## Step 4 — Validate kind (per-consumer behavior)
 
 Check the `kind` frontmatter field (Read ticket metadata in [`storage-fs.md`](storage-fs.md)). Behavior depends on the consumer:

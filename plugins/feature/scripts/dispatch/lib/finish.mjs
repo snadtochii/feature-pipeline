@@ -16,47 +16,63 @@ import { TERMINAL } from './select.mjs';
 
 const SIGTERM_EXIT = 143;
 
-export function mergedIntoIntegration(state, base, baseBranch) {
-  return state === 'MERGED' && base !== baseBranch && base?.startsWith('integration/') === true;
+/**
+ * Classify a pull request against the base branch: `open-into-base`,
+ * `open-elsewhere`, `merged-into-integration` (merged into an `integration/*`
+ * branch other than the base branch) or `not-open`.
+ */
+export function classifyPr(state, base, baseBranch) {
+  if (state === 'OPEN') {
+    return base === baseBranch ? 'open-into-base' : 'open-elsewhere';
+  }
+  if (state === 'MERGED' && base !== baseBranch && base.startsWith('integration/')) {
+    return 'merged-into-integration';
+  }
+  return 'not-open';
 }
 
-function landing(ticket, baseBranch) {
-  if (ticket === null || ticket.unknown === true) {
+function landing(ticket) {
+  if (ticket === null || ticket.kind === 'unknown') {
     return { reason: 'state unknown' };
   }
   if (ticket.row.status !== 'in-review') {
     return { reason: `not in review (${ticket.row.status})` };
   }
-  if (ticket.pr === 'OPEN') {
-    return ticket.base === baseBranch ? { reason: null, url: ticket.row.pr_url, failing: ticket.failing } : { reason: 'pull request open into another branch' };
+  switch (ticket.kind) {
+    case 'open-into-base':
+      return { reason: null, url: ticket.row.pr_url, failing: ticket.failing ?? 0 };
+    case 'open-elsewhere':
+      return { reason: 'pull request open into another branch' };
+    case 'merged-into-integration':
+      return ticket.last ? { reason: null, url: ticket.last, failing: 0 } : { reason: 'no open integration pull request' };
+    default:
+      return { reason: 'pull request not open' };
   }
-  if (mergedIntoIntegration(ticket.pr, ticket.base, baseBranch)) {
-    return ticket.last ? { reason: null, url: ticket.last } : { reason: 'no open integration pull request' };
-  }
-  return { reason: 'pull request not open' };
 }
 
-function otherLanding({ id, read }, baseBranch) {
+function otherLanding({ id, read }) {
   if (TERMINAL.has(read?.row?.status)) {
-    return { reason: null };
+    return { reason: null, failing: 0 };
   }
-  const entry = landing(read, baseBranch);
+  const entry = landing(read);
   return entry.reason === null ? entry : { reason: `child ${id} not landed: ${entry.reason}` };
 }
 
 /**
  * Decide one item. `session` is the session runner's result
  * (`{ exit_code, cap, spawnError, facts }`); `tickets` holds one re-read per
- * ticket of the item: `{ row: { status, pr_url }, pr, base, last }`, `pr` the
- * pull request's state or null, `base` its base branch, `last` the open pull
- * request from an integration branch it merged into or null, with
- * `unknown: true` when the row was read but the rest was not; or null when the
- * row could not be read. `others` holds `{ id, read }` per other non-terminal
- * child of an epic item, `read` in the same form. Returns
+ * ticket of the item: `{ row: { status, pr_url }, kind }`, `kind` a
+ * `classifyPr` kind, `no-pr` when the row names no pull request, or `unknown`
+ * when the row was read but the rest was not. An `open-into-base` also carries
+ * `failing`, its failing checks or null when unread, and a
+ * `merged-into-integration` carries `last`, the open pull request from that
+ * branch or null. A re-read is null when the row could not be read. `others`
+ * holds `{ id, read }` per other non-terminal child of an epic item, `read` in
+ * the same form. Returns
  * `{ outcome, reason, pr_url, note }`; a stuck item keeps the first `pr_url`
  * among its tickets' rows.
  */
-export function decideItem({ session, tickets, others = [], baseBranch }) {
+export function decideItem({ session, tickets, others = [] }) {
   const prUrl = tickets.find((ticket) => ticket?.row?.pr_url)?.row.pr_url ?? null;
   const stuck = (reason) => ({ outcome: 'stuck', reason, pr_url: prUrl, note: null });
   const facts = session.facts;
@@ -90,7 +106,7 @@ export function decideItem({ session, tickets, others = [], baseBranch }) {
     return stuck(`result ${facts.result.subtype ?? 'unknown'}`);
   }
   const denied = deniedTools(facts);
-  const landings = [...tickets.map((ticket) => landing(ticket, baseBranch)), ...others.map((other) => otherLanding(other, baseBranch))];
+  const landings = [...tickets.map(landing), ...others.map(otherLanding)];
   const unlanded = landings.find((entry) => entry.reason !== null);
   if (tickets.length > 0 && unlanded === undefined) {
     return {

@@ -154,6 +154,8 @@ Storage-mode requirements on the resolved file — whether the no-source case is
 
 Once a worktree is bound, every command must be aimed explicitly. A missed site does not error; it silently diffs, commits, or serves the **wrong tree**. Enumerated rather than summarized so it can be audited site by site.
 
+**Bind `<root>`, first match:** `<wt-path>` when bound; else the workdir a `## Stage overrides` section in the stage's own brief names; else the in-place repository [`ticket-resolution-fs.md`](../../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../../flow/references/ticket-resolution-server.md) Step 3 names, when it names one; else the project root. An in-place repository holding no `.git` never falls back to the project root. Build, the review stage and the close stage all bind by this chain, so one ticket's stages act on one tree; each states only how it reports that missing `.git` and what else it binds.
+
 A run with no worktree and an in-place repository ([`ticket-resolution-fs.md`](../../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../../flow/references/ticket-resolution-server.md) Step 3) aims the same "Runs in the worktree" sites at that repository, spawn prompts included, and the "Stays in the main checkout" table holds as written. Three rows do not apply there: `worktree.setup` never runs, `test.start` keeps the launch directory [`test-preflight.md`](../../close-stage/references/test-preflight.md) names, and the Merge predicate keeps its caller's working directory.
 
 ### Runs in the worktree — `git -C "<wt-path>"` or `cd "<wt-path>" && …`

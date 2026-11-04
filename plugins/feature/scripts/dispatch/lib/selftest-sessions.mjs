@@ -20,7 +20,7 @@ import net from 'node:net';
 import path from 'node:path';
 
 import { ITEM_ID_RE, shipArgv, syncArgv } from './dispatch.mjs';
-import { decideItem, inboxBody, resumeHint, summaryLine, syncStatus } from './finish.mjs';
+import { classifyPr, decideItem, inboxBody, resumeHint, summaryLine, syncStatus } from './finish.mjs';
 import { BASE_BRANCH_RE, checkPreconditions, gitBase, gitClean } from './preconditions.mjs';
 import { failingChecks, openPrFromHead, prState } from './prs.mjs';
 import { sendInboxSync } from './server.mjs';
@@ -56,7 +56,7 @@ function session(over = {}, factsOver = {}) {
   };
 }
 
-const inReview = (fields = {}, pr = 'OPEN') => ({ row: { status: 'in-review', kind: 'solo', pr_url: PR, ...fields }, pr, base: 'main' });
+const inReview = (fields = {}, kind = 'open-into-base') => ({ row: { status: 'in-review', kind: 'solo', pr_url: PR, ...fields }, kind });
 
 /** Wait until `test()` holds or `ms` pass. */
 async function until(test, ms) {
@@ -113,28 +113,26 @@ export function sessionCases(kit) {
     }],
 
     ['finish: the predicate and every stuck reason, in precedence', () => {
-      const decideOn = (s, tickets, baseBranch = 'main') => decideItem({ session: s, tickets, baseBranch });
+      const decideOn = (s, tickets) => decideItem({ session: s, tickets });
       const decide = (s, t) => {
         const d = decideOn(s, Array.isArray(t) ? t : [t]);
         return d.outcome === 'shipped' ? 'shipped' : d.reason;
       };
-      const merged = (last = LAST) => ({ ...inReview({}, 'MERGED'), base: 'integration/ABC-20', last });
+      const merged = (last = LAST) => ({ ...inReview({}, 'merged-into-integration'), last });
       const matrix = [
         ['shipped', session(), inReview(), 'shipped'],
         ['two children merged, one last PR', session(), [merged(), merged()], 'shipped'],
         ['merged into integration', session(), merged(), 'shipped'],
         ['merged, no last PR', session(), merged(null), 'no open integration pull request'],
-        ['open into integration', session(), { ...inReview(), base: 'integration/ABC-20' }, 'pull request open into another branch'],
-        ['merged into the base', session(), inReview({}, 'MERGED'), 'pull request not open'],
-        ['merged into another branch', session(), { ...inReview({}, 'MERGED'), base: 'develop' }, 'pull request not open'],
+        ['open into another branch', session(), inReview({}, 'open-elsewhere'), 'pull request open into another branch'],
         ['no tickets', session(), [], 'state unknown'],
         ['no tickets, denied', session({}, { permission_denied: ['Bash'] }), [], 'permission_denied'],
-        ['one child not landed', session(), [merged(), inReview({ status: 'backlog' }, null)], 'not in review (backlog)'],
-        ['closed PR', session(), inReview({}, 'CLOSED'), 'pull request not open'],
-        ['no pr_url', session(), inReview({ pr_url: null }, null), 'pull request not open'],
+        ['one child not landed', session(), [merged(), inReview({ status: 'backlog' }, 'no-pr')], 'not in review (backlog)'],
+        ['not open', session(), inReview({}, 'not-open'), 'pull request not open'],
+        ['no pr_url', session(), inReview({ pr_url: null }, 'no-pr'), 'pull request not open'],
         ['not in review', session(), inReview({ status: 'in-progress' }), 'not in review (in-progress)'],
         ['state unknown', session(), null, 'state unknown'],
-        ['PR state unknown', session(), { ...inReview(), pr: null, unknown: true }, 'state unknown'],
+        ['PR state unknown', session(), inReview({}, 'unknown'), 'state unknown'],
         ['denied, not shipped', session({}, { permission_denied: ['Bash'] }), inReview({ status: 'in-progress' }), 'permission_denied'],
         ['result subtype', session({}, { result: { ...session().facts.result, subtype: 'error_max_turns' } }), inReview(), 'result error_max_turns'],
         ['result error', session({}, { result: { ...session().facts.result, is_error: true, subtype: 'error_max_turns' } }), inReview(), 'result error'],
@@ -159,22 +157,33 @@ export function sessionCases(kit) {
       equal(decideOn(session(), [red(0)]).note, null, 'no failing checks, no note');
       equal(decideOn(session(), [red(null)]).note, null, 'unread checks, no note');
       equal(decideOn(session({}, { permission_denied: ['Bash'] }), [red(1)]).note, `shipped with permission denials: Bash; shipped with failing checks: ${PR} (1)`, 'both notes');
-      equal(decideItem({ session: session(), tickets: [inReview()], others: [{ id: 'ABC-22', read: red(1, { pr_url: LAST }) }], baseBranch: 'main' }).note, `shipped with failing checks: ${LAST} (1)`, 'a walked child\'s failing checks are noted');
+      equal(decideItem({ session: session(), tickets: [inReview()], others: [{ id: 'ABC-22', read: red(1, { pr_url: LAST }) }] }).note, `shipped with failing checks: ${LAST} (1)`, 'a walked child\'s failing checks are noted');
       equal(decideOn(session({ exit_code: 1 }), [inReview()]).pr_url, PR, 'a stuck item keeps the row\'s pr_url');
-      equal(decideOn(session(), [{ ...inReview({}, null), unknown: true }]).pr_url, PR, 'an unknown pull request state keeps the row\'s pr_url');
+      equal(decideOn(session(), [inReview({}, 'unknown')]).pr_url, PR, 'an unknown pull request state keeps the row\'s pr_url');
       equal(decideOn(session(), [merged()]).pr_url, LAST, 'a merged child records the last pull request');
-      equal(decideOn(session(), [merged(), inReview({ status: 'backlog', pr_url: null }, null)]).pr_url, PR, 'a stuck item keeps the first pr_url among its rows');
-      const withOthers = (others, s = session()) => decideItem({ session: s, tickets: [merged()], others, baseBranch: 'main' });
-      const openIntoBranch = { ...inReview(), base: 'integration/ABC-20' };
+      equal(decideOn(session(), [merged(), inReview({ status: 'backlog', pr_url: null }, 'no-pr')]).pr_url, PR, 'a stuck item keeps the first pr_url among its rows');
+      const withOthers = (others, s = session()) => decideItem({ session: s, tickets: [merged()], others });
+      const openIntoBranch = inReview({}, 'open-elsewhere');
       equal(withOthers([{ id: 'ABC-22', read: openIntoBranch }]).reason, 'child ABC-22 not landed: pull request open into another branch', 'a walked child left unmerged is stuck despite a reused last PR');
       equal(withOthers([{ id: 'ABC-22', read: inReview({ status: 'in-progress' }) }]).reason, 'child ABC-22 not landed: not in review (in-progress)', 'a walked child left in progress');
       equal(withOthers([{ id: 'ABC-22', read: null }]).reason, 'child ABC-22 not landed: state unknown', 'a walked child that could not be read');
       equal(withOthers([{ id: 'ABC-22', read: openIntoBranch }], session({}, { permission_denied: ['Bash'] })).reason, 'permission_denied', 'denials keep their precedence over a walked child');
-      equal(withOthers([{ id: 'ABC-22', read: merged() }, { id: 'ABC-23', read: inReview({ status: 'done' }, null) }]).pr_url, LAST, 'walked children merged or terminal ship, recording the first ticket\'s pull request');
-      equal(decideItem({ session: session(), tickets: [], others: [{ id: 'ABC-22', read: merged() }], baseBranch: 'main' }).reason, 'state unknown', 'no tickets stays state unknown');
-      const onIntegrationDefault = { ...inReview(), base: 'integration/main' };
-      equal(decideOn(session(), [onIntegrationDefault], 'integration/main').outcome, 'shipped', 'a pull request open into a default branch named integration/* is direct');
-      equal(decideOn(session(), [{ ...onIntegrationDefault, pr: 'MERGED', last: LAST }], 'integration/main').reason, 'pull request not open', 'one merged into that default branch is not open');
+      equal(withOthers([{ id: 'ABC-22', read: merged() }, { id: 'ABC-23', read: inReview({ status: 'done' }, 'no-pr') }]).pr_url, LAST, 'walked children merged or terminal ship, recording the first ticket\'s pull request');
+      equal(decideItem({ session: session(), tickets: [], others: [{ id: 'ABC-22', read: merged() }] }).reason, 'state unknown', 'no tickets stays state unknown');
+      const kinds = [
+        ['OPEN', 'main', 'main', 'open-into-base'],
+        ['OPEN', 'integration/ABC-20', 'main', 'open-elsewhere'],
+        ['MERGED', 'integration/ABC-20', 'main', 'merged-into-integration'],
+        ['MERGED', 'main', 'main', 'not-open'],
+        ['MERGED', 'develop', 'main', 'not-open'],
+        ['CLOSED', 'main', 'main', 'not-open'],
+        ['CLOSED', 'integration/ABC-20', 'main', 'not-open'],
+        ['OPEN', 'integration/main', 'integration/main', 'open-into-base'],
+        ['MERGED', 'integration/main', 'integration/main', 'not-open'],
+      ];
+      for (const [state, base, baseBranch, want] of kinds) {
+        equal(classifyPr(state, base, baseBranch), want, `${state} into ${base}, base branch ${baseBranch}`);
+      }
 
       const sync = (s, r) => syncStatus({ session: s, result: r });
       const ok = session().facts.result;
@@ -506,6 +515,11 @@ export function sessionCases(kit) {
       equal(lookup('[]'), { ok: true, url: null }, 'none open');
       equal(lookup('not json').ok, false, 'non-JSON is a failed read');
       equal(lookup('[]', 1).ok, false, 'a non-zero exit is a failed read');
+      const failed = () => ({ stdout: '', stderr: 'HTTP 502\n  bad gateway\n', status: 1 });
+      equal(openPrFromHead({ projectRoot: '/', env: {}, head: 'integration/ABC-20', base: 'main', runner: failed }).detail, 'gh pr list exited 1: HTTP 502 bad gateway', 'a failed lookup reports the tail of stderr');
+      equal(prState({ projectRoot: '/', env: {}, url: PR, runner: failed }).detail, 'gh pr view exited 1: HTTP 502 bad gateway', 'a failed state read reports the tail of stderr');
+      const absent = () => ({ error: { code: 'ENOENT' } });
+      equal(prState({ projectRoot: '/', env: {}, url: PR, runner: absent }).detail, 'gh not found on PATH', 'gh missing');
 
       const checks = (stdout, status) => failingChecks({ projectRoot: '/', env: {}, url: PR, runner: answer(stdout, status) });
       equal([checks('2\n'), checks('0\n')], [2, 0], 'failing checks');
