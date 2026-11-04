@@ -42,6 +42,8 @@ Needed for codebase operations during the stage.
 
 A non-interactive consumer (`review-stage`) never asks: wherever this reference would ask the user — here or in Steps 1–2 — it returns an error instead.
 
+**Bind `<root>`, first match:** `<wt-path>` when a worktree is bound; else the workdir a `## Stage overrides` section in the stage's own brief names; else the project root. Build, the review stage and the close stage all bind by this chain, so one ticket's stages act on one tree.
+
 ## Step 4 — Validate kind (per-consumer behavior)
 
 Check the row's `kind` field (Read ticket metadata in [`storage-server.md`](storage-server.md)). Behavior depends on the consumer:

@@ -125,7 +125,7 @@ The lifecycle itself is [`references/worktree.md`](references/worktree.md); this
 
    Two consequences of writing that record on a fresh run, both intended: `03-implementation.md` now exists before any plan step, so the step-2 router matches its missing-`## Steps`-entry row rather than "nothing relevant exists" — correct, since the run does have state to resume. And flow's SETUP invalidation deletes `03-implementation.md` when `02-plan.md` is absent, which drops the record while the worktree survives; [`references/worktree.md`](references/worktree.md) §5 is the recovery path for that residue.
 
-**Bind `<root>` — after both parts, on every run**, per [`references/worktree.md`](references/worktree.md) §3. An in-place repository holding no `.git` stops the run before any code, with one line — `<ticket-id>: in-place repository <path> is not a git repository. Fix the ticket's repos: field.`
+**Bind `<root>` — after both parts, on every run**, per [`ticket-resolution-fs.md`](../flow/references/ticket-resolution-fs.md) / [`ticket-resolution-server.md`](../flow/references/ticket-resolution-server.md) Step 3. An in-place repository holding no `.git` stops the run before any code, with one line — `<ticket-id>: in-place repository <path> is not a git repository. Fix the ticket's repos: field.`
 
 Once bound, **every** git and project command in this loop is aimed at `<root>` per [`references/worktree.md`](references/worktree.md) §3 — the implement steps and the arbiter prompt cite that checklist rather than restating it.
 
