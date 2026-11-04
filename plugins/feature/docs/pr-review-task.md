@@ -124,7 +124,7 @@ Once every child has finished or been cancelled, each PR with findings from this
 4. Call `t3_thread_send` with that `threadId`, `mode: "queue"` and this message, with `<PR_URL>` written out. Never use another mode: `auto` can steer a running turn.
 
    ```text
-   <PR_URL> has new automated review findings. Run the `feature:address-review` skill on that PR interactively: show the triage and wait for the owner. Do not pass `--auto`.
+   <PR_URL> has new automated review findings. Run the `feature:address-review` skill on that PR with `--auto --hold-decisions`.
    ```
 
 With no linked thread, or a failed send, send nothing else. The comments stay on the PR, and the report lists it.
@@ -140,4 +140,4 @@ Report in this order, omitting an empty item:
 5. Each handoff sent: PR URL and the thread's `link`.
 6. Each PR with findings and no handoff: PR URL and the reason (no T3 project, no linked thread or failed send). Its comments stay.
 
-Never post to GitHub, label, approve, merge or close anything yourself. Never edit a file. Never pass `--full` or `--auto`.
+Never post to GitHub, label, approve, merge or close anything yourself. Never edit a file. Never pass `--full`.
