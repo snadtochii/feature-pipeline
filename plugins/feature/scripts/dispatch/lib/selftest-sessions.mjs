@@ -158,6 +158,15 @@ export function sessionCases(kit) {
       equal(decideOn(session(), [red(null)]).note, null, 'unread checks, no note');
       equal(decideOn(session({}, { permission_denied: ['Bash'] }), [red(1)]).note, `shipped with permission denials: Bash; shipped with failing checks: ${PR} (1)`, 'both notes');
       equal(decideItem({ session: session(), tickets: [inReview()], others: [{ id: 'ABC-22', read: red(1, { pr_url: LAST }) }] }).note, `shipped with failing checks: ${LAST} (1)`, 'a walked child\'s failing checks are noted');
+      const labelled = (fields = {}) => ({ ...inReview(fields), shipFailed: true });
+      const onlyLabelled = decideOn(session(), [labelled()]);
+      equal([onlyLabelled.outcome, onlyLabelled.reason, onlyLabelled.note], ['shipped', null, `labelled ship-failed: ${PR}`], 'a labelled pull request ships with a note');
+      equal(decideOn(session(), [{ ...inReview(), shipFailed: false }]).note, null, 'an unlabelled pull request has no note');
+      equal(decideOn(session(), [{ ...red(1), shipFailed: true }]).note, `shipped with failing checks: ${PR} (1); labelled ship-failed: ${PR}`, 'the label sits beside failing checks');
+      equal(decideOn(session(), [{ ...red(null), shipFailed: true }]).note, `labelled ship-failed: ${PR}`, 'unread checks leave the label clause alone');
+      equal(decideItem({ session: session(), tickets: [inReview()], others: [{ id: 'ABC-22', read: labelled({ pr_url: LAST }) }] }).note, `labelled ship-failed: ${LAST}`, 'a walked child\'s label is noted');
+      equal(decideOn(session(), [labelled(), labelled({ pr_url: LAST })]).note, `labelled ship-failed: ${PR}, ${LAST}`, 'two labelled tickets list both pull requests');
+      equal(decideOn(session({ exit_code: 1 }), [labelled()]).note, null, 'a stuck item carries no label note');
       equal(decideOn(session({ exit_code: 1 }), [inReview()]).pr_url, PR, 'a stuck item keeps the row\'s pr_url');
       equal(decideOn(session(), [inReview({}, 'unknown')]).pr_url, PR, 'an unknown pull request state keeps the row\'s pr_url');
       equal(decideOn(session(), [merged()]).pr_url, LAST, 'a merged child records the last pull request');
@@ -503,10 +512,17 @@ export function sessionCases(kit) {
     ['prs: a pull request\'s state and base, and the open one from a head', () => {
       const answer = (stdout, status = 0) => () => ({ stdout, stderr: '', status });
       const read = (stdout, status) => prState({ projectRoot: '/', env: {}, url: PR, runner: answer(stdout, status) });
-      equal(read('MERGED integration/ABC-20\n'), { ok: true, state: 'MERGED', base: 'integration/ABC-20' }, 'state and base');
+      equal(read('MERGED integration/ABC-20 false\n'), { ok: true, state: 'MERGED', base: 'integration/ABC-20', shipFailed: false }, 'state and base, unlabelled');
+      equal(read('OPEN main true\n'), { ok: true, state: 'OPEN', base: 'main', shipFailed: true }, 'state and base, labelled');
       equal(read('OPEN\n').ok, false, 'no base is a failed read');
-      equal(read('WEIRD main\n').ok, false, 'an unknown state is a failed read');
-      equal(read('OPEN main\n', 1).ok, false, 'a non-zero exit is a failed read');
+      equal(read('WEIRD main false\n').ok, false, 'an unknown state is a failed read');
+      equal(read('OPEN main false\n', 1).ok, false, 'a non-zero exit is a failed read');
+      equal(read('OPEN main\n').ok, false, 'no label answer is a failed read');
+      equal(read('OPEN main maybe\n').ok, false, 'a label answer other than true or false is a failed read');
+      equal(read('OPEN main true extra\n').ok, false, 'a fourth token is a failed read');
+      const argvs = [];
+      prState({ projectRoot: '/', env: {}, url: PR, runner: (command, args) => { argvs.push([command, ...args]); return { stdout: 'OPEN main false\n', stderr: '', status: 0 }; } });
+      equal(argvs, [['gh', 'pr', 'view', PR, '--json', 'state,baseRefName,labels', '--jq', '.state + " " + .baseRefName + " " + (any(.labels[]; (.name | ascii_downcase) == "ship-failed") | tostring)']], 'the read\'s exact argument vector');
 
       const lookup = (stdout, status) => openPrFromHead({ projectRoot: '/', env: {}, head: 'integration/ABC-20', base: 'main', runner: answer(stdout, status) });
       const same = (number) => ({ number, url: `https://github.com/acme/my-app/pull/${number}`, isCrossRepository: false });
@@ -544,10 +560,46 @@ export function sessionCases(kit) {
       }
     }],
 
+    ['end to end: a labelled direct pull request ships with a note, and the run continues', async () => {
+      const w = world('e2e-labelled', { config: twoItems });
+      const inbox = [];
+      try {
+        fs.writeFileSync(`${w.files.FAKE_GH_VIEW_OUT}.1`, 'OPEN main true\n');
+        await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1'), 'ABC-2': shippedRow('ABC-2') }, inbox }), async (url) => {
+          const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
+          assert(res.status === 0, `labelled: exit ${res.status} ${res.stdout}`);
+          equal(res.doc.items.map((i) => [i.id, i.outcome]), [['ABC-1', 'shipped'], ['ABC-2', 'shipped']], 'both items ship');
+          const note = `ABC-1: labelled ship-failed: ${shippedRow('ABC-1').pr_url}`;
+          assert(res.doc.notes.includes(note), `notes: ${JSON.stringify(res.doc.notes)}`);
+          assert(!res.doc.notes.some((entry) => entry.startsWith('ABC-2:')), `an unlabelled item is noted: ${JSON.stringify(res.doc.notes)}`);
+          assert(fs.readFileSync(res.doc.report, 'utf8').includes(note), 'the report carries the note');
+          const body = inbox[0].body.body;
+          assert(body.includes(note), 'the inbox item carries the note');
+          equal(body.split('\n')[0], `Night dispatch ${res.doc.run_id}: 2 shipped, 0 stuck, 1 skipped`, 'the summary counts the item as shipped');
+        });
+      } finally {
+        fs.rmSync(w.dir, { recursive: true, force: true });
+      }
+    }],
+
+    ['end to end: a read with no label answer is state unknown and stops the run', async () => {
+      const w = world('e2e-malformed', { config: twoItems });
+      try {
+        fs.writeFileSync(w.files.FAKE_GH_VIEW_OUT, 'OPEN main\n');
+        await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') } }), async (url) => {
+          const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
+          assert(res.status === 0, `malformed read: exit ${res.status} ${res.stdout}`);
+          equal(res.doc.items.map((i) => [i.id, i.outcome, i.reason]), [['ABC-1', 'stuck', 'state unknown'], ['ABC-2', 'not dispatched', 'run stopped at ABC-1']], 'items');
+        });
+      } finally {
+        fs.rmSync(w.dir, { recursive: true, force: true });
+      }
+    }],
+
     ['end to end: a child merged into an integration branch with an open pull request ships', async () => {
       const w = world('e2e-merged');
       try {
-        fs.writeFileSync(w.files.FAKE_GH_VIEW_OUT, 'MERGED integration/ABC-20\n');
+        fs.writeFileSync(w.files.FAKE_GH_VIEW_OUT, 'MERGED integration/ABC-20 false\n');
         fs.writeFileSync(w.files.FAKE_GH_HEAD_OUT, JSON.stringify([{ number: 8, url: LAST, isCrossRepository: false }]));
         await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') } }), async (url) => {
           const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
@@ -563,7 +615,7 @@ export function sessionCases(kit) {
     ['end to end: a child merged into an integration branch with no open pull request stops the run', async () => {
       const w = world('e2e-no-last', { config: twoItems });
       try {
-        fs.writeFileSync(w.files.FAKE_GH_VIEW_OUT, 'MERGED integration/ABC-20\n');
+        fs.writeFileSync(w.files.FAKE_GH_VIEW_OUT, 'MERGED integration/ABC-20 false\n');
         await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') } }), async (url) => {
           const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
           assert(res.status === 0, `no last PR: exit ${res.status} ${res.stdout}`);
@@ -578,7 +630,7 @@ export function sessionCases(kit) {
     ['end to end: a pull request open into another branch stops the run', async () => {
       const w = world('e2e-other-base', { config: twoItems });
       try {
-        fs.writeFileSync(w.files.FAKE_GH_VIEW_OUT, 'OPEN integration/ABC-20\n');
+        fs.writeFileSync(w.files.FAKE_GH_VIEW_OUT, 'OPEN integration/ABC-20 false\n');
         await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') } }), async (url) => {
           const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
           assert(res.status === 0, `other base: exit ${res.status} ${res.stdout}`);
@@ -619,8 +671,8 @@ export function sessionCases(kit) {
           { ...fresh, id: 'ABC-62', kind: 'child', parent_id: 'ABC-60', tags: [] },
           later,
         ];
-        fs.writeFileSync(`${w.files.FAKE_GH_VIEW_OUT}.61`, 'OPEN integration/ABC-60\n');
-        fs.writeFileSync(`${w.files.FAKE_GH_VIEW_OUT}.62`, 'MERGED integration/ABC-60\n');
+        fs.writeFileSync(`${w.files.FAKE_GH_VIEW_OUT}.61`, 'OPEN integration/ABC-60 false\n');
+        fs.writeFileSync(`${w.files.FAKE_GH_VIEW_OUT}.62`, 'MERGED integration/ABC-60 false\n');
         fs.writeFileSync(w.files.FAKE_GH_HEAD_OUT, JSON.stringify([{ number: 8, url: LAST, isCrossRepository: false }]));
         const tickets = { 'ABC-61': shippedRow('ABC-61', { kind: 'child' }), 'ABC-62': shippedRow('ABC-62', { kind: 'child' }) };
         await withStub(stubHandler({ rows, tickets }), async (url) => {

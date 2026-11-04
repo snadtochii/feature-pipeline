@@ -40,7 +40,7 @@ function landing(ticket) {
   }
   switch (ticket.kind) {
     case 'open-into-base':
-      return { reason: null, url: ticket.row.pr_url, failing: ticket.failing ?? 0 };
+      return { reason: null, url: ticket.row.pr_url, failing: ticket.failing ?? 0, shipFailed: ticket.shipFailed === true };
     case 'open-elsewhere':
       return { reason: 'pull request open into another branch' };
     case 'merged-into-integration':
@@ -64,11 +64,11 @@ function otherLanding({ id, read }) {
  * ticket of the item: `{ row: { status, pr_url }, kind }`, `kind` a
  * `classifyPr` kind, `no-pr` when the row names no pull request, or `unknown`
  * when the row was read but the rest was not. An `open-into-base` also carries
- * `failing`, its failing checks or null when unread, and a
- * `merged-into-integration` carries `last`, the open pull request from that
- * branch or null. A re-read is null when the row could not be read. `others`
- * holds `{ id, read }` per other non-terminal child of an epic item, `read` in
- * the same form. Returns
+ * `failing`, its failing checks or null when unread, and `shipFailed`, whether
+ * it carries the `ship-failed` label, and a `merged-into-integration` carries
+ * `last`, the open pull request from that branch or null. A re-read is null when
+ * the row could not be read. `others` holds `{ id, read }` per other non-terminal
+ * child of an epic item, `read` in the same form. Returns
  * `{ outcome, reason, pr_url, note }`; a stuck item keeps the first `pr_url`
  * among its tickets' rows.
  */
@@ -130,6 +130,10 @@ function shippedNote(denied, landings) {
   const red = landings.filter((entry) => entry.failing > 0).map((entry) => `${entry.url} (${entry.failing})`);
   if (red.length > 0) {
     parts.push(`shipped with failing checks: ${red.join(', ')}`);
+  }
+  const labelled = landings.filter((entry) => entry.shipFailed).map((entry) => entry.url);
+  if (labelled.length > 0) {
+    parts.push(`labelled ship-failed: ${labelled.join(', ')}`);
   }
   return parts.length > 0 ? parts.join('; ') : null;
 }

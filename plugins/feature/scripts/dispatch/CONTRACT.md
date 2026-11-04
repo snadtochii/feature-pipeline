@@ -104,7 +104,8 @@ directory:
 - `git rev-parse` (the git common directory), `git status --porcelain` and
   `git symbolic-ref` (the preconditions, §9);
 - `gh pr list` (open pull requests, §8), `gh auth status` (the preconditions) and
-  `gh pr view` and `gh pr checks` (a pull request's state and failing checks, §10);
+  `gh pr view` and `gh pr checks` (a pull request's state, base branch, `ship-failed` label
+  and failing checks, §10);
 - `claude`, during `run` only, with exactly the two argument vectors in §10.
 
 Two exceptions to the working directory, both run in the dispatcher's own working
@@ -433,9 +434,11 @@ working tree must still be clean; otherwise that item and every later one stay
 
 After a `ship` child exits, the dispatcher re-reads the row of every ticket in the item's
 `tickets` and `others`, one after another, and never an epic's own row. When a row has a `pr_url`, it
-reads the pull request's state and base branch with
-`gh pr view <url> --json state,baseRefName --jq '.state + " " + .baseRefName'`; the URL must
-be `https://<host>/<path>/pull/<digits>`, or `gh` is not run. For a pull request merged into
+reads the pull request's state, base branch and whether it carries the `ship-failed` label with
+`gh pr view <url> --json state,baseRefName,labels --jq '.state + " " + .baseRefName + " " + (any(.labels[]; (.name | ascii_downcase) == "ship-failed") | tostring)'`; the URL must
+be `https://<host>/<path>/pull/<digits>`, or `gh` is not run. The label answer is a boolean,
+so no label text reaches the dispatcher, and an answer that is not exactly a state, a base
+branch and `true` or `false` is a failed read. For a pull request merged into
 an `integration/*` branch other than the base branch, it also looks up that branch's
 integration pull request with
 `gh pr list --head <branch> --base <base> --state open --json number,url,isCrossRepository`,
@@ -493,15 +496,30 @@ first unlanded ticket's, `tickets` before `others`:
 A direct pull request left open after a failure inside the `ship` session counts as
 `shipped`, and the next item is dispatched, even though `ship`'s own Run report says
 `failed`: the row and the pull request's state read the same as for one that passed, and
-the open pull request stays the human gate. Failing checks on it add a `notes` line. A
-failure with no failing check, such as a review the session could not address, leaves no
-trace in the item.
+the open pull request stays the human gate. `ship` marks that pull request with the
+`ship-failed` label, on every run and in both storage modes, and the re-read adds a `notes`
+line naming it. The label gates nothing: not the outcome, not the summary count, not the
+stop decision. Failing checks on it are noted the same way, on the same line.
+
+The note has four limits:
+
+- When `gh` is down during the session, or the token refuses the write, `ship` cannot set
+  the label. The line its Run report adds is visible only in the session log, which the
+  dispatcher never reads, so that failure leaves no note.
+- An outage long enough for the dispatcher's own read to fail marks the item `stuck` with
+  `state unknown`.
+- A failed removal leaves a stale label, whose note can repeat on a later run that reads
+  that pull request.
+- A child that merged into an integration branch and failed afterwards is read through the
+  open integration pull request, whose label the dispatcher does not read.
 
 A `shipped` item records the pull request a human must merge: the integration pull request for a
 merged ticket, the ticket's own for a direct one, the first landed ticket's when an item
 has several. A `shipped` item whose session had tools denied adds a `notes` line naming
-them, and one with failing checks on a direct pull request adds a `notes` line naming it and
-their count. A `stuck` item still records the first `pr_url` among its tickets' rows when one has
+them, one with failing checks on a direct pull request adds a `notes` line naming it and
+their count, and one whose direct pull request carries the `ship-failed` label adds
+`labelled ship-failed: <url>, <url>`, listing every labelled pull request of the item. These
+parts join with `; ` into one line. A `stuck` item still records the first `pr_url` among its tickets' rows when one has
 it, so the next run's pull-request cap counts it. The one exception is an `interrupted` item: a signal leaves no time to re-read
 the row, so it records `pr_url: null`, and a pull request its session already opened is
 counted by the next run only through its `<ID>:` title (§8). A stuck session is resumed by
@@ -762,16 +780,18 @@ takeovers of one stale lock, a leftover reclaim marker, release only by its owne
 temporary git repository, the preconditions (a dirty tree, a branch off base,
 an unset `origin/HEAD`, a failing `gh auth status`), stream parsing over fixture
 `stream-json` lines (`system/init`, `api_retry` rate limits, `permission_denied`, `result`
-records, non-JSON lines, CRLF), the pull-request state, failing-checks and integration-pull-request reads over an
+records, non-JSON lines, CRLF), the pull-request state read (its label answer and its exact
+argument vector included), the failing-checks and integration-pull-request reads over an
 injected runner, the finish predicate and every stuck reason over fixture
-ticket states, the `sync` status, the exact argument vectors, the session runner's caps,
+ticket states (labelled and unlabelled pull requests included), the `sync` status, the exact argument vectors, the session runner's caps,
 escalation, group kill and timer clamp against stand-in `claude` scripts with millisecond
 caps, the report sections, the inbox body's shape, the signal-path inbox helper against an
 unreachable server, the sorted-key document shape, and end-to-end `plan` and `run`
 invocations — shipped, a child merged into an integration branch, an epic's one direct
 child, stuck, no open integration pull request, a pull request open into another branch, a
 walked child that did not merge beside a reused integration pull request, a direct pull
-request with failing checks, a failed first `sync`, a dirty tree, a failed inbox capture,
+request with failing checks, a labelled direct pull request that ships with a note while the
+next item runs, a pull-request read with no label answer, a failed first `sync`, a dirty tree, a failed inbox capture,
 a signal while a session runs (its inbox item included), a repository whose base branch is
 `master`, and a `ship` that leaves the checkout off its base branch — against a loopback stand-in server that
 routes every request in §6, a stand-in `gh` and a stand-in `claude`, with `HOME`

@@ -330,7 +330,7 @@ function world(label, { config, ghOut = '[]', branch = 'main' } = {}) {
   const ghFile = file('gh-out.json', ghOut);
   const files = {
     FAKE_GH_OUT: ghFile,
-    FAKE_GH_VIEW_OUT: file('gh-view.txt', `OPEN ${branch}\n`),
+    FAKE_GH_VIEW_OUT: file('gh-view.txt', `OPEN ${branch} false\n`),
     FAKE_GH_HEAD_OUT: file('gh-head.json', '[]'),
     FAKE_GH_CHECKS_OUT: file('gh-checks.txt', '0\n'),
     FAKE_CLAUDE_SYNC_OUT: file('sync-out.json', `${JSON.stringify(resultEvent('sess-sync'))}\n`),

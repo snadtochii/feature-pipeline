@@ -74,25 +74,29 @@ export function listOpenPrs({ projectRoot, env = process.env, runner = spawnSync
 
 const PR_URL = /^https:\/\/[A-Za-z0-9.-]+(?::\d+)?\/[A-Za-z0-9._/-]+\/pull\/\d+$/;
 const PR_STATES = new Set(['OPEN', 'CLOSED', 'MERGED']);
+const PR_VIEW_JQ = '.state + " " + .baseRefName + " " + (any(.labels[]; (.name | ascii_downcase) == "ship-failed") | tostring)';
 
 /**
- * One pull request's state and base branch: `{ ok: true, state, base }`
- * (`state` is `OPEN`, `CLOSED` or `MERGED`) or `{ ok: false, detail }`. A URL
- * that is not `https://<host>/<path>/pull/<digits>` runs nothing.
+ * One pull request's state, base branch and whether it carries the `ship-failed`
+ * label: `{ ok: true, state, base, shipFailed }` (`state` is `OPEN`, `CLOSED` or
+ * `MERGED`) or `{ ok: false, detail }`. The answer is exactly three tokens, the
+ * third `true` or `false`; anything else is a failed read. A URL that is not
+ * `https://<host>/<path>/pull/<digits>` runs nothing.
  */
 export function prState({ projectRoot, env = process.env, url, runner = spawnSync }) {
   if (typeof url !== 'string' || !PR_URL.test(url)) {
     return { ok: false, detail: 'not a pull-request URL' };
   }
-  const run = runGh(['pr', 'view', url, '--json', 'state,baseRefName', '--jq', '.state + " " + .baseRefName'], { projectRoot, env, runner });
+  const run = runGh(['pr', 'view', url, '--json', 'state,baseRefName,labels', '--jq', PR_VIEW_JQ], { projectRoot, env, runner });
   if (!run.ok) {
     return run;
   }
-  const [state, base] = run.stdout.trim().split(' ', 2);
-  if (!PR_STATES.has(state) || !base) {
-    return { ok: false, detail: 'gh pr view printed something other than a state and a base branch' };
+  const tokens = run.stdout.trim().split(' ');
+  const [state, base, label] = tokens;
+  if (tokens.length !== 3 || !PR_STATES.has(state) || !base || (label !== 'true' && label !== 'false')) {
+    return { ok: false, detail: 'gh pr view printed something other than a state, a base branch and a label answer' };
   }
-  return { ok: true, state, base };
+  return { ok: true, state, base, shipFailed: label === 'true' };
 }
 
 /**
