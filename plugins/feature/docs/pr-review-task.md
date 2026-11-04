@@ -16,7 +16,7 @@ These are for whoever creates the task. A run ignores this section.
 - **Model:** create the task from a Sonnet thread. `schedule_task` has no model parameter and stores the creating thread's model. The parent only searches, starts children and hands off, and every child sets its own model.
 - **Trigger:** `{ type: 'interval', everyMs: 900000 }`, up to 96 parent turns a day while the machine is awake. T3 skips ticks missed during sleep and ticks that overlap a running one.
 - **Permissions:** `t3_thread_send` rejects a target that runs with broader modes than the sender, and children inherit the parent's mode. A child that hits a permission prompt stops and counts as failed.
-- **Plugin version:** both the Claude and the Codex plugin caches need a `feature` version whose `review` takes `--agent` and a PR URL. An older Codex cache makes every Codex child fail.
+- **Plugin version:** both the Claude and the Codex plugin caches need a `feature` version whose `review` takes `--agent` and a PR URL and whose `address-review` takes `--hold-decisions`. An older Codex cache makes every Codex child fail, and an older cache in a PR's thread may run the handoff as plain `--auto`, which holds nothing.
 - **Round limit:** a child at the limit posts no marker, so the search skips a model at the limit instead of starting a child every tick. The search has only markers and labels to go on, while `review` also compares commits, so the two can differ. `review-round-limit` is per PR, and a head that added only merges counts as a round here unless it carries the merge-only comment. So when one model has set the label, the other can be skipped one round early if it reviewed such a head with findings. A manual `feature:review --full` covers that case.
 
 ## Run prompt

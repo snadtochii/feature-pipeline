@@ -143,7 +143,7 @@ Mirror `../build/references/pr-creation.md`'s discipline for every `gh`/`git` ca
 
 ## §8 The `auto-reviewed` label
 
-A coarse, model-neutral **cycle signal**: label **present** = the latest automated action on the PR was a review, and its findings await an address pass (or the author's attention); label **absent** = no review awaits an address pass — either never reviewed, or its review comments were addressed since. The §2/§9 hidden markers — never the label — are the precise idempotency keys (`fp-review` on reviewer plus head, `fp-address` per head); the label never gates a skill's skip decision.
+A coarse, model-neutral **cycle signal**: label **present** = the latest automated action on the PR was a review, and its findings await an address pass (or the author's attention), or an address pass holds a thread for the owner (§9); label **absent** = no review awaits an address pass — either never reviewed, or its review comments were addressed since. The §2/§9 hidden markers — never the label — are the precise idempotency keys (`fp-review` on reviewer plus head, `fp-address` per head); the label never gates a skill's skip decision.
 
 Two writers, one direction each:
 
@@ -154,12 +154,12 @@ Two writers, one direction each:
   # Add is idempotent — a no-op if already present:
   gh pr edit "<N>" --add-label auto-reviewed
   ```
-- **`address-review` removes it** after posting its replies (best-effort — an already-absent label is fine):
+- **`address-review` removes it** after posting its replies, unless a thread is held (§9) (best-effort — an already-absent label is fine):
   ```bash
   gh pr edit "<N>" --remove-label auto-reviewed 2>/dev/null || true
   ```
 
-One glance at the label answers "has the latest review been responded to?": the reviewer posts → label on; the addresser replies (usually pushing fixes, which moves the head) → label off; a later review re-adds it. `review` never removes the label; `address-review` never adds it.
+One glance at the label answers "has the latest review been responded to?": the reviewer posts → label on; the addresser replies (usually pushing fixes, which moves the head) → label off, or still on while a thread is held; a later review re-adds it. `review` never removes the label; `address-review` never adds it.
 
 ## §9 Reply to a review finding (the `address-review` side)
 
@@ -170,13 +170,15 @@ Its work set is **not limited to automated findings**: a **human comment** — a
 - **Footer (reuse §1, do not redefine):** every reply ends with `_— 🛠️ addressed (automated)_` on its own last line — the address role's §1 footer. Footer **presence** still distinguishes an agent reply from the author's own manual note.
 - **Reply marker:**
   ```
-  <!-- fp-address agent=<codex|claude> head=<SHA> re=<review|comment>:<id>[#F<k>] -->
+  <!-- fp-address agent=<codex|claude> head=<SHA> re=<review|comment>:<id>[#F<k>] [hold=1] -->
   ```
   - `head=<SHA>` is **load-bearing** — the full current head SHA of the PR at address time (`gh pr view <N> --json headRefOid --jq '.headRefOid'`). It keys reply idempotency: a finding is "already addressed" only when its thread already carries an `fp-address` reply for the **current** head SHA. When new commits land (head moves), a prior reply no longer matches and the finding is addressed again.
   - `re=<review|comment>:<id>[#F<k>]` is the **source key** — **load-bearing on every top-level reply**, where GitHub gives no threading to pair a reply with what it answers. It names the source by shape and REST id: an automated summary finding → `re=review:<id>#F<k>` (Reviews-API summary) or `re=comment:<id>#F<k>` (fallback issue-comment summary), with the finding's `[F<k>]` ordinal; a human review summary → `re=review:<id>`; a human issue comment → `re=comment:<id>`. **Omitted on threaded inline replies** — the inline thread (`in_reply_to_id`) is the pairing there. The ids are controlled integers from the fetch (§7).
   - `agent=<codex|claude>` is **informational** — the runtime that posted: `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`. It never gates idempotency — only `head` and `re` do.
 
-Both ACCEPTed findings (reply notes the fix) and DISMISSed findings (reply explains why it doesn't apply) get a signed reply in this exact shape.
+  - `hold=1` marks a **hold reply**: `address-review --hold-decisions` left this finding for the owner, and the reply states why and the options. It is neither a fix claim nor a dismissal, and it never counts as addressed. Unlike `head=`, it does not expire when the head moves. With `--hold-decisions`, a thread whose newest paired reply carries it stays out of the work set; a fix or answer reply, or on an inline thread a newer human comment, ends the hold. Without the flag the thread is triaged like any other.
+
+ACCEPTed findings (reply notes the fix), DISMISSed findings (reply explains why it doesn't apply) and held findings (hold reply) all get a signed reply in this exact shape.
 
 ### Reply idempotency scan
 
