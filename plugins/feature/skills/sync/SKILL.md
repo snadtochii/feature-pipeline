@@ -98,7 +98,7 @@ Print a grouped summary with counts; omit empty groups:
   - <id> — closed unmerged — PR <url>
 ? Couldn't check (<n>):
   - <id> — no PR found (in review/)
-  - <id> — couldn't-check (<reason>)   (gh error, any folder)
+  - <id> — couldn't-check (<reason>)   (PR lookup error or §6, any folder)
 ```
 
 - **Header** counts every PR-checked ticket (terminal short-circuits from Step 1 are excluded — they were never PR candidates).
