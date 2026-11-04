@@ -63,11 +63,11 @@ printf '%s' "$RESPONSE" | jq -c '
         owed: [("claude", "codex") as $m
                | ($markers | map(select(.a == $m))) as $mine
                | select(($mine | map(.h) | index($head)) == null)
-               | select(($limited and (($mine | map(select(.quiet | not) | .h) | unique | length) >= 2)) | not)
+               | select(($limited and (($mine | map(select(.quiet | not) | .h) | unique | length) >= 3)) | not)
                | $m]})'
 ```
 
-The first output line holds the search counts. Every other line is one PR, and its `owed` list is the only input to step 2. A model is owed unless the viewer's marker for it exists at this head, or the PR carries `review-round-limit` and the viewer's markers for it sit on two or more other heads. A marker on a merge-only comment does not count toward those two. Start no child for any other PR, and do not add or remove a model by branch name, the commit's age or any other reason.
+The first output line holds the search counts. Every other line is one PR, and its `owed` list is the only input to step 2. A model is owed unless the viewer's marker for it exists at this head, or the PR carries `review-round-limit` and the viewer's markers for it sit on three or more other heads. A marker on a merge-only comment does not count toward those three. Start no child for any other PR, and do not add or remove a model by branch name, the commit's age or any other reason.
 
 If the command exits non-zero, or its output has no first line holding the search counts, report the error and stop: that is a failed search, not a run with no work. If `issueCount` exceeds `returned`, note it in the report. If no PR owes a model, report that in one line and end the turn with no T3 call.
 
