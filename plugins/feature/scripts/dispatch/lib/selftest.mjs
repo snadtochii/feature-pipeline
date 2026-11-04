@@ -109,11 +109,12 @@ function commitAll(repo, branch = 'main') {
   git('symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${branch}`);
 }
 
-/** The stand-in `gh`: `auth status`, `pr view`, `pr list --head` and `pr list`, each from its own variable. */
+/** The stand-in `gh`: `auth status`, `pr view`, `pr checks`, `pr list --head` and `pr list`, each from its own variable. */
 const FAKE_GH = `#!/bin/sh
 case "$1 $2" in
   "auth status") exit "\${FAKE_GH_AUTH_STATUS:-\${FAKE_GH_STATUS:-0}}" ;;
   "pr view") one="\${FAKE_GH_VIEW_OUT:-/dev/null}.\${3##*/}"; if [ -f "$one" ]; then cat "$one"; else cat "\${FAKE_GH_VIEW_OUT:-/dev/null}"; fi; exit "\${FAKE_GH_STATUS:-0}" ;;
+  "pr checks") cat "\${FAKE_GH_CHECKS_OUT:-/dev/null}"; exit "\${FAKE_GH_STATUS:-0}" ;;
   "pr list") if [ "$3" = "--head" ]; then cat "\${FAKE_GH_HEAD_OUT:-/dev/null}"; exit "\${FAKE_GH_STATUS:-0}"; fi ;;
 esac
 cat "$FAKE_GH_OUT"
@@ -331,6 +332,7 @@ function world(label, { config, ghOut = '[]', branch = 'main' } = {}) {
     FAKE_GH_OUT: ghFile,
     FAKE_GH_VIEW_OUT: file('gh-view.txt', `OPEN ${branch}\n`),
     FAKE_GH_HEAD_OUT: file('gh-head.json', '[]'),
+    FAKE_GH_CHECKS_OUT: file('gh-checks.txt', '0\n'),
     FAKE_CLAUDE_SYNC_OUT: file('sync-out.json', `${JSON.stringify(resultEvent('sess-sync'))}\n`),
     FAKE_CLAUDE_SHIP_OUT: file('ship-out.jsonl', jsonl(initEvent('sess-ship'), resultEvent('sess-ship'))),
     FAKE_CLAUDE_ARGS: path.join(dir, 'claude-args.log'),

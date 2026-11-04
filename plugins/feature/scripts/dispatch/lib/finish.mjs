@@ -28,7 +28,7 @@ function landing(ticket, baseBranch) {
     return { reason: `not in review (${ticket.row.status})` };
   }
   if (ticket.pr === 'OPEN') {
-    return ticket.base === baseBranch ? { reason: null, url: ticket.row.pr_url } : { reason: 'pull request open into another branch' };
+    return ticket.base === baseBranch ? { reason: null, url: ticket.row.pr_url, failing: ticket.failing } : { reason: 'pull request open into another branch' };
   }
   if (mergedIntoIntegration(ticket.pr, ticket.base, baseBranch)) {
     return ticket.last ? { reason: null, url: ticket.last } : { reason: 'no open integration pull request' };
@@ -97,13 +97,25 @@ export function decideItem({ session, tickets, others = [], baseBranch }) {
       outcome: 'shipped',
       reason: null,
       pr_url: landings[0].url,
-      note: denied.length > 0 ? `shipped with permission denials: ${denied.join(', ')}` : null,
+      note: shippedNote(denied, landings),
     };
   }
   if (denied.length > 0) {
     return stuck('permission_denied');
   }
   return stuck(unlanded?.reason ?? 'state unknown');
+}
+
+function shippedNote(denied, landings) {
+  const parts = [];
+  if (denied.length > 0) {
+    parts.push(`shipped with permission denials: ${denied.join(', ')}`);
+  }
+  const red = landings.filter((entry) => entry.failing > 0).map((entry) => `${entry.url} (${entry.failing})`);
+  if (red.length > 0) {
+    parts.push(`shipped with failing checks: ${red.join(', ')}`);
+  }
+  return parts.length > 0 ? parts.join('; ') : null;
 }
 
 /** The distinct denied tool names from the stream and the result, sorted. */

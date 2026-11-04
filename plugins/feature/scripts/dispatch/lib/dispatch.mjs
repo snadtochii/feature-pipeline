@@ -20,7 +20,7 @@ import path from 'node:path';
 import { decideItem, mergedIntoIntegration, syncStatus } from './finish.mjs';
 import { holdsLock } from './lock.mjs';
 import { BASE_BRANCH_RE, gitClean, onPath } from './preconditions.mjs';
-import { openPrFromHead, prState } from './prs.mjs';
+import { failingChecks, openPrFromHead, prState } from './prs.mjs';
 import { getTicket } from './server.mjs';
 import { startSession } from './session.mjs';
 import { logPathFor } from './state.mjs';
@@ -106,9 +106,10 @@ export async function runSync(phase, { projectRoot, env, logDir, config, record 
 
 /**
  * Re-read one ticket's row and its pull request's state and base, retrying
- * once: `{ row, pr, base }`, plus `last` — the open pull request from the
- * branch — when the pull request merged into an `integration/*` branch;
- * `{ row, pr: null, unknown: true }` when the row was read but the rest failed
+ * once: `{ row, pr, base }`, plus `failing` — its failing checks, or null when
+ * unread — when the pull request is open into the base branch, and `last` — the
+ * open pull request from the branch — when it merged into an `integration/*`
+ * branch; `{ row, pr: null, unknown: true }` when the row was read but the rest failed
  * twice, so the row's `pr_url` is kept; or null when the row itself could not
  * be read (a 404 included).
  */
@@ -134,6 +135,9 @@ async function readTicket(id, { projectRoot, env, access, projectId, baseBranch,
     const pr = prState({ projectRoot, env, url: got.row.pr_url });
     if (!pr.ok) {
       continue;
+    }
+    if (pr.state === 'OPEN' && pr.base === baseBranch) {
+      return { row: got.row, pr: pr.state, base: pr.base, failing: failingChecks({ projectRoot, env, url: got.row.pr_url }) };
     }
     if (!mergedIntoIntegration(pr.state, pr.base, baseBranch)) {
       return { row: got.row, pr: pr.state, base: pr.base };

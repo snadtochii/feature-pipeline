@@ -2,6 +2,7 @@
 // dispatched item's pull-request state (CONTRACT.md §10).
 //
 // One `gh pr list` call per invocation, one `gh pr view` per dispatched ticket,
+// one `gh pr checks` per ticket with a pull request open into the base branch,
 // and one more `gh pr list` per ticket merged into an integration branch, each
 // run in the project root with an argument vector. `countOpenPrs`
 // is pure: the number of dispatch slots held
@@ -80,6 +81,25 @@ export function prState({ projectRoot, env = process.env, url, runner = spawnSyn
     return { ok: false, detail: `gh pr view exited ${result.status ?? `on ${result.signal}`}` };
   }
   return { ok: true, state, base };
+}
+
+/**
+ * The number of a pull request's checks in `gh`'s `fail` bucket, or null when
+ * they could not be read. A URL that is not a pull request's runs nothing.
+ */
+export function failingChecks({ projectRoot, env = process.env, url, runner = spawnSync }) {
+  if (typeof url !== 'string' || !PR_URL.test(url)) {
+    return null;
+  }
+  const result = runner('gh', ['pr', 'checks', url, '--json', 'bucket', '--jq', '[.[] | select(.bucket == "fail")] | length'], {
+    cwd: projectRoot,
+    env,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: GH_TIMEOUT_MS,
+  });
+  const text = (result.stdout ?? '').trim();
+  return result.error || result.status !== 0 || !/^\d+$/.test(text) ? null : Number(text);
 }
 
 export function openPrFromHead({ projectRoot, env = process.env, head, base, runner = spawnSync }) {

@@ -22,7 +22,7 @@ import path from 'node:path';
 import { ITEM_ID_RE, shipArgv, syncArgv } from './dispatch.mjs';
 import { decideItem, inboxBody, resumeHint, summaryLine, syncStatus } from './finish.mjs';
 import { BASE_BRANCH_RE, checkPreconditions, gitBase, gitClean } from './preconditions.mjs';
-import { openPrFromHead, prState } from './prs.mjs';
+import { failingChecks, openPrFromHead, prState } from './prs.mjs';
 import { sendInboxSync } from './server.mjs';
 import { MAX_TIMER_MS, startSession, timerDelay } from './session.mjs';
 import { applyLine, newSessionFacts, parseJsonResult } from './stream.mjs';
@@ -153,6 +153,13 @@ export function sessionCases(kit) {
       }
       const noted = decideOn(session({}, { permission_denied: ['WebFetch'], result: { ...session().facts.result, permission_denials: ['Bash', 'WebFetch'] } }), [inReview()]);
       equal([noted.outcome, noted.note], ['shipped', 'shipped with permission denials: Bash, WebFetch'], 'shipped with denials is noted');
+      const red = (failing, fields = {}) => ({ ...inReview(fields), failing });
+      equal(decideOn(session(), [red(2)]).outcome, 'shipped', 'failing checks do not stop the run');
+      equal(decideOn(session(), [red(2)]).note, `shipped with failing checks: ${PR} (2)`, 'failing checks are noted');
+      equal(decideOn(session(), [red(0)]).note, null, 'no failing checks, no note');
+      equal(decideOn(session(), [red(null)]).note, null, 'unread checks, no note');
+      equal(decideOn(session({}, { permission_denied: ['Bash'] }), [red(1)]).note, `shipped with permission denials: Bash; shipped with failing checks: ${PR} (1)`, 'both notes');
+      equal(decideItem({ session: session(), tickets: [inReview()], others: [{ id: 'ABC-22', read: red(1, { pr_url: LAST }) }], baseBranch: 'main' }).note, `shipped with failing checks: ${LAST} (1)`, 'a walked child\'s failing checks are noted');
       equal(decideOn(session({ exit_code: 1 }), [inReview()]).pr_url, PR, 'a stuck item keeps the row\'s pr_url');
       equal(decideOn(session(), [{ ...inReview({}, null), unknown: true }]).pr_url, PR, 'an unknown pull request state keeps the row\'s pr_url');
       equal(decideOn(session(), [merged()]).pr_url, LAST, 'a merged child records the last pull request');
@@ -499,6 +506,28 @@ export function sessionCases(kit) {
       equal(lookup('[]'), { ok: true, url: null }, 'none open');
       equal(lookup('not json').ok, false, 'non-JSON is a failed read');
       equal(lookup('[]', 1).ok, false, 'a non-zero exit is a failed read');
+
+      const checks = (stdout, status) => failingChecks({ projectRoot: '/', env: {}, url: PR, runner: answer(stdout, status) });
+      equal([checks('2\n'), checks('0\n')], [2, 0], 'failing checks');
+      equal([checks('2\n', 1), checks('not a number\n'), checks('')], [null, null, null], 'an unreadable answer is null');
+      equal(failingChecks({ projectRoot: '/', env: {}, url: 'not a url', runner: () => { throw new Error('ran'); } }), null, 'a bad URL runs nothing');
+    }],
+
+    ['end to end: a direct pull request with failing checks ships with a note, and the run continues', async () => {
+      const w = world('e2e-red', { config: twoItems });
+      try {
+        fs.writeFileSync(w.files.FAKE_GH_CHECKS_OUT, '1\n');
+        await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1'), 'ABC-2': shippedRow('ABC-2') } }), async (url) => {
+          const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
+          assert(res.status === 0, `red checks: exit ${res.status} ${res.stdout}`);
+          equal(res.doc.items.map((i) => [i.id, i.outcome]), [['ABC-1', 'shipped'], ['ABC-2', 'shipped']], 'both items ship');
+          const note = `ABC-1: shipped with failing checks: ${shippedRow('ABC-1').pr_url} (1)`;
+          assert(res.doc.notes.includes(note), `notes: ${JSON.stringify(res.doc.notes)}`);
+          assert(fs.readFileSync(res.doc.report, 'utf8').includes(note), 'the report carries the note');
+        });
+      } finally {
+        fs.rmSync(w.dir, { recursive: true, force: true });
+      }
     }],
 
     ['end to end: a child merged into an integration branch with an open pull request ships', async () => {
