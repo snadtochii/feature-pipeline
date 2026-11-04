@@ -89,9 +89,9 @@ Then:
 - **Group into threads.** Each inline comment is its own thread (anchored to its `id` + `path:line`). Each **`[F<k>]` finding within an automated summary is its own thread**, keyed by the **source review/comment id plus its ordinal** `k` (the `[F<k>]` ordinal is unique only within one summary, so `[F1]` from two summaries are distinct threads; a single-finding summary is just `[F1]`). Step 3 gives each thread its own verdict and Step 6 its own reply — never collapse a multi-finding summary into one verdict. Skip a comment that is itself an `fp-address` reply (its body carries the §9 reply marker) — never triage your own prior replies.
 - **Skip already-addressed threads (reply idempotency).** Per §9: a thread is already addressed at the current head iff a reply **paired to it** carries `fp-address … head=$HEAD_SHA`. Pairing is structural, never quote-matching: an **inline** thread pairs via `in_reply_to_id`; a **top-level-replied** thread (summary `[F<k>]` finding, human review summary, human issue comment) pairs via the reply marker's `re=<review|comment>:<id>[#F<k>]` key matched against the thread's source id (+ ordinal). For **inline** threads only, a human comment newer than the paired reply re-opens the thread even at an unchanged head (on the flat issue-comment surface a newer human comment has its own id and enters the work set as its own thread). A hold reply (§9) never counts as addressed. Drop the addressed ones from the work set so a re-run doesn't double-reply. (When the head moved since a prior address pass, the old `fp-address` marker no longer matches `$HEAD_SHA`, so the finding is re-addressed — correct, the code changed.)
 
-- **Leave held threads waiting (`--hold-decisions` only).** Per §9, a thread whose newest paired reply is a hold reply stays out of the work set whatever the head, and Step 7 lists it again. Without the flag it is triaged like any other thread.
+- **Leave held threads waiting (`--hold-decisions` only).** Per §9, a thread whose newest paired reply is a hold reply stays out of the work set whatever the head, and Step 7 lists it again. A human top-level comment that plainly names a held summary finding ends its hold: triage that thread with the comment as the owner's answer, and its reply carries the held thread's `re=` key. Without the flag a held thread is triaged like any other.
 
-Build a TodoWrite item per surviving thread so the Step 7 summary is recoverable. If there are **no** un-addressed threads (automated or human), report "No outstanding review comments to address on PR `#<N>` (current head)." and exit cleanly.
+Build a TodoWrite item per surviving thread so the Step 7 summary is recoverable. If there are **no** un-addressed threads (automated or human) and none held, report "No outstanding review comments to address on PR `#<N>` (current head)." and exit cleanly. With none un-addressed and at least one held, go straight to Step 7 and list them.
 
 ### 3. Validate each thread (ACCEPT / DISMISS / ANSWER + one-line reason)
 
@@ -117,7 +117,7 @@ This mirrors `ship`'s self-validation hop (ACCEPT/DISMISS with a one-line reason
 
 ### 5. Apply fixes for ACCEPTed findings
 
-Step 5 runs only when Step 3 produced at least one ACCEPT. With zero ACCEPTs, skip it entirely — no edit, no validation, no commit, no push — and go to Step 6, whose replies are then all DISMISS or ANSWER. Validation runs only after an edit this skill made; a pass with no accepted fix runs none.
+Step 5 runs only when Step 3 produced at least one ACCEPT. With zero ACCEPTs, skip it entirely — no edit, no validation, no commit, no push — and go to Step 6, whose replies are then all DISMISS, ANSWER or HOLD. Validation runs only after an edit this skill made; a pass with no accepted fix runs none.
 
 Edit the repository code to apply each accepted fix, smallest change first, validating as you go:
 
@@ -138,7 +138,7 @@ Each reply carries the §1 footer `_— 🛠️ addressed (automated)_` and the 
 - **ACCEPTed + fix-failed** → a one-line note that the finding is valid but the fix couldn't land this pass, with the blocker.
 - **DISMISSed** → a one-line note explaining why it doesn't apply (stale / out of scope / false positive).
 - **ANSWERed** → the answer to the question/discussion point, no fix claim.
-- **HELD** → why it is the owner's call, the options with your recommendation, and `hold=1` in the marker (§9). No fix claim.
+- **HELD** → why it is the owner's call, the options with your recommendation, how to answer, and `hold=1` in the marker (§9). No fix claim.
 
 Anchor by thread shape (§9): an **inline** review comment (automated or human) → a threaded reply to its review-comment `id` via `gh api … /pulls/$N/comments/<COMMENT_ID>/replies --input <payload>` (or the `in_reply_to` equivalent); a **summary `[F<k>]` finding** → one top-level `gh pr comment "$N" --body-file <file>` per finding, its marker keyed `re=<review|comment>:<id>#F<k>` and its visible text naming the same source; a **human review summary or issue comment** (no inline thread to anchor to) → one top-level `gh pr comment "$N" --body-file <file>`, its marker keyed `re=review:<id>` / `re=comment:<id>`, opening with a short quote or paraphrase of the comment it answers so the pairing stays readable for humans. Build every reply body with the **Write tool** to a temp path whose absolute location a prior Bash call printed (§9 — shell `$WORK` does not survive across tool calls; thread the literal path, never the repo worktree) and post via `--input`/`--body-file` — never a `--body "…"` literal, never `eval` (§7).
 
@@ -170,7 +170,7 @@ Print a grouped summary with counts (omit empty groups):
 🏷 Label: auto-reviewed removed | not present | left (nothing addressed) | left (threads held)
 ```
 
-When a thread is held, the run ends here with the fixes already pushed and asks nothing further. If the owner answers in this conversation, that answer authorizes both the fix and the reply: apply it per Step 5 and reply per Step 6 with no further gate. A newer human comment on an inline thread re-opens it for the next pass.
+When a thread is held, the run ends here with the fixes already pushed and asks nothing further. If the owner answers in this conversation, that answer authorizes both the fix and the reply: re-run Step 1's resolve and bind first and stop if it fails, then apply it per Step 5 and reply per Step 6 with no further gate. A newer human comment on an inline thread re-opens it for the next pass.
 
 If `gh`/auth/origin was unavailable, the preconditions already printed the one-line skip and exited before this summary. One reply that fails to post never aborts the rest — record it under `? Couldn't post` and continue.
 
