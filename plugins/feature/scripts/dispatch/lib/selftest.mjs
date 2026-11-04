@@ -109,11 +109,13 @@ function commitAll(repo, branch = 'main') {
   git('symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${branch}`);
 }
 
-/** The stand-in `gh`: `auth status`, `pr view` and `pr list`, each from its own variable. */
+/** The stand-in `gh`: `auth status`, `pr view`, `pr checks`, `pr list --head` and `pr list`, each from its own variable. */
 const FAKE_GH = `#!/bin/sh
 case "$1 $2" in
   "auth status") exit "\${FAKE_GH_AUTH_STATUS:-\${FAKE_GH_STATUS:-0}}" ;;
-  "pr view") cat "\${FAKE_GH_VIEW_OUT:-/dev/null}"; exit "\${FAKE_GH_STATUS:-0}" ;;
+  "pr view") one="\${FAKE_GH_VIEW_OUT:-/dev/null}.\${3##*/}"; if [ -f "$one" ]; then cat "$one"; else cat "\${FAKE_GH_VIEW_OUT:-/dev/null}"; fi; exit "\${FAKE_GH_STATUS:-0}" ;;
+  "pr checks") cat "\${FAKE_GH_CHECKS_OUT:-/dev/null}"; exit "\${FAKE_GH_STATUS:-0}" ;;
+  "pr list") if [ "$3" = "--head" ]; then cat "\${FAKE_GH_HEAD_OUT:-/dev/null}"; exit "\${FAKE_GH_STATUS:-0}"; fi ;;
 esac
 cat "$FAKE_GH_OUT"
 exit "\${FAKE_GH_STATUS:-0}"
@@ -328,7 +330,9 @@ function world(label, { config, ghOut = '[]', branch = 'main' } = {}) {
   const ghFile = file('gh-out.json', ghOut);
   const files = {
     FAKE_GH_OUT: ghFile,
-    FAKE_GH_VIEW_OUT: file('gh-view.txt', 'OPEN\n'),
+    FAKE_GH_VIEW_OUT: file('gh-view.txt', `OPEN ${branch}\n`),
+    FAKE_GH_HEAD_OUT: file('gh-head.json', '[]'),
+    FAKE_GH_CHECKS_OUT: file('gh-checks.txt', '0\n'),
     FAKE_CLAUDE_SYNC_OUT: file('sync-out.json', `${JSON.stringify(resultEvent('sess-sync'))}\n`),
     FAKE_CLAUDE_SHIP_OUT: file('ship-out.jsonl', jsonl(initEvent('sess-ship'), resultEvent('sess-ship'))),
     FAKE_CLAUDE_ARGS: path.join(dir, 'claude-args.log'),
@@ -517,6 +521,22 @@ const CASES = [
       ['ABC-30', 'no backlog children'],
       ['ABC-40', 'blocked'],
     ], 'skips');
+    equal(candidates.map((c) => c.others), [[], [], ['ABC-23'], []], 'others');
+    const walked = selectCandidates([
+      row('ABC-80', { kind: 'epic' }),
+      row('ABC-81', { kind: 'child', parent_id: 'ABC-80', status: 'in-review', tags: [] }),
+      row('ABC-82', { kind: 'child', parent_id: 'ABC-80', status: 'in-progress', tags: [] }),
+      row('ABC-83', { kind: 'child', parent_id: 'ABC-80', status: 'done', tags: [] }),
+      row('ABC-84', { kind: 'child', parent_id: 'ABC-80', tags: [] }),
+    ], { tag: TAG, maxAgeDays: 14, now: NOW });
+    equal(walked.candidates.map((c) => [c.id, c.tickets, c.others]), [['ABC-80', ['ABC-84'], ['ABC-81', 'ABC-82']]], 'an epic\'s other non-terminal children');
+    equal(skips.find((s) => s.id === 'ABC-30').detail, null, 'no backlog children, none open');
+    const stalled = selectCandidates([
+      row('ABC-70', { kind: 'epic' }),
+      row('ABC-71', { kind: 'child', parent_id: 'ABC-70', status: 'in-progress', tags: [] }),
+      row('ABC-72', { kind: 'child', parent_id: 'ABC-70', status: 'done', tags: [] }),
+    ], { tag: TAG, maxAgeDays: 14, now: NOW });
+    equal(stalled.skips, [{ id: 'ABC-70', reason: 'no backlog children', detail: 'still open: ABC-71 (in-progress)' }], 'no backlog children names what is still open');
     equal(skips.find((s) => s.id === 'ABC-3').detail, 'waiting on ABC-99 (not found)', 'missing blocker detail');
     equal(skips.find((s) => s.id === 'ABC-8').detail, 'waiting on ABC-5 (in-progress)', 'terminal blocker passes');
     equal(skips.find((s) => s.id === 'ABC-40').detail, 'waiting on ABC-5 (in-progress)', 'external child blocker blocks the epic');

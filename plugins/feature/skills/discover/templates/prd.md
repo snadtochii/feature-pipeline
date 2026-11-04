@@ -47,7 +47,7 @@ Things this whole epic does NOT do. (Each child has its own out-of-scope for sli
 | ID | Title | Complexity | Repos | Covers AC | blocked_by |
 |---|---|---|---|---|---|
 | XX-2 | <child title> | M | repo-a | 1, 2 | — |
-| XX-3 | <child title> | M | repo-a, repo-b | 3, 4 | XX-2 |
+| XX-3 | <child title> | M | repo-a | 3, 4 | XX-2 |
 | XX-4 | <child title> | S | repo-b | 5 | XX-2 |
 
 (The `Repos` column applies only to multi-repo workspaces — omit it in a single-repo workspace.)

@@ -4,7 +4,7 @@ Canonical logic for the cross-ticket lessons store in fs-native storage mode: th
 
 This file is standalone — a producer or consumer reads just it and can comply. Lessons are lines in `claudedocs/tickets/_lessons.md`, exactly as §1–§8 describe.
 
-**Producers:** `close-stage` captures at its verdict gate and runs the full write path (§2–§7). The standalone `debug` skill is a second producer — it appends entries in the same `^## `-matching format but with its own ID forms and without the supersession check; those deltas live in `debug`'s Output section. **Consumers:** `plan`'s Phase 1 and `ship` read the log per §8. The standalone `lessons-consolidate` skill normalizes an existing file back to this contract via a human-approved diff (it operates on `_lessons.md` only).
+**Producers:** `close-stage` captures at its verdict gate and runs the full write path (§2–§7). The standalone `debug` skill is a second producer — it appends entries in the same `^## `-matching format but with its own ID forms and without the supersession check; those deltas live in `debug`'s Output section. `ship`'s orchestrator is a third: on every run it applies §4–§5 to the candidates its workers report, in place of the close-stage capture their state clause skips. **Consumers:** `plan`'s Phase 1 and `ship` read the log per §8. The standalone `lessons-consolidate` skill normalizes an existing file back to this contract via a human-approved diff (it operates on `_lessons.md` only).
 
 ## §1 The file
 

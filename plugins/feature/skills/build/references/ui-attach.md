@@ -62,7 +62,7 @@ A passing probe does not promise acceptance. gh refuses the attach itself on a G
    - **(b)** in the desktop capture's slot, when the pass produced no `AC-<n>-desktop`.
 2. The desktop state captures (`error`, `empty`, `disabled`), by name ascending.
 
-No numeric ceiling applies: the whole set is posted, in §6 batches. An epic's integration-PR post applies the rule per child, children in ticket order; a multi-solo run applies it to each ticket's own post. A ticket with per-repo homes builds its set per repo, in pass order, each repo applying the rule above to its own captures and only the failed entries whose `**Repo**` line names it.
+No numeric ceiling applies: the whole set is posted, in §6 batches. An epic's integration-PR post applies the rule per child, children in ticket order; a direct ticket's post applies it to its own. A ticket with per-repo homes builds its set per repo, in pass order, each repo applying the rule above to its own captures and only the failed entries whose `**Repo**` line names it.
 
 **Artifact order** — every capture in the evidence home, for the `05-tests.md` `## Screenshots` section, grouped by viewport under three subheadings in this order:
 
@@ -111,7 +111,7 @@ Not attached (over 10 MiB or empty): settings-empty-desktop.png
 - One `Full capture set: <pointer>` line per covered ticket — one on a solo post, one per child in ticket order on an epic's integration-PR post. `<pointer>` is the **Pointer** of the caller's storage file for the detected mode: it names where the full set lives and carries no URL, no absolute path and no count.
 - One `![<alt>](<absolute path>)` line per attached file in batch 1 (§6), in §3 GitHub-set order. gh rewrites each reference to the uploaded asset URL, so the absolute path never reaches the posted text.
 - One `Not attached (over 10 MiB or empty): <name>, <name>` line when §3's size filter held back a GitHub-set file — bare file names, never a path. No such file, no line.
-- `<id>` in the marker is the ticket ID; for ship's epic integration-PR post, the epic ID. The marker is the §8 dedupe key.
+- `<id>` in the marker is the ticket ID; for ship's integration-PR post, the branch's suffix and the tested head, so a reused PR takes each new head's evidence once. The marker is the §8 dedupe key.
 
 The **part body** carries batch `<k>` ≥ 2 of a GitHub set over 50 (§6 **Batches**), as a follow-up comment:
 
@@ -200,7 +200,7 @@ else
 fi
 ```
 
-`<id>` matches `^[A-Za-z0-9-]+$`, so the pattern matches each marker literally. The read prints every marker found, one per line: the main marker `<!-- feature:ui-evidence <id> -->` and each part marker `<!-- feature:ui-evidence <id> part <k> -->`. The main marker is never a substring of a part marker, so the two never collide.
+`<id>` matches `^[A-Za-z0-9_-]+$`, so the pattern matches each marker literally. The read prints every marker found, one per line: the main marker `<!-- feature:ui-evidence <id> -->` and each part marker `<!-- feature:ui-evidence <id> part <k> -->`. The main marker is never a substring of a part marker, so the two never collide.
 
 Only a marker authored by the account gh posts as counts — the PR's body when that account opened the PR, and that account's comments. A marker anyone else writes into a comment is ignored, so a third party cannot suppress the evidence post. The login reaches the filter through the environment, never interpolated into it.
 

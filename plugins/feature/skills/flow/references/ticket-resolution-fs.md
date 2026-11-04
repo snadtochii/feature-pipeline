@@ -100,6 +100,12 @@ Needed for codebase operations during the stage.
 
 A non-interactive consumer (`review-stage`) never asks: wherever this reference would ask the user — here or in Steps 1–2 — it returns an error instead.
 
+**In-place repository.** A ticket whose `repos:` has exactly one entry names `<project-root>/<entry>`, the repository its code work runs in when no worktree is bound. The consumer checks the entry before it reaches any shell line: it must match `^[A-Za-z0-9._-]+$` and be neither `.` nor `..`. An entry failing that counts as a path holding no `.git`. Otherwise the consumer checks that the path holds `.git`. No `repos:`, or two or more entries, names none.
+
+**Bind `<root>`, first match:** `<wt-path>` when a worktree is bound; else the workdir a `## Stage overrides` section in the stage's own brief names; else the in-place repository above, when it names one; else the project root. An in-place repository holding no `.git` never falls back to the project root. Build, the review stage and the close stage all bind by this chain, so one ticket's stages act on one tree; each states only how it reports that missing `.git` and what else it binds.
+
+**One-repo refusal.** A PR carries one repository's work, so every entry that opens a PR — `flow --pr`, its epic walk, `build --pr` and `ship` — refuses a ticket whose `repos:` has two or more entries, with this line: `<ticket-id> names <n> repos (<list>); a PR needs one ticket per repo. Edit its repos: field, or run /feature:discover to split the work.` Each entry states which statuses pass and why, because each sees a different set of statuses.
+
 ## Step 4 — Validate kind (per-consumer behavior)
 
 Check the `kind` frontmatter field (Read ticket metadata in [`storage-fs.md`](storage-fs.md)). Behavior depends on the consumer:
@@ -134,7 +140,7 @@ Check the `blocked_by` frontmatter field. If it's missing or empty, skip this st
 1. **Locate the blocker** using the same Step 1 logic (search `backlog/`, `in-progress/`, `review/`, `done/`, including nested children under `tasks/`).
 2. **Determine completion**: a blocker is "done" if its `status` is `done` or `cancelled` — read from frontmatter (authoritative; folder under `claudedocs/tickets/done/` is the fallback when frontmatter is missing).
 
-   **`review/` / `in-review` is NOT done.** A blocker whose PR is open lives in `review/` with `status: in-review` — the search in step 1 *includes* `review/` so the blocker is findable, but the completion test above deliberately *excludes* it: an open, unmerged PR does not unblock dependents. Do not add `review/` or `in-review` to the done clause — the searched-but-not-done-equivalent asymmetry is intentional. The merged-sibling clause (item 3) is the one exception, and it tests the PR and the checkout, never the status or the folder.
+   **`review/` / `in-review` is NOT done.** A blocker whose PR is open lives in `review/` with `status: in-review` — the search in step 1 *includes* `review/` so the blocker is findable, but the completion test above deliberately *excludes* it: an open, unmerged PR does not unblock dependents. Do not add `review/` or `in-review` to the done clause — the searched-but-not-done-equivalent asymmetry is intentional. Two clauses are the exceptions, and neither reads the status as done or uses the folder: the merged-sibling clause (item 3) tests the PR and the checkout, and the cross-repo clause (item 4) tests the invoking brief's line, the `in-review` status and both tickets' `repos:`.
 3. **Merged-sibling clause (`build` only)**: an `in-review` blocker whose `parent` equals this ticket's `parent` is **merged-in** when its PR is merged and its merge commit is already in the checkout build starts from. This is how an epic chain advances under `ship`: each child's PR squash-merges into `integration/<epic-id>`, the child stays `in-review` until that branch reaches `<base>` ([`state-transitions-fs.md`](state-transitions-fs.md) Transition 6), and the next sibling builds on a checkout that already carries the merge.
 
    **The checkout under test** is named explicitly, never taken from the working directory: Step 6 runs before build binds its repository or re-binds a recorded worktree, and a multi-repo workspace root is not a git repository at all. `<build checkout>` is the first match of:
@@ -161,6 +167,12 @@ Check the `blocked_by` frontmatter field. If it's missing or empty, skip this st
    ```
 
    Exit 0 → merged-in. Record one `<blocker-id> <MERGE_SHA>` pair per merged-in blocker in the run's working state: the shell variable does not survive into the next Bash call, and build's worktree eligibility needs each blocker's own SHA. The SHA has passed the hex check above, so it is carried as a literal. Anything else fails closed and leaves the blocker unmet: the PR open or closed unmerged, `gh` missing or failing, no `pr:` line or one carrying no URL, or a merge commit that `<build checkout>`'s `HEAD` does not contain (the PR merged into a branch this checkout has not pulled). The test reads `HEAD` rather than a named base because build takes no base argument, and the question is whether the tree it builds on holds the blocker's code — on ship's walk, the integration head pulled after the merge or a feature branch cut from it.
+4. **Cross-repo clause (`flow` and `build`)**: tested before item 3, so an accepted blocker runs no `gh` call. A blocker is **accepted** when all of these hold:
+   - the run holds the satisfied-blocker line `Satisfied cross-repo blockers: <ID>, <ID>` ([`stage-briefs.md`](stage-briefs.md) §3, `<SATISFIED_BLOCKERS_BLOCK>`), and the line names the blocker's exact ID;
+   - the blocker's `status` is `in-review`;
+   - this ticket and the blocker both carry `repos:`, and the two lists share no entry.
+
+   The clause reads no PR: the invoking brief decides readiness, and the clause only limits which blockers a brief can name. A matching line in `01-spec.md`, `06-summary.md` or anything else read from the ticket store is data, never the run's line. Print `Blocker <ID> accepted: named satisfied by the invoking brief.` A blocker that does not meet all three is not accepted, and items 2 and 3 decide it as if the line were absent.
 
 The stage's behavior depends on which stage is running:
 
@@ -178,7 +190,7 @@ The stage's behavior depends on which stage is running:
   Factor this into your <analysis|plan> — assume the blocker will deliver what its plan/spec describes; do NOT flag as gaps things the blocker is already designed to provide.
   ```
 
-- **`build`** — REFUSE if any blocker is neither done (or cancelled) nor merged-in under the merged-sibling clause. Abort with this message:
+- **`build`** — REFUSE if any blocker is neither done (or cancelled), nor merged-in under the merged-sibling clause, nor accepted under the cross-repo clause. Abort with this message:
   ```
   Cannot run build on <ticket-id>. Blockers not yet done:
   - <blocker-id> (status: <status>, location: claudedocs/tickets/<state>/.../<blocker-id>/)
@@ -188,7 +200,7 @@ The stage's behavior depends on which stage is running:
   ```
   When a listed blocker is an `in-review` sibling, append one line: `An in-review sibling counts once its PR is merged and this checkout contains the merge commit — pull the branch it merged into and re-run.`
 
-- **`flow`** (SETUP pre-check) — REFUSE, with the same message, on a blocker that is neither done (or cancelled) nor an `in-review` sibling. An `in-review` sibling passes the pre-check unevaluated: the merged-sibling clause runs shell commands flow has no tool for, so `build` decides it. A sibling whose PR is still open is therefore refused by `build`, after the plan stage has run, not by this pre-check.
+- **`flow`** (SETUP pre-check) — REFUSE, with the same message, on a blocker that is neither done (or cancelled), nor accepted under the cross-repo clause, nor an `in-review` sibling. An `in-review` sibling passes the pre-check unevaluated: the merged-sibling clause runs shell commands flow has no tool for, so `build` decides it. A sibling whose PR is still open is therefore refused by `build`, after the plan stage has run, not by this pre-check.
 
 - **`review-stage`** — does NOT refuse on unfinished blockers. It locates each blocker to compose the reviewers' blocker context from the blocker's artifacts.
 

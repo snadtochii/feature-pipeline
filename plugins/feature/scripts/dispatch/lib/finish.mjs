@@ -2,25 +2,78 @@
 // Finish predicate and Inbox item).
 //
 // Pure. An item is `shipped` only when its session ended cleanly — exit 0, no
-// cap fired, a `result` of subtype `success` that is not an error — and the
-// ticket row re-read from the server is `in-review` with a pull request that is
-// open. Everything else is `stuck` with the first reason that applies, in a
-// fixed precedence.
+// cap fired, a `result` of subtype `success` that is not an error — and every
+// ticket of the item has landed: its row re-read from the server is `in-review`
+// and its pull request is open into the base branch, or merged into an
+// `integration/*` branch that has an open pull request into the base branch.
+// An epic's other non-terminal children, walked by the same session, must have
+// landed or become terminal too. Everything else is `stuck` with the first
+// reason that applies, in a fixed precedence.
 //
 // Private to the implementation: only dispatch.mjs is a command.
+
+import { TERMINAL } from './select.mjs';
 
 const SIGTERM_EXIT = 143;
 
 /**
- * Decide one item. `session` is the session runner's result
- * (`{ exit_code, cap, spawnError, facts }`); `ticket` is
- * `{ row: { status, pr_url }, pr }` from the re-read, `pr` the pull request's
- * state or null, with `unknown: true` when the row was read but the pull
- * request's state was not; or null when the row could not be read. Returns
- * `{ outcome, reason, pr_url, note }`; a stuck item keeps the row's `pr_url`.
+ * Classify a pull request against the base branch: `open-into-base`,
+ * `open-elsewhere`, `merged-into-integration` (merged into an `integration/*`
+ * branch other than the base branch) or `not-open`.
  */
-export function decideItem({ session, ticket }) {
-  const prUrl = ticket?.row?.pr_url ?? null;
+export function classifyPr(state, base, baseBranch) {
+  if (state === 'OPEN') {
+    return base === baseBranch ? 'open-into-base' : 'open-elsewhere';
+  }
+  if (state === 'MERGED' && base !== baseBranch && base.startsWith('integration/')) {
+    return 'merged-into-integration';
+  }
+  return 'not-open';
+}
+
+function landing(ticket) {
+  if (ticket === null || ticket.kind === 'unknown') {
+    return { reason: 'state unknown' };
+  }
+  if (ticket.row.status !== 'in-review') {
+    return { reason: `not in review (${ticket.row.status})` };
+  }
+  switch (ticket.kind) {
+    case 'open-into-base':
+      return { reason: null, url: ticket.row.pr_url, failing: ticket.failing ?? 0 };
+    case 'open-elsewhere':
+      return { reason: 'pull request open into another branch' };
+    case 'merged-into-integration':
+      return ticket.last ? { reason: null, url: ticket.last, failing: 0 } : { reason: 'no open integration pull request' };
+    default:
+      return { reason: 'pull request not open' };
+  }
+}
+
+function otherLanding({ id, read }) {
+  if (TERMINAL.has(read?.row?.status)) {
+    return { reason: null, failing: 0 };
+  }
+  const entry = landing(read);
+  return entry.reason === null ? entry : { reason: `child ${id} not landed: ${entry.reason}` };
+}
+
+/**
+ * Decide one item. `session` is the session runner's result
+ * (`{ exit_code, cap, spawnError, facts }`); `tickets` holds one re-read per
+ * ticket of the item: `{ row: { status, pr_url }, kind }`, `kind` a
+ * `classifyPr` kind, `no-pr` when the row names no pull request, or `unknown`
+ * when the row was read but the rest was not. An `open-into-base` also carries
+ * `failing`, its failing checks or null when unread, and a
+ * `merged-into-integration` carries `last`, the open pull request from that
+ * branch or null. A re-read is null when the row could not be read. `others`
+ * holds `{ id, read }` per other non-terminal child of an epic item, `read` in
+ * the same form. Returns
+ * `{ outcome, reason, pr_url, note }`; a stuck item keeps the first `pr_url`
+ * among its tickets' rows.
+ */
+export function decideItem({ session, tickets, others = [] }) {
+  const prUrl = tickets.find((ticket) => ticket?.row?.pr_url)?.row.pr_url ?? null;
   const stuck = (reason) => ({ outcome: 'stuck', reason, pr_url: prUrl, note: null });
   const facts = session.facts;
   const exit = session.exit_code;
@@ -53,24 +106,32 @@ export function decideItem({ session, ticket }) {
     return stuck(`result ${facts.result.subtype ?? 'unknown'}`);
   }
   const denied = deniedTools(facts);
-  if (ticket !== null && ticket.row.status === 'in-review' && prUrl !== null && ticket.pr === 'OPEN') {
+  const landings = [...tickets.map(landing), ...others.map(otherLanding)];
+  const unlanded = landings.find((entry) => entry.reason !== null);
+  if (tickets.length > 0 && unlanded === undefined) {
     return {
       outcome: 'shipped',
       reason: null,
-      pr_url: prUrl,
-      note: denied.length > 0 ? `shipped with permission denials: ${denied.join(', ')}` : null,
+      pr_url: landings[0].url,
+      note: shippedNote(denied, landings),
     };
   }
   if (denied.length > 0) {
     return stuck('permission_denied');
   }
-  if (ticket === null || ticket.unknown === true) {
-    return stuck('state unknown');
+  return stuck(unlanded?.reason ?? 'state unknown');
+}
+
+function shippedNote(denied, landings) {
+  const parts = [];
+  if (denied.length > 0) {
+    parts.push(`shipped with permission denials: ${denied.join(', ')}`);
   }
-  if (ticket.row.status !== 'in-review') {
-    return stuck(`not in review (${ticket.row.status})`);
+  const red = landings.filter((entry) => entry.failing > 0).map((entry) => `${entry.url} (${entry.failing})`);
+  if (red.length > 0) {
+    parts.push(`shipped with failing checks: ${red.join(', ')}`);
   }
-  return stuck('pull request not open');
+  return parts.length > 0 ? parts.join('; ') : null;
 }
 
 /** The distinct denied tool names from the stream and the result, sorted. */

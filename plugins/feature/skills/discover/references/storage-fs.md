@@ -109,7 +109,7 @@ The Phase 3.5 checkpoint ([`multi-sibling.md`](multi-sibling.md)) applies unchan
    - `siblings: [<other-CHILD-IDs>]` — informational; the others, not self
    - `blocked_by: [<CHILD-ID>, ...]` — omit if no blockers
 
-   In a multi-repo workspace, also append `repos:` per [`multi-repo.md`](multi-repo.md) — this child's repos, from the Phase 3.5 decomposition table.
+   In a multi-repo workspace, also append `repos:` per [`multi-repo.md`](multi-repo.md) — this child's one repo, from the Phase 3.5 decomposition table.
 
    As you fill the standard fields the template already lists, give them child-specific values: `id` (the `<CHILD-ID>` allocated per §3), `title` (descriptive, from the Phase 3.5 decomposition table — never the bare `<CHILD-ID>`; this is what boards, flow's epic-walker progress, and PR titles render), `complexity` (assessed per child), and `priority`/`tags` (inherit from the epic, plus any child-specific tags).
 
@@ -127,7 +127,7 @@ The Phase 3.5 checkpoint ([`multi-sibling.md`](multi-sibling.md)) applies unchan
    | ID | Title | Complexity | Repos | blocked_by |
    |---|---|---|---|---|
    | <CHILD-1-ID> | <title> | M | <repo-a> | — |
-   | <CHILD-2-ID> | <title> | M | <repo-a>, <repo-b> | <CHILD-1-ID> |
+   | <CHILD-2-ID> | <title> | M | <repo-b> | <CHILD-1-ID> |
    ...
 
    (Omit the `Repos` column in a single-repo workspace, matching the Phase 3.5 table.)

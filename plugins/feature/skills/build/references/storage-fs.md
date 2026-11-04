@@ -8,7 +8,7 @@ Every input is a file under `<ticket-folder>`, read with `Read`.
 
 ## §2 Ticket metadata
 
-Read ticket metadata reads the frontmatter of `01-spec.md`; `repos` is bound where present — the worktree binding's eligibility input.
+Read ticket metadata reads the frontmatter of `01-spec.md`; `repos` is bound where present — the worktree binding's eligibility input and the input of the in-place repository ([`ticket-resolution-fs.md`](../../flow/references/ticket-resolution-fs.md) Step 3). Flag validation's one-repo refusal runs before that binding, so it reads `repos` and `status` directly from the same frontmatter.
 
 ## §3 Working copy
 

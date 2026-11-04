@@ -4,7 +4,7 @@ Canonical logic for the cross-ticket lessons store in server-native storage mode
 
 This file is standalone — a producer or consumer reads just it and can comply. Each lesson is a row on the pipeline server, reached through the lesson tools (`pipeline_add_lesson`, `pipeline_list_lessons`, `pipeline_update_lesson`, `pipeline_delete_lesson` — the Lessons operation in [`storage-server.md`](storage-server.md)); §1–§8 map the contract onto that store.
 
-**Producers:** `close-stage` captures at its verdict gate and runs the full write path (§2–§7). The standalone `debug` skill is a second producer — it adds rows in the same atomic format but with its own ID forms and without the supersession check; those deltas live in `debug`'s Output section. **Consumers:** `plan`'s Phase 1 and `ship` read the store per §8.
+**Producers:** `close-stage` captures at its verdict gate and runs the full write path (§2–§7). The standalone `debug` skill is a second producer — it adds rows in the same atomic format but with its own ID forms and without the supersession check; those deltas live in `debug`'s Output section. `ship`'s orchestrator is a third: on every run it applies §4–§5 to the candidates its workers report, in place of the close-stage capture their state clause skips. **Consumers:** `plan`'s Phase 1 and `ship` read the store per §8.
 
 ## §1 The store
 

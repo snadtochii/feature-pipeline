@@ -4,22 +4,23 @@
 // `claude -p "/feature:ship <ID> --worktree --base <branch>"` child, serially,
 // `<branch>` being the base branch the git_base precondition found checked out,
 // and each `sync` as one `claude -p "/feature:sync"` child.
-// After a ship child exits, the item's ticket row is re-read from the server
-// and its pull request's state from `gh`; the finish predicate decides the
-// outcome. The run stops at the first stuck item. Results are written into the
-// caller's pre-filled array as each session ends, and a teardown hook records
-// the in-flight session as interrupted when the dispatcher is signalled, so
-// every exit path keeps what finished.
+// After a ship child exits, the row of each of the item's tickets and other
+// walked children is re-read from the server and its pull request's state and
+// base from `gh`; the finish predicate decides the outcome. The run stops at the
+// first stuck item. Results
+// are written into the caller's pre-filled array as each session ends, and a
+// teardown hook records the in-flight session as interrupted when the
+// dispatcher is signalled, so every exit path keeps what finished.
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { decideItem, syncStatus } from './finish.mjs';
+import { classifyPr, decideItem, syncStatus } from './finish.mjs';
 import { holdsLock } from './lock.mjs';
 import { BASE_BRANCH_RE, gitClean, onPath } from './preconditions.mjs';
-import { prState } from './prs.mjs';
+import { failingChecks, openPrFromHead, prState } from './prs.mjs';
 import { getTicket } from './server.mjs';
 import { startSession } from './session.mjs';
 import { logPathFor } from './state.mjs';
@@ -104,12 +105,15 @@ export async function runSync(phase, { projectRoot, env, logDir, config, record 
 }
 
 /**
- * Re-read an item's ticket row and its pull request's state, retrying once:
- * `{ row, pr }`; `{ row, pr: null, unknown: true }` when the row was read but
- * the pull request's state failed twice, so the row's `pr_url` is kept; or
- * null when the row itself could not be read (a 404 included).
+ * Re-read one ticket's row and classify its pull request, retrying once:
+ * `{ row, kind }`, `kind` a `classifyPr` kind or `no-pr` when the row names no
+ * pull request. An `open-into-base` also carries `failing`, its failing checks
+ * or null when unread, and a `merged-into-integration` carries `last`, the open
+ * pull request from that branch or null. `{ row, kind: 'unknown' }` when the
+ * row was read but the rest failed twice, so the row's `pr_url` is kept; null
+ * when the row itself could not be read (a 404 included).
  */
-async function readTicket(item, { projectRoot, env, access, projectId, fetchImpl, retryMs }) {
+async function readTicket(id, { projectRoot, env, access, projectId, baseBranch, fetchImpl, retryMs }) {
   let lastRow = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (attempt > 0) {
@@ -117,7 +121,7 @@ async function readTicket(item, { projectRoot, env, access, projectId, fetchImpl
     }
     let got;
     try {
-      got = await getTicket({ access, projectId, ticketId: item.id, ...(fetchImpl ? { fetchImpl } : {}) });
+      got = await getTicket({ access, projectId, ticketId: id, ...(fetchImpl ? { fetchImpl } : {}) });
     } catch {
       continue;
     }
@@ -125,15 +129,26 @@ async function readTicket(item, { projectRoot, env, access, projectId, fetchImpl
       continue;
     }
     if (got.row.pr_url === null) {
-      return { row: got.row, pr: null };
+      return { row: got.row, kind: 'no-pr' };
     }
     lastRow = got.row;
     const pr = prState({ projectRoot, env, url: got.row.pr_url });
-    if (pr.ok) {
-      return { row: got.row, pr: pr.state };
+    if (!pr.ok) {
+      continue;
+    }
+    const kind = classifyPr(pr.state, pr.base, baseBranch);
+    if (kind === 'open-into-base') {
+      return { row: got.row, kind, failing: failingChecks({ projectRoot, env, url: got.row.pr_url }) };
+    }
+    if (kind !== 'merged-into-integration') {
+      return { row: got.row, kind };
+    }
+    const last = openPrFromHead({ projectRoot, env, head: pr.base, base: baseBranch });
+    if (last.ok) {
+      return { row: got.row, kind, last: last.url };
     }
   }
-  return lastRow === null ? null : { row: lastRow, pr: null, unknown: true };
+  return lastRow === null ? null : { row: lastRow, kind: 'unknown' };
 }
 
 /**
@@ -201,8 +216,15 @@ export async function dispatchItems(items, ctx) {
     } finally {
       dispose();
     }
-    const ticket = await readTicket(item, { ...ctx, retryMs });
-    const decision = decideItem({ session, ticket });
+    const tickets = [];
+    for (const id of item.tickets) {
+      tickets.push(await readTicket(id, { ...ctx, retryMs }));
+    }
+    const others = [];
+    for (const id of item.others) {
+      others.push({ id, read: await readTicket(id, { ...ctx, retryMs }) });
+    }
+    const decision = decideItem({ session, tickets, others });
     results[i] = {
       ...base,
       outcome: decision.outcome,

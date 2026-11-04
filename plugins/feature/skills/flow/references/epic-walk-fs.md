@@ -22,6 +22,11 @@ d. For each child in the roster, read its metadata: `id`, `title`, `status`, `bl
 
    If a child folder is missing on disk for a `children` entry, warn the user and skip that child (continue with the others). The data is corrupted but the walk is still useful.
 
+   **One-repo preflight (`--pr` only).** When the walk was invoked with `--pr`, read each child's `repos:` in the same frontmatter read. A child naming 2+ entries is refused unless its `status` is `done`, `partial-completion` or `cancelled`, which the walk skips as terminal, or `in-review`, which the close stage's merge check owns. Print the one-repo refusal line of [`ticket-resolution-fs.md`](ticket-resolution-fs.md) Step 3 per refused child, then this closing line, and exit cleanly — no child runs:
+   ```
+   Stopping epic walk before any child runs. Fix the listed tickets, then run /feature:flow <EPIC-ID> --pr again.
+   ```
+
 ## 2. Topological sort
 
 a. Build a directed graph from `blocked_by`: an edge points from each blocker TO its dependent. So blockers come BEFORE dependents in topological order.
@@ -70,7 +75,7 @@ c. **Invoke `Skill flow <CHILD-ID>`** (recursive). The inner flow detects `kind:
 d. **Re-read the child's `01-spec.md` frontmatter** after the recursive flow returns. The close stage's verdict gate (inside the child's flow run) already applied the state transition per `state-transitions-fs.md` (folder move + `status`). The new status determines the walker's next move:
 
    - `done` or `partial-completion` → child completed cleanly (close verdict `pass` — with or without a commit, per the gate's commit-mode dispatch — or verdict `partial`/`stuck` + user choice `accept-as-partial`). Continue walker silently.
-   - `in-review` → child's PR was opened (the close stage ran with `--pr`); the PR is open, awaiting merge. Non-terminal but an expected outcome — the child is "advanced enough." Continue the walker; the child finalizes to `done/` on a future walk once its PR merges (the close stage's `review/` pass-through fires Transition 6). A dependent sibling's build accepts this child only under [`ticket-resolution-fs.md`](ticket-resolution-fs.md) Step 6's merged-sibling clause — never while its PR is open.
+   - `in-review` → child's PR was opened (the close stage ran with `--pr`); the PR is open, awaiting merge. Non-terminal but an expected outcome — the child is "advanced enough." Continue the walker; the child finalizes to `done/` on a future walk once its PR merges (the close stage's `review/` pass-through fires Transition 6). A dependent sibling's build accepts this child only under [`ticket-resolution-fs.md`](ticket-resolution-fs.md) Step 6's merged-sibling clause — never while its PR is open. The walker forwards no satisfied-blocker line, so Step 6's cross-repo clause never applies to a walked child.
    - `backlog` → user chose `abort` at the child's verdict gate. The child has been reverted. Stop the walker. Print:
      ```
      Child <CHILD-ID> aborted (reverted to backlog/). Stopping epic walk.
