@@ -115,7 +115,7 @@ Readers take the last match of each key, because the append follows everything t
 
 ## Merge predicate (single definition — referenced by the close stage's `review/` merge-check row and the `sync` skill)
 
-Determine whether a ticket's PR has merged. The scan set depends on the caller: **close-stage** applies this to an `in-review` ticket it is checking (a solo ticket or an at-review epic in `review/`); **sync** applies it to every ticket in its scan set (`sync`'s Step 1 owns the scan set and, in Step 2, the lookup-key precedence and back-fill for its own run). **The rule is shared; the lookup key depends on the caller:**
+Determine whether a ticket's PR has merged. The scan set depends on the caller: **close-stage** applies this to an `in-review` ticket it is checking (a solo ticket or an at-review epic in `review/`); **sync** applies it to every ticket in its scan set (`sync`'s Step 1 owns the scan set and, in Step 2, the lookup-key precedence and back-fill for its own run; its [`storage-fs.md`](../../sync/references/storage-fs.md) / [`storage-server.md`](../../sync/references/storage-server.md) §6, for the mode detected at the caller's start, aims its commands). **The rule is shared; the lookup key depends on the caller:**
 
 - **Branch-keyed** — the close stage's per-ticket `review/` merge check, which has the current checkout:
   ```bash
