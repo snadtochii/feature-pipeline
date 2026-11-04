@@ -247,15 +247,15 @@ A ticket **fails** when its worker ends `partial` or `stuck`, errors, or reports
 ### Failure label (every run)
 `ship-failed` on a PR records that a ticket failed with that PR open. It reports the failure, and gates no skill's decision and no outcome. The orchestrator owns it, on every run and in both storage modes.
 
-- **Add.** When a ticket fails, before the walk moves on. Its PR is the one the run verified at Step 1 or at Recovery's base check; a run holding none locates it through the ticket's linkage (§5). Using the verified number means a storage outage cannot lose the label. Read `gh pr view <n> --repo "<owner/repo>" --json state,isCrossRepository --jq '.state + " " + (.isCrossRepository | tostring)'`. On `OPEN false`, run these as separate `Bash` calls:
+- **Add.** When a ticket fails, before the walk moves on. Its PR is the one the run verified at Step 1 or at Recovery's base check; a run holding none locates it through the ticket's linkage (§5). Using the verified number means a storage outage cannot lose the label. Read `gh pr view <n> --repo "<owner/repo>" --json state --jq .state`. On `OPEN`, run these as separate `Bash` calls:
   ```bash
   gh label create ship-failed --repo "<owner/repo>" --description "ship failed on this PR; see its Run report" --color B60205
   gh pr edit <n> --repo "<owner/repo>" --add-label ship-failed
   ```
-  The create's status is not read: it fails when the label exists, and a label that is really missing fails the add. No PR, or one not open, means nothing to label. A cross-repository PR is never labelled, because §5's title search can return one that only matches the ticket's title.
+  The create's status is not read: it fails when the label exists, and a label that is really missing fails the add. No PR, or one not open, means nothing to label.
 - **Run stop.** Before the Run report prints, and after the drain on a parallel walk, each in-flight ticket with an open PR takes the same add. A run stop is not a ticket failure, so Failure isolation's Cost and State rules do not apply to that ticket.
 - **Remove.** The last act before a ticket that passed its verification (AFTER EACH IMPLEMENTER RETURNS) is marked done. Read `gh pr view <n> --repo "<owner/repo>" --json labels --jq 'any(.labels[]; (.name | ascii_downcase) == "ship-failed")'`, and on `true` run `gh pr edit <n> --repo "<owner/repo>" --remove-label ship-failed`. On the parallel walk, an integration ticket's removal follows its revalidation ([`references/parallel-walk.md`](references/parallel-walk.md) §5). A ticket that failed in this run is never cleared.
-- **Best effort.** A failed read, add or remove, or a cross-repository PR left unlabelled, is one Run report line, `<ID>: ship-failed label not added` or `<ID>: ship-failed label not removed`, naming the PR when known. It never changes the ticket's outcome and never stops the walk.
+- **Best effort.** A failed read, add or remove is one Run report line, `<ID>: ship-failed label not added` or `<ID>: ship-failed label not removed`, naming the PR when known. It never changes the ticket's outcome and never stops the walk.
 
 ### Run report (every run)
 One line per ticket: `merged`, `PR open`, `failed` (with its hint and any stash or worktree), or `skipped` (with its reason, naming the blocking ticket), the SETUP skip list included, plus any label line Failure label names. Declared-but-unwritten children stay listed per §1. Then each ticket's next step:

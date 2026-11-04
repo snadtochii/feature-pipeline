@@ -505,10 +505,9 @@ The note has four limits:
 
 - When `gh` is down during the session, or the token refuses the write, `ship` cannot set
   the label. Nor can it when a server outage stops the run before it has verified the
-  ticket's pull request, because locating that pull request takes the server, or when a
-  title search on a re-run picks a fork's pull request, which `ship` never labels. The line
-  its Run report adds is visible only in the session log, which the dispatcher never reads,
-  so that failure leaves no note.
+  ticket's pull request, because locating that pull request takes the server. The line its
+  Run report adds is visible only in the session log, which the dispatcher never reads, so
+  that failure leaves no note.
 - An outage long enough for the dispatcher's own read to fail marks the item `stuck` with
   `state unknown`.
 - A failed removal leaves a stale label, whose note can repeat on a later run that reads
