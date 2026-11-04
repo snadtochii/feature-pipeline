@@ -265,6 +265,8 @@ The final line stays as Ticket-state finalization sets it.
 - `## Not in this PR`, when the branch has an epic: the epic's roster per §1 minus every child that query returned, left out or not, `done`, `cancelled` and those selected in another lane. One line each: `<ID> — not selected`, `failed`, `skipped` or `not written yet`. Empty: no section.
 - One line: `Merge this PR with a merge commit: a squash or rebase leaves these tickets in review.`
 
+Each `gh pr edit` of a found PR's body, under either ending below, replaces any text a person wrote there, so it adds one Run report line: `<PR URL>: body replaced by this run`.
+
 The ending is per resulting PR:
 
 **An integration branch, in its lane, with a selected, non-cancelled ticket that did not merge** — open no integration PR for it, run no UI pass for it and no `--merge`, and state in the Run report what is on that branch. When the lookup found that branch's PR, rewrite its body with `gh pr edit` so it names those tickets as not on the branch, and the Run report names the PR. A `done` ticket, a cancelled ticket, a declared-but-unwritten child and an unselected sibling do not count, and a materialized child depending on an unwritten one is skipped and does.
