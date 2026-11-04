@@ -394,7 +394,7 @@ the `git_base` precondition found checked out — `refs/remotes/origin/HEAD`'s b
 `ship` cuts and targets the branch the run checked, never its own `main` default; a base
 branch whose name does not match `^[A-Za-z0-9_][A-Za-z0-9._/-]*$` fails `git_base`.
 `<HOME>` is `$HOME`. The
-dispatcher never passes `--merge`, `--parallel`, `--bare`, `--settings`, `--allowedTools`
+dispatcher never passes `--parallel`, `--bare`, `--settings`, `--allowedTools`
 or `--permission-mode`: a child loads the project's and the user's settings, plugins and
 server connectors as an interactive session would, its permissions are theirs, and a tool
 no allow rule covers is denied rather than prompted — it shows up as `permission_denied`
