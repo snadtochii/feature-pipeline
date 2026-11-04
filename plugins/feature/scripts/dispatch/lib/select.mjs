@@ -6,7 +6,7 @@
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
-const TERMINAL = new Set(['done', 'cancelled']);
+export const TERMINAL = new Set(['done', 'cancelled']);
 const DAY_MS = 86_400_000;
 const ID_PARTS = /^(.*?)(\d+)$/;
 
@@ -41,8 +41,9 @@ export function compareRows(a, b) {
 /**
  * Split the tagged, non-terminal rows into candidates and skips.
  * Returns `{ candidates, skips, notes }`; candidates are
- * `{id, kind, tickets, created_at}`, skips `{id, reason, detail}`, both in
- * `compareRows` order.
+ * `{id, kind, tickets, others, created_at}`, skips `{id, reason, detail}`, both
+ * in `compareRows` order. `others` holds an epic's non-terminal children outside
+ * `tickets`, which the same `ship` session walks.
  */
 export function selectCandidates(rows, { tag, maxAgeDays, now }) {
   const nowMs = now.getTime();
@@ -78,7 +79,7 @@ export function selectCandidates(rows, { tag, maxAgeDays, now }) {
   };
 
   const skip = (row, reason, detail = null) => skips.push({ id: row.id, reason, detail });
-  const candidate = (row, tickets) => candidates.push({ id: row.id, kind: row.kind, tickets, created_at: row.created_at });
+  const candidate = (row, tickets, others = []) => candidates.push({ id: row.id, kind: row.kind, tickets, others, created_at: row.created_at });
 
   for (const row of [...rows].sort(compareRows)) {
     if (!isTagged(row) || TERMINAL.has(row.status)) {
@@ -104,7 +105,8 @@ export function selectCandidates(rows, { tag, maxAgeDays, now }) {
         skip(row, 'stale', stale);
         continue;
       }
-      candidate(row, backlog.map((child) => child.id).sort(compareIds));
+      const others = children.filter((child) => child.status !== 'backlog' && !TERMINAL.has(child.status));
+      candidate(row, backlog.map((child) => child.id).sort(compareIds), others.map((child) => child.id).sort(compareIds));
       continue;
     }
     const parent = row.parent_id !== null ? byId.get(row.parent_id) : undefined;

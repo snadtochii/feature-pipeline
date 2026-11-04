@@ -113,7 +113,7 @@ function commitAll(repo, branch = 'main') {
 const FAKE_GH = `#!/bin/sh
 case "$1 $2" in
   "auth status") exit "\${FAKE_GH_AUTH_STATUS:-\${FAKE_GH_STATUS:-0}}" ;;
-  "pr view") cat "\${FAKE_GH_VIEW_OUT:-/dev/null}"; exit "\${FAKE_GH_STATUS:-0}" ;;
+  "pr view") one="\${FAKE_GH_VIEW_OUT:-/dev/null}.\${3##*/}"; if [ -f "$one" ]; then cat "$one"; else cat "\${FAKE_GH_VIEW_OUT:-/dev/null}"; fi; exit "\${FAKE_GH_STATUS:-0}" ;;
   "pr list") if [ "$3" = "--head" ]; then cat "\${FAKE_GH_HEAD_OUT:-/dev/null}"; exit "\${FAKE_GH_STATUS:-0}"; fi ;;
 esac
 cat "$FAKE_GH_OUT"
@@ -519,6 +519,15 @@ const CASES = [
       ['ABC-30', 'no backlog children'],
       ['ABC-40', 'blocked'],
     ], 'skips');
+    equal(candidates.map((c) => c.others), [[], [], ['ABC-23'], []], 'others');
+    const walked = selectCandidates([
+      row('ABC-80', { kind: 'epic' }),
+      row('ABC-81', { kind: 'child', parent_id: 'ABC-80', status: 'in-review', tags: [] }),
+      row('ABC-82', { kind: 'child', parent_id: 'ABC-80', status: 'in-progress', tags: [] }),
+      row('ABC-83', { kind: 'child', parent_id: 'ABC-80', status: 'done', tags: [] }),
+      row('ABC-84', { kind: 'child', parent_id: 'ABC-80', tags: [] }),
+    ], { tag: TAG, maxAgeDays: 14, now: NOW });
+    equal(walked.candidates.map((c) => [c.id, c.tickets, c.others]), [['ABC-80', ['ABC-84'], ['ABC-81', 'ABC-82']]], 'an epic\'s other non-terminal children');
     equal(skips.find((s) => s.id === 'ABC-30').detail, null, 'no backlog children, none open');
     const stalled = selectCandidates([
       row('ABC-70', { kind: 'epic' }),

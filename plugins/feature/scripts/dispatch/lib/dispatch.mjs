@@ -4,9 +4,10 @@
 // `claude -p "/feature:ship <ID> --worktree --base <branch>"` child, serially,
 // `<branch>` being the base branch the git_base precondition found checked out,
 // and each `sync` as one `claude -p "/feature:sync"` child.
-// After a ship child exits, the row of each of the item's tickets is re-read
-// from the server and its pull request's state and base from `gh`; the finish
-// predicate decides the outcome. The run stops at the first stuck item. Results
+// After a ship child exits, the row of each of the item's tickets and other
+// walked children is re-read from the server and its pull request's state and
+// base from `gh`; the finish predicate decides the outcome. The run stops at the
+// first stuck item. Results
 // are written into the caller's pre-filled array as each session ends, and a
 // teardown hook records the in-flight session as interrupted when the
 // dispatcher is signalled, so every exit path keeps what finished.
@@ -214,7 +215,11 @@ export async function dispatchItems(items, ctx) {
     for (const id of item.tickets) {
       tickets.push(await readTicket(id, { ...ctx, retryMs }));
     }
-    const decision = decideItem({ session, tickets, baseBranch });
+    const others = [];
+    for (const id of item.others) {
+      others.push({ id, read: await readTicket(id, { ...ctx, retryMs }) });
+    }
+    const decision = decideItem({ session, tickets, others, baseBranch });
     results[i] = {
       ...base,
       outcome: decision.outcome,

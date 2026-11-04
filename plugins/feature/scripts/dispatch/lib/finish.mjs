@@ -6,10 +6,13 @@
 // ticket of the item has landed: its row re-read from the server is `in-review`
 // and its pull request is open into the base branch, or merged into an
 // `integration/*` branch that has an open pull request into the base branch.
-// Everything else is `stuck` with the first reason that applies, in a fixed
-// precedence.
+// An epic's other non-terminal children, walked by the same session, must have
+// landed or become terminal too. Everything else is `stuck` with the first
+// reason that applies, in a fixed precedence.
 //
 // Private to the implementation: only dispatch.mjs is a command.
+
+import { TERMINAL } from './select.mjs';
 
 const SIGTERM_EXIT = 143;
 
@@ -33,6 +36,14 @@ function landing(ticket, baseBranch) {
   return { reason: 'pull request not open' };
 }
 
+function otherLanding({ id, read }, baseBranch) {
+  if (TERMINAL.has(read?.row?.status)) {
+    return { reason: null };
+  }
+  const entry = landing(read, baseBranch);
+  return entry.reason === null ? entry : { reason: `child ${id} not landed: ${entry.reason}` };
+}
+
 /**
  * Decide one item. `session` is the session runner's result
  * (`{ exit_code, cap, spawnError, facts }`); `tickets` holds one re-read per
@@ -40,10 +51,12 @@ function landing(ticket, baseBranch) {
  * pull request's state or null, `base` its base branch, `last` the open pull
  * request from an integration branch it merged into or null, with
  * `unknown: true` when the row was read but the rest was not; or null when the
- * row could not be read. Returns `{ outcome, reason, pr_url, note }`; a stuck
- * item keeps the first `pr_url` among its rows.
+ * row could not be read. `others` holds `{ id, read }` per other non-terminal
+ * child of an epic item, `read` in the same form. Returns
+ * `{ outcome, reason, pr_url, note }`; a stuck item keeps the first `pr_url`
+ * among its tickets' rows.
  */
-export function decideItem({ session, tickets, baseBranch }) {
+export function decideItem({ session, tickets, others = [], baseBranch }) {
   const prUrl = tickets.find((ticket) => ticket?.row?.pr_url)?.row.pr_url ?? null;
   const stuck = (reason) => ({ outcome: 'stuck', reason, pr_url: prUrl, note: null });
   const facts = session.facts;
@@ -77,9 +90,9 @@ export function decideItem({ session, tickets, baseBranch }) {
     return stuck(`result ${facts.result.subtype ?? 'unknown'}`);
   }
   const denied = deniedTools(facts);
-  const landings = tickets.map((ticket) => landing(ticket, baseBranch));
+  const landings = [...tickets.map((ticket) => landing(ticket, baseBranch)), ...others.map((other) => otherLanding(other, baseBranch))];
   const unlanded = landings.find((entry) => entry.reason !== null);
-  if (landings.length > 0 && unlanded === undefined) {
+  if (tickets.length > 0 && unlanded === undefined) {
     return {
       outcome: 'shipped',
       reason: null,

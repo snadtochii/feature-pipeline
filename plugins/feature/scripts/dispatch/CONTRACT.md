@@ -223,11 +223,13 @@ unparseable `updated_at` is `stale`, with a line in `notes`.
 `no backlog children` carries the children still open as its detail. An epic whose only
 remaining work is a failed child stays skipped, for a human to resolve.
 
-An epic candidate is one item whose `tickets` are its `backlog` children. Every other
-candidate's `tickets` is the ticket itself.
+An epic candidate is one item whose `tickets` are its `backlog` children and whose `others`
+are its other non-terminal children, which the same `ship` session walks. Every other
+candidate's `tickets` is the ticket itself, and its `others` is empty. `others` adds no
+admission weight and does not lengthen the session cap.
 
 **Order.** Candidates, and separately skips, are ordered by `created_at` ascending, ties by
-`id`. `tickets` inside an epic item is ordered by ticket number.
+`id`. `tickets` and `others` inside an epic item are ordered by ticket number.
 
 ## §8 Caps and admission
 
@@ -289,11 +291,11 @@ preconditions → print.
 ```json
 {
   "admitted": [
-    { "created_at": "2026-10-01T09:00:00.000Z", "id": "ABC-12", "kind": "solo", "tickets": ["ABC-12"] }
+    { "created_at": "2026-10-01T09:00:00.000Z", "id": "ABC-12", "kind": "solo", "others": [], "tickets": ["ABC-12"] }
   ],
   "candidates": [
-    { "created_at": "2026-10-01T09:00:00.000Z", "id": "ABC-12", "kind": "solo", "tickets": ["ABC-12"] },
-    { "created_at": "2026-10-03T09:00:00.000Z", "id": "ABC-20", "kind": "epic", "tickets": ["ABC-21", "ABC-22"] }
+    { "created_at": "2026-10-01T09:00:00.000Z", "id": "ABC-12", "kind": "solo", "others": [], "tickets": ["ABC-12"] },
+    { "created_at": "2026-10-03T09:00:00.000Z", "id": "ABC-20", "kind": "epic", "others": [], "tickets": ["ABC-21", "ABC-22"] }
   ],
   "caps": {
     "max_open_prs": 3,
@@ -331,7 +333,7 @@ preconditions → print.
 
 | Key | Meaning |
 |---|---|
-| `candidates` | Every candidate, in §7 order. Each item: `id`, `kind` (`solo`, `child` or `epic`, the row's own kind), `tickets`, `created_at`. |
+| `candidates` | Every candidate, in §7 order. Each item: `id`, `kind` (`solo`, `child` or `epic`, the row's own kind), `tickets`, `others`, `created_at`. |
 | `admitted` | The admitted prefix of `candidates` (§8), same item shape. |
 | `not_admitted` | `{id, reason}` for every candidate not admitted, in candidate order. |
 | `skips` | `{id, reason, detail}` for every skipped tagged ticket, in §7 order. `detail` names the unfinished blockers for `blocked`, the age for `stale` and the children still open for `no backlog children`, else `null`. |
@@ -430,7 +432,7 @@ working tree must still be clean; otherwise that item and every later one stay
 `not dispatched` with reason `lock lost` or `working tree not clean`.
 
 After a `ship` child exits, the dispatcher re-reads the row of every ticket in the item's
-`tickets`, one after another, and never an epic's own row. When a row has a `pr_url`, it
+`tickets` and `others`, one after another, and never an epic's own row. When a row has a `pr_url`, it
 reads the pull request's state and base branch with
 `gh pr view <url> --json state,baseRefName --jq '.state + " " + .baseRefName'`; the URL must
 be `https://<host>/<path>/pull/<digits>`, or `gh` is not run. For a pull request merged into
@@ -460,9 +462,11 @@ branch other than the base branch that has an open same-repository pull request 
 base branch.
 
 An item is **`shipped`** when its session exited 0 with no cap fired and a `result` of
-subtype `success` that is not an error, and every ticket in its `tickets` has landed. Every
+subtype `success` that is not an error, every ticket in its `tickets` has landed, and every
+ticket in its `others` has landed or is terminal. An `others` ticket left unmerged is what a
+failure on it looks like, whether or not an integration pull request is already open. Every
 other item is **`stuck`**, with the first reason that applies; among the ticket reasons, the
-first unlanded ticket's:
+first unlanded ticket's, `tickets` before `others`:
 
 | Reason | When |
 |---|---|
@@ -481,6 +485,7 @@ first unlanded ticket's:
 | `pull request open into another branch` | The pull request is open, but not into the base branch. |
 | `no open integration pull request` | The pull request merged into an `integration/*` branch that has no open same-repository pull request into the base branch. |
 | `pull request not open` | The row has no usable `pr_url`, or its pull request is closed, or merged into the base branch or a branch outside `integration/*`. |
+| `child <ID> not landed: <reason>` | A ticket in `others` has not landed, `<reason>` being one of the four above or `state unknown`. |
 
 A direct pull request left open after a failure inside the `ship` session cannot be told
 from one that passed, so it counts as `shipped`, and the open pull request stays the human
@@ -758,6 +763,7 @@ caps, the report sections, the inbox body's shape, the signal-path inbox helper 
 unreachable server, the sorted-key document shape, and end-to-end `plan` and `run`
 invocations — shipped, a child merged into an integration branch, an epic's one direct
 child, stuck, no open integration pull request, a pull request open into another branch, a
+walked child that did not merge beside a reused integration pull request, a
 failed first `sync`, a dirty tree, a failed inbox capture,
 a signal while a session runs (its inbox item included), a repository whose base branch is
 `master`, and a `ship` that leaves the checkout off its base branch — against a loopback stand-in server that

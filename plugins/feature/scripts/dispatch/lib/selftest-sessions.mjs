@@ -5,7 +5,8 @@
 // vectors, the preconditions on a temporary repository, the session runner
 // against the stand-in `claude` with millisecond caps, the synchronous inbox
 // helper, and end-to-end runs that ship, ship through a child merged into an
-// integration branch or an epic's one direct child, get stuck, fail their first
+// integration branch or an epic's one direct child, get stuck, stop on a walked
+// child that did not merge, fail their first
 // `sync`, refuse a dirty tree, survive a failed inbox capture, are signalled
 // mid-session, and leave the checkout off its base branch.
 // The shared helpers come in as `kit` from selftest.mjs, so neither module
@@ -156,6 +157,14 @@ export function sessionCases(kit) {
       equal(decideOn(session(), [{ ...inReview({}, null), unknown: true }]).pr_url, PR, 'an unknown pull request state keeps the row\'s pr_url');
       equal(decideOn(session(), [merged()]).pr_url, LAST, 'a merged child records the last pull request');
       equal(decideOn(session(), [merged(), inReview({ status: 'backlog', pr_url: null }, null)]).pr_url, PR, 'a stuck item keeps the first pr_url among its rows');
+      const withOthers = (others, s = session()) => decideItem({ session: s, tickets: [merged()], others, baseBranch: 'main' });
+      const openIntoBranch = { ...inReview(), base: 'integration/ABC-20' };
+      equal(withOthers([{ id: 'ABC-22', read: openIntoBranch }]).reason, 'child ABC-22 not landed: pull request open into another branch', 'a walked child left unmerged is stuck despite a reused last PR');
+      equal(withOthers([{ id: 'ABC-22', read: inReview({ status: 'in-progress' }) }]).reason, 'child ABC-22 not landed: not in review (in-progress)', 'a walked child left in progress');
+      equal(withOthers([{ id: 'ABC-22', read: null }]).reason, 'child ABC-22 not landed: state unknown', 'a walked child that could not be read');
+      equal(withOthers([{ id: 'ABC-22', read: openIntoBranch }], session({}, { permission_denied: ['Bash'] })).reason, 'permission_denied', 'denials keep their precedence over a walked child');
+      equal(withOthers([{ id: 'ABC-22', read: merged() }, { id: 'ABC-23', read: inReview({ status: 'done' }, null) }]).pr_url, LAST, 'walked children merged or terminal ship, recording the first ticket\'s pull request');
+      equal(decideItem({ session: session(), tickets: [], others: [{ id: 'ABC-22', read: merged() }], baseBranch: 'main' }).reason, 'state unknown', 'no tickets stays state unknown');
       const onIntegrationDefault = { ...inReview(), base: 'integration/main' };
       equal(decideOn(session(), [onIntegrationDefault], 'integration/main').outcome, 'shipped', 'a pull request open into a default branch named integration/* is direct');
       equal(decideOn(session(), [{ ...onIntegrationDefault, pr: 'MERGED', last: LAST }], 'integration/main').reason, 'pull request not open', 'one merged into that default branch is not open');
@@ -551,6 +560,34 @@ export function sessionCases(kit) {
           equal(res.doc.items.map((i) => [i.id, i.kind, i.tickets, i.outcome]), [['ABC-40', 'epic', ['ABC-41'], 'shipped']], 'the epic ships');
           equal(readRuns(w)[0].items[0].pr_url, child.pr_url, 'the item records the child\'s pull request');
           assert(!seen.some((request) => request.url.includes('ABC-40')), 'the epic row was read');
+        });
+      } finally {
+        fs.rmSync(w.dir, { recursive: true, force: true });
+      }
+    }],
+
+    ['end to end: a failed walked child stops the run even with a reused last pull request', async () => {
+      const w = world('e2e-walked', { config: twoItems });
+      try {
+        const [fresh, later] = e2eRows();
+        const rows = [
+          { ...fresh, id: 'ABC-60', kind: 'epic' },
+          { ...fresh, id: 'ABC-61', kind: 'child', parent_id: 'ABC-60', status: 'in-review', tags: [] },
+          { ...fresh, id: 'ABC-62', kind: 'child', parent_id: 'ABC-60', tags: [] },
+          later,
+        ];
+        fs.writeFileSync(`${w.files.FAKE_GH_VIEW_OUT}.61`, 'OPEN integration/ABC-60\n');
+        fs.writeFileSync(`${w.files.FAKE_GH_VIEW_OUT}.62`, 'MERGED integration/ABC-60\n');
+        fs.writeFileSync(w.files.FAKE_GH_HEAD_OUT, JSON.stringify([{ number: 8, url: LAST, isCrossRepository: false }]));
+        const tickets = { 'ABC-61': shippedRow('ABC-61', { kind: 'child' }), 'ABC-62': shippedRow('ABC-62', { kind: 'child' }) };
+        await withStub(stubHandler({ rows, tickets }), async (url) => {
+          const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
+          assert(res.status === 0, `walked child: exit ${res.status} ${res.stdout}`);
+          equal(res.doc.items.map((i) => [i.id, i.tickets, i.outcome, i.reason]), [
+            ['ABC-60', ['ABC-62'], 'stuck', 'child ABC-61 not landed: pull request open into another branch'],
+            ['ABC-2', ['ABC-2'], 'not dispatched', 'run stopped at ABC-60'],
+          ], 'items');
+          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-60 --worktree --base main', '/feature:sync'], 'the invocation is the epic\'s, and the rest is not dispatched');
         });
       } finally {
         fs.rmSync(w.dir, { recursive: true, force: true });
