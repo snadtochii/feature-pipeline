@@ -1,6 +1,6 @@
 # Ship — fs-native Storage Mechanics
 
-Canonical logic for ship's storage-touching steps in fs-native storage mode. Read when the storage mode detected at ship's SETUP per [`../../flow/references/storage.md`](../../flow/references/storage.md) is fs-native — a run in the other storage mode never needs this file. Referenced by `ship`, and by [`parallel-walk.md`](parallel-walk.md) / [`reviewer-prompt.md`](reviewer-prompt.md) / [`ui-verification.md`](ui-verification.md) on ship's behalf. Operations named below are defined in [`../../flow/references/storage-fs.md`](../../flow/references/storage-fs.md); sections are numbered so the skill body and its references cite `§N`. Subagent briefs inline the text §3 resolves — a subagent never reads this file.
+Canonical logic for ship's storage-touching steps in fs-native storage mode. Read when the storage mode detected at ship's SETUP per [`../../flow/references/storage.md`](../../flow/references/storage.md) is fs-native — a run in the other storage mode never needs this file. Referenced by `ship`, and by [`parallel-walk.md`](parallel-walk.md) / [`reviewer-prompt.md`](reviewer-prompt.md) / [`ui-verification.md`](ui-verification.md) on ship's behalf. Sync's same-mode storage file points at §1's Lane binding for its 2+ rule. Operations named below are defined in [`../../flow/references/storage-fs.md`](../../flow/references/storage-fs.md); sections are numbered so the skill body and its references cite `§N`. Subagent briefs inline the text §3 resolves — a subagent never reads this file.
 
 ## §1 Ticket metadata and roster
 
@@ -111,7 +111,7 @@ Write it with the same heredoc discipline. The first line — the close stage's 
 
 **Order and scope.** `05-tests.md` is written before `06-summary.md`, so the summary is never older than it. Neither file is staged or committed — [`commit.md`](../../build/references/commit.md) §1 excludes `claudedocs/`, and the Tracked outcome stages only the evidence home. No `status:` frontmatter changes and no folder moves.
 
-**Failure.** A write that fails is reported in the run report, naming the ticket and the artifact, and the run continues to its normal open/merge ending.
+**Failure.** A write that fails is reported in the run report, naming the ticket and the artifact, and the run continues to its normal end-of-run PR outcome.
 
 ## §9 Close record
 

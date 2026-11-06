@@ -1,6 +1,6 @@
 # Sync — fs-native Storage Mechanics
 
-Canonical logic for sync's storage-touching steps in fs-native storage mode. Read when the storage mode detected at sync's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is fs-native — a run in the other storage mode never needs this file. Referenced by `sync` only. Operations named below are defined in [`../../flow/references/storage-fs.md`](../../flow/references/storage-fs.md); sections are numbered so the skill body cites `§N`.
+Canonical logic for sync's storage-touching steps in fs-native storage mode. Read when the storage mode detected at sync's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is fs-native — a run in the other storage mode never needs this file. Referenced by `sync`, and at §6 by [`pr-creation.md`](../../build/references/pr-creation.md), [`gh-preconditions.md`](../../review/references/gh-preconditions.md) and [`multi-repo.md`](../../discover/references/multi-repo.md). Operations named below are defined in [`../../flow/references/storage-fs.md`](../../flow/references/storage-fs.md); sections are numbered so the skill body cites `§N`.
 
 ## §1 Scan set
 
@@ -32,3 +32,23 @@ The Step 4 template renders as written: `<folder>` is the scanned state folder c
 ## §5 Error handling
 
 - Folder-move failure mid-promotion → surface it, stop that ticket (frontmatter still reflects the prior state for recovery), continue with the rest of the pass.
+
+## §6 Repository aiming
+
+Where the precondition checks and each ticket's git and gh commands run depends on the workspace's shape.
+
+- **Shape.** Decided once at sync's start, from the project root, with [`discover`](../../discover/SKILL.md)'s multi-repo test — no `.git` at the root, and an immediate child holding one:
+  ```bash
+  [ ! -e .git ] && [ -n "$(find . -mindepth 2 -maxdepth 2 -name .git -print -quit)" ]
+  ```
+  Exit 0 means multi-repo. `-e` also matches a worktree's `.git` file, and `find` avoids a `*/` glob, which can abort on no-match.
+- **Any other shape.** The shared sequence in [`gh-preconditions.md`](../../review/references/gh-preconditions.md) runs as written, before any work, and every command runs from the working directory. `repos:` is not read, and nothing below applies.
+- **Multi-repo, before Step 1.** Checks 1 and 2 run up front, and a failure keeps the shared contract: one skip line, change nothing, exit. Check 3 runs after binding.
+- **Binding, after Step 1.** Each ticket still in the PR-checked set binds a `<repo-path>` from the `repos:` in its own `01-spec.md`, or in `prd.md` for an epic given as `$1`. A child's value is never read from its epic.
+  - One entry: `<project-root>/<entry>`, passing the in-place repository check in [`ticket-resolution-fs.md`](../../flow/references/ticket-resolution-fs.md) Step 3. Failing it: `couldn't-check (repos: entry does not resolve to a git repository)`.
+  - Two or more, on an `in-review` ticket: the 2+ rule in [`ship`'s `storage-fs.md`](../../ship/references/storage-fs.md) §1, **Lane binding**, which binds the entry whose `origin` names the repository of the ticket's `pr:` line. No `pr:` line, or no match: `couldn't-check (names <n> repos; none bound from its pr: line)`.
+  - Two or more, on any other ticket: `couldn't-check (names <n> repos; a PR needs one)`.
+  - No field, an empty list, or a value that cannot be read: `couldn't-check (no repository: its repos: field names none)`.
+- **Check 3, per repository.** Runs once per distinct `<repo-path>`: `git -C "<repo-path>" remote get-url origin` matches `github.com`, in the same two origin forms as the shared check. A failure gives each of that repository's tickets `couldn't-check (repo <repo> failed pre-flight: <what failed>)`, and the other repositories continue.
+- **Aiming.** Every git and gh command of Steps 2 and 3 for a bound ticket runs as `(cd "<repo-path>" && …)`, the PR lookup and each Merge predicate call included, so the working directory stays at the project root for §3's relative `mv`. Commands that share a variable, such as the predicate's `base`, stay in one subshell.
+- **Report.** A `couldn't-check` from this section is a loud `? Couldn't check` line whatever the folder. The ticket counts in the header, runs no lookup, never promotes, and never joins the silent aggregate.
