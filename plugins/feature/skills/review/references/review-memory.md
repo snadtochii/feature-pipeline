@@ -8,6 +8,8 @@ How `review` decides what a run covers for this model, and how it filters findin
 
 A model's rounds are its distinct reviewed heads on this PR. A ship marker, which carries `source=ship`, is not one, and the expression below does not match it. Two markers at one head are one round. A head that added only merge commits since an earlier marked head is not a round, even when a review there has findings: it reads only what those merges changed by hand (§4), which is usually nothing. Comments from any other account never count.
 
+**The round limit** `<LIMIT>` is **4**: a model reviews at most `<LIMIT>` heads of a PR. Every other statement of the limit refers to `<LIMIT>` here rather than restating the number.
+
 One Bash call. It prints this model's earlier heads and nothing else, each followed by `merge-only` when its only marker is on §2's merge-only comment, so it runs before findings are formed without touching their independence:
 
 ```bash
@@ -70,13 +72,13 @@ done
 
 A head labelled `merge-only` is never a round, because that comment states nothing was read. A head gone from the PR's commit list, after a force-push or because the base advanced past it, always counts, because the commit list no longer shows what its review read. Any other head stops being a round only when an earlier marked head is its ancestor and no PR commit other than a two-parent merge lies between them. The earliest head always counts, and so does a head on a rewritten branch or one whose commit is gone, because each of those got a full review. A commit list of 250 or more cannot be intersected, so every head counts.
 
-- **Two heads printed, or fewer** → §2, with the `nearest` head as `<LAST>`, so a merge already read is not read again, or with any head of `<HEADS>` when there is no `nearest` line.
-- **Three or more printed** → §3. The `nearest` line plays no part.
+- **Fewer than `<LIMIT>` heads printed** → §2, with the `nearest` head as `<LAST>`, so a merge already read is not read again, or with any head of `<HEADS>` when there is no `nearest` line.
+- **`<LIMIT>` or more printed** → §3. The `nearest` line plays no part.
 - **Exit 2** → a `⚠ Failures` row and no review. The next run retries.
 
 **This review's round** `<n>` comes from this same reading, so the footer and the count never disagree: no heads → 1; one head → 2, or 1 when that head is labelled `merge-only`; after the count → the number of heads it printed, plus 1. A `--full` review runs this section only for `<n>`, because its marker counts like any other.
 
-**The footer form** ([`pr-comments.md`](pr-comments.md) §1) is decided here and nowhere else: the numbered form `round <n>/3` when this post is a round and `<n>` is 3 or less, and the unnumbered form otherwise. So a `--full` review past the limit, whose `<n>` is above 3, is unnumbered although it still counts as a round. A follow-up whose kept lines (§2) are all `merge` lines, the merge-only comment (§2) and the limit note (§3) are not rounds, so they are unnumbered too.
+**The footer form** ([`pr-comments.md`](pr-comments.md) §1) is decided here and nowhere else: the numbered form `round <n>/<LIMIT>` when this post is a round and `<n>` is `<LIMIT>` or less, and the unnumbered form otherwise. So a `--full` review past the limit, whose `<n>` is above `<LIMIT>`, is unnumbered although it still counts as a round. A follow-up whose kept lines (§2) are all `merge` lines, the merge-only comment (§2) and the limit note (§3) are not rounds, so they are unnumbered too.
 
 ## §2 Full or follow-up
 
@@ -123,7 +125,7 @@ _— 🔎 review by <Model> on behalf of <LOGIN>_
 
 This model reviews nothing on this PR, makes no checkout, and adds no `auto-reviewed`. It posts one limit note per PR, so the owner can see that later changes went unreviewed by this model; the note carries no `fp-review` marker, so it is never a reviewed head or a round. The other model is unaffected. Markers decide the limit, so `review` never reads this label as input, and a label the owner removes returns on the next run for a model still at the limit.
 
-One Bash call, opened by Step 4's head guard. The note's text is fixed, so a fixed heredoc delimiter is safe here; `<Model>`, `<LOGIN>` and `<AGENT>` are written as literals:
+One Bash call, opened by Step 4's head guard. The note's text is fixed, so a fixed heredoc delimiter is safe here; `<Model>`, `<LOGIN>`, `<AGENT>` and `<LIMIT>` (§1) are written as literals:
 
 ```bash
 gh label create review-round-limit --repo "<OWNER>/<REPO>" --description "Automated review reached its round limit" --color FBCA04 2>/dev/null || true
@@ -137,7 +139,7 @@ printf '%s' "$PR_JSON" | jq -e --arg viewer "$VIEWER" \
   && { echo "limit note already posted"; exit 0; }
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 cat > "$WORK/limit.md" <<'__FP_LIMIT_NOTE__'
-I have reviewed this PR in 3 rounds, which is my limit, so I did not review the changes since my last round.
+I have reviewed this PR in <LIMIT> rounds, which is my limit, so I did not review the changes since my last round.
 
 _— 🔎 review by <Model> on behalf of <LOGIN>_
 <!-- fp-limit agent=<AGENT> -->
