@@ -14,7 +14,7 @@ Deeper material that doesn't belong in the [README](../../../README.md) front do
 - [Ship flags (`--base`, `--no-ui-testing`, `--attach-screenshots`, `--parallel`, `--worktree`)](#ship-flags---base---no-ui-testing---attach-screenshots---parallel---worktree)
 - [Inbox triage (`/feature:triage`)](#inbox-triage-featuretriage)
 - [Night dispatch](#night-dispatch)
-- [PR review task](#pr-review-task)
+- [Scheduling reviews](#scheduling-reviews)
 - [Configuration reference](#configuration-reference)
   - [Project conventions (CLAUDE.md)](#project-conventions-claudemd)
   - [Ticket prefix](#ticket-prefix)
@@ -333,9 +333,18 @@ When `run` exits, report in this order:
 - **Running.** The Desktop app must be open and the machine awake at the scheduled time. A run that is stopped takes up to about 25 seconds to exit — about 12 to stop the session in progress and about 12 to send the inbox item — and still records the run and writes its report; let it finish.
 - **The report stands alone.** The report file and the inbox item are written by the dispatcher, so a night's result survives a task session that could not relay it.
 
-## PR review task
+## Scheduling reviews
 
-A T3 Code scheduled task runs `feature:review` once per owed model on the owner's open PRs into `main`, then asks each PR's own thread to run `feature:address-review` when there are findings. Its prompt and settings are in [pr-review-task.md](pr-review-task.md). T3 stores one line that fetches that file from `main`, so the task has no second copy to update.
+`/feature:review` never decides when to run. Each run is stateless: everything it remembers lives on the PR as hidden markers, the `review-round-limit` label and a limit note ([pr-comments.md](../skills/review/references/pr-comments.md), [review-memory.md](../skills/review/references/review-memory.md)). A scheduler, such as a cron job or a scheduled agent task, decides which PRs get a review and from which model. It then runs `/feature:review --agent <claude|codex> <PR_URL>` once for each model a PR is owed. A PR URL works from any directory, so the scheduler can run outside the PR's repository.
+
+A model is owed a review of a PR unless one of these holds, counting only comments and reviews by the account the scheduler runs as:
+
+- one of them has the line `<!-- fp-review agent=<model> head=<current head SHA> -->`. A marker that also carries `source=ship` is `ship`'s spec review and does not count;
+- the PR carries `review-round-limit` and a comment has the line `<!-- fp-limit agent=<model> -->`.
+
+A model whose limit note is missing stays owed, so its next run posts the note. `review` counts the rounds itself, so a scheduler needs no round count of its own. Starting a run for a model that turns out not to be owed costs a turn and posts nothing new: `review` skips a head that already carries its marker, and posts a limit note only once.
+
+A scheduler never passes `--full`. To act on the findings, run `/feature:address-review <PR_URL> --auto --hold-decisions` from a checkout of the PR's repository: it fixes and replies with no gate, and holds only a finding that needs the owner's decision.
 
 ## Configuration reference
 
