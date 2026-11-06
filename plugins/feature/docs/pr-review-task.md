@@ -125,7 +125,7 @@ Once every child has finished or been cancelled, each PR with findings from this
 
 1. Call `t3_project_list` once, and take the PR's projects:
    - the project whose `repositoryIdentity.canonicalKey` is `github.com/<owner>/<repo>` of the PR;
-   - for a `snadtochii/big-leaves-*` PR, also the project titled `big-leaves` whose `repositoryIdentity` is null. It is the workspace that holds all five Big Leaves repos, and most of their threads run there, but it never matches by `canonicalKey`.
+   - every project whose `repositoryIdentity` is null. A workspace project that holds several repos, such as the one for the Big Leaves repos, has none and never matches by `canonicalKey`, but its threads can be linked to the PR. Step 3's link check drops any match that is not.
 
    No such project → no linked thread.
 2. Call `t3_thread_search` once per project from step 1, with the full PR URL as `query` and that project's id as `projectId`.
