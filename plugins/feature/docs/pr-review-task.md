@@ -52,7 +52,7 @@ printf '%s' "$RESPONSE" | jq -c '
   .data.viewer.login as $me
   | ["snadtochii/feature-pipeline", "snadtochii/personal-server",
      "snadtochii/big-leaves-admin", "snadtochii/big-leaves-api", "snadtochii/big-leaves-astro",
-     "snadtochii/big-leaves-core", "snadtochii/big-leaves-db"] as $repos
+     "snadtochii/big-leaves-core", "snadtochii/big-leaves-db", "snadtochii/podushka"] as $repos
   | {issueCount: .data.search.issueCount, returned: (.data.search.nodes | length)},
     (.data.search.nodes[]
      | select((.repository.nameWithOwner | IN($repos[])) and .author.login == $me and .baseRefName == "main" and (.isDraft | not))
