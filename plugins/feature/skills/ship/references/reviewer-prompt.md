@@ -27,10 +27,12 @@ POST the review by following the shared contract at <PR_COMMENTS_PATH> — the a
 resolved under the plugin root in your Pipeline runtime block. Read that file and apply it
 as written; the notes below are only your brief, not a restatement of it:
 - Post ONE logical review via the Reviews API (§4): line-anchored findings as `comments[]`, other
-  findings in the summary body each tagged `[F<k>]`, ending with the §1 footer `_— 🔎 review (automated)_`
-  and the §2 hidden marker `<!-- fp-review agent=<codex|claude> head=<SHA> -->` (its `head=<SHA>` is the
-  PR's current head; `agent` is the verified runtime identity from your Pipeline runtime block (`codex` or `claude`)). Reproduce both literals EXACTLY as written here even if the file read fails — ship's
-  recovery scan keys on `agent=` and `head=` in that exact marker, along with the posting login.
+  findings in the summary body each tagged `[F<k>]`, ending with the §1 ship footer `_— 🔎 ship review by <Model> on behalf of <LOGIN>_`
+  (`<Model>` is `Claude` or `Codex` per your verified runtime identity; `<LOGIN>` is the printed value of
+  `gh api user --jq .login`, written as a literal with no `@`)
+  and the ship form of the §2 hidden marker `<!-- fp-review agent=<codex|claude> head=<SHA> source=ship -->` (its `head=<SHA>` is the
+  PR's current head; `agent` is the verified runtime identity from your Pipeline runtime block (`codex` or `claude`)). Reproduce both forms EXACTLY as written here even if the file read fails, on every
+  posting path below — ship's recovery scan keys on `agent=`, `head=` and `source=ship` in that exact marker, along with the posting login.
   Never run §3 or read PR comments; your review always posts.
 - You have Bash but no Write tool: materialize every body/payload in FILES via §4/§5's
   quoted-heredoc-to-`mktemp -d` mechanism with a verified-unique nonce delimiter — never a
@@ -38,6 +40,8 @@ as written; the notes below are only your brief, not a restatement of it:
 - On a Reviews-API error or a blocked self-review (PR author == your `gh` identity), fall back to the
   single `gh pr comment` path (§5); no blocking findings → post one signed summary per §6. Do not
   approve or request changes.
+- Once the review is posted, add the `auto-reviewed` label per §8, with `<OWNER>/<REPO>` taken from
+  "<PR_URL>". A failed label does not fail the review: name it in your final message.
 
 OUTPUT DISCIPLINE: the PR comment is FINDINGS-ONLY — at most a one-line verdict plus a compact
 acceptance-criteria checklist. Do NOT narrate per-AC "verified, all pass" prose onto the PR. Put the

@@ -6,7 +6,7 @@ How `review` decides what a run covers for this model, and how it filters findin
 
 ## §1 Rounds
 
-A model's rounds are its distinct reviewed heads on this PR, ship's markers included, since ship posts under the same login. Two markers at one head are one round. A head that added only merge commits since an earlier marked head is not a round, even when a review there has findings: it reads only what those merges changed by hand (§4), which is usually nothing. Comments from any other account never count.
+A model's rounds are its distinct reviewed heads on this PR. A ship marker, which carries `source=ship`, is not one, and the expression below does not match it. Two markers at one head are one round. A head that added only merge commits since an earlier marked head is not a round, even when a review there has findings: it reads only what those merges changed by hand (§4), which is usually nothing. Comments from any other account never count.
 
 One Bash call. It prints this model's earlier heads and nothing else, each followed by `merge-only` when its only marker is on §2's merge-only comment, so it runs before findings are formed without touching their independence:
 
@@ -74,6 +74,10 @@ A head labelled `merge-only` is never a round, because that comment states nothi
 - **Three or more printed** → §3. The `nearest` line plays no part.
 - **Exit 2** → a `⚠ Failures` row and no review. The next run retries.
 
+**This review's round** `<n>` comes from this same reading, so the footer and the count never disagree: no heads → 1; one head → 2, or 1 when that head is labelled `merge-only`; after the count → the number of heads it printed, plus 1. A `--full` review runs this section only for `<n>`, because its marker counts like any other.
+
+**The footer form** ([`pr-comments.md`](pr-comments.md) §1) is decided here and nowhere else: the numbered form `round <n>/3` when this post is a round and `<n>` is 3 or less, and the unnumbered form otherwise. So a `--full` review past the limit, whose `<n>` is above 3, is unnumbered although it still counts as a round. A follow-up whose kept lines (§2) are all `merge` lines, the merge-only comment (§2) and the limit note (§3) are not rounds, so they are unnumbered too.
+
 ## §2 Full or follow-up
 
 One Bash call:
@@ -111,24 +115,40 @@ The merge-only comment goes on a head with nothing to read, here or in §4. It c
 ```
 Only base merges landed since my last review, and they add no edits of their own, so I report no blocking issues on this head.
 
-_— 🔎 review (automated)_
+_— 🔎 review by <Model> on behalf of <LOGIN>_
 <!-- fp-review agent=<AGENT> head=<HEAD_SHA> -->
 ```
 
 ## §3 The limit
 
-This model posts nothing on this PR, makes no checkout, and adds no `auto-reviewed`. The other model is unaffected. Markers decide the limit, so `review` never reads this label as input, and a label the owner removes returns on the next run for a model still at the limit.
+This model reviews nothing on this PR, makes no checkout, and adds no `auto-reviewed`. It posts one limit note per PR, so the owner can see that later changes went unreviewed by this model; the note carries no `fp-review` marker, so it is never a reviewed head or a round. The other model is unaffected. Markers decide the limit, so `review` never reads this label as input, and a label the owner removes returns on the next run for a model still at the limit.
 
-One Bash call, opened by Step 4's head guard:
+One Bash call, opened by Step 4's head guard. The note's text is fixed, so a fixed heredoc delimiter is safe here; `<Model>`, `<LOGIN>` and `<AGENT>` are written as literals:
 
 ```bash
 gh label create review-round-limit --repo "<OWNER>/<REPO>" --description "Automated review reached its round limit" --color FBCA04 2>/dev/null || true
-gh pr edit "<PR_URL>" --add-label review-round-limit
+gh pr edit "<PR_URL>" --add-label review-round-limit || { echo "label add failed" >&2; exit 4; }
+VIEWER=$(gh api user --jq .login) \
+  && PR_JSON=$(gh pr view "<PR_URL>" --json comments) \
+  && [ -n "$VIEWER" ] \
+  || { echo "limit note read failed" >&2; exit 5; }
+printf '%s' "$PR_JSON" | jq -e --arg viewer "$VIEWER" \
+  'any(.comments[]; .author.login == $viewer and (.body | contains("<!-- fp-limit agent=<AGENT> -->")))' >/dev/null \
+  && { echo "limit note already posted"; exit 0; }
+WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
+cat > "$WORK/limit.md" <<'__FP_LIMIT_NOTE__'
+I have reviewed this PR in 3 rounds, which is my limit, so I did not review the changes since my last round.
+
+_— 🔎 review by <Model> on behalf of <LOGIN>_
+<!-- fp-limit agent=<AGENT> -->
+__FP_LIMIT_NOTE__
+gh pr comment "<PR_URL>" --body-file "$WORK/limit.md" || { echo "limit note post failed" >&2; exit 6; }
 ```
 
 - **Exit 0** → the PR goes in the summary's limit group and the run continues with the next PR.
 - **Guard exit 3** → a `⚠ Failures` row "head moved or PR closed before flagging, nothing labelled".
-- **A failed add** → a `⚠ Failures` row. The next run retries the label.
+- **Exit 4** → a `⚠ Failures` row. The next run retries the label.
+- **Exit 5 or 6** → the PR goes in the limit group with a `⚠ Failures` row "limit note not posted". The next run at the limit retries it.
 
 ## §4 A follow-up's scope
 
