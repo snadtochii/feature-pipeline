@@ -1,6 +1,6 @@
 # Sync — server-native Storage Mechanics
 
-Canonical logic for sync's storage-touching steps in server-native storage mode. Read when the storage mode detected at sync's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is server-native — an fs-native run never needs this file. Referenced by `sync` only. Operations named below are defined in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md); sections are numbered so the skill body cites `§N`. Every `pipeline_*` call passes `project_id` verbatim from the `project:` UUID bound at sync's start — never resolved from a name ([`../../flow/references/storage-server.md`](../../flow/references/storage-server.md)).
+Canonical logic for sync's storage-touching steps in server-native storage mode. Read when the storage mode detected at sync's start per [`../../flow/references/storage.md`](../../flow/references/storage.md) is server-native — an fs-native run never needs this file. Referenced by `sync`, and at §6 by [`pr-creation.md`](../../build/references/pr-creation.md). Operations named below are defined in [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md); sections are numbered so the skill body cites `§N`. Every `pipeline_*` call passes `project_id` verbatim from the `project:` UUID bound at sync's start — never resolved from a name ([`../../flow/references/storage-server.md`](../../flow/references/storage-server.md)).
 
 ## §1 Scan set
 
@@ -36,3 +36,7 @@ Wherever the Step 4 template names a location, render the row's scanned status i
 
 - CAS transition conflict → per [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md) §CAS conflict doctrine: re-read, re-evaluate, proceed with the corrected `from[]` or record the conflict as a `⚠ Needs attention` line — never widen `from[]` to force it. One conflicted ticket never aborts the scan.
 - Pipeline MCP tools unavailable, or a call hard-errors → stop per [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md) §Loud failure, naming the failed operation; report whatever the pass already promoted before stopping. Never fall back to local edits.
+
+## §6 Repository aiming
+
+The shared sequence in [`gh-preconditions.md`](../../review/references/gh-preconditions.md) runs as written, before any work, check 3 included, and every git and gh command runs from the working directory.

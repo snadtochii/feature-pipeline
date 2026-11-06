@@ -27,7 +27,7 @@ import { sendInboxSync } from './server.mjs';
 import { MAX_TIMER_MS, startSession, timerDelay } from './session.mjs';
 import { applyLine, newSessionFacts, parseJsonResult } from './stream.mjs';
 
-const FORBIDDEN_FLAGS = ['--merge', '--parallel', '--bare', '--settings', '--allowedTools', '--permission-mode'];
+const FORBIDDEN_FLAGS = ['--parallel', '--bare', '--settings', '--allowedTools', '--permission-mode'];
 const PR = 'https://github.com/acme/my-app/pull/7';
 const LAST = 'https://github.com/acme/my-app/pull/8';
 

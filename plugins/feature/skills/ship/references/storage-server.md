@@ -104,7 +104,7 @@ Upsert it passing the row verdict it already carried back unchanged — omitted 
 
 **Order and scope.** The `05-tests.md` upsert completes before the `06-summary.md` upsert, never in parallel with it, so the rows' `updated_at` ordering matches the write order. No row status changes — `pipeline_transition_ticket` is never called here.
 
-**Failure.** A call that fails is reported in the run report, naming the ticket and the artifact, and the run continues to its normal open/merge ending — the end-of-run UI pass's exception to the loud-failure rule of [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md), since the pass never blocks the run. Nothing falls back to local files.
+**Failure.** A call that fails is reported in the run report, naming the ticket and the artifact, and the run continues to its normal end-of-run PR outcome — the end-of-run UI pass's exception to the loud-failure rule of [`../../flow/references/storage-server.md`](../../flow/references/storage-server.md), since the pass never blocks the run. Nothing falls back to local files.
 
 ## §9 Close record
 

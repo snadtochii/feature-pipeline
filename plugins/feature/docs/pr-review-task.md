@@ -12,12 +12,13 @@ These are for whoever creates the task. A run ignores this section.
   Fetch your instructions with `gh api 'repos/snadtochii/feature-pipeline/contents/plugins/feature/docs/pr-review-task.md?ref=main' -H 'Accept: application/vnd.github.raw+json'` and follow the "Run prompt" section of what it returns. If the fetch fails, report the error and stop.
   ```
 
-- **Thread:** a thread bound to the task (`bindToCurrentThread: true`) in T3's "No project", so the working directory is not a repo. Another repo's instructions cannot reach the reviewer, and a bare PR number fails instead of hitting the wrong repo.
-- **Model:** create the task from a Sonnet thread. `schedule_task` has no model parameter and stores the creating thread's model. The parent only searches, starts children and hands off, and every child sets its own model.
+- **Thread:** one thread bound to the task (`bindToCurrentThread: true`) in T3's "No project", so the working directory is not a repo. Another repo's instructions cannot reach the reviewer, and a bare PR number fails instead of hitting the wrong repo.
+- **Clear task:** a second task bound to the same thread, titled `PR review task: clear context`, with the stored prompt exactly `/clear` and the same interval. `/clear` resets the thread's conversation without a model call, while T3 keeps the thread's history on screen, so each review run starts with no memory of earlier runs and follows the prompt it just fetched. A clear tick that lands during a review run waits in the thread's queue and runs as soon as that run ends.
+- **Model:** create or update both tasks from the bound Sonnet thread, since `bindToCurrentThread: true` binds a task to the thread that calls `schedule_task`. `schedule_task` has no model parameter and stores the creating thread's model. The parent only searches, starts children and hands off, and every child sets its own model.
 - **Trigger:** `{ type: 'interval', everyMs: 900000 }`, up to 96 parent turns a day while the machine is awake. T3 skips ticks missed during sleep and ticks that overlap a running one.
 - **Permissions:** `t3_thread_send` rejects a target that runs with broader modes than the sender, and children inherit the parent's mode. A child that hits a permission prompt stops and counts as failed.
 - **Plugin version:** both the Claude and the Codex plugin caches need a `feature` version whose `review` takes `--agent` and a PR URL and whose `address-review` takes `--hold-decisions`. An older Codex cache makes every Codex child fail, and an older cache in a PR's thread may run the handoff as plain `--auto`, which holds nothing.
-- **Round limit:** a child at the limit posts no marker, so the search skips a model at the limit instead of starting a child every tick. The search has only markers and labels to go on, while `review` also compares commits, so the two can differ. `review-round-limit` is per PR, and a head that added only merges counts as a round here unless it carries the merge-only comment. So when one model has set the label, the other can be skipped one round early if it reviewed such a head with findings. A manual `feature:review --full` covers that case.
+- **Round limit:** a child at the limit posts no review marker, only a one-time limit note, so the search skips a model once that note exists instead of starting a child every tick. Rounds are counted only by `review` ([`review-memory.md`](../skills/review/references/review-memory.md) §1). A child that runs a `feature` version without the limit note leaves the model owed on every tick, so update both caches when this file changes.
 
 ## Run prompt
 
@@ -56,18 +57,20 @@ printf '%s' "$RESPONSE" | jq -c '
      | .headRefOid as $head
      | ((.labels.nodes | map(.name)) | index("review-round-limit") != null) as $limited
      | [(.comments.nodes + .reviews.nodes)[]
-        | select(.author.login == $me) | (.body // "") as $body | $body | split("\n")[]
-        | capture("^<!-- fp-review agent=(?<a>claude|codex) head=(?<h>[0-9a-f]{40}) -->\r?$")
-        | . + {quiet: ($body | startswith("Only base merges landed since my last review"))}] as $markers
+        | select(.author.login == $me) | (.body // "") | split("\n")[]
+        | capture("^<!-- fp-review agent=(?<a>claude|codex) head=(?<h>[0-9a-f]{40}) -->\r?$")] as $markers
+     | [(.comments.nodes)[]
+        | select(.author.login == $me) | (.body // "") | split("\n")[]
+        | capture("^<!-- fp-limit agent=(?<a>claude|codex) -->\r?$") | .a] as $noted
      | {url, head: $head,
         owed: [("claude", "codex") as $m
                | ($markers | map(select(.a == $m))) as $mine
                | select(($mine | map(.h) | index($head)) == null)
-               | select(($limited and (($mine | map(select(.quiet | not) | .h) | unique | length) >= 3)) | not)
+               | select(($limited and ($noted | index($m) != null)) | not)
                | $m]})'
 ```
 
-The first output line holds the search counts. Every other line is one PR, and its `owed` list is the only input to step 2. A model is owed unless the viewer's marker for it exists at this head, or the PR carries `review-round-limit` and the viewer's markers for it sit on three or more other heads. A marker on a merge-only comment does not count toward those three. Start no child for any other PR, and do not add or remove a model by branch name, the commit's age or any other reason.
+The first output line holds the search counts. Every other line is one PR, and its `owed` list is the only input to step 2. A model is owed unless the viewer's marker for it exists at this head, or the PR carries `review-round-limit` and the viewer's limit note for that model exists. `review` posts the note only once that model has used its rounds, so the search needs no round count of its own. A model whose limit note is missing stays owed, so its child posts the note, or retries a note that failed. Start no child for any other PR, and do not add or remove a model by branch name, the commit's age or any other reason.
 
 If the command exits non-zero, or its output has no first line holding the search counts, report the error and stop: that is a failed search, not a run with no work. If `issueCount` exceeds `returned`, note it in the report. If no PR owes a model, report that in one line and end the turn with no T3 call.
 
