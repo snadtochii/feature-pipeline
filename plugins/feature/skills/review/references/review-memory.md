@@ -70,13 +70,13 @@ done
 
 A head labelled `merge-only` is never a round, because that comment states nothing was read. A head gone from the PR's commit list, after a force-push or because the base advanced past it, always counts, because the commit list no longer shows what its review read. Any other head stops being a round only when an earlier marked head is its ancestor and no PR commit other than a two-parent merge lies between them. The earliest head always counts, and so does a head on a rewritten branch or one whose commit is gone, because each of those got a full review. A commit list of 250 or more cannot be intersected, so every head counts.
 
-- **Two heads printed, or fewer** → §2, with the `nearest` head as `<LAST>`, so a merge already read is not read again, or with any head of `<HEADS>` when there is no `nearest` line.
-- **Three or more printed** → §3. The `nearest` line plays no part.
+- **Three heads printed, or fewer** → §2, with the `nearest` head as `<LAST>`, so a merge already read is not read again, or with any head of `<HEADS>` when there is no `nearest` line.
+- **Four or more printed** → §3. The `nearest` line plays no part.
 - **Exit 2** → a `⚠ Failures` row and no review. The next run retries.
 
 **This review's round** `<n>` comes from this same reading, so the footer and the count never disagree: no heads → 1; one head → 2, or 1 when that head is labelled `merge-only`; after the count → the number of heads it printed, plus 1. A `--full` review runs this section only for `<n>`, because its marker counts like any other.
 
-**The footer form** ([`pr-comments.md`](pr-comments.md) §1) is decided here and nowhere else: the numbered form `round <n>/3` when this post is a round and `<n>` is 3 or less, and the unnumbered form otherwise. So a `--full` review past the limit, whose `<n>` is above 3, is unnumbered although it still counts as a round. A follow-up whose kept lines (§2) are all `merge` lines, the merge-only comment (§2) and the limit note (§3) are not rounds, so they are unnumbered too.
+**The footer form** ([`pr-comments.md`](pr-comments.md) §1) is decided here and nowhere else: the numbered form `round <n>/4` when this post is a round and `<n>` is 4 or less, and the unnumbered form otherwise. So a `--full` review past the limit, whose `<n>` is above 4, is unnumbered although it still counts as a round. A follow-up whose kept lines (§2) are all `merge` lines, the merge-only comment (§2) and the limit note (§3) are not rounds, so they are unnumbered too.
 
 ## §2 Full or follow-up
 
@@ -137,7 +137,7 @@ printf '%s' "$PR_JSON" | jq -e --arg viewer "$VIEWER" \
   && { echo "limit note already posted"; exit 0; }
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 cat > "$WORK/limit.md" <<'__FP_LIMIT_NOTE__'
-I have reviewed this PR in 3 rounds, which is my limit, so I did not review the changes since my last round.
+I have reviewed this PR in 4 rounds, which is my limit, so I did not review the changes since my last round.
 
 _— 🔎 review by <Model> on behalf of <LOGIN>_
 <!-- fp-limit agent=<AGENT> -->
