@@ -68,7 +68,7 @@ Review reads and posts PR state via `gh`. After the arguments gate and before an
 
 **Bind for each PR, from `gh`'s output, never from the argument:** `<PR_URL>` = `url`; `<OWNER>`, `<REPO>` and `<NUMBER>` parsed from it; `<HEAD_SHA>` = `headRefOid`. All later commands take `<PR_URL>`, so none of them depends on the current directory, and `<HEAD_SHA>` is the SHA the posted marker names.
 
-**Bind once for the run:** `<LOGIN>` = the printed value of `gh api user --jq .login`, written as a literal in every footer (§1). A failed or empty read prints the one line "couldn't review (viewer lookup failed: `<reason>`)" and exits. `<Model>` is `Claude` for `--agent claude` and `Codex` for `--agent codex`. Each PR's footer form and round come from Step 2: a review in a round writes `round <n>/3`, and `--full` writes the form outside the rounds (§1).
+**Bind once for the run:** `<LOGIN>` = the printed value of `gh api user --jq .login`, written as a literal in every footer (§1). A failed or empty read prints the one line "couldn't review (viewer lookup failed: `<reason>`)" and exits. `<Model>` is `Claude` for `--agent claude` and `Codex` for `--agent codex`. Each PR's footer form and round come from Step 2: a review in a round writes `round <n>/3`, and a review that is not a round writes the form outside the rounds (§1).
 
 Build a TodoWrite item per PR so the per-run summary (Step 5) is recoverable.
 
@@ -80,7 +80,7 @@ For each PR, run the scan in [`references/pr-comments.md`](references/pr-comment
 - **Exit 1** — no such marker exists → this head is **unreviewed** by this model; continue to the round decision. (The label never gates this decision — a PR may carry `auto-reviewed` with a stale marker or another model's marker, or carry no label because `address-review` removed it; only this model's current-head marker decides whether this head is skipped.)
 - **Exit 2** — the scan failed → record it under `⚠ Failures`, do not review this PR, move to the next PR.
 
-**Round decision.** With `--full` the review is full and no round is read. Otherwise run [`references/review-memory.md`](references/review-memory.md) §1, then §2 or §3 as it directs:
+**Round decision.** With `--full` the review is full: run [`references/review-memory.md`](references/review-memory.md) §1 only to number its footer (its exit 2 is a `⚠ Failures` row), and skip §2 and §3. Otherwise run [`references/review-memory.md`](references/review-memory.md) §1, then §2 or §3 as it directs:
 
 - **Full, or a follow-up with commits or merges** → Step 3.
 - **Follow-up with neither** → skip Step 3 and go to Step 4's merge-only comment.
