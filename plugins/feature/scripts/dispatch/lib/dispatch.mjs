@@ -5,9 +5,9 @@
 // `<branch>` being the base branch the git_base precondition found checked out,
 // and each `sync` as one `claude -p "/feature:sync"` child.
 // After a ship child exits, the row of each of the item's tickets and other
-// walked children is re-read from the server and its pull request's state and
-// base from `gh`; the finish predicate decides the outcome. The run stops at the
-// first stuck item. Results
+// walked children is re-read from the server and its pull request's state, base
+// and `ship-failed` label from `gh`; the finish predicate decides the outcome.
+// The run stops at the first stuck item. Results
 // are written into the caller's pre-filled array as each session ends, and a
 // teardown hook records the in-flight session as interrupted when the
 // dispatcher is signalled, so every exit path keeps what finished.
@@ -108,8 +108,9 @@ export async function runSync(phase, { projectRoot, env, logDir, config, record 
  * Re-read one ticket's row and classify its pull request, retrying once:
  * `{ row, kind }`, `kind` a `classifyPr` kind or `no-pr` when the row names no
  * pull request. An `open-into-base` also carries `failing`, its failing checks
- * or null when unread, and a `merged-into-integration` carries `last`, the open
- * pull request from that branch or null. `{ row, kind: 'unknown' }` when the
+ * or null when unread, and `shipFailed`, whether it carries the `ship-failed`
+ * label, and a `merged-into-integration` carries `last`, the open pull request
+ * from that branch or null. `{ row, kind: 'unknown' }` when the
  * row was read but the rest failed twice, so the row's `pr_url` is kept; null
  * when the row itself could not be read (a 404 included).
  */
@@ -138,7 +139,7 @@ async function readTicket(id, { projectRoot, env, access, projectId, baseBranch,
     }
     const kind = classifyPr(pr.state, pr.base, baseBranch);
     if (kind === 'open-into-base') {
-      return { row: got.row, kind, failing: failingChecks({ projectRoot, env, url: got.row.pr_url }) };
+      return { row: got.row, kind, failing: failingChecks({ projectRoot, env, url: got.row.pr_url }), shipFailed: pr.shipFailed };
     }
     if (kind !== 'merged-into-integration') {
       return { row: got.row, kind };
