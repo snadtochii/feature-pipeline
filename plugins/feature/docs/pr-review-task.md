@@ -50,7 +50,9 @@ query {
 }') || { echo "search failed" >&2; exit 2; }
 printf '%s' "$RESPONSE" | jq -c '
   .data.viewer.login as $me
-  | ["snadtochii/feature-pipeline", "snadtochii/personal-server"] as $repos
+  | ["snadtochii/feature-pipeline", "snadtochii/personal-server",
+     "snadtochii/big-leaves-admin", "snadtochii/big-leaves-api", "snadtochii/big-leaves-astro",
+     "snadtochii/big-leaves-core", "snadtochii/big-leaves-db"] as $repos
   | {issueCount: .data.search.issueCount, returned: (.data.search.nodes | length)},
     (.data.search.nodes[]
      | select((.repository.nameWithOwner | IN($repos[])) and .author.login == $me and .baseRefName == "main" and (.isDraft | not))
@@ -121,9 +123,13 @@ A failed child's head stays unreviewed, so the next run retries it. Retry nothin
 
 Once every child has finished or been cancelled, each PR with findings from this run's children gets one message, even if its other child failed. A PR without findings gets none.
 
-1. Call `t3_project_list` once, and take the project whose `repositoryIdentity.canonicalKey` is `github.com/<owner>/<repo>` of the PR. No such project → no linked thread.
-2. Call `t3_thread_search` with the full PR URL as `query` and that project's id as `projectId`.
-3. A match is not proof of a link, since search also matches a thread by its branch. Call `list_thread_pull_requests` on each match, in the order returned, and take the first whose list has this exact PR URL. None → no linked thread.
+1. Call `t3_project_list` once, and take the PR's projects:
+   - the project whose `repositoryIdentity.canonicalKey` is `github.com/<owner>/<repo>` of the PR;
+   - for a `snadtochii/big-leaves-*` PR, also the project titled `big-leaves` whose `repositoryIdentity` is null. It is the workspace that holds all five Big Leaves repos, and most of their threads run there, but it never matches by `canonicalKey`.
+
+   No such project → no linked thread.
+2. Call `t3_thread_search` once per project from step 1, with the full PR URL as `query` and that project's id as `projectId`.
+3. A match is not proof of a link, since search also matches a thread by its branch. Call `list_thread_pull_requests` on each match, in the order returned and with the repo project's matches first, and take the first whose list has this exact PR URL. None → no linked thread.
 4. Call `t3_thread_send` with that `threadId`, `mode: "queue"` and this message, with `<PR_URL>` written out. Never use another mode: `auto` can steer a running turn.
 
    ```text
