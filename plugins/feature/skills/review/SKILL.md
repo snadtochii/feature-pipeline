@@ -68,6 +68,8 @@ Review reads and posts PR state via `gh`. After the arguments gate and before an
 
 **Bind for each PR, from `gh`'s output, never from the argument:** `<PR_URL>` = `url`; `<OWNER>`, `<REPO>` and `<NUMBER>` parsed from it; `<HEAD_SHA>` = `headRefOid`. All later commands take `<PR_URL>`, so none of them depends on the current directory, and `<HEAD_SHA>` is the SHA the posted marker names.
 
+**Bind once for the run:** `<LOGIN>` = the printed value of `gh api user --jq .login`, written as a literal in every footer (§1). A failed or empty read prints the one line "couldn't review (viewer lookup failed: `<reason>`)" and exits. `<Model>` is `Claude` for `--agent claude` and `Codex` for `--agent codex`. Each PR's footer form and round come from Step 2: a review in a round writes `round <n>/3`, and `--full` writes the form outside the rounds (§1).
+
 Build a TodoWrite item per PR so the per-run summary (Step 5) is recoverable.
 
 ### 2. Per PR — idempotency check and round decision
@@ -82,7 +84,7 @@ For each PR, run the scan in [`references/pr-comments.md`](references/pr-comment
 
 - **Full, or a follow-up with commits or merges** → Step 3.
 - **Follow-up with neither** → skip Step 3 and go to Step 4's merge-only comment.
-- **At the limit** → §3 flags the PR, and the run moves to the next PR with no Step 3 or Step 4.
+- **At the limit** → §3 flags the PR and posts its limit note once, and the run moves to the next PR with no Step 3 or Step 4.
 
 ### 3. Per unreviewed PR — review against the embedded rubric
 
@@ -109,10 +111,10 @@ Exit 3 → a `⚠ Failures` row "head moved or PR closed before posting, nothing
 
 Post per [`references/pr-comments.md`](references/pr-comments.md), with `<PR_URL>` as `<N>`:
 
-- **Has findings** → post the summary + inline comments as **one logical review** via the Reviews API (§4): one review object, `event=COMMENT`, the summary `body` carrying the §1 role footer (`_— 🔎 review (automated)_`) and the §2 hidden marker (`<!-- fp-review agent=<AGENT> head=<HEAD_SHA> -->`), and a `comments[]` array for the line-anchored findings. On a Reviews-API error or a self-review block, fall back (§5) to a single `gh pr comment "<PR_URL>" --body-file <file>` carrying the same summary (inline findings folded in as `path:line` references), footer, and marker. A failed fallback is a `⚠ Failures` row, with no label.
+- **Has findings** → post the summary + inline comments as **one logical review** via the Reviews API (§4): one review object, `event=COMMENT`, the summary `body` carrying the §1 review footer (`_— 🔎 review round <n>/3 by <Model> on behalf of <LOGIN>_`, or the form outside the rounds under `--full`) and the §2 hidden marker (`<!-- fp-review agent=<AGENT> head=<HEAD_SHA> -->`), and a `comments[]` array for the line-anchored findings. On a Reviews-API error or a self-review block, fall back (§5) to a single `gh pr comment "<PR_URL>" --body-file <file>` carrying the same summary (inline findings folded in as `path:line` references), footer, and marker. A failed fallback is a `⚠ Failures` row, with no label.
 - **No blocking findings** → post the single signed empty-review comment (§6) — never an approval. This includes a filter that dropped every finding; the text and marker stay §6's.
 - **A follow-up with nothing to review** → post the merge-only comment in [`references/review-memory.md`](references/review-memory.md) §2 the way §6 posts its comment, head guard first — never an approval.
-- **Label** (§8, with `<PR_URL>` and `<OWNER>/<REPO>`): ensure `auto-reviewed` exists (`gh label create … || true`), then add it (idempotent). The label signals "reviewed, awaiting address" — `address-review` removes it when it replies and holds no thread; review only ever adds.
+- **Label** (§8, with `<PR_URL>` and `<OWNER>/<REPO>`): ensure `auto-reviewed` exists (`gh label create … || true`), then add it (idempotent). The label signals "reviewed since the last automated fix" — `address-review` removes it when it pushes and holds no thread; review only ever adds.
 
 Build the review body / payload / comment in a **file** and post via `--input` / `--body-file` — never interpolate model-generated finding text into a command literal, never `eval` (§7).
 
@@ -142,7 +144,7 @@ The `⚠ Failures` group carries any per-PR `gh` or checkout error (one bad PR n
 ## Boundaries
 
 **Will Not:**
-- Put automation mechanics (label, idempotency, head-SHA, scheduling, rounds, follow-ups) into visible comment text — the only machine metadata is the hidden marker. A kept finding's reference to an earlier reply is finding content.
+- Put automation mechanics (label, idempotency, head-SHA, scheduling, follow-ups) into visible comment text, beyond the footer's round and the limit note (§1) — the only machine metadata is the hidden marker. A kept finding's reference to an earlier reply is finding content.
 - Read an earlier finding or reply before this PR's findings are formed.
 - Count a marker, or use a finding or reply, from any account but the viewer's.
 - Run anything from the checkout.

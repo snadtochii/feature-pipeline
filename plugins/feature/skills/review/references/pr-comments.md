@@ -6,16 +6,20 @@ Born here because `review` is the first surface that posts *signed* comments. Mo
 
 ## §1 Visible role footer
 
-Every comment an agent posts carries a one-line footer naming its **role**, on its own line at the end of the comment body:
+Every comment an agent posts carries a one-line footer naming its **role**, the **model** that wrote it and the **account** it posts for, on its own line at the end of the comment body:
 
-- **Review** (the `review` skill): `_— 🔎 review (automated)_`
-- **Addressed reply** (the `address-review` skill): `_— 🛠️ addressed (automated)_`
+- **Review in a round** (the `review` skill): `_— 🔎 review round <n>/3 by <Model> on behalf of <LOGIN>_`, where `<n>` is this model's round on the PR ([`review-memory.md`](review-memory.md) §1) and 3 is the limit.
+- **Review outside the rounds** (`review --full`, the merge-only comment and the limit note, none of which uses a round): `_— 🔎 review by <Model> on behalf of <LOGIN>_`
+- **Ship's review** (ship's independent reviewer, a separate check that uses no round): `_— 🔎 ship review by <Model> on behalf of <LOGIN>_`
+- **Addressed reply** (the `address-review` skill): `_— 🛠️ addressed by <Model> on behalf of <LOGIN>_`
 
-**Role, not model.** The footer names what the comment *is* (a review, or a reply addressing one), never which model wrote it — the same skill runs on Claude Code and Codex, so a `Claude:`/`Codex:` label would go wrong the moment the other platform executes it. The role answers the reader's real question ("is this a review or a reply?"); footer **presence** answers the other ("is this an agent's comment or my own manual note?"). Model identity rides only in the hidden marker (§2).
+Every review form starts with `_— 🔎` and every reply form with `_— 🛠️`, which is how a reader tells them apart. `<Model>` is `Claude` for `agent=claude` and `Codex` for `agent=codex`, from the same value the post's hidden marker carries (§2, §9), so the two always agree. `<LOGIN>` is the posting account's login, read with `gh api user --jq .login` and written as a literal, never with a leading `@`: a mention would notify that account on every post.
+
+The role answers the reader's first question ("is this a review or a reply?"), and the signature answers who wrote it and for whom, since every post lands under the owner's own account. Footer **presence** answers the other question ("is this an agent's comment or my own manual note?").
 
 **The author's own manual comments carry no footer** — that absence is the tell that distinguishes a human note from an automated one. Never add a footer to anything but an automated post.
 
-**No automation mechanics in visible text.** The label, the idempotency rule, the head SHA, and any scheduling/cadence detail never appear in a visible comment. The only machine metadata that ships with a comment is the hidden marker (§2), which renders invisibly on GitHub.
+**No automation mechanics in visible text.** The label, the idempotency rule, the head SHA, and any scheduling/cadence detail never appear in a visible comment. The round in the footer and the limit note ([`review-memory.md`](review-memory.md) §3) are the exceptions, because they tell the owner which pass each comment is and when a model stopped reviewing. The only machine metadata that ships with a comment is the hidden marker (§2), which renders invisibly on GitHub.
 
 ## §2 Hidden marker (machine idempotency key)
 
@@ -28,11 +32,21 @@ Every automated review embeds one HTML comment, invisible in GitHub's rendered v
 - `head=<SHA>` is **load-bearing** — it is the full current head SHA of the PR at review time (`gh pr view <N> --json headRefOid --jq '.headRefOid'`). `review` writes the SHA it pinned at its Step 1 and re-checked before posting (its Step 4), so the marker always names the head the post was pinned to. Idempotency is keyed on `agent` plus `head`: a PR is "already reviewed" by a model only when that model's marker for its **current** head SHA exists. A marker for the current head from the other model does not count. When new commits land (head moves), the old marker no longer matches, so that model has not reviewed the new head.
 - `agent=<codex|claude>` is **load-bearing** and supplied by the posting caller: `review` from its required `--agent` value, ship's reviewer from the Pipeline runtime block in its brief. There is no environment detection and no fallback.
 
+Ship's reviewer writes the marker with one more key, on every path:
+
+```
+<!-- fp-review agent=<codex|claude> head=<SHA> source=ship -->
+```
+
+Its brief follows the ticket's spec rather than `review`'s rubric, so it is a separate check. This form never marks a head as reviewed for `review` and never uses one of that model's rounds, and only ship's recovery scan (§3) reads it.
+
+The limit note ([`review-memory.md`](review-memory.md) §3) carries `<!-- fp-limit agent=<codex|claude> -->` instead of a review marker, so no idempotency scan or round count reads it.
+
 The marker goes in the **review body** on the Reviews-API path (§4), or in the **single issue comment** on the fallback path (§5). Either way it must be findable by the idempotency scan (§3), which reads both surfaces.
 
 ## §3 Idempotency scan (fetch existing markers)
 
-`review` runs this scan before each review, with its `--agent` value as `<AGENT>`. Ship's orchestrator runs it on resume, with its verified runtime identity as `<AGENT>`. Ship's reviewer never runs it. The scan reads **both** surfaces (a prior run may have used either the Reviews-API or the fallback path), as one Bash call:
+`review` runs this scan before each review, with its `--agent` value as `<AGENT>`. Ship's orchestrator runs it on resume, with its verified runtime identity as `<AGENT>` and ` source=ship` added to the grepped marker before ` -->`. Ship's reviewer never runs it. The scan reads **both** surfaces (a prior run may have used either the Reviews-API or the fallback path), as one Bash call:
 
 ```bash
 VIEWER=$(gh api user --jq .login) \
@@ -49,7 +63,7 @@ printf '%s' "$PR_JSON" \
 - **Exit 1** — not reviewed by that model at this head.
 - **Exit 2** — the scan failed. The caller reports the failure and does not review; a failure never reads as "not reviewed", which would post a duplicate.
 
-A PR is **already reviewed** by a model iff a comment or review authored by the viewer's `gh` login carries that exact marker. Another model's marker or another account's marker does not count. The `auto-reviewed` label never gates this decision — it tracks the review⇄address cycle (§8), not the head. A label present without this model's current-head marker means this model has not reviewed this head.
+A PR is **already reviewed** by a model iff a comment or review authored by the viewer's `gh` login carries that exact marker. Another model's marker or another account's marker does not count. The `auto-reviewed` label never gates this decision — it is a coarse signal (§8), not a per-model record. A label present without this model's current-head marker means this model has not reviewed this head.
 
 `<N>` is a controlled integer PR number (from `gh pr list`) or, for `review`, the PR URL `gh` returned, quoted; `<AGENT>` is a validated `claude` or `codex`, never free text; `VIEWER`, `PR_JSON` and `HEAD_SHA` are loaded via command substitution — never interpolate free-text into the command (see §7). The JSON goes through `printf` rather than `echo` because zsh's `echo` expands the `\n` escapes inside it, which `jq` then rejects.
 
@@ -74,7 +88,7 @@ WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 cat > "$WORK/review-body.md" <<'__FP_BODY_3f9c1ad7e2__'
 <summary findings>
 
-_— 🔎 review (automated)_
+<§1 review footer>
 <!-- fp-review agent=<codex|claude> head=<SHA> -->
 __FP_BODY_3f9c1ad7e2__
 #  2. Build each line-anchored finding as JSON with jq (finding text rides as a --arg value,
@@ -105,7 +119,7 @@ WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 cat > "$WORK/comment.md" <<'__FP_BODY_3f9c1ad7e2__'
 <summary findings — every finding tagged [F<k>], folded inline findings as [F<k>] path:line — finding>
 
-_— 🔎 review (automated)_
+<§1 review footer>
 <!-- fp-review agent=<codex|claude> head=<SHA> -->
 __FP_BODY_3f9c1ad7e2__
 gh pr comment "<N>" --body-file "$WORK/comment.md"
@@ -127,7 +141,7 @@ When the rubric (`review-rubric.md`) surfaces no high-conviction blocking findin
 ```
 I reviewed this change and do not see blocking issues.
 
-_— 🔎 review (automated)_
+<§1 review footer>
 <!-- fp-review agent=<codex|claude> head=<SHA> -->
 ```
 
@@ -143,23 +157,23 @@ Mirror `../build/references/pr-creation.md`'s discipline for every `gh`/`git` ca
 
 ## §8 The `auto-reviewed` label
 
-A coarse, model-neutral **cycle signal**: label **present** = the latest automated action on the PR was a review, and its findings await an address pass (or the author's attention), or an address pass holds a thread for the owner (§9); label **absent** = no review awaits an address pass — either never reviewed, or its review comments were addressed since. The §2/§9 hidden markers — never the label — are the precise idempotency keys (`fp-review` on reviewer plus head, `fp-address` per head); the label never gates a skill's skip decision.
+A coarse, model-neutral **reviewed signal**: label **present** = an automated review ran and no address pass has pushed since, or an address pass holds a thread for the owner (§9); label **absent** = never reviewed, or an address pass pushed and no review has run since. It says nothing about which model reviewed or whether findings are open, and a push from outside `address-review` leaves it on until the next review. The §2/§9 hidden markers — never the label — are the precise idempotency keys (`fp-review` on reviewer plus head, `fp-address` per head); the label never gates a skill's skip decision.
 
-Two writers, one direction each:
+Two kinds of writer, one direction each:
 
-- **`review` adds it** after posting a review (findings or the §6 empty-review comment), with `<OWNER>/<REPO>` bound from the PR's URL:
+- **`review` and ship's reviewer add it** after posting a review (findings or the §6 empty-review comment), with `<OWNER>/<REPO>` bound from the PR's URL:
   ```bash
   # Ensure it exists (idempotent — ignore "already exists"):
   gh label create auto-reviewed --repo "<OWNER>/<REPO>" --description "Auto-reviewed by feature:review" --color BFD4F2 2>/dev/null || true
   # Add is idempotent — a no-op if already present:
   gh pr edit "<N>" --add-label auto-reviewed
   ```
-- **`address-review` removes it** after posting its replies, unless a thread is held (§9) (best-effort — an already-absent label is fine):
+- **`address-review` removes it** when its pass pushed a commit and no thread is held (§9) (best-effort — an already-absent label is fine):
   ```bash
   gh pr edit "<N>" --remove-label auto-reviewed 2>/dev/null || true
   ```
 
-One glance at the label answers "has the latest review been responded to?": the reviewer posts → label on; the addresser replies (usually pushing fixes, which moves the head) → label off, or still on while a thread is held; a later review re-adds it. `review` never removes the label; `address-review` never adds it.
+One glance at the label answers "has a review run since the last automated fix?": the reviewer posts → label on; the addresser pushes → label off, or still on while a thread is held; a reply with no push, such as a dismissal, leaves it on, because the head it describes has not moved; a later review re-adds it. The reviewers never remove the label; `address-review` never adds it.
 
 ## §9 Reply to a review finding (the `address-review` side)
 
@@ -167,7 +181,7 @@ One glance at the label answers "has the latest review been responded to?": the 
 
 Its work set is **not limited to automated findings**: a **human comment** — any inline review comment, review summary, or issue comment on the PR that carries **no** fp footer/marker (§1/§2/this section) and has a non-bot author — is triaged and replied to in this same shape. Footer *absence* identifies a human comment (§1); the addressing skill owns the triage rules for what within a human comment is actionable.
 
-- **Footer (reuse §1, do not redefine):** every reply ends with `_— 🛠️ addressed (automated)_` on its own last line — the address role's §1 footer. Footer **presence** still distinguishes an agent reply from the author's own manual note.
+- **Footer (reuse §1, do not redefine):** every reply ends with `_— 🛠️ addressed by <Model> on behalf of <LOGIN>_` on its own last line — the address role's §1 footer. Footer **presence** still distinguishes an agent reply from the author's own manual note.
 - **Reply marker:**
   ```
   <!-- fp-address agent=<codex|claude> head=<SHA> re=<review|comment>:<id>[#F<k>] [hold=1] [answers=comment:<id>] -->
