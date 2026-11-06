@@ -74,7 +74,9 @@ A head labelled `merge-only` is never a round, because that comment states nothi
 - **Three or more printed** → §3. The `nearest` line plays no part.
 - **Exit 2** → a `⚠ Failures` row and no review. The next run retries.
 
-**This review's round** `<n>`, which its footer carries ([`pr-comments.md`](pr-comments.md) §1), comes from this same reading, so the footer and the count never disagree: no heads → 1; one head → 2, or 1 when that head is labelled `merge-only`; after the count → the number of heads it printed, plus 1. A `--full` review runs this section only to number its footer, because its marker counts like any other; when the count prints three or more heads it is past the limit, so it still counts as a round but carries the footer form outside the rounds, with no number. What is not a round by the rules above carries that form too: a follow-up whose kept lines (§2) are all `merge` lines, the merge-only comment (§2) and the limit note (§3).
+**This review's round** `<n>` comes from this same reading, so the footer and the count never disagree: no heads → 1; one head → 2, or 1 when that head is labelled `merge-only`; after the count → the number of heads it printed, plus 1. A `--full` review runs this section only for `<n>`, because its marker counts like any other.
+
+**The footer form** ([`pr-comments.md`](pr-comments.md) §1) is decided here and nowhere else: the numbered form `round <n>/3` when this post is a round and `<n>` is 3 or less, and the unnumbered form otherwise. So a `--full` review past the limit, whose `<n>` is above 3, is unnumbered although it still counts as a round. A follow-up whose kept lines (§2) are all `merge` lines, the merge-only comment (§2) and the limit note (§3) are not rounds, so they are unnumbered too.
 
 ## §2 Full or follow-up
 

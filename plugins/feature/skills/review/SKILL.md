@@ -68,7 +68,7 @@ Review reads and posts PR state via `gh`. After the arguments gate and before an
 
 **Bind for each PR, from `gh`'s output, never from the argument:** `<PR_URL>` = `url`; `<OWNER>`, `<REPO>` and `<NUMBER>` parsed from it; `<HEAD_SHA>` = `headRefOid`. All later commands take `<PR_URL>`, so none of them depends on the current directory, and `<HEAD_SHA>` is the SHA the posted marker names.
 
-**Bind once for the run:** `<LOGIN>` = the printed value of `gh api user --jq .login`, written as a literal in every footer (§1). A failed or empty read prints the one line "couldn't review (viewer lookup failed: `<reason>`)" and exits. `<Model>` is `Claude` for `--agent claude` and `Codex` for `--agent codex`. Each PR's footer form and round come from Step 2: a review in a round writes `round <n>/3`, and a review that is not a round writes the form outside the rounds (§1).
+**Bind once for the run:** `<LOGIN>` = the printed value of `gh api user --jq .login`, written as a literal in every footer (§1). A failed or empty read prints the one line "couldn't review (viewer lookup failed: `<reason>`)" and exits. `<Model>` is `Claude` for `--agent claude` and `Codex` for `--agent codex`. Each PR's footer form and `<n>` come from Step 2, as [`references/review-memory.md`](references/review-memory.md) §1 decides them.
 
 Build a TodoWrite item per PR so the per-run summary (Step 5) is recoverable.
 

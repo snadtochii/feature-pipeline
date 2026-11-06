@@ -8,8 +8,10 @@ Born here because `review` is the first surface that posts *signed* comments. Mo
 
 Every comment an agent posts carries a one-line footer naming its **role**, the **model** that wrote it and the **account** it posts for, on its own line at the end of the comment body:
 
-- **Review in a round** (the `review` skill, `--full` included): `_— 🔎 review round <n>/3 by <Model> on behalf of <LOGIN>_`, where `<n>` is this model's round on the PR, from the same reading that counts the rounds ([`review-memory.md`](review-memory.md) §1), and 3 is the limit.
-- **Review outside the rounds** (a `--full` review past the limit, which still counts as a round but shows no number; and a follow-up that read only merges, the merge-only comment and the limit note, which are not rounds): `_— 🔎 review by <Model> on behalf of <LOGIN>_`
+- **Numbered review** (the `review` skill): `_— 🔎 review round <n>/3 by <Model> on behalf of <LOGIN>_`, where `<n>` is this model's round on the PR and 3 is the limit.
+- **Review with no round number** (every other post of the `review` skill): `_— 🔎 review by <Model> on behalf of <LOGIN>_`
+
+  [`review-memory.md`](review-memory.md) §1 decides which of the two forms a `review` post carries, and computes `<n>`.
 - **Ship's review** (ship's independent reviewer, a separate check that uses no round): `_— 🔎 ship review by <Model> on behalf of <LOGIN>_`
 - **Addressed reply** (the `address-review` skill): `_— 🛠️ addressed by <Model> on behalf of <LOGIN>_`
 
