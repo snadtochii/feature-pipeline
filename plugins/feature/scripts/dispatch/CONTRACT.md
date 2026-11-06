@@ -498,8 +498,11 @@ A direct pull request left open after a failure inside the `ship` session counts
 `failed`: the row and the pull request's state read the same as for one that passed, and
 the open pull request stays the human gate. `ship` marks that pull request with the
 `ship-failed` label, on every run and in both storage modes, and the re-read adds a `notes`
-line naming it. The label gates nothing: not the outcome, not the summary count, not the
-stop decision. Failing checks on it are noted the same way, on the same line.
+line naming it. Whether the label is there gates nothing: not the outcome, not the summary
+count, not the stop decision. It is read in the same `gh pr view` call as the state and base
+branch, though, so an answer whose label token cannot be read fails that read like a bad
+state does, and the item ends `stuck` with `state unknown`. Failing checks on it are noted
+the same way, on the same line.
 
 The note has four limits:
 
