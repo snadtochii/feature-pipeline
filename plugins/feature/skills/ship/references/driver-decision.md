@@ -23,8 +23,8 @@ The ticket is a driver ticket when at least one entry is selected and every sele
 
 When at least one ticket is a driver ticket, probe the driver once for the run. This one check replaces a failing pre-flight in every driver ticket's close stage.
 
-1. Resolve `<driver>` per [`driver-pass.md`](../../close-stage/references/driver-pass.md)'s Driver location.
-2. Run `node '<driver>' doctor` in exactly that form, with no session. Give its shell call the `doctor` timeout from the runtime reference's Tool results section.
+1. Resolve `<driver>` per [`driver-pass.md`](../../close-stage/references/driver-pass.md)'s Driver location: `printenv HOME` as a `Bash` call of its own, and `<driver>` built from the value it printed.
+2. Run `node '<driver>' doctor` in exactly that form, with no session — the printed path written out in place, never `$HOME`, `~`, `$(printenv HOME)` or a shell variable, so the call matches the allow rule a headless run grants for it. Give its shell call the `doctor` timeout from the runtime reference's Tool results section.
 
 Exit 0 with `ok: true` passes. Anything else fails: a denied call, an unusable home directory, a non-zero exit, unparseable output, or `ok: false`. On a failure no ticket is a driver ticket, and the run prints:
 
