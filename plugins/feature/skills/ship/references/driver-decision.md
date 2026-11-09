@@ -9,7 +9,7 @@ The decision names the run's **driver tickets**. A driver ticket's per-ticket bu
 The decision is made once per run, before the first ticket is built, and only on a run that walks serially:
 
 - **No `--parallel`** → at SETUP step 2.
-- **`--parallel`** → at SETUP step 4, and only when the whole run takes the serial walk before its first dispatch: step 4's no-`worktree:` degradation outside a multi-lane run, or one ticket left to walk ([`parallel-walk.md`](parallel-walk.md) §1).
+- **`--parallel`** → at SETUP step 4, and only when the whole run takes the serial walk before its first dispatch: `--headless` dropping `--parallel`, step 4's no-`worktree:` degradation outside a multi-lane run, or one ticket left to walk ([`parallel-walk.md`](parallel-walk.md) §1).
 
 In every other case under `--parallel` it is never made, and every ticket keeps `--no-ui-testing`. That covers a concurrent walk, whose workers cannot each run a pass ([`parallel-walk.md`](parallel-walk.md) §4), a multi-lane run, and a walk that degrades after its first dispatch. In all three, another worker or lane may still be running.
 

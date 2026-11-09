@@ -1,7 +1,7 @@
 // The dispatch step and the `sync` sessions (CONTRACT.md §10).
 //
 // Each admitted item runs as one
-// `claude -p "/feature:ship <ID> --worktree --base <branch>"` child, serially,
+// `claude -p "/feature:ship <ID> --worktree --base <branch> --headless"` child, serially,
 // `<branch>` being the base branch the git_base precondition found checked out,
 // and each `sync` as one `claude -p "/feature:sync"` child.
 // After a ship child exits, the row of each of the item's tickets and other
@@ -46,7 +46,7 @@ export function shipArgv(id, home, baseBranch) {
   }
   return [
     '-p',
-    `/feature:ship ${id} --worktree --base ${baseBranch}`,
+    `/feature:ship ${id} --worktree --base ${baseBranch} --headless`,
     '--output-format',
     'stream-json',
     '--verbose',

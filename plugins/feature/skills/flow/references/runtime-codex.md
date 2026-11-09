@@ -41,7 +41,7 @@ These are task instructions, not a claim of native tool filtering. Inherited san
 
 ## Wait and resume
 
-Keep the returned child ID. Use `wait_agent`/`wait` and `list_agents` or the active surface's completion event to collect results. A notification or timeout is not a final result: inspect the delivered completion report before advancing. Wait for running children instead of repeatedly listing unchanged status. A stage collects every one of its children's reports before its own final report.
+Keep the returned child ID. Use `wait_agent`/`wait` and `list_agents` or the active surface's completion event to collect results. A notification or timeout is not a final result: inspect the delivered completion report before advancing. Wait for running children instead of repeatedly listing unchanged status. A stage collects every one of its children's reports before its own final report. A root session with no later turn (`ship --headless`) does the same: it waits for every child before its final report.
 
 When a stage returns `PAUSED:`, keep its ID. After the caller answers, use **`followup_task`** with that ID and the answer; it starts a new turn on an idle child. `send_message` on that surface only queues a message and cannot replace this operation. On schemas exposing `send_input` instead, use it only when its contract starts a turn on the existing child; use `resume_agent` first if that schema requires it for a closed child. Then wait for the same child's next report. A rejected permission request or user cancellation must be surfaced, not bypassed through another child.
 

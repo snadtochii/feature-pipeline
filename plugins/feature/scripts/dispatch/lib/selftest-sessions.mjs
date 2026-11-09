@@ -218,8 +218,8 @@ export function sessionCases(kit) {
 
     ['dispatch: the exact argument vectors', () => {
       equal(syncArgv(), ['-p', '/feature:sync', '--output-format', 'json', '--permission-prompts', 'none'], 'sync vector');
-      equal(shipArgv('ABC-12', '/home/me', 'main'), ['-p', '/feature:ship ABC-12 --worktree --base main', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none', '--add-dir', path.join('/home/me', '.feature-pipeline')], 'ship vector');
-      equal(shipArgv('ABC-12', '/h', 'release/2.x')[1], '/feature:ship ABC-12 --worktree --base release/2.x', 'a non-main base rides in the prompt');
+      equal(shipArgv('ABC-12', '/home/me', 'main'), ['-p', '/feature:ship ABC-12 --worktree --base main --headless', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none', '--add-dir', path.join('/home/me', '.feature-pipeline')], 'ship vector');
+      equal(shipArgv('ABC-12', '/h', 'release/2.x')[1], '/feature:ship ABC-12 --worktree --base release/2.x --headless', 'a non-main base rides in the prompt');
       for (const flag of FORBIDDEN_FLAGS) {
         assert(!syncArgv().includes(flag) && !shipArgv('ABC-12', '/h', 'main').includes(flag), `${flag} in a vector`);
       }
@@ -371,7 +371,7 @@ export function sessionCases(kit) {
           assert(res.status === 0, `stuck run: exit ${res.status} ${res.stdout}`);
           equal(res.doc.items.map((i) => [i.id, i.outcome, i.reason, i.session_id, i.exit_code]), [['ABC-1', 'stuck', 'exit 1', 'sess-stuck', 1], ['ABC-2', 'not dispatched', 'run stopped at ABC-1', null, null]], 'items');
           equal(res.doc.sync.after?.ok, true, 'the closing sync still runs');
-          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base main', '/feature:sync'], 'one ship session');
+          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base main --headless', '/feature:sync'], 'one ship session');
           assert(fs.readFileSync(res.doc.report, 'utf8').includes('- Resume ABC-1: claude --resume sess-stuck'), 'resume line');
         });
       } finally {
@@ -506,7 +506,7 @@ export function sessionCases(kit) {
           const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
           assert(res.status === 0, `master run: exit ${res.status} ${res.stdout}`);
           equal(res.doc.items.map((i) => i.outcome), ['shipped'], 'the item ships');
-          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base master', '/feature:sync'], 'ship runs against master');
+          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base master --headless', '/feature:sync'], 'ship runs against master');
         });
       } finally {
         fs.rmSync(w.dir, { recursive: true, force: true });
@@ -639,7 +639,7 @@ export function sessionCases(kit) {
           const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
           assert(res.status === 0, `other base: exit ${res.status} ${res.stdout}`);
           equal(res.doc.items.map((i) => [i.id, i.outcome, i.reason]), [['ABC-1', 'stuck', 'pull request open into another branch'], ['ABC-2', 'not dispatched', 'run stopped at ABC-1']], 'items');
-          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base main', '/feature:sync'], 'the rest is not dispatched');
+          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base main --headless', '/feature:sync'], 'the rest is not dispatched');
         });
       } finally {
         fs.rmSync(w.dir, { recursive: true, force: true });
@@ -686,7 +686,7 @@ export function sessionCases(kit) {
             ['ABC-60', ['ABC-62'], 'stuck', 'child ABC-61 not landed: pull request open into another branch'],
             ['ABC-2', ['ABC-2'], 'not dispatched', 'run stopped at ABC-60'],
           ], 'items');
-          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-60 --worktree --base main', '/feature:sync'], 'the invocation is the epic\'s, and the rest is not dispatched');
+          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-60 --worktree --base main --headless', '/feature:sync'], 'the invocation is the epic\'s, and the rest is not dispatched');
         });
       } finally {
         fs.rmSync(w.dir, { recursive: true, force: true });

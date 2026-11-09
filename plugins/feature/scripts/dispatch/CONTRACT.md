@@ -386,7 +386,7 @@ passed through unchanged:
 
 ```text
 claude -p /feature:sync --output-format json --permission-prompts none
-claude -p "/feature:ship <ID> --worktree --base <BASE>" --output-format stream-json --verbose --permission-prompts none --add-dir <HOME>/.feature-pipeline
+claude -p "/feature:ship <ID> --worktree --base <BASE> --headless" --output-format stream-json --verbose --permission-prompts none --add-dir <HOME>/.feature-pipeline
 ```
 
 `<ID>` is the item's id and must match `^[A-Za-z0-9][A-Za-z0-9_-]*$`; an item whose id does
@@ -394,7 +394,9 @@ not is `stuck` with reason `invalid id` and no session starts. `<BASE>` is the b
 the `git_base` precondition found checked out — `refs/remotes/origin/HEAD`'s branch — so
 `ship` cuts and targets the branch the run checked, never its own `main` default; a base
 branch whose name does not match `^[A-Za-z0-9_][A-Za-z0-9._/-]*$` fails `git_base`.
-`<HOME>` is `$HOME`. The
+`--headless` tells `ship` that its session gets no later turn — a `-p` session ends when
+its first turn ends — so it waits for every child it spawns instead of collecting a
+background completion in a turn that never comes. `<HOME>` is `$HOME`. The
 dispatcher never passes `--parallel`, `--bare`, `--settings`, `--allowedTools`
 or `--permission-mode`: a child loads the project's and the user's settings, plugins and
 server connectors as an interactive session would, its permissions are theirs, and a tool
