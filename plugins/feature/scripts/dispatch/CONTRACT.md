@@ -400,7 +400,8 @@ background completion in a turn that never comes. `<HOME>` is `$HOME`. The
 dispatcher never passes `--parallel`, `--bare`, `--settings`, `--allowedTools`
 or `--permission-mode`: a child loads the project's and the user's settings, plugins and
 server connectors as an interactive session would, its permissions are theirs, and a tool
-no allow rule covers is denied rather than prompted — it shows up as `permission_denied`
+no allow rule covers is denied rather than prompted — it shows up as a `permission_denied`
+event in the session's stream, and in the report as a denials note (Finish predicate),
 instead of being granted.
 
 **Output.** A child's stdout is read line by line and appended to its session log; its
