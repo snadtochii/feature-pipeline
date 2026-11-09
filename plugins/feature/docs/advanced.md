@@ -340,7 +340,7 @@ When `run` exits, report in this order:
 A model is owed a review of a PR unless one of these holds, counting only comments and reviews by the account the scheduler runs as:
 
 - one of them has the line `<!-- fp-review agent=<model> head=<current head SHA> -->`. A marker that also carries `source=ship` is `ship`'s spec review and does not count;
-- the PR carries `review-round-limit` and a comment has the line `<!-- fp-limit agent=<model> -->`, posted after that account last removed `review-round-limit` from the PR. The PR's timeline holds the removals, as `UnlabeledEvent`s with an actor and a time. With no removal, any such comment counts.
+- the PR carries `review-round-limit` and a comment has the line `<!-- fp-limit agent=<model> -->`, posted after that account last removed `review-round-limit` from the PR. The PR's issue events hold the removals, each with an actor and a time. With no removal, any such comment counts.
 
 A model whose limit note is missing stays owed, so its next run posts the note. `review` counts the rounds itself, so a scheduler needs no round count of its own. Starting a run for a model that turns out not to be owed costs a turn and posts nothing new: `review` skips a head that already carries its marker, and posts a limit note only once per budget.
 

@@ -10,20 +10,18 @@ A model's rounds are its distinct reviewed heads on this PR. A ship marker, whic
 
 **The round limit** `<LIMIT>` is **4**: a model reviews at most `<LIMIT>` heads of a PR in one budget. Every other statement of the limit refers to `<LIMIT>` here rather than restating the number.
 
-**A resume** starts a new budget. The owner gives one by removing the `review-round-limit` label (§3) from the PR, and each model's rounds then count only from the viewer's latest removal. GitHub's timeline records who removed the label and when. A removal by any other account, and adding the label, change nothing, and no skill removes it. A head whose markers all predate the removal is not a round in the new budget, but it is still an earlier head, so the first review after a resume is a follow-up over the changes since this model's last reviewed head.
+**A resume** starts a new budget. The owner gives one by removing the `review-round-limit` label (§3) from the PR, and each model's rounds then count only from the viewer's latest removal. The PR's issue events record who removed the label and when, and the read below pages through all of them. A removal by any other account, and adding the label, change nothing, and no skill removes it. A head whose markers all predate the removal is not a round in the new budget, but it is still an earlier head, so the first review after a resume is a follow-up over the changes since this model's last reviewed head.
 
-One Bash call. It prints a `resumed <time>` line when the viewer has removed the label, then this model's earlier heads and nothing else. Each head is followed by `merge-only` when its only marker is on §2's merge-only comment, and by `before-resume` when every marker on it predates that removal. It runs before findings are formed without touching their independence:
+One Bash call. It prints a `resumed <time>` line when the viewer has removed the label, then this model's earlier heads and nothing else. Each head is followed by `uncounted` when it is not a round in this budget, because every marker on it is on §2's merge-only comment or predates that removal. It runs before findings are formed without touching their independence:
 
 ```bash
 VIEWER=$(gh api user --jq .login) \
   && PR_JSON=$(gh pr view "<PR_URL>" --json comments,reviews) \
-  && EVENTS=$(gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){timelineItems(itemTypes:[UNLABELED_EVENT],last:100){nodes{... on UnlabeledEvent{createdAt actor{login} label{name}}}}}}}' \
-       -f o='<OWNER>' -f r='<REPO>' -F n=<NUMBER>) \
+  && EVENTS=$(gh api "repos/<OWNER>/<REPO>/issues/<NUMBER>/events?per_page=100" --paginate) \
   && [ -n "$VIEWER" ] \
-  && SINCE=$(printf '%s' "$EVENTS" | jq -r --arg viewer "$VIEWER" '
-       [.data.repository.pullRequest.timelineItems.nodes[]
-        | select(.label.name == "review-round-limit" and .actor.login == $viewer) | .createdAt
-        | select(test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))] | max // empty') \
+  && SINCE=$(printf '%s' "$EVENTS" | jq -rs --arg viewer "$VIEWER" '
+       [.[][] | select(.event == "unlabeled" and .label.name == "review-round-limit" and .actor.login == $viewer)
+        | .created_at | select(test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))] | max // empty') \
   || { echo "round read failed" >&2; exit 2; }
 [ -z "$SINCE" ] || printf 'resumed %s\n' "$SINCE"
 printf '%s' "$PR_JSON" | jq -r --arg viewer "$VIEWER" --arg agent "<AGENT>" --arg head "<HEAD_SHA>" --arg since "$SINCE" '
@@ -32,7 +30,7 @@ printf '%s' "$PR_JSON" | jq -r --arg viewer "$VIEWER" --arg agent "<AGENT>" --ar
    | capture("^<!-- fp-review agent=" + $agent + " head=(?<h>[0-9a-f]{40}) -->\r?$")
    | {h, quiet: ($b | startswith("Only base merges landed since my last review")), before: ($t < $since)}]
   | group_by(.h) | map(select(.[0].h != $head)) | .[]
-  | .[0].h + (if all(.quiet) then " merge-only" else "" end) + (if all(.before) then " before-resume" else "" end)'
+  | .[0].h + (if all(.quiet or .before) then " uncounted" else "" end)'
 ```
 
 `<SINCE>` is the time on the `resumed` line, kept as a literal for §3, or empty when there is none. GitHub writes every one of these timestamps in the same UTC form, so comparing them as strings orders them by time.
@@ -42,18 +40,18 @@ printf '%s' "$PR_JSON" | jq -r --arg viewer "$VIEWER" --arg agent "<AGENT>" --ar
 - **Two or more heads** → the count below.
 - **Exit 2** → a `⚠ Failures` row and no review. The next run retries.
 
-The count is one Bash call, with those heads written as literals, space-separated, for `<HEADS>`, the ones labelled `merge-only` likewise for `<QUIET>`, and the ones labelled `before-resume` for `<EARLIER>`. Both may be empty. It prints the heads that are rounds in this budget, then a `nearest <sha>` line naming the marked head closest behind `<HEAD_SHA>`, when one is its ancestor:
+The count is one Bash call, with those heads written as literals, space-separated, for `<HEADS>`, and the ones labelled `uncounted` likewise for `<UNCOUNTED>`, which may be empty. It prints the heads that are rounds in this budget, then a `nearest <sha>` line naming the marked head closest behind `<HEAD_SHA>`, when one is its ancestor:
 
 ```bash
 ALL=$(gh api "repos/<OWNER>/<REPO>/pulls/<NUMBER>/commits?per_page=100" --paginate --jq '.[] | ((.parents | length) | tostring) + " " + .sha') \
   || { echo "commit list failed" >&2; exit 2; }
 if [ "$(printf '%s\n' "$ALL" | wc -l)" -ge 250 ]; then
-  for CUR in <HEADS>; do case " <EARLIER> " in *" $CUR "*) ;; *) printf '%s\n' "$CUR" ;; esac; done
+  for CUR in <HEADS>; do case " <UNCOUNTED> " in *" $CUR "*) ;; *) printf '%s\n' "$CUR" ;; esac; done
   exit 0
 fi
 OWN=$(printf '%s\n' "$ALL" | sed -n '/^2 /!s/^[0-9]* //p')
 for CUR in <HEADS>; do
-  case " <QUIET> <EARLIER> " in *" $CUR "*) continue ;; esac
+  case " <UNCOUNTED> " in *" $CUR "*) continue ;; esac
   printf '%s\n' "$ALL" | grep -q " $CUR\$" || { printf '%s\n' "$CUR"; continue; }
   ROUND=1
   for PRIOR in <HEADS>; do
@@ -85,13 +83,13 @@ done
 [ -z "$BEST_N" ] || printf 'nearest %s\n' "$BEST"
 ```
 
-A head labelled `merge-only` is never a round, because that comment states nothing was read. A head labelled `before-resume` belongs to an earlier budget, so it is never printed, but it still serves as an earlier head for every other head and for `nearest`. A head gone from the PR's commit list, after a force-push or because the base advanced past it, always counts, because the commit list no longer shows what its review read. Any other head stops being a round only when an earlier marked head is its ancestor and no PR commit other than a two-parent merge lies between them. The earliest head always counts, and so does a head on a rewritten branch or one whose commit is gone, because each of those got a full review. A commit list of 250 or more cannot be intersected, so every head in this budget counts.
+A head labelled `uncounted` is never a round in this budget, because a merge-only comment states nothing was read and a marker from before the latest resume belongs to an earlier budget. It is never printed, but it still serves as an earlier head for every other head and for `nearest`. A head gone from the PR's commit list, after a force-push or because the base advanced past it, always counts, because the commit list no longer shows what its review read. Any other head stops being a round only when an earlier marked head is its ancestor and no PR commit other than a two-parent merge lies between them. The earliest head always counts, and so does a head on a rewritten branch or one whose commit is gone, because each of those got a full review. A commit list of 250 or more cannot be intersected, so every head not labelled `uncounted` counts.
 
 - **Fewer than `<LIMIT>` heads printed** → §2, with the `nearest` head as `<LAST>`, so a merge already read is not read again, or with any head of `<HEADS>` when there is no `nearest` line.
 - **`<LIMIT>` or more printed** → §3. The `nearest` line plays no part.
 - **Exit 2** → a `⚠ Failures` row and no review. The next run retries.
 
-**This review's round** `<n>` comes from this same reading, so the footer and the count never disagree: no heads → 1; one head → 2, or 1 when that head is labelled `merge-only` or `before-resume`; after the count → the number of heads it printed, plus 1. So the first review after a resume is round 1 again. A `--full` review runs this section only for `<n>`, because its marker counts like any other.
+**This review's round** `<n>` comes from this same reading, so the footer and the count never disagree: no heads → 1; one head → 2, or 1 when that head is labelled `uncounted`; after the count → the number of heads it printed, plus 1. So the first review after a resume is round 1 again. A `--full` review runs this section only for `<n>`, because its marker counts like any other.
 
 **The footer form** ([`pr-comments.md`](pr-comments.md) §1) is decided here and nowhere else: the numbered form `round <n>/<LIMIT>` when this post is a round and `<n>` is `<LIMIT>` or less, and the unnumbered form otherwise. So a `--full` review past the limit, whose `<n>` is above `<LIMIT>`, is unnumbered although it still counts as a round. A follow-up whose kept lines (§2) are all `merge` lines, the merge-only comment (§2) and the limit note (§3) are not rounds, so they are unnumbered too.
 
