@@ -126,14 +126,14 @@ export function sessionCases(kit) {
         ['merged, no last PR', session(), merged(null), 'no open integration pull request'],
         ['open into another branch', session(), inReview({}, 'open-elsewhere'), 'pull request open into another branch'],
         ['no tickets', session(), [], 'state unknown'],
-        ['no tickets, denied', session({}, { permission_denied: ['Bash'] }), [], 'permission_denied'],
+        ['no tickets, denied', session({}, { permission_denied: ['Bash'] }), [], 'state unknown'],
         ['one child not landed', session(), [merged(), inReview({ status: 'backlog' }, 'no-pr')], 'not in review (backlog)'],
         ['not open', session(), inReview({}, 'not-open'), 'pull request not open'],
         ['no pr_url', session(), inReview({ pr_url: null }, 'no-pr'), 'pull request not open'],
         ['not in review', session(), inReview({ status: 'in-progress' }), 'not in review (in-progress)'],
         ['state unknown', session(), null, 'state unknown'],
         ['PR state unknown', session(), inReview({}, 'unknown'), 'state unknown'],
-        ['denied, not shipped', session({}, { permission_denied: ['Bash'] }), inReview({ status: 'in-progress' }), 'permission_denied'],
+        ['denied, not shipped', session({}, { permission_denied: ['Bash'] }), inReview({ status: 'in-progress' }), 'not in review (in-progress)'],
         ['result subtype', session({}, { result: { ...session().facts.result, subtype: 'error_max_turns' } }), inReview(), 'result error_max_turns'],
         ['result error', session({}, { result: { ...session().facts.result, is_error: true, subtype: 'error_max_turns' } }), inReview(), 'result error'],
         ['no result', session({}, { result: null }), inReview(), 'no result'],
@@ -167,6 +167,9 @@ export function sessionCases(kit) {
       equal(decideItem({ session: session(), tickets: [inReview()], others: [{ id: 'ABC-22', read: labelled({ pr_url: LAST }) }] }).note, `labelled ship-failed: ${LAST}`, 'a walked child\'s label is noted');
       equal(decideOn(session(), [labelled(), labelled({ pr_url: LAST })]).note, `labelled ship-failed: ${PR}, ${LAST}`, 'two labelled tickets list both pull requests');
       equal(decideOn(session({ exit_code: 1 }), [labelled()]).note, null, 'a stuck item carries no label note');
+      const deniedStuck = decideOn(session({}, { permission_denied: ['Bash'], result: { ...session().facts.result, permission_denials: ['Bash', 'Edit'] } }), [inReview({ status: 'in-progress', pr_url: null }, 'no-pr')]);
+      equal([deniedStuck.outcome, deniedStuck.reason, deniedStuck.note], ['stuck', 'not in review (in-progress)', 'stuck with permission denials: Bash, Edit'], 'a stuck item names its ticket\'s state and notes the denials');
+      equal(decideOn(session({ exit_code: 1 }, { permission_denied: ['Bash'] }), [inReview()]).note, null, 'a failed session carries no denial note');
       equal(decideOn(session({ exit_code: 1 }), [inReview()]).pr_url, PR, 'a stuck item keeps the row\'s pr_url');
       equal(decideOn(session(), [inReview({}, 'unknown')]).pr_url, PR, 'an unknown pull request state keeps the row\'s pr_url');
       equal(decideOn(session(), [merged()]).pr_url, LAST, 'a merged child records the last pull request');
@@ -176,7 +179,8 @@ export function sessionCases(kit) {
       equal(withOthers([{ id: 'ABC-22', read: openIntoBranch }]).reason, 'child ABC-22 not landed: pull request open into another branch', 'a walked child left unmerged is stuck despite a reused last PR');
       equal(withOthers([{ id: 'ABC-22', read: inReview({ status: 'in-progress' }) }]).reason, 'child ABC-22 not landed: not in review (in-progress)', 'a walked child left in progress');
       equal(withOthers([{ id: 'ABC-22', read: null }]).reason, 'child ABC-22 not landed: state unknown', 'a walked child that could not be read');
-      equal(withOthers([{ id: 'ABC-22', read: openIntoBranch }], session({}, { permission_denied: ['Bash'] })).reason, 'permission_denied', 'denials keep their precedence over a walked child');
+      const deniedChild = withOthers([{ id: 'ABC-22', read: openIntoBranch }], session({}, { permission_denied: ['Bash'] }));
+      equal([deniedChild.reason, deniedChild.note], ['child ABC-22 not landed: pull request open into another branch', 'stuck with permission denials: Bash'], 'a walked child\'s reason wins over denials, which are noted');
       equal(withOthers([{ id: 'ABC-22', read: merged() }, { id: 'ABC-23', read: inReview({ status: 'done' }, 'no-pr') }]).pr_url, LAST, 'walked children merged or terminal ship, recording the first ticket\'s pull request');
       equal(decideItem({ session: session(), tickets: [], others: [{ id: 'ABC-22', read: merged() }] }).reason, 'state unknown', 'no tickets stays state unknown');
       const kinds = [

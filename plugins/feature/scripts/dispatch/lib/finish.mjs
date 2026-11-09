@@ -8,7 +8,8 @@
 // `integration/*` branch that has an open pull request into the base branch.
 // An epic's other non-terminal children, walked by the same session, must have
 // landed or become terminal too. Everything else is `stuck` with the first
-// reason that applies, in a fixed precedence.
+// reason that applies, in a fixed precedence; tools denied in a session that
+// ended cleanly are a note beside the ticket's reason, never the reason.
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
@@ -74,7 +75,7 @@ function otherLanding({ id, read }) {
  */
 export function decideItem({ session, tickets, others = [] }) {
   const prUrl = tickets.find((ticket) => ticket?.row?.pr_url)?.row.pr_url ?? null;
-  const stuck = (reason) => ({ outcome: 'stuck', reason, pr_url: prUrl, note: null });
+  const stuck = (reason, note = null) => ({ outcome: 'stuck', reason, pr_url: prUrl, note });
   const facts = session.facts;
   const exit = session.exit_code;
 
@@ -116,10 +117,12 @@ export function decideItem({ session, tickets, others = [] }) {
       note: shippedNote(denied, landings),
     };
   }
-  if (denied.length > 0) {
-    return stuck('permission_denied');
-  }
-  return stuck(unlanded?.reason ?? 'state unknown');
+  // A denial is evidence, not a cause: the ticket's own state names why it did
+  // not land, and the denied tools ride along as a note.
+  return stuck(
+    unlanded?.reason ?? 'state unknown',
+    denied.length > 0 ? `stuck with permission denials: ${denied.join(', ')}` : null,
+  );
 }
 
 function shippedNote(denied, landings) {
