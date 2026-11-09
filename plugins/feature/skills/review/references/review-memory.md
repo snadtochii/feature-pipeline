@@ -2,43 +2,58 @@
 
 How `review` decides what a run covers for this model, and how it filters findings against earlier replies. Read by `review` Steps 2 and 3 only.
 
-`<OWNER>`, `<REPO>`, `<NUMBER>`, `<PR_URL>` and `<HEAD_SHA>` are the values `review` Step 1 bound from `gh`'s output. `<AGENT>` is the validated `--agent` value. Shell state does not persist between tool calls, so `<LAST>` and each kept `<sha>` are printed values, written as literals in every later call.
+`<OWNER>`, `<REPO>`, `<NUMBER>`, `<PR_URL>` and `<HEAD_SHA>` are the values `review` Step 1 bound from `gh`'s output. `<AGENT>` is the validated `--agent` value. Shell state does not persist between tool calls, so `<LAST>`, `<SINCE>` and each kept `<sha>` are printed values, written as literals in every later call.
 
 ## §1 Rounds
 
 A model's rounds are its distinct reviewed heads on this PR. A ship marker, which carries `source=ship`, is not one, and the expression below does not match it. Two markers at one head are one round. A head that added only merge commits since an earlier marked head is not a round, even when a review there has findings: it reads only what those merges changed by hand (§4), which is usually nothing. Comments from any other account never count.
 
-**The round limit** `<LIMIT>` is **4**: a model reviews at most `<LIMIT>` heads of a PR. Every other statement of the limit refers to `<LIMIT>` here rather than restating the number.
+**The round limit** `<LIMIT>` is **4**: a model reviews at most `<LIMIT>` heads of a PR in one budget. Every other statement of the limit refers to `<LIMIT>` here rather than restating the number.
 
-One Bash call. It prints this model's earlier heads and nothing else, each followed by `merge-only` when its only marker is on §2's merge-only comment, so it runs before findings are formed without touching their independence:
+**A resume** starts a new budget. The owner gives one by removing the `review-round-limit` label (§3) from the PR, and each model's rounds then count only from the viewer's latest removal. GitHub's timeline records who removed the label and when. A removal by any other account, and adding the label, change nothing, and no skill removes it. A head whose markers all predate the removal is not a round in the new budget, but it is still an earlier head, so the first review after a resume is a follow-up over the changes since this model's last reviewed head.
+
+One Bash call. It prints a `resumed <time>` line when the viewer has removed the label, then this model's earlier heads and nothing else. Each head is followed by `merge-only` when its only marker is on §2's merge-only comment, and by `before-resume` when every marker on it predates that removal. It runs before findings are formed without touching their independence:
 
 ```bash
 VIEWER=$(gh api user --jq .login) \
   && PR_JSON=$(gh pr view "<PR_URL>" --json comments,reviews) \
+  && EVENTS=$(gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){timelineItems(itemTypes:[UNLABELED_EVENT],last:100){nodes{... on UnlabeledEvent{createdAt actor{login} label{name}}}}}}}' \
+       -f o='<OWNER>' -f r='<REPO>' -F n=<NUMBER>) \
   && [ -n "$VIEWER" ] \
+  && SINCE=$(printf '%s' "$EVENTS" | jq -r --arg viewer "$VIEWER" '
+       [.data.repository.pullRequest.timelineItems.nodes[]
+        | select(.label.name == "review-round-limit" and .actor.login == $viewer) | .createdAt
+        | select(test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))] | max // empty') \
   || { echo "round read failed" >&2; exit 2; }
-printf '%s' "$PR_JSON" | jq -r --arg viewer "$VIEWER" --arg agent "<AGENT>" --arg head "<HEAD_SHA>" '
-  [(.comments + .reviews)[] | select(.author.login == $viewer) | .body as $b | $b | split("\n")[]
+[ -z "$SINCE" ] || printf 'resumed %s\n' "$SINCE"
+printf '%s' "$PR_JSON" | jq -r --arg viewer "$VIEWER" --arg agent "<AGENT>" --arg head "<HEAD_SHA>" --arg since "$SINCE" '
+  [(.comments + .reviews)[] | select(.author.login == $viewer)
+   | (.createdAt // .submittedAt // "") as $t | .body as $b | $b | split("\n")[]
    | capture("^<!-- fp-review agent=" + $agent + " head=(?<h>[0-9a-f]{40}) -->\r?$")
-   | {h, quiet: ($b | startswith("Only base merges landed since my last review"))}]
+   | {h, quiet: ($b | startswith("Only base merges landed since my last review")), before: ($t < $since)}]
   | group_by(.h) | map(select(.[0].h != $head)) | .[]
-  | .[0].h + (if all(.quiet) then " merge-only" else "" end)'
+  | .[0].h + (if all(.quiet) then " merge-only" else "" end) + (if all(.before) then " before-resume" else "" end)'
 ```
+
+`<SINCE>` is the time on the `resumed` line, kept as a literal for §3, or empty when there is none. GitHub writes every one of these timestamps in the same UTC form, so comparing them as strings orders them by time.
 
 - **No heads** → a full review.
 - **One head** → §2, with that head as `<LAST>`.
 - **Two or more heads** → the count below.
 - **Exit 2** → a `⚠ Failures` row and no review. The next run retries.
 
-The count is one Bash call, with those heads written as literals, space-separated, for `<HEADS>`, and the ones labelled `merge-only` likewise for `<QUIET>`, which may be empty. It prints the heads that are rounds, then a `nearest <sha>` line naming the marked head closest behind `<HEAD_SHA>`, when one is its ancestor:
+The count is one Bash call, with those heads written as literals, space-separated, for `<HEADS>`, the ones labelled `merge-only` likewise for `<QUIET>`, and the ones labelled `before-resume` for `<EARLIER>`. Both may be empty. It prints the heads that are rounds in this budget, then a `nearest <sha>` line naming the marked head closest behind `<HEAD_SHA>`, when one is its ancestor:
 
 ```bash
 ALL=$(gh api "repos/<OWNER>/<REPO>/pulls/<NUMBER>/commits?per_page=100" --paginate --jq '.[] | ((.parents | length) | tostring) + " " + .sha') \
   || { echo "commit list failed" >&2; exit 2; }
-[ "$(printf '%s\n' "$ALL" | wc -l)" -ge 250 ] && { printf '%s\n' <HEADS>; exit 0; }
+if [ "$(printf '%s\n' "$ALL" | wc -l)" -ge 250 ]; then
+  for CUR in <HEADS>; do case " <EARLIER> " in *" $CUR "*) ;; *) printf '%s\n' "$CUR" ;; esac; done
+  exit 0
+fi
 OWN=$(printf '%s\n' "$ALL" | sed -n '/^2 /!s/^[0-9]* //p')
 for CUR in <HEADS>; do
-  case " <QUIET> " in *" $CUR "*) continue ;; esac
+  case " <QUIET> <EARLIER> " in *" $CUR "*) continue ;; esac
   printf '%s\n' "$ALL" | grep -q " $CUR\$" || { printf '%s\n' "$CUR"; continue; }
   ROUND=1
   for PRIOR in <HEADS>; do
@@ -70,13 +85,13 @@ done
 [ -z "$BEST_N" ] || printf 'nearest %s\n' "$BEST"
 ```
 
-A head labelled `merge-only` is never a round, because that comment states nothing was read. A head gone from the PR's commit list, after a force-push or because the base advanced past it, always counts, because the commit list no longer shows what its review read. Any other head stops being a round only when an earlier marked head is its ancestor and no PR commit other than a two-parent merge lies between them. The earliest head always counts, and so does a head on a rewritten branch or one whose commit is gone, because each of those got a full review. A commit list of 250 or more cannot be intersected, so every head counts.
+A head labelled `merge-only` is never a round, because that comment states nothing was read. A head labelled `before-resume` belongs to an earlier budget, so it is never printed, but it still serves as an earlier head for every other head and for `nearest`. A head gone from the PR's commit list, after a force-push or because the base advanced past it, always counts, because the commit list no longer shows what its review read. Any other head stops being a round only when an earlier marked head is its ancestor and no PR commit other than a two-parent merge lies between them. The earliest head always counts, and so does a head on a rewritten branch or one whose commit is gone, because each of those got a full review. A commit list of 250 or more cannot be intersected, so every head in this budget counts.
 
 - **Fewer than `<LIMIT>` heads printed** → §2, with the `nearest` head as `<LAST>`, so a merge already read is not read again, or with any head of `<HEADS>` when there is no `nearest` line.
 - **`<LIMIT>` or more printed** → §3. The `nearest` line plays no part.
 - **Exit 2** → a `⚠ Failures` row and no review. The next run retries.
 
-**This review's round** `<n>` comes from this same reading, so the footer and the count never disagree: no heads → 1; one head → 2, or 1 when that head is labelled `merge-only`; after the count → the number of heads it printed, plus 1. A `--full` review runs this section only for `<n>`, because its marker counts like any other.
+**This review's round** `<n>` comes from this same reading, so the footer and the count never disagree: no heads → 1; one head → 2, or 1 when that head is labelled `merge-only` or `before-resume`; after the count → the number of heads it printed, plus 1. So the first review after a resume is round 1 again. A `--full` review runs this section only for `<n>`, because its marker counts like any other.
 
 **The footer form** ([`pr-comments.md`](pr-comments.md) §1) is decided here and nowhere else: the numbered form `round <n>/<LIMIT>` when this post is a round and `<n>` is `<LIMIT>` or less, and the unnumbered form otherwise. So a `--full` review past the limit, whose `<n>` is above `<LIMIT>`, is unnumbered although it still counts as a round. A follow-up whose kept lines (§2) are all `merge` lines, the merge-only comment (§2) and the limit note (§3) are not rounds, so they are unnumbered too.
 
@@ -123,9 +138,9 @@ _— 🔎 review by <Model> on behalf of <LOGIN>_
 
 ## §3 The limit
 
-This model reviews nothing on this PR, makes no checkout, and adds no `auto-reviewed`. It posts one limit note per PR, so the owner can see that later changes went unreviewed by this model; the note carries no `fp-review` marker, so it is never a reviewed head or a round. The other model is unaffected. Markers decide the limit, so `review` never reads this label as input, and a label the owner removes returns on the next run for a model still at the limit.
+This model reviews nothing on this PR, makes no checkout, and adds no `auto-reviewed`. It posts one limit note per budget, so the owner can see that later changes went unreviewed by this model and how to resume; the note carries no `fp-review` marker, so it is never a reviewed head or a round. The other model is unaffected. Markers decide the limit. `review` never reads whether this label is on the PR, only when the viewer last removed it (§1): a removal gives each model a new budget, and a model that uses that budget adds the label again and posts a new note.
 
-One Bash call, opened by Step 4's head guard. The note's text is fixed, so a fixed heredoc delimiter is safe here; `<Model>`, `<LOGIN>`, `<AGENT>` and `<LIMIT>` (§1) are written as literals:
+One Bash call, opened by Step 4's head guard. The note's text is fixed, so a fixed heredoc delimiter is safe here; `<Model>`, `<LOGIN>`, `<AGENT>`, `<LIMIT>` and `<SINCE>` (§1) are written as literals, and `<SINCE>` may be empty:
 
 ```bash
 gh label create review-round-limit --repo "<OWNER>/<REPO>" --description "Automated review reached its round limit" --color FBCA04 2>/dev/null || true
@@ -134,12 +149,12 @@ VIEWER=$(gh api user --jq .login) \
   && PR_JSON=$(gh pr view "<PR_URL>" --json comments) \
   && [ -n "$VIEWER" ] \
   || { echo "limit note read failed" >&2; exit 5; }
-printf '%s' "$PR_JSON" | jq -e --arg viewer "$VIEWER" \
-  'any(.comments[]; .author.login == $viewer and (.body | contains("<!-- fp-limit agent=<AGENT> -->")))' >/dev/null \
+printf '%s' "$PR_JSON" | jq -e --arg viewer "$VIEWER" --arg since '<SINCE>' \
+  'any(.comments[]; .author.login == $viewer and .createdAt > $since and (.body | contains("<!-- fp-limit agent=<AGENT> -->")))' >/dev/null \
   && { echo "limit note already posted"; exit 0; }
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 cat > "$WORK/limit.md" <<'__FP_LIMIT_NOTE__'
-I have reviewed this PR in <LIMIT> rounds, which is my limit, so I did not review the changes since my last round.
+I have used my <LIMIT> review rounds on this PR, so I did not review the changes since my last round. To have both models review it again, remove the `review-round-limit` label: each then gets <LIMIT> more rounds.
 
 _— 🔎 review by <Model> on behalf of <LOGIN>_
 <!-- fp-limit agent=<AGENT> -->

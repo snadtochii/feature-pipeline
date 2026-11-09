@@ -340,9 +340,11 @@ When `run` exits, report in this order:
 A model is owed a review of a PR unless one of these holds, counting only comments and reviews by the account the scheduler runs as:
 
 - one of them has the line `<!-- fp-review agent=<model> head=<current head SHA> -->`. A marker that also carries `source=ship` is `ship`'s spec review and does not count;
-- the PR carries `review-round-limit` and a comment has the line `<!-- fp-limit agent=<model> -->`.
+- the PR carries `review-round-limit` and a comment has the line `<!-- fp-limit agent=<model> -->`, posted after that account last removed `review-round-limit` from the PR. The PR's timeline holds the removals, as `UnlabeledEvent`s with an actor and a time. With no removal, any such comment counts.
 
-A model whose limit note is missing stays owed, so its next run posts the note. `review` counts the rounds itself, so a scheduler needs no round count of its own. Starting a run for a model that turns out not to be owed costs a turn and posts nothing new: `review` skips a head that already carries its marker, and posts a limit note only once.
+A model whose limit note is missing stays owed, so its next run posts the note. `review` counts the rounds itself, so a scheduler needs no round count of its own. Starting a run for a model that turns out not to be owed costs a turn and posts nothing new: `review` skips a head that already carries its marker, and posts a limit note only once per budget.
+
+Removing `review-round-limit` is how the owner resumes reviews on a PR past the limit: each model's rounds then count only from the removal, so each gets a new budget, and its first review covers the changes since its last reviewed head. A model that uses the new budget adds the label again and posts a new limit note. A scheduler that counts a limit note from before the removal stops both models as soon as one of them reaches the limit again.
 
 A scheduler never passes `--full`. To act on the findings, run `/feature:address-review <PR_URL> --auto --hold-decisions` from a checkout of the PR's repository: it fixes and replies with no gate, and holds only a finding that needs the owner's decision.
 
