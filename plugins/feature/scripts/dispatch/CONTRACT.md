@@ -386,7 +386,7 @@ passed through unchanged:
 
 ```text
 claude -p /feature:sync --output-format json --permission-prompts none
-claude -p "/feature:ship <ID> --worktree --base <BASE>" --output-format stream-json --verbose --permission-prompts none --add-dir <HOME>/.feature-pipeline
+claude -p "/feature:ship <ID> --worktree --base <BASE> --headless" --output-format stream-json --verbose --permission-prompts none --add-dir <HOME>/.feature-pipeline
 ```
 
 `<ID>` is the item's id and must match `^[A-Za-z0-9][A-Za-z0-9_-]*$`; an item whose id does
@@ -394,11 +394,14 @@ not is `stuck` with reason `invalid id` and no session starts. `<BASE>` is the b
 the `git_base` precondition found checked out — `refs/remotes/origin/HEAD`'s branch — so
 `ship` cuts and targets the branch the run checked, never its own `main` default; a base
 branch whose name does not match `^[A-Za-z0-9_][A-Za-z0-9._/-]*$` fails `git_base`.
-`<HOME>` is `$HOME`. The
+`--headless` tells `ship` that its session gets no later turn — a `-p` session ends when
+its first turn ends — so it waits for every child it spawns instead of collecting a
+background completion in a turn that never comes. `<HOME>` is `$HOME`. The
 dispatcher never passes `--parallel`, `--bare`, `--settings`, `--allowedTools`
 or `--permission-mode`: a child loads the project's and the user's settings, plugins and
 server connectors as an interactive session would, its permissions are theirs, and a tool
-no allow rule covers is denied rather than prompted — it shows up as `permission_denied`
+no allow rule covers is denied rather than prompted — it shows up as a `permission_denied`
+event in the session's stream, and in the report as a denials note (Finish predicate),
 instead of being granted.
 
 **Output.** A child's stdout is read line by line and appended to its session log; its
@@ -472,7 +475,9 @@ subtype `success` that is not an error, every ticket in its `tickets` has landed
 ticket in its `others` has landed or is terminal. An `others` ticket left unmerged is what a
 failure on it looks like, whether or not an integration pull request is already open. Every
 other item is **`stuck`**, with the first reason that applies; among the ticket reasons, the
-first unlanded ticket's, `tickets` before `others`:
+first unlanded ticket's, `tickets` before `others`. Tools denied in a session that ended
+cleanly never become the reason: the ticket's own state says why it did not land, and the
+denials are noted beside it (below).
 
 | Reason | When |
 |---|---|
@@ -485,7 +490,6 @@ first unlanded ticket's, `tickets` before `others`:
 | `no result` | The stream ended without a `result` record. |
 | `result error` | The `result` record has `is_error: true`. |
 | `result <subtype>` | The `result` record's subtype is not `success`. |
-| `permission_denied` | The session ended cleanly with tools denied, and the predicate failed. |
 | `state unknown` | The item has no tickets, or a row, a pull request or the integration-pull-request lookup could not be read. |
 | `not in review (<status>)` | The row's status is not `in-review`. |
 | `pull request open into another branch` | The pull request is open, but not into the base branch. |
@@ -525,7 +529,8 @@ them, one with failing checks on a direct pull request adds a `notes` line namin
 their count, and one whose direct pull request carries the `ship-failed` label adds
 `labelled ship-failed: <url>, <url>`, listing every labelled pull request of the item. These
 parts join with `; ` into one line. A `stuck` item still records the first `pr_url` among its tickets' rows when one has
-it, so the next run's pull-request cap counts it. The one exception is an `interrupted` item: a signal leaves no time to re-read
+it, so the next run's pull-request cap counts it, and one whose session ended cleanly with tools
+denied adds `stuck with permission denials: <tool>, <tool>`. The one exception is an `interrupted` item: a signal leaves no time to re-read
 the row, so it records `pr_url: null`, and a pull request its session already opened is
 counted by the next run only through its `<ID>:` title (§8). A stuck session is resumed by
 hand with `claude --resume <session_id>`, from any directory; the report prints that line

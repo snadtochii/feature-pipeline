@@ -24,6 +24,8 @@ Retain each returned agent ID and collect its result using the active tool's for
 
 A stage waits for its role children in the foreground (`run_in_background: false`, independent roles launched together in one message), or collects every background completion before ending its turn. A child still running when the stage ends its turn reports to the root session, not to the stage, and its result is lost to the stage.
 
+The root session collects a background child's completion in a later turn, which an interactive session always gets. A root session with no later turn — `ship --headless`, a `claude -p` run — spawns every child with `run_in_background: false`, independent ones launched together in one message, and ends its turn only after its final report: a child still running when that turn ends is lost with the session.
+
 Resume that same ID with `SendMessage` (`to` = agent ID, message = the caller's answer, using the active schema). It resumes a completed subagent where supported. On a surface exposing resume through the spawn tool instead, use its documented resume field with the same ID. If neither mechanism can resume, use stage-briefs §5's bounded artifact fallback. A permission denial or user cancellation is not a missing resume capability.
 
 ## Capacity

@@ -126,14 +126,14 @@ export function sessionCases(kit) {
         ['merged, no last PR', session(), merged(null), 'no open integration pull request'],
         ['open into another branch', session(), inReview({}, 'open-elsewhere'), 'pull request open into another branch'],
         ['no tickets', session(), [], 'state unknown'],
-        ['no tickets, denied', session({}, { permission_denied: ['Bash'] }), [], 'permission_denied'],
+        ['no tickets, denied', session({}, { permission_denied: ['Bash'] }), [], 'state unknown'],
         ['one child not landed', session(), [merged(), inReview({ status: 'backlog' }, 'no-pr')], 'not in review (backlog)'],
         ['not open', session(), inReview({}, 'not-open'), 'pull request not open'],
         ['no pr_url', session(), inReview({ pr_url: null }, 'no-pr'), 'pull request not open'],
         ['not in review', session(), inReview({ status: 'in-progress' }), 'not in review (in-progress)'],
         ['state unknown', session(), null, 'state unknown'],
         ['PR state unknown', session(), inReview({}, 'unknown'), 'state unknown'],
-        ['denied, not shipped', session({}, { permission_denied: ['Bash'] }), inReview({ status: 'in-progress' }), 'permission_denied'],
+        ['denied, not shipped', session({}, { permission_denied: ['Bash'] }), inReview({ status: 'in-progress' }), 'not in review (in-progress)'],
         ['result subtype', session({}, { result: { ...session().facts.result, subtype: 'error_max_turns' } }), inReview(), 'result error_max_turns'],
         ['result error', session({}, { result: { ...session().facts.result, is_error: true, subtype: 'error_max_turns' } }), inReview(), 'result error'],
         ['no result', session({}, { result: null }), inReview(), 'no result'],
@@ -167,6 +167,9 @@ export function sessionCases(kit) {
       equal(decideItem({ session: session(), tickets: [inReview()], others: [{ id: 'ABC-22', read: labelled({ pr_url: LAST }) }] }).note, `labelled ship-failed: ${LAST}`, 'a walked child\'s label is noted');
       equal(decideOn(session(), [labelled(), labelled({ pr_url: LAST })]).note, `labelled ship-failed: ${PR}, ${LAST}`, 'two labelled tickets list both pull requests');
       equal(decideOn(session({ exit_code: 1 }), [labelled()]).note, null, 'a stuck item carries no label note');
+      const deniedStuck = decideOn(session({}, { permission_denied: ['Bash'], result: { ...session().facts.result, permission_denials: ['Bash', 'Edit'] } }), [inReview({ status: 'in-progress', pr_url: null }, 'no-pr')]);
+      equal([deniedStuck.outcome, deniedStuck.reason, deniedStuck.note], ['stuck', 'not in review (in-progress)', 'stuck with permission denials: Bash, Edit'], 'a stuck item names its ticket\'s state and notes the denials');
+      equal(decideOn(session({ exit_code: 1 }, { permission_denied: ['Bash'] }), [inReview()]).note, null, 'a failed session carries no denial note');
       equal(decideOn(session({ exit_code: 1 }), [inReview()]).pr_url, PR, 'a stuck item keeps the row\'s pr_url');
       equal(decideOn(session(), [inReview({}, 'unknown')]).pr_url, PR, 'an unknown pull request state keeps the row\'s pr_url');
       equal(decideOn(session(), [merged()]).pr_url, LAST, 'a merged child records the last pull request');
@@ -176,7 +179,8 @@ export function sessionCases(kit) {
       equal(withOthers([{ id: 'ABC-22', read: openIntoBranch }]).reason, 'child ABC-22 not landed: pull request open into another branch', 'a walked child left unmerged is stuck despite a reused last PR');
       equal(withOthers([{ id: 'ABC-22', read: inReview({ status: 'in-progress' }) }]).reason, 'child ABC-22 not landed: not in review (in-progress)', 'a walked child left in progress');
       equal(withOthers([{ id: 'ABC-22', read: null }]).reason, 'child ABC-22 not landed: state unknown', 'a walked child that could not be read');
-      equal(withOthers([{ id: 'ABC-22', read: openIntoBranch }], session({}, { permission_denied: ['Bash'] })).reason, 'permission_denied', 'denials keep their precedence over a walked child');
+      const deniedChild = withOthers([{ id: 'ABC-22', read: openIntoBranch }], session({}, { permission_denied: ['Bash'] }));
+      equal([deniedChild.reason, deniedChild.note], ['child ABC-22 not landed: pull request open into another branch', 'stuck with permission denials: Bash'], 'a walked child\'s reason wins over denials, which are noted');
       equal(withOthers([{ id: 'ABC-22', read: merged() }, { id: 'ABC-23', read: inReview({ status: 'done' }, 'no-pr') }]).pr_url, LAST, 'walked children merged or terminal ship, recording the first ticket\'s pull request');
       equal(decideItem({ session: session(), tickets: [], others: [{ id: 'ABC-22', read: merged() }] }).reason, 'state unknown', 'no tickets stays state unknown');
       const kinds = [
@@ -214,8 +218,8 @@ export function sessionCases(kit) {
 
     ['dispatch: the exact argument vectors', () => {
       equal(syncArgv(), ['-p', '/feature:sync', '--output-format', 'json', '--permission-prompts', 'none'], 'sync vector');
-      equal(shipArgv('ABC-12', '/home/me', 'main'), ['-p', '/feature:ship ABC-12 --worktree --base main', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none', '--add-dir', path.join('/home/me', '.feature-pipeline')], 'ship vector');
-      equal(shipArgv('ABC-12', '/h', 'release/2.x')[1], '/feature:ship ABC-12 --worktree --base release/2.x', 'a non-main base rides in the prompt');
+      equal(shipArgv('ABC-12', '/home/me', 'main'), ['-p', '/feature:ship ABC-12 --worktree --base main --headless', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none', '--add-dir', path.join('/home/me', '.feature-pipeline')], 'ship vector');
+      equal(shipArgv('ABC-12', '/h', 'release/2.x')[1], '/feature:ship ABC-12 --worktree --base release/2.x --headless', 'a non-main base rides in the prompt');
       for (const flag of FORBIDDEN_FLAGS) {
         assert(!syncArgv().includes(flag) && !shipArgv('ABC-12', '/h', 'main').includes(flag), `${flag} in a vector`);
       }
@@ -367,7 +371,7 @@ export function sessionCases(kit) {
           assert(res.status === 0, `stuck run: exit ${res.status} ${res.stdout}`);
           equal(res.doc.items.map((i) => [i.id, i.outcome, i.reason, i.session_id, i.exit_code]), [['ABC-1', 'stuck', 'exit 1', 'sess-stuck', 1], ['ABC-2', 'not dispatched', 'run stopped at ABC-1', null, null]], 'items');
           equal(res.doc.sync.after?.ok, true, 'the closing sync still runs');
-          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base main', '/feature:sync'], 'one ship session');
+          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base main --headless', '/feature:sync'], 'one ship session');
           assert(fs.readFileSync(res.doc.report, 'utf8').includes('- Resume ABC-1: claude --resume sess-stuck'), 'resume line');
         });
       } finally {
@@ -502,7 +506,7 @@ export function sessionCases(kit) {
           const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
           assert(res.status === 0, `master run: exit ${res.status} ${res.stdout}`);
           equal(res.doc.items.map((i) => i.outcome), ['shipped'], 'the item ships');
-          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base master', '/feature:sync'], 'ship runs against master');
+          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base master --headless', '/feature:sync'], 'ship runs against master');
         });
       } finally {
         fs.rmSync(w.dir, { recursive: true, force: true });
@@ -635,7 +639,7 @@ export function sessionCases(kit) {
           const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
           assert(res.status === 0, `other base: exit ${res.status} ${res.stdout}`);
           equal(res.doc.items.map((i) => [i.id, i.outcome, i.reason]), [['ABC-1', 'stuck', 'pull request open into another branch'], ['ABC-2', 'not dispatched', 'run stopped at ABC-1']], 'items');
-          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base main', '/feature:sync'], 'the rest is not dispatched');
+          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-1 --worktree --base main --headless', '/feature:sync'], 'the rest is not dispatched');
         });
       } finally {
         fs.rmSync(w.dir, { recursive: true, force: true });
@@ -682,7 +686,7 @@ export function sessionCases(kit) {
             ['ABC-60', ['ABC-62'], 'stuck', 'child ABC-61 not landed: pull request open into another branch'],
             ['ABC-2', ['ABC-2'], 'not dispatched', 'run stopped at ABC-60'],
           ], 'items');
-          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-60 --worktree --base main', '/feature:sync'], 'the invocation is the epic\'s, and the rest is not dispatched');
+          equal(claudeCalls(w).map((call) => call[2]), ['/feature:sync', '/feature:ship ABC-60 --worktree --base main --headless', '/feature:sync'], 'the invocation is the epic\'s, and the rest is not dispatched');
         });
       } finally {
         fs.rmSync(w.dir, { recursive: true, force: true });
