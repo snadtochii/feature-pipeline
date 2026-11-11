@@ -17,8 +17,9 @@
 // Zero dependencies: Node 22+ built-ins only.
 // Everything under lib/ is private; this file is the only command.
 
+import { errorDoc, exitCodeFor } from '../lib/output.mjs';
 import { parseArgv } from './lib/args.mjs';
-import { emit, errorDoc, exitCodeFor } from './lib/output.mjs';
+import { emit } from './lib/output.mjs';
 import { installTeardown } from './lib/teardown.mjs';
 
 // First, before anything can register its own exit handler: the lock release

@@ -22,7 +22,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { ComputeError } from './output.mjs';
+import { ComputeError } from '../../lib/output.mjs';
 import { RUN_ID_RE, writeAtomic } from './state.mjs';
 import { addTeardown } from './teardown.mjs';
 

@@ -4,14 +4,12 @@
 // recursively by code unit, two-space indent, one trailing newline
 // (CONTRACT.md §2). A thrown UsageError maps to exit 2, anything else to exit 1,
 // and both print {"error": "<reason>"} (CONTRACT.md §3). The classes and the
-// rendering are the plugin's shared output contract; the one-document rule is
-// the dispatcher's own.
+// rendering are the plugin's shared output contract, in ../../lib/output.mjs;
+// this file holds the dispatcher's own rule, one document per run.
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
 import { render, writeOut } from '../../lib/output.mjs';
-
-export * from '../../lib/output.mjs';
 
 let emitted = false;
 

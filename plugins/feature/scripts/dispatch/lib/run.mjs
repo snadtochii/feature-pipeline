@@ -14,12 +14,12 @@
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
+import { ComputeError, errorDoc } from '../../lib/output.mjs';
 import { assess } from './assess.mjs';
 import { loadDispatchConfig } from './config.mjs';
 import { dispatchItems, runSync } from './dispatch.mjs';
 import { inboxBody, summaryLine } from './finish.mjs';
 import { acquireLock, gitCommonDir, holdsLock, releaseLock } from './lock.mjs';
-import { ComputeError, errorDoc } from './output.mjs';
 import { checkPreconditions, gitBase, gitClean } from './preconditions.mjs';
 import { renderReport } from './report.mjs';
 import { listTickets, resolveServerAccess, sendInbox, sendInboxSync } from './server.mjs';

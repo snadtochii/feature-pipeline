@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { ComputeError, render } from './output.mjs';
+import { ComputeError, render } from '../../lib/output.mjs';
 
 const NAME_RE = /^[A-Za-z0-9._-]+$/;
 export const RUN_ID_RE = /^\d{4}-\d{2}-\d{2}-[0-9a-f]{6}$/;

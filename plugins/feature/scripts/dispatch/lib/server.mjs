@@ -14,7 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { cleanHttpUrl, readCredentialFile } from '../../lib/credential-file.mjs';
-import { ComputeError } from './output.mjs';
+import { ComputeError } from '../../lib/output.mjs';
 
 export const DEFAULT_BASE_URL = 'http://localhost:7717';
 export const REQUEST_TIMEOUT_MS = 10_000;

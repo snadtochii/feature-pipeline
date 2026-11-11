@@ -8,8 +8,8 @@
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
+import { oneLine } from '../../lib/output.mjs';
 import { resumeHint, summaryLine } from './finish.mjs';
-import { oneLine } from './output.mjs';
 
 const NONE = 'None.';
 const DASH = '—';

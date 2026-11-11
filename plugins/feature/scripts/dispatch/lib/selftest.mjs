@@ -17,11 +17,11 @@ import { fileURLToPath } from 'node:url';
 
 import { parseCredentialFile } from '../../lib/credential-file.mjs';
 import { parseMiniYaml } from '../../lib/mini-yaml.mjs';
+import { ComputeError, UsageError, exitCodeFor, render } from '../../lib/output.mjs';
 import { assert, commitAll as commitFixture, equal, git, initRepo as initRepoAt, rejectsKind, throwsKind, withStub } from '../../lib/selftest-kit.mjs';
 import { parseArgv } from './args.mjs';
 import { DISPATCH_DEFAULTS, FS_NATIVE_REFUSAL, loadDispatchConfig, validateConfig } from './config.mjs';
 import { LOCK_NAME, RECLAIM_NAME, STALE_MS, UNREADABLE_GRACE_MS, acquireLock, gitCommonDir, holdsLock, readOwner, releaseLock } from './lock.mjs';
-import { ComputeError, UsageError, exitCodeFor, render } from './output.mjs';
 import { onPath } from './preconditions.mjs';
 import { countOpenPrs, prSlots } from './prs.mjs';
 import { renderReport } from './report.mjs';

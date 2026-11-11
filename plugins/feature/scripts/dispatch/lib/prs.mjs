@@ -13,7 +13,7 @@
 
 import { spawnSync } from 'node:child_process';
 
-import { oneLine } from './output.mjs';
+import { oneLine } from '../../lib/output.mjs';
 
 const GH_LIST_ARGS = ['pr', 'list', '--state', 'open', '--limit', '1000', '--json', 'number,title,url'];
 const GH_TIMEOUT_MS = 60_000;

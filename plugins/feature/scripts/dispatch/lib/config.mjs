@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { parseMiniYaml } from '../../lib/mini-yaml.mjs';
-import { ComputeError } from './output.mjs';
+import { ComputeError } from '../../lib/output.mjs';
 
 export const DISPATCH_DEFAULTS = Object.freeze({
   tag: 'agent-ready',

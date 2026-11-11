@@ -10,7 +10,8 @@
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
-import { EXIT_CANNOT_COMPUTE, emit } from './output.mjs';
+import { EXIT_CANNOT_COMPUTE } from '../../lib/output.mjs';
+import { emit } from './output.mjs';
 
 export const TERMINATION_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
