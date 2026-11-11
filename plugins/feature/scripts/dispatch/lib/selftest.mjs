@@ -9,22 +9,24 @@
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { parseCredentialFile } from '../../lib/credential-file.mjs';
+import { parseMiniYaml } from '../../lib/mini-yaml.mjs';
+import { assert, commitAll as commitFixture, equal, git, initRepo as initRepoAt, rejectsKind, throwsKind, withStub } from '../../lib/selftest-kit.mjs';
 import { parseArgv } from './args.mjs';
-import { DISPATCH_DEFAULTS, FS_NATIVE_REFUSAL, loadDispatchConfig, parseMiniYaml, validateConfig } from './config.mjs';
+import { DISPATCH_DEFAULTS, FS_NATIVE_REFUSAL, loadDispatchConfig, validateConfig } from './config.mjs';
 import { LOCK_NAME, RECLAIM_NAME, STALE_MS, UNREADABLE_GRACE_MS, acquireLock, gitCommonDir, holdsLock, readOwner, releaseLock } from './lock.mjs';
 import { ComputeError, UsageError, exitCodeFor, render } from './output.mjs';
 import { onPath } from './preconditions.mjs';
 import { countOpenPrs, prSlots } from './prs.mjs';
 import { renderReport } from './report.mjs';
 import { admit, compareIds, selectCandidates } from './select.mjs';
-import { listTickets, parseCredentialFile, resolveServerAccess } from './server.mjs';
+import { READ_NAMES, listTickets, resolveServerAccess } from './server.mjs';
 import { RUN_ID_RE, newRunId, projectNameFor, stateDirFor } from './state.mjs';
 import { shipArgv, syncArgv } from './dispatch.mjs';
 import { sessionCases } from './selftest-sessions.mjs';
@@ -36,56 +38,12 @@ const TOKEN = 'selftest-token-7f3c9e10';
 const TAG = 'agent-ready';
 const NOW = new Date('2026-10-14T02:00:00.000Z');
 
-class CaseFailure extends Error {}
-
-function assert(condition, detail) {
-  if (!condition) {
-    throw new CaseFailure(detail);
-  }
-}
-
-function equal(actual, expected, label) {
-  const a = JSON.stringify(actual);
-  const e = JSON.stringify(expected);
-  assert(a === e, `${label}: expected ${e}, got ${a}`);
-}
-
-function throwsKind(fn, Kind, fragment) {
-  try {
-    fn();
-  } catch (err) {
-    assert(err instanceof Kind, `expected a ${Kind.name}, got ${err.constructor.name}: ${err.message}`);
-    if (fragment !== undefined) {
-      assert(err.message.includes(fragment), `expected the error to mention "${fragment}", got: ${err.message}`);
-    }
-    return err;
-  }
-  throw new CaseFailure(`expected a ${Kind.name}, nothing was thrown`);
-}
-
-async function rejectsKind(fn, Kind, fragment) {
-  try {
-    await fn();
-  } catch (err) {
-    assert(err instanceof Kind, `expected a ${Kind.name}, got ${err.constructor.name}: ${err.message}`);
-    if (fragment !== undefined) {
-      assert(err.message.includes(fragment), `expected the error to mention "${fragment}", got: ${err.message}`);
-    }
-    return err;
-  }
-  throw new CaseFailure(`expected a ${Kind.name}, nothing was thrown`);
-}
-
 function tempDir(label) {
   return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `fp-dispatch-${label}-`)));
 }
 
 function initRepo(parent, name = 'my-app', branch = 'main') {
-  const repo = path.join(parent, name);
-  fs.mkdirSync(repo, { recursive: true });
-  const res = spawnSync('git', ['-c', `init.defaultBranch=${branch}`, 'init', '-q', repo], { encoding: 'utf8' });
-  assert(res.status === 0, `git init failed: ${res.stderr}`);
-  return repo;
+  return initRepoAt(path.join(parent, name), branch);
 }
 
 function writeConfig(repo, text) {
@@ -99,14 +57,9 @@ function writeConfig(repo, text) {
  * branch, so the tree is clean and on its base branch.
  */
 function commitAll(repo, branch = 'main') {
-  const git = (...args) => {
-    const res = spawnSync('git', ['-C', repo, '-c', 'user.name=selftest', '-c', 'user.email=selftest@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' });
-    assert(res.status === 0, `git ${args[0]} failed: ${res.stderr}`);
-  };
-  git('add', '-A');
-  git('commit', '-q', '-m', 'fixture');
-  git('update-ref', `refs/remotes/origin/${branch}`, 'HEAD');
-  git('symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${branch}`);
+  commitFixture(repo);
+  git(repo, 'update-ref', `refs/remotes/origin/${branch}`, 'HEAD');
+  git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${branch}`);
 }
 
 /** The stand-in `gh`: `auth status`, `pr view`, `pr checks`, `pr list --head` and `pr list`, each from its own variable. */
@@ -206,18 +159,6 @@ function runEntry(args, { env = {}, onSpawn } = {}) {
       resolve({ status, signal, stdout, doc });
     });
   });
-}
-
-/** A loopback stand-in for the server; `handler(req, res)` answers. */
-async function withStub(handler, fn) {
-  const server = http.createServer(handler);
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  try {
-    return await fn(`http://127.0.0.1:${server.address().port}`);
-  } finally {
-    server.closeAllConnections();
-    await new Promise((resolve) => server.close(resolve));
-  }
 }
 
 function row(id, fields = {}) {
@@ -451,10 +392,10 @@ const CASES = [
   ['server: credential file, precedence and token binding', () => {
     const dir = tempDir('cred');
     try {
-      equal(parseCredentialFile('# c\nexport PERSONAL_SERVER_URL="http://h:1"\nOTHER="two words"\nPERSONAL_SERVER_CLIENT_TOKEN=abc\n', 'f'), { PERSONAL_SERVER_URL: 'http://h:1', PERSONAL_SERVER_CLIENT_TOKEN: 'abc' }, 'parse');
-      const malformed = throwsKind(() => parseCredentialFile('PERSONAL_SERVER_CLIENT_TOKEN="sec ret"\n', 'f'), ComputeError, 'f:1: malformed line');
+      equal(parseCredentialFile('# c\nexport PERSONAL_SERVER_URL="http://h:1"\nOTHER="two words"\nPERSONAL_SERVER_CLIENT_TOKEN=abc\n', 'f', READ_NAMES), { PERSONAL_SERVER_URL: 'http://h:1', PERSONAL_SERVER_CLIENT_TOKEN: 'abc' }, 'parse');
+      const malformed = throwsKind(() => parseCredentialFile('PERSONAL_SERVER_CLIENT_TOKEN="sec ret"\n', 'f', READ_NAMES), ComputeError, 'f:1: malformed line');
       assert(!malformed.message.includes('sec'), 'malformed-line message leaks content');
-      throwsKind(() => parseCredentialFile('not a line\n', 'f'), ComputeError, 'f:1');
+      throwsKind(() => parseCredentialFile('not a line\n', 'f', READ_NAMES), ComputeError, 'f:1');
 
       const file = path.join(dir, 'cli.env');
       fs.writeFileSync(file, `PERSONAL_SERVER_URL=http://127.0.0.1:7801\nPERSONAL_SERVER_CLIENT_TOKEN=${TOKEN}\n`);

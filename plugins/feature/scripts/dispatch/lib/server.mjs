@@ -10,10 +10,10 @@
 // Private to the implementation: only dispatch.mjs is a command.
 
 import { spawnSync } from 'node:child_process';
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { cleanHttpUrl, readCredentialFile } from '../../lib/credential-file.mjs';
 import { ComputeError } from './output.mjs';
 
 export const DEFAULT_BASE_URL = 'http://localhost:7717';
@@ -22,122 +22,17 @@ export const REQUEST_TIMEOUT_MS = 10_000;
 const URL_NAME = 'PERSONAL_SERVER_URL';
 const TOKEN_NAME = 'PERSONAL_SERVER_CLIENT_TOKEN';
 const FILE_ENV = 'PERSONAL_SERVER_CLI_CONFIG';
-const READ_NAMES = [URL_NAME, TOKEN_NAME];
-const MAX_FILE_BYTES = 64 * 1024;
-const NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const UNSAFE_VALUE = /[\s\p{Cc}]/u;
+
+/** The names the dispatcher reads from the CLI's credential file. */
+export const READ_NAMES = [URL_NAME, TOKEN_NAME];
 
 const isSet = (value) => typeof value === 'string' && value !== '';
-
-/**
- * Parse the credential file's text into `{ PERSONAL_SERVER_URL?, PERSONAL_SERVER_CLIENT_TOKEN? }`.
- * Every line must be `NAME=value` (optional `export `); only the read names'
- * values are held to the value grammar. Pure.
- */
-export function parseCredentialFile(text, file) {
-  const values = {};
-  const lines = text.replace(/^﻿/, '').split('\n');
-  for (const [index, raw] of lines.entries()) {
-    const line = raw.trim();
-    if (line === '' || line.startsWith('#')) {
-      continue;
-    }
-    const body = line.startsWith('export ') ? line.slice('export '.length).trimStart() : line;
-    const separator = body.indexOf('=');
-    const name = separator > 0 ? body.slice(0, separator) : '';
-    if (!NAME_PATTERN.test(name)) {
-      throw malformedLine(file, index);
-    }
-    if (!READ_NAMES.includes(name)) {
-      continue;
-    }
-    const value = unquote(body.slice(separator + 1));
-    if (value === undefined || UNSAFE_VALUE.test(value)) {
-      throw malformedLine(file, index);
-    }
-    values[name] = value;
-  }
-  return values;
-}
-
-function malformedLine(file, index) {
-  return new ComputeError(`${file}:${index + 1}: malformed line (expected NAME=value)`);
-}
-
-function unquote(raw) {
-  const first = raw.at(0);
-  const last = raw.at(-1);
-  const opens = first === '"' || first === "'";
-  const closes = last === '"' || last === "'";
-  if (!opens && !closes) {
-    return raw;
-  }
-  if (raw.length >= 2 && opens && first === last) {
-    return raw.slice(1, -1);
-  }
-  return undefined;
-}
-
-/**
- * Read the credential file under the CLI's checks, all on one descriptor:
- * a regular file, no group or other permission bit, at most 64 KiB. A missing
- * file reads as empty.
- */
-export function readCredentialFile(file) {
-  let fd;
-  try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      return {};
-    }
-    throw new ComputeError(`${file} cannot be read (${err.code ?? 'error'})`);
-  }
-  try {
-    const stat = fs.fstatSync(fd);
-    if (!stat.isFile()) {
-      throw new ComputeError(`${file} is not a regular file`);
-    }
-    if ((stat.mode & 0o077) !== 0) {
-      throw new ComputeError(`${file} must not grant any permission to group or others (mode 0600 required)`);
-    }
-    if (stat.size > MAX_FILE_BYTES) {
-      throw new ComputeError(`${file} is larger than ${MAX_FILE_BYTES / 1024} KiB`);
-    }
-    let text;
-    try {
-      text = fs.readFileSync(fd, 'utf8');
-    } catch (err) {
-      throw new ComputeError(`${file} cannot be read (${err.code ?? 'error'})`);
-    }
-    return parseCredentialFile(text, file);
-  } finally {
-    fs.closeSync(fd);
-  }
-}
-
-/** An absolute http(s) URL with no userinfo, query or fragment, or undefined. */
-function cleanHttpUrl(value) {
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    return undefined;
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return undefined;
-  }
-  if (url.username !== '' || url.password !== '' || url.search !== '' || url.hash !== '') {
-    return undefined;
-  }
-  return url;
-}
 
 /**
  * Resolve where to send the request and with which token:
  * `{ apiBase, origin, token, tokenSource }`, `tokenSource` ∈ env | file | none.
  * `home` is `$HOME` (or undefined); the file is read only when the URL or the
- * token is missing from `env`.
+ * token is missing from `env`, and a missing file reads as empty.
  */
 export function resolveServerAccess(env, home) {
   const envUrl = isSet(env[URL_NAME]) ? env[URL_NAME] : undefined;
@@ -151,7 +46,8 @@ export function resolveServerAccess(env, home) {
   } else if (isSet(home)) {
     file = path.join(home, '.config', 'personal-server', 'cli.env');
   }
-  const fileValues = (envUrl === undefined || envToken === undefined) && file !== undefined ? readCredentialFile(file) : {};
+  const needsFile = (envUrl === undefined || envToken === undefined) && file !== undefined;
+  const fileValues = (needsFile ? readCredentialFile(file, READ_NAMES) : null) ?? {};
   const fileUrl = isSet(fileValues[URL_NAME]) ? fileValues[URL_NAME] : undefined;
   const fileToken = isSet(fileValues[TOKEN_NAME]) ? fileValues[TOKEN_NAME] : undefined;
 

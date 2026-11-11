@@ -14,9 +14,11 @@
 // Exit: 0 answered, 1 could not compute, 2 bad invocation.
 //
 // Zero dependencies: Node 22+ built-ins only.
-// This file is the only command; lib.mjs and selftest.mjs beside it are private.
+// This file is the only command; lib.mjs and selftest.mjs beside it are
+// private, as are the plugin's shared script modules they import.
 
-import { errorDoc, exitCodeFor, parseArgv, preflight, query, render, writeOut } from './lib.mjs';
+import { exitCodeFor, render, writeOut } from '../../../scripts/lib/output.mjs';
+import { errorDoc, parseArgv, preflight, query } from './lib.mjs';
 
 const VERBS = { preflight, query };
 

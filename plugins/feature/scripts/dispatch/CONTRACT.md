@@ -31,8 +31,9 @@ node <plugin-root>/scripts/dispatch/dispatch.mjs --self-test
 | `--project-root` | The project to dispatch for: an absolute path to an existing directory inside a git repository. |
 | `--self-test` | §13. Takes no verb and no other flag. |
 
-Only `dispatch.mjs` is a command. Everything under `lib/` is private to the implementation
-and may change shape without changing this contract.
+Only `dispatch.mjs` is a command. Everything under `lib/`, and the modules under `../lib/`
+that the plugin's scripts share, is private to the implementation and may change shape
+without changing this contract.
 
 The dispatcher is invoked directly with `node`, with an argument vector. It is never
 sourced, never wrapped in a shell string, and never given arguments assembled by string

@@ -1,6 +1,8 @@
 // The incident log reader's rules and verbs (../references/log-query.md):
-// argument parsing, the configuration reader, credential resolution, the
-// report gate, the query files, the request and the output documents.
+// argument parsing, the `incident:` block's rules, credential resolution, the
+// report gate, the query files, the request and the output documents. The
+// output contract, the `config.yaml` reader and the credential-file rules are
+// the plugin's shared script modules.
 //
 // Private to the implementation: only incident.mjs is a command.
 
@@ -9,19 +11,16 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** The invocation was wrong — exit 2. */
-export class UsageError extends Error {}
-
-/** The answer could not be computed — exit 1. */
-export class ComputeError extends Error {}
-
-const EXIT_CANNOT_COMPUTE = 1;
-const EXIT_BAD_USAGE = 2;
+import { UNSAFE_VALUE, cleanHttpUrl, readCredentialFile } from '../../../scripts/lib/credential-file.mjs';
+import { parseMiniYaml } from '../../../scripts/lib/mini-yaml.mjs';
+import { ComputeError, UsageError, errorDoc as errorLine, oneLine, render, sortKeys } from '../../../scripts/lib/output.mjs';
 
 const URL_NAME = 'INCIDENT_GRAFANA_URL';
 const TOKEN_NAME = 'INCIDENT_GRAFANA_TOKEN';
-const READ_NAMES = [URL_NAME, TOKEN_NAME];
-const MAX_CREDENTIAL_BYTES = 64 * 1024;
+
+/** The names this script reads from the credential file. */
+export const READ_NAMES = [URL_NAME, TOKEN_NAME];
+
 const GIT_TIMEOUT_MS = 10_000;
 
 const INCIDENTS_DIR = ['claudedocs', 'incidents'];
@@ -40,9 +39,6 @@ const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 1000;
 const DIRECTIONS = ['forward', 'backward'];
 
-const NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const UNSAFE_VALUE = /[\s\p{Cc}]/u;
-const KEY_LINE = /^([A-Za-z0-9_.-]+)\s*:(?:\s+(.*))?$/;
 const DATASOURCE = /^[A-Za-z0-9_-]+$/;
 const REPO_NAME = /^[A-Za-z0-9._-]+$/;
 const LOOPBACK_IPV4 = /^127(?:\.\d{1,3}){3}$/;
@@ -65,62 +61,9 @@ const FLAGS = {
 
 const isSet = (value) => typeof value === 'string' && value !== '';
 
-/**
- * Return a copy of `value` whose object keys are sorted recursively by code
- * unit. Arrays keep their order; `undefined` object members are dropped.
- */
-export function sortKeys(value) {
-  if (Array.isArray(value)) {
-    return value.map(sortKeys);
-  }
-  if (value !== null && typeof value === 'object') {
-    const out = {};
-    for (const key of Object.keys(value).sort()) {
-      if (value[key] !== undefined) {
-        out[key] = sortKeys(value[key]);
-      }
-    }
-    return out;
-  }
-  return value;
-}
-
-/** Serialise one output document: sorted keys, two-space indent, one newline. */
-export function render(doc) {
-  return `${JSON.stringify(sortKeys(doc), null, 2)}\n`;
-}
-
-/** The exit code a thrown error maps to. */
-export function exitCodeFor(err) {
-  if (err instanceof UsageError) {
-    return EXIT_BAD_USAGE;
-  }
-  return EXIT_CANNOT_COMPUTE;
-}
-
-function oneLine(text) {
-  return String(text).replace(/\s+/g, ' ').trim();
-}
-
-/** The failure document for a thrown error: its message on one line. */
+/** The failure document for a thrown error: its message on one line, and `ok: false`. */
 export function errorDoc(err) {
-  const message = err instanceof Error ? err.message : String(err);
-  return { error: oneLine(message) || 'unknown error', ok: false };
-}
-
-/** Write `text` to stdout synchronously, whole, before the process exits. */
-export function writeOut(text) {
-  const buf = Buffer.from(text, 'utf8');
-  let offset = 0;
-  while (offset < buf.length) {
-    try {
-      offset += fs.writeSync(1, buf, offset, buf.length - offset);
-    } catch (err) {
-      if (err.code !== 'EAGAIN') {
-        throw err;
-      }
-    }
-  }
+  return { ...errorLine(err), ok: false };
 }
 
 /** The date and time `ms` reads as at the offset its timestamp was written with. */
@@ -210,97 +153,6 @@ export function parseArgv(argv) {
   return FINISH[verb](parsed);
 }
 
-/**
- * Parse the subset of YAML this script reads: top-level scalars and one level
- * of nested mapping. Deeper nesting, sequences and flow collections are
- * skipped without being interpreted. Pure.
- */
-export function parseMiniYaml(text) {
-  const out = {};
-  let block = null;
-  let blockIndent = null;
-  for (const raw of text.replace(/^﻿/, '').split(/\r?\n/)) {
-    const line = raw.replace(/\s+$/, '');
-    const body = line.trimStart();
-    if (body === '' || body.startsWith('#')) {
-      continue;
-    }
-    const indent = line.length - body.length;
-    if (indent === 0) {
-      block = null;
-      blockIndent = null;
-      const entry = splitKey(body);
-      if (entry === null) {
-        continue;
-      }
-      if (entry.value === '') {
-        out[entry.key] = {};
-        block = entry.key;
-      } else {
-        out[entry.key] = entry.value;
-      }
-      continue;
-    }
-    if (block === null || body.startsWith('-')) {
-      continue;
-    }
-    if (blockIndent === null) {
-      blockIndent = indent;
-    }
-    if (indent !== blockIndent) {
-      continue;
-    }
-    const entry = splitKey(body);
-    if (entry !== null) {
-      out[block][entry.key] = entry.value;
-    }
-  }
-  return out;
-}
-
-function splitKey(body) {
-  const match = KEY_LINE.exec(body);
-  if (match === null) {
-    return null;
-  }
-  return { key: match[1], value: parseValue(match[2] ?? '') };
-}
-
-function parseValue(raw) {
-  const value = raw.trim();
-  if (value === '' || value.startsWith('#')) {
-    return '';
-  }
-  const quote = value[0];
-  if (quote === '"' || quote === "'") {
-    const end = value.indexOf(quote, 1);
-    if (end !== -1) {
-      const rest = value.slice(end + 1).trim();
-      if (rest === '' || rest.startsWith('#')) {
-        return value.slice(1, end);
-      }
-    }
-  }
-  const hash = value.search(/\s#/);
-  return (hash === -1 ? value : value.slice(0, hash)).trim();
-}
-
-function cleanHttpUrl(value) {
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    return undefined;
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return undefined;
-  }
-  if (url.username !== '' || url.password !== '' || url.search !== '' || url.hash !== '') {
-    return undefined;
-  }
-  return url;
-}
-
 function isLoopback(hostname) {
   return hostname === 'localhost' || hostname === '[::1]' || LOOPBACK_IPV4.test(hostname);
 }
@@ -383,92 +235,6 @@ function loadConfig(projectRoot, home) {
   return validateConfig(parseMiniYaml(text), home);
 }
 
-/**
- * Parse the credential file's text into `{ INCIDENT_GRAFANA_URL?, INCIDENT_GRAFANA_TOKEN? }`.
- * Every line must be `NAME=value` (optional `export `); a failure names the
- * file and the line number, never the line. Pure.
- */
-export function parseCredentialFile(text, file) {
-  const values = {};
-  const lines = text.replace(/^﻿/, '').split('\n');
-  for (const [index, raw] of lines.entries()) {
-    const line = raw.trim();
-    if (line === '' || line.startsWith('#')) {
-      continue;
-    }
-    const body = line.startsWith('export ') ? line.slice('export '.length).trimStart() : line;
-    const separator = body.indexOf('=');
-    const name = separator > 0 ? body.slice(0, separator) : '';
-    if (!NAME_PATTERN.test(name)) {
-      throw malformedLine(file, index);
-    }
-    if (!READ_NAMES.includes(name)) {
-      continue;
-    }
-    const value = unquote(body.slice(separator + 1));
-    if (value === undefined || UNSAFE_VALUE.test(value)) {
-      throw malformedLine(file, index);
-    }
-    values[name] = value;
-  }
-  return values;
-}
-
-function malformedLine(file, index) {
-  return new ComputeError(`${file}:${index + 1}: malformed line (expected NAME=value)`);
-}
-
-function unquote(raw) {
-  const first = raw.at(0);
-  const last = raw.at(-1);
-  const opens = first === '"' || first === "'";
-  const closes = last === '"' || last === "'";
-  if (!opens && !closes) {
-    return raw;
-  }
-  if (raw.length >= 2 && opens && first === last) {
-    return raw.slice(1, -1);
-  }
-  return undefined;
-}
-
-/**
- * Read the credential file on one descriptor: a regular file, no group or
- * other permission bit, at most 64 KiB.
- */
-export function readCredentialFile(file) {
-  let fd;
-  try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
-  } catch (err) {
-    if (err.code === 'ENOENT' || err.code === 'ENOTDIR') {
-      throw new ComputeError(`${file} (incident.token_file) does not exist`);
-    }
-    throw new ComputeError(`${file} cannot be read (${err.code ?? 'error'})`);
-  }
-  try {
-    const stat = fs.fstatSync(fd);
-    if (!stat.isFile()) {
-      throw new ComputeError(`${file} is not a regular file`);
-    }
-    if ((stat.mode & 0o077) !== 0) {
-      throw new ComputeError(`${file} must not grant any permission to group or others (mode 0600 required)`);
-    }
-    if (stat.size > MAX_CREDENTIAL_BYTES) {
-      throw new ComputeError(`${file} is larger than ${MAX_CREDENTIAL_BYTES / 1024} KiB`);
-    }
-    let text;
-    try {
-      text = fs.readFileSync(fd, 'utf8');
-    } catch (err) {
-      throw new ComputeError(`${file} cannot be read (${err.code ?? 'error'})`);
-    }
-    return parseCredentialFile(text, file);
-  } finally {
-    fs.closeSync(fd);
-  }
-}
-
 function credentialPair(env, config) {
   const envUrl = isSet(env[URL_NAME]) ? env[URL_NAME] : undefined;
   const envToken = isSet(env[TOKEN_NAME]) ? env[TOKEN_NAME] : undefined;
@@ -482,7 +248,10 @@ function credentialPair(env, config) {
   if (config.tokenFile === undefined) {
     throw new ComputeError(`no Grafana token source: set incident.token_file in config.yaml, or export ${URL_NAME} and ${TOKEN_NAME}`);
   }
-  const values = readCredentialFile(config.tokenFile);
+  const values = readCredentialFile(config.tokenFile, READ_NAMES);
+  if (values === null) {
+    throw new ComputeError(`${config.tokenFile} (incident.token_file) does not exist`);
+  }
   for (const name of READ_NAMES) {
     if (!isSet(values[name])) {
       throw new ComputeError(`${config.tokenFile} does not set ${name}`);

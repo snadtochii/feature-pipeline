@@ -10,22 +10,20 @@
 //
 // Private to the implementation: only incident.mjs is a command.
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { parseCredentialFile, readCredentialFile } from '../../../scripts/lib/credential-file.mjs';
+import { parseMiniYaml } from '../../../scripts/lib/mini-yaml.mjs';
+import { ComputeError, UsageError, exitCodeFor } from '../../../scripts/lib/output.mjs';
+import { CaseFailure, assert, commitAll, equal, initRepo, throwsKind, withStub } from '../../../scripts/lib/selftest-kit.mjs';
 import {
-  ComputeError,
-  UsageError,
-  exitCodeFor,
+  READ_NAMES,
   fitLines,
   parseArgv,
-  parseCredentialFile,
-  parseMiniYaml,
-  readCredentialFile,
   reportGate,
   resolveAccess,
   shapeStreams,
@@ -38,33 +36,6 @@ const TOKEN = 'glsa_selftest_7f3c9e10';
 const ORIGIN = 'https://grafana.example.invalid';
 const DATASOURCE = 'loki-uid';
 const CREDENTIALS = '~/.config/feature-incident/grafana.credentials';
-
-class CaseFailure extends Error {}
-
-function assert(condition, detail) {
-  if (!condition) {
-    throw new CaseFailure(detail);
-  }
-}
-
-function equal(actual, expected, label) {
-  const a = JSON.stringify(actual);
-  const e = JSON.stringify(expected);
-  assert(a === e, `${label}: expected ${e}, got ${a}`);
-}
-
-function throwsKind(fn, Kind, fragment) {
-  try {
-    fn();
-  } catch (err) {
-    assert(err instanceof Kind, `expected a ${Kind.name}, got ${err.constructor.name}: ${err.message}`);
-    if (fragment !== undefined) {
-      assert(err.message.includes(fragment), `expected the error to mention "${fragment}", got: ${err.message}`);
-    }
-    return err;
-  }
-  throw new CaseFailure(`expected a ${Kind.name}, nothing was thrown`);
-}
 
 async function withTemp(label, fn) {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `fp-incident-${label}-`)));
@@ -117,24 +88,6 @@ function gitBinDir() {
 function childEnv(home, extra = {}) {
   const dirs = [gitBinDir(), '/usr/bin', '/bin'].filter(Boolean);
   return { PATH: dirs.join(path.delimiter), HOME: home, ...extra };
-}
-
-function initRepo(dir) {
-  fs.mkdirSync(dir, { recursive: true });
-  const res = spawnSync('git', ['-c', 'init.defaultBranch=main', 'init', '-q', dir], { encoding: 'utf8' });
-  assert(res.status === 0, `git init failed: ${res.stderr}`);
-  return dir;
-}
-
-function commitAll(repo) {
-  for (const args of [['add', '-A'], ['commit', '-q', '-m', 'fixture']]) {
-    const res = spawnSync(
-      'git',
-      ['-C', repo, '-c', 'user.name=selftest', '-c', 'user.email=selftest@example.invalid', '-c', 'commit.gpgsign=false', ...args],
-      { encoding: 'utf8' },
-    );
-    assert(res.status === 0, `git ${args[0]} failed: ${res.stderr}`);
-  }
 }
 
 /** A workspace with a config, and a home holding the credential file. */
@@ -266,26 +219,28 @@ const CASES = [
   ['credential file: the line grammar names a path and a line number only', () => {
     const file = '/h/grafana.credentials';
     equal(
-      parseCredentialFile(`# comment\nexport INCIDENT_GRAFANA_URL="${ORIGIN}"\nOTHER=anything at all\nINCIDENT_GRAFANA_TOKEN='${TOKEN}'\n`, file),
+      parseCredentialFile(`# comment\nexport INCIDENT_GRAFANA_URL="${ORIGIN}"\nOTHER=anything at all\nINCIDENT_GRAFANA_TOKEN='${TOKEN}'\n`, file, READ_NAMES),
       { INCIDENT_GRAFANA_URL: ORIGIN, INCIDENT_GRAFANA_TOKEN: TOKEN },
       'parsed pair',
     );
-    const err = throwsKind(() => parseCredentialFile(`INCIDENT_GRAFANA_URL=${ORIGIN}\nINCIDENT_GRAFANA_TOKEN=${TOKEN} trailing\n`, file), ComputeError, `${file}:2`);
+    const err = throwsKind(() => parseCredentialFile(`INCIDENT_GRAFANA_URL=${ORIGIN}\nINCIDENT_GRAFANA_TOKEN=${TOKEN} trailing\n`, file, READ_NAMES), ComputeError, `${file}:2`);
     assert(!err.message.includes(TOKEN), 'the malformed-line error echoed the line');
-    throwsKind(() => parseCredentialFile('just some words\n', file), ComputeError, `${file}:1`);
-    throwsKind(() => parseCredentialFile(`INCIDENT_GRAFANA_TOKEN="${TOKEN}\n`, file), ComputeError, `${file}:1`);
+    throwsKind(() => parseCredentialFile('just some words\n', file, READ_NAMES), ComputeError, `${file}:1`);
+    throwsKind(() => parseCredentialFile(`INCIDENT_GRAFANA_TOKEN="${TOKEN}\n`, file, READ_NAMES), ComputeError, `${file}:1`);
   }],
   ['credential file: one descriptor, a regular file, mode 0600, at most 64 KiB', () =>
     withTemp('cred', (dir) => {
       const good = writeCredentials(path.join(dir, 'grafana.credentials'));
-      equal(readCredentialFile(good), { INCIDENT_GRAFANA_URL: ORIGIN, INCIDENT_GRAFANA_TOKEN: TOKEN }, 'file pair');
+      equal(readCredentialFile(good, READ_NAMES), { INCIDENT_GRAFANA_URL: ORIGIN, INCIDENT_GRAFANA_TOKEN: TOKEN }, 'file pair');
       equal(resolveAccess({}, { origin: ORIGIN, tokenFile: good }), { token: TOKEN, source: 'file' }, 'file source');
-      throwsKind(() => readCredentialFile(path.join(dir, 'absent.credentials')), ComputeError, 'does not exist');
-      throwsKind(() => readCredentialFile(dir), ComputeError, 'not a regular file');
+      const absent = path.join(dir, 'absent.credentials');
+      equal(readCredentialFile(absent, READ_NAMES), null, 'a missing file is left to the caller');
+      throwsKind(() => resolveAccess({}, { origin: ORIGIN, tokenFile: absent }), ComputeError, `${absent} (incident.token_file) does not exist`);
+      throwsKind(() => readCredentialFile(dir, READ_NAMES), ComputeError, 'not a regular file');
       const loose = writeCredentials(path.join(dir, 'loose.credentials'), undefined, 0o644);
-      throwsKind(() => readCredentialFile(loose), ComputeError, 'mode 0600');
+      throwsKind(() => readCredentialFile(loose, READ_NAMES), ComputeError, 'mode 0600');
       const big = writeCredentials(path.join(dir, 'big.credentials'), `#${'x'.repeat(64 * 1024)}\n`);
-      throwsKind(() => readCredentialFile(big), ComputeError, 'larger than 64 KiB');
+      throwsKind(() => readCredentialFile(big, READ_NAMES), ComputeError, 'larger than 64 KiB');
       const partial = writeCredentials(path.join(dir, 'partial.credentials'), `INCIDENT_GRAFANA_TOKEN=${TOKEN}\n`);
       throwsKind(() => resolveAccess({}, { origin: ORIGIN, tokenFile: partial }), ComputeError, 'does not set INCIDENT_GRAFANA_URL');
       const foreign = writeCredentials(path.join(dir, 'foreign.credentials'), `INCIDENT_GRAFANA_URL=https://other.example.invalid\nINCIDENT_GRAFANA_TOKEN=${TOKEN}\n`);
@@ -604,18 +559,6 @@ function writeQuery(root, text = QUERY, run = RUN) {
   const file = path.join(dir, `.query-${run}.logql`);
   fs.writeFileSync(file, text);
   return file;
-}
-
-/** A loopback stand-in for Grafana; `handler(req, res)` answers. */
-async function withStub(handler, fn) {
-  const server = http.createServer(handler);
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  try {
-    return await fn(`http://127.0.0.1:${server.address().port}`);
-  } finally {
-    server.closeAllConnections();
-    await new Promise((resolve) => server.close(resolve));
-  }
 }
 
 /** One `query` child run against a stand-in that answers every request with `respond`. */
