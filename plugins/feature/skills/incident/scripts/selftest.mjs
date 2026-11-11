@@ -22,7 +22,8 @@ import { ComputeError, UsageError, exitCodeFor } from '../../../scripts/lib/outp
 import { CaseFailure, assert, commitAll, equal, initRepo, throwsKind, withStub } from '../../../scripts/lib/selftest-kit.mjs';
 import {
   READ_NAMES,
-  fitLines,
+  keepLines,
+  largestFit,
   parseArgv,
   reportGate,
   resolveAccess,
@@ -462,9 +463,18 @@ const CASES = [
       equal([doc.streams, new Set(doc.lines.map((entry) => entry.stream)).size], [streams, 1], `${direction}: only the streams the kept lines name`);
     }
     const lines = [{ line: '\u0001'.repeat(4000), stream: 1, ts: '2026-11-11T04:03:00.000Z' }, { line: 'next', stream: 0, ts: '2026-11-11T04:03:01.000Z' }];
-    const one = fitLines({ lines, streams: [{ app: 'api' }, { app: 'worker' }] }, 'forward', 1024);
-    equal([one.lines.length, one.lines[0].stream, one.streams, one.omitted], [1, 0, [{ app: 'worker' }], 1], 'one line is kept whatever its size');
-    equal(fitLines({ lines: [], streams: [] }, 'backward', 1024), { lines: [], streams: [], omitted: 0 }, 'nothing to keep');
+    const shaped = { lines, streams: [{ app: 'api' }, { app: 'worker' }] };
+    equal(keepLines(shaped, 'forward', 1), { lines: [{ ...lines[0], stream: 0 }], streams: [{ app: 'worker' }] }, 'forward keeps the oldest line and re-indexes its stream');
+    equal(keepLines(shaped, 'backward', 1), { lines: [lines[1]], streams: [{ app: 'api' }] }, 'backward keeps the newest line');
+    equal(keepLines({ lines: [], streams: [] }, 'backward', 0), { lines: [], streams: [] }, 'nothing to keep');
+    equal(
+      [largestFit(0, () => true), largestFit(5, () => false), largestFit(5, (count) => count <= 3), largestFit(5, () => true)],
+      [0, 1, 3, 5],
+      'the most that fit, and one whatever its size',
+    );
+    const oversized = await queryAgainst(reply(200, streamsBody({ stream: { app: 'api' }, values: [[nanos('2026-11-11T04:03:00.000Z'), '\u0001'.repeat(4000)], [nanos('2026-11-11T04:03:01.000Z'), 'next']] })), { direction: 'forward' });
+    equal([oversized.status, oversized.doc.count, oversized.doc.omitted, oversized.doc.truncated], [0, 1, 1, true], 'one line is kept whatever its size');
+    assert(Buffer.byteLength(oversized.stdout) > 16 * 1024, 'the single oversized line was expected to exceed the bound');
   }],
   ['query: a refused answer names the status and the origin, never the request', async () => {
     const text = { 'content-type': 'text/plain' };

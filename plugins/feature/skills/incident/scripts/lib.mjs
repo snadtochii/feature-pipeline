@@ -13,7 +13,7 @@ import path from 'node:path';
 
 import { UNSAFE_VALUE, cleanHttpUrl, readCredentialFile } from '../../../scripts/lib/credential-file.mjs';
 import { parseMiniYaml } from '../../../scripts/lib/mini-yaml.mjs';
-import { ComputeError, UsageError, errorDoc as errorLine, oneLine, render, sortKeys } from '../../../scripts/lib/output.mjs';
+import { ComputeError, UsageError, errorDoc as errorLine, oneLine, render } from '../../../scripts/lib/output.mjs';
 
 const URL_NAME = 'INCIDENT_GRAFANA_URL';
 const TOKEN_NAME = 'INCIDENT_GRAFANA_TOKEN';
@@ -30,8 +30,6 @@ const STALE_QUERY_MS = 60 * 60 * 1000;
 const MAX_QUERY_BYTES = 8 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_DOCUMENT_BYTES = 16 * 1024;
-const ELEMENT_INDENT = '    ';
-const ARRAY_WRAP_BYTES = 8;
 const MAX_LINE_CHARS = 4000;
 const MAX_DETAIL_CHARS = 300;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -543,40 +541,38 @@ export function shapeStreams(result) {
   return { lines: entries.map(({ at, ...entry }) => entry), streams, received, skipped };
 }
 
-/** An upper bound on the bytes one element adds to an array of a rendered document. */
-function elementBytes(value) {
-  const text = JSON.stringify(sortKeys(value), null, 2).replaceAll('\n', `\n${ELEMENT_INDENT}`);
-  return Buffer.byteLength(`${ELEMENT_INDENT}${text},\n`);
-}
-
 /**
- * Keep as many of `lines` as fit `room` bytes of rendered document, counted
- * from the end `direction` keeps — the oldest for `forward`, the newest for
- * `backward` — together with the streams those lines name, re-indexed. One
- * line is kept whatever its size. Returns `{ lines, streams, omitted }`. Pure.
+ * The `keep` lines at the end `direction` keeps — the oldest for `forward`,
+ * the newest for `backward` — together with the streams those lines name,
+ * re-indexed: `{ lines, streams }`. Pure.
  */
-export function fitLines({ lines, streams }, direction, room) {
-  const ordered = direction === 'forward' ? lines : lines.toReversed();
-  const named = new Set();
-  let used = 0;
-  let keep = 0;
-  for (const entry of ordered) {
-    const cost = elementBytes(entry) + (named.has(entry.stream) ? 0 : elementBytes(streams[entry.stream]));
-    if (keep > 0 && used + cost > room) {
-      break;
-    }
-    used += cost;
-    named.add(entry.stream);
-    keep += 1;
-  }
+export function keepLines({ lines, streams }, direction, keep) {
   const kept = direction === 'forward' ? lines.slice(0, keep) : lines.slice(lines.length - keep);
-  const order = [...named].sort((a, b) => a - b);
+  const order = [...new Set(kept.map((entry) => entry.stream))].sort((a, b) => a - b);
   const position = new Map(order.map((index, at) => [index, at]));
   return {
     lines: kept.map((entry) => ({ ...entry, stream: position.get(entry.stream) })),
     streams: order.map((index) => streams[index]),
-    omitted: lines.length - keep,
   };
+}
+
+/**
+ * The largest count from 1 to `total` that `fits`, where a count that fits
+ * leaves every smaller one fitting. One is the floor whether or not it fits,
+ * and zero is the answer only when `total` is zero. Pure.
+ */
+export function largestFit(total, fits) {
+  let low = Math.min(1, total);
+  let high = total;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (fits(middle)) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return low;
 }
 
 /** The `query` verb: one LogQL `query_range` through the datasource proxy. */
@@ -587,16 +583,21 @@ export async function query({ projectRoot, run, start, end, limit, direction }, 
   const params = new URLSearchParams({ query: text, start, end, limit: String(limit), direction });
   const url = `${config.base}/api/datasources/proxy/uid/${config.datasource}/loki/api/v1/query_range?${params}`;
   const shaped = shapeStreams(await fetchStreams(url, access, config));
-  const head = {
-    ok: true,
-    verb: 'query',
-    origin: config.origin,
-    datasource: config.datasource,
-    window: { start, end },
-    skipped: shaped.skipped,
+  const documentKeeping = (keep) => {
+    const omitted = shaped.lines.length - keep;
+    return {
+      ok: true,
+      verb: 'query',
+      origin: config.origin,
+      datasource: config.datasource,
+      window: { start, end },
+      skipped: shaped.skipped,
+      count: keep,
+      omitted,
+      truncated: shaped.received >= limit || omitted > 0,
+      ...keepLines(shaped, direction, keep),
+    };
   };
-  const widestWithoutLines = { ...head, count: shaped.received, omitted: shaped.received, truncated: false, lines: [], streams: [] };
-  const room = MAX_DOCUMENT_BYTES - Buffer.byteLength(render(widestWithoutLines)) - ARRAY_WRAP_BYTES;
-  const { lines, streams, omitted } = fitLines(shaped, direction, room);
-  return { ...head, count: lines.length, omitted, truncated: shaped.received >= limit || omitted > 0, lines, streams };
+  const fits = (keep) => Buffer.byteLength(render(documentKeeping(keep))) <= MAX_DOCUMENT_BYTES;
+  return documentKeeping(largestFit(shaped.lines.length, fits));
 }
