@@ -18,7 +18,7 @@ When the failure is a project-not-found or unknown-`project_id` error, the messa
 
 It never creates or edits files under `claudedocs/tickets/` as a fallback — a server-native project has exactly one source of truth, and silently forking it into local files is worse than stopping.
 
-Two uses degrade instead of stopping, both in `setup` and neither in a stage run: the connector check (Connectivity check, below), where an unanswered `ping` makes server-native unavailable — or, in `setup --check`, is reported as a failed check line — and an operation whose entry marks it optional, which degrades as that entry states.
+Three uses degrade instead of stopping, none of them in a stage run. Two are in `setup`: the connector check (Connectivity check, below), where an unanswered `ping` makes server-native unavailable — or, in `setup --check`, is reported as a failed check line — and an operation whose entry marks it optional, which degrades as that entry states. The third is `incident`'s duplicate-ticket lookup: it is advisory and writes nothing, so a failed call is a line in that skill's report and the run continues.
 
 ---
 
