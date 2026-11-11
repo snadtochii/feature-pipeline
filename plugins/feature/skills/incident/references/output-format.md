@@ -36,7 +36,7 @@ Signature: <service> | <rule> | <normalized message> | <top code location>
 
 - Rule: <rule name><, UID <uid> when known>
 - Service: <service> — repository `<repo>`
-- Window: <start> – <end> UTC<; still firing, the end is the run's time><; the request gave no zone, read as UTC>
+- Window: <start> – <end> UTC<; still firing, the end is the run's time><; the request gave no zone, read as UTC><; the request gave <its words for the time>, read against the run's time <now>>
 - Trigger: webhook payload | manual request
 - Code revision: <HEAD commit | unknown> — the repository's working tree as it stood, not verified against the deployed revision<, or: confirmed by a log line naming it>
 - Not investigated: <the payload's other service and rule groups, and its truncated-alert count | none>
@@ -91,7 +91,7 @@ Title: <one line>
 - **Quote the minimum.** Quote the fewest log lines that carry the diagnosis, and cut each to the part that matters. A query's whole result is never pasted.
 - **Redact what looks secret or personal.** In a quoted line, a value that reads as a token, password, key, cookie or authorization header, or as a person's contact or payment detail, is replaced with `[redacted]`. The diagnosis never depends on such a value.
 - **Name the code.** Every statement about code names a file and a line. A statement with no location belongs under Unverified.
-- **Say what is partial.** A query that returned its limit, a query that failed, and a pass that did not run are each named where their evidence would have stood.
+- **Say what is partial.** A query that returned its limit or left lines out for size, a query that failed, and a pass that did not run are each named where their evidence would have stood.
 - **Lookups are stated either way.** Earlier reports and tickets reads `none found` when a lookup ran and matched nothing, and `ticket lookup not run: <reason>` when it could not run.
 
 ## §5 Summary

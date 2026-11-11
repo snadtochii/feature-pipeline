@@ -21,6 +21,7 @@ import {
   ComputeError,
   UsageError,
   exitCodeFor,
+  fitLines,
   parseArgv,
   parseCredentialFile,
   parseMiniYaml,
@@ -321,6 +322,7 @@ const CASES = [
       assert(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(doc.now), `now is not RFC3339 UTC: ${doc.now}`);
       assert(/^\d{8}-\d{6}$/.test(doc.stamp), `stamp is not yyyyMMdd-HHmmss: ${doc.stamp}`);
       equal(doc.stamp, doc.now.replace(/[-:Z]/g, '').replace('T', '-'), 'stamp follows now');
+      assert(doc.run.startsWith(`${doc.stamp}-`) && /^\d{8}-\d{6}-[0-9a-f]{8}$/.test(doc.run), `run is not <stamp>-<8 hex>: ${doc.run}`);
       equal(doc.report.writable, true, 'the workspace is not a git work tree');
       equal(doc.repo.dir, api, 'repo dir');
       assert(/^[0-9a-f]{40,64}$/.test(doc.repo.head), `head is not a commit: ${doc.repo.head}`);
@@ -330,8 +332,33 @@ const CASES = [
       equal([plain.status, plain.doc.repo.head], [0, null], 'a directory with no repository has a null head');
       const bare = await runEntry(['preflight', '--project-root', root], env);
       assert(!Object.hasOwn(bare.doc, 'repo'), 'repo must be absent without --repo');
+      assert(bare.doc.run !== doc.run, 'two preflight runs must not share a run value');
       const viaEnv = await runEntry(['preflight', '--project-root', root], { ...env, INCIDENT_GRAFANA_URL: ORIGIN, INCIDENT_GRAFANA_TOKEN: TOKEN });
       equal(viaEnv.doc.token, { source: 'env' }, 'the exported pair wins');
+    })],
+  ['preflight: a query file an interrupted run left is removed after an hour', () =>
+    withTemp('sweep', async (dir) => {
+      const { root, env } = world(dir);
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const stale = writeQuery(root, QUERY, OTHER_RUN);
+      const fresh = writeQuery(root);
+      const report = path.join(root, 'claudedocs', 'incidents', '20260101-000000-alert.md');
+      fs.writeFileSync(report, '# Incident\n');
+      const target = path.join(dir, 'target.txt');
+      fs.writeFileSync(target, 'kept');
+      const link = path.join(root, 'claudedocs', 'incidents', '.query-20260101-000000-0000beef.logql');
+      fs.symlinkSync(target, link);
+      for (const file of [stale, report, target]) {
+        fs.utimesSync(file, twoHoursAgo, twoHoursAgo);
+      }
+      fs.lutimesSync(link, twoHoursAgo, twoHoursAgo);
+      const res = await runEntry(['preflight', '--project-root', root], env);
+      equal(res.status, 0, 'exit status');
+      equal(
+        [fs.existsSync(stale), fs.existsSync(fresh), fs.existsSync(report), fs.lstatSync(link).isSymbolicLink(), fs.existsSync(target)],
+        [false, true, true, true, true],
+        'only the old regular query file is removed',
+      );
     })],
   ['preflight: a failure exits 1 or 2 with one error document', () =>
     withTemp('failure', async (dir) => {
@@ -350,26 +377,36 @@ const CASES = [
       equal([usage.status, usage.doc.ok], [2, false], 'bad invocation');
     })],
   ['args: query takes a bounded window, limit and direction', () => {
+    const run = ['query', '--project-root', '/w', '--run', RUN];
     equal(
-      parseArgv(['query', '--project-root', '/w', '--start', START, '--end', '2026-11-11T06:08:00+02:00']),
-      { verb: 'query', projectRoot: '/w', start: '2026-11-11T03:53:00.000Z', end: '2026-11-11T04:08:00.000Z', limit: 200, direction: 'backward' },
+      parseArgv([...run, '--start', START, '--end', '2026-11-11T06:08:00+02:00']),
+      { verb: 'query', projectRoot: '/w', run: RUN, start: '2026-11-11T03:53:00.000Z', end: '2026-11-11T04:08:00.000Z', limit: 200, direction: 'backward' },
       'defaults and normalized instants',
     );
     const tuned = parseArgv([...windowArgs('/w'), '--limit', '1000', '--direction', 'forward']);
     equal([tuned.limit, tuned.direction], [1000, 'forward'], 'explicit limit and direction');
     equal(
-      parseArgv(['query', '--project-root', '/w', '--start', '2026-11-11T03:53:00.123456789Z', '--end', END]).start,
+      parseArgv([...run, '--start', '2026-11-11T03:53:00.123456789Z', '--end', END]).start,
       '2026-11-11T03:53:00.123Z',
       'a nanosecond fraction is cut to milliseconds',
     );
+    equal(parseArgv([...run, '--start', '2028-02-29T23:59:59-23:59', '--end', '2028-03-02T00:00:00Z']).start, '2028-03-01T23:58:59.000Z', 'a leap day at an offset');
     const bad = [
-      ['query', '--project-root', '/w'],
-      ['query', '--project-root', '/w', '--start', START],
-      ['query', '--project-root', '/w', '--start', END, '--end', START],
-      ['query', '--project-root', '/w', '--start', START, '--end', START],
-      ['query', '--project-root', '/w', '--start', '2026-11-11 03:53:00Z', '--end', END],
-      ['query', '--project-root', '/w', '--start', '2026-11-11T03:53:00', '--end', END],
-      ['query', '--project-root', '/w', '--start', 'yesterday', '--end', END],
+      ['query', '--project-root', '/w', '--start', START, '--end', END],
+      ['query', '--project-root', '/w', '--run', '20261111-040300', '--start', START, '--end', END],
+      ['query', '--project-root', '/w', '--run', '../20261111-040300-0123abcd', '--start', START, '--end', END],
+      run,
+      [...run, '--start', START],
+      [...run, '--start', END, '--end', START],
+      [...run, '--start', START, '--end', START],
+      [...run, '--start', '2026-11-11 03:53:00Z', '--end', END],
+      [...run, '--start', '2026-11-11T03:53:00', '--end', END],
+      [...run, '--start', 'yesterday', '--end', END],
+      [...run, '--start', '2026-02-30T00:00:00Z', '--end', '2026-03-03T00:00:00Z'],
+      [...run, '--start', '2027-02-29T00:00:00Z', '--end', '2027-03-03T00:00:00Z'],
+      [...run, '--start', START, '--end', '2026-11-11T24:00:00Z'],
+      [...run, '--start', START, '--end', '2026-11-11T04:08:00+24:00'],
+      [...run, '--start', START, '--end', '2026-11-11T04:08:00-02:60'],
       [...windowArgs('/w'), '--limit', '0'],
       [...windowArgs('/w'), '--limit', '1001'],
       [...windowArgs('/w'), '--limit', '1e2'],
@@ -381,21 +418,25 @@ const CASES = [
       equal(exitCodeFor(throwsKind(() => parseArgv(argv), UsageError)), 2, `exit code for ${JSON.stringify(argv)}`);
     }
   }],
-  ['query file: required, bounded, consumed, and never a symbolic link', () =>
+  ['query file: one per run, required, bounded, consumed, and never a symbolic link', () =>
     withTemp('queryfile', (dir) => {
-      throwsKind(() => takeQuery(dir), ComputeError, 'does not exist');
+      throwsKind(() => takeQuery(dir, RUN), ComputeError, 'does not exist');
       const file = writeQuery(dir, '  {app="api"}\n');
-      equal([takeQuery(dir), fs.existsSync(file)], ['{app="api"}', false], 'trimmed text, file removed');
+      const other = writeQuery(dir, '{app="worker"}', OTHER_RUN);
+      assert(file !== other, 'two runs must not share a query file');
+      equal([takeQuery(dir, RUN), fs.existsSync(file), fs.existsSync(other)], ['{app="api"}', false, true], 'trimmed text, own file removed, the other run\'s file kept');
+      throwsKind(() => takeQuery(dir, RUN), ComputeError, 'does not exist');
+      equal([takeQuery(dir, OTHER_RUN), fs.existsSync(other)], ['{app="worker"}', false], 'the other run reads its own query');
       writeQuery(dir, ' \n');
-      throwsKind(() => takeQuery(dir), ComputeError, 'is empty');
+      throwsKind(() => takeQuery(dir, RUN), ComputeError, 'is empty');
       equal(fs.existsSync(file), false, 'an empty file is removed');
       writeQuery(dir, 'x'.repeat(8 * 1024 + 1));
-      throwsKind(() => takeQuery(dir), ComputeError, 'larger than 8 KiB');
+      throwsKind(() => takeQuery(dir, RUN), ComputeError, 'larger than 8 KiB');
       equal(fs.existsSync(file), false, 'an oversized file is removed');
       const target = path.join(dir, 'target.txt');
       fs.writeFileSync(target, 'never sent');
       fs.symlinkSync(target, file);
-      throwsKind(() => takeQuery(dir), ComputeError, 'symbolic link');
+      throwsKind(() => takeQuery(dir, RUN), ComputeError, 'symbolic link');
       assert(fs.existsSync(target) && fs.lstatSync(file).isSymbolicLink(), 'a symbolic link must be left alone');
     })],
   ['query: the request carries the proxy path, the parameters and the bearer header', async () => {
@@ -425,8 +466,8 @@ const CASES = [
     );
     equal(res.doc.streams, [{ app: 'api', level: 'error' }, { app: 'worker' }], 'each stream once, string labels only');
     equal(
-      [res.doc.ok, res.doc.verb, res.doc.count, res.doc.skipped, res.doc.truncated, res.doc.origin, res.doc.datasource],
-      [true, 'query', 3, 0, false, res.origin, DATASOURCE],
+      [res.doc.ok, res.doc.verb, res.doc.count, res.doc.omitted, res.doc.skipped, res.doc.truncated, res.doc.origin, res.doc.datasource],
+      [true, 'query', 3, 0, 0, false, res.origin, DATASOURCE],
       'document',
     );
     equal(res.doc.window, { end: '2026-11-11T04:08:00.000Z', start: '2026-11-11T03:53:00.000Z' }, 'window');
@@ -448,6 +489,27 @@ const CASES = [
     const empty = await queryAgainst(reply(200, streamsBody()));
     equal([empty.status, empty.doc.count, empty.doc.truncated, empty.doc.lines], [0, 0, false, []], 'an empty result answers');
     equal(shapeStreams([{ values: 'nope' }, null]), { lines: [], streams: [], received: 0, skipped: 0 }, 'malformed streams');
+  }],
+  ['query: a result larger than 16 KiB keeps the lines its direction keeps and says how many it left out', async () => {
+    const second = (index) => nanos(`2026-11-11T04:0${Math.floor(index / 60)}:${String(index % 60).padStart(2, '0')}.000Z`);
+    const values = (from, to) => Array.from({ length: to - from }, (unused, offset) => [second(from + offset), `${from + offset} ${'x'.repeat(420)}`]);
+    const older = { stream: { app: 'api' }, values: values(0, 100) };
+    const newer = { stream: { app: 'worker' }, values: values(100, 200) };
+    const numberOf = (entry) => Number(entry.line.split(' ')[0]);
+    for (const [direction, firstKept, streams] of [['backward', (doc) => 200 - doc.count, [{ app: 'worker' }]], ['forward', () => 0, [{ app: 'api' }]]]) {
+      const res = await queryAgainst(reply(200, streamsBody(older, newer)), { limit: 500, direction });
+      const { doc } = res;
+      equal(res.status, 0, `${direction}: exit status`);
+      assert(Buffer.byteLength(res.stdout) <= 16 * 1024, `${direction}: the document is ${Buffer.byteLength(res.stdout)} bytes`);
+      assert(doc.count >= 20 && doc.count < 100, `${direction}: unexpected count ${doc.count}`);
+      equal([doc.count + doc.omitted, doc.truncated, doc.lines.length], [200, true, doc.count], `${direction}: counts`);
+      equal(doc.lines.map(numberOf), Array.from({ length: doc.count }, (unused, offset) => firstKept(doc) + offset), `${direction}: the kept lines`);
+      equal([doc.streams, new Set(doc.lines.map((entry) => entry.stream)).size], [streams, 1], `${direction}: only the streams the kept lines name`);
+    }
+    const lines = [{ line: '\u0001'.repeat(4000), stream: 1, ts: '2026-11-11T04:03:00.000Z' }, { line: 'next', stream: 0, ts: '2026-11-11T04:03:01.000Z' }];
+    const one = fitLines({ lines, streams: [{ app: 'api' }, { app: 'worker' }] }, 'forward', 1024);
+    equal([one.lines.length, one.lines[0].stream, one.streams, one.omitted], [1, 0, [{ app: 'worker' }], 1], 'one line is kept whatever its size');
+    equal(fitLines({ lines: [], streams: [] }, 'backward', 1024), { lines: [], streams: [], omitted: 0 }, 'nothing to keep');
   }],
   ['query: a refused answer names the status and the origin, never the request', async () => {
     const text = { 'content-type': 'text/plain' };
@@ -511,7 +573,7 @@ const CASES = [
         const { root, env } = world(dir, { url, credentialUrl: 'https://other.example.invalid' });
         const noFile = await runEntry(windowArgs(root), env);
         equal(noFile.status, 1, 'no query file');
-        assert(noFile.doc.error.includes('.query.logql'), `unexpected error: ${noFile.doc.error}`);
+        assert(noFile.doc.error.includes(`.query-${RUN}.logql`), `unexpected error: ${noFile.doc.error}`);
         const file = writeQuery(root);
         const foreign = await runEntry(windowArgs(root), env);
         equal([foreign.status, fs.existsSync(file)], [1, false], 'token bound to another origin');
@@ -524,8 +586,10 @@ const CASES = [
 const START = '2026-11-11T03:53:00Z';
 const END = '2026-11-11T04:08:00Z';
 const QUERY = '{app="api"} |= "error"';
+const RUN = '20261111-040300-0123abcd';
+const OTHER_RUN = '20261111-040300-89abcdef';
 
-const windowArgs = (root) => ['query', '--project-root', root, '--start', START, '--end', END];
+const windowArgs = (root) => ['query', '--project-root', root, '--run', RUN, '--start', START, '--end', END];
 const nanos = (iso) => String(BigInt(Date.parse(iso)) * 1_000_000n);
 const streamsBody = (...result) => JSON.stringify({ status: 'success', data: { resultType: 'streams', result } });
 
@@ -534,10 +598,10 @@ const reply = (status, body = '', headers = { 'content-type': 'application/json'
   out.end(body);
 };
 
-function writeQuery(root, text = QUERY) {
+function writeQuery(root, text = QUERY, run = RUN) {
   const dir = path.join(root, 'claudedocs', 'incidents');
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, '.query.logql');
+  const file = path.join(dir, `.query-${run}.logql`);
   fs.writeFileSync(file, text);
   return file;
 }
@@ -555,7 +619,7 @@ async function withStub(handler, fn) {
 }
 
 /** One `query` child run against a stand-in that answers every request with `respond`. */
-function queryAgainst(respond, { limit } = {}) {
+function queryAgainst(respond, { limit, direction } = {}) {
   return withTemp('query', (dir) => {
     const requests = [];
     const record = (req, out) => {
@@ -565,7 +629,11 @@ function queryAgainst(respond, { limit } = {}) {
     return withStub(record, async (url) => {
       const { root, env } = world(dir, { url });
       const file = writeQuery(root);
-      const args = [...windowArgs(root), ...(limit === undefined ? [] : ['--limit', String(limit)])];
+      const args = [
+        ...windowArgs(root),
+        ...(limit === undefined ? [] : ['--limit', String(limit)]),
+        ...(direction === undefined ? [] : ['--direction', direction]),
+      ];
       const res = await runEntry(args, env);
       return { ...res, requests, origin: url, queryFileLeft: fs.existsSync(file) };
     });

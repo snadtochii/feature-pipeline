@@ -1,10 +1,11 @@
 // The incident log reader's rules and verbs (../references/log-query.md):
 // argument parsing, the configuration reader, credential resolution, the
-// report gate, the query file, the request and the output documents.
+// report gate, the query files, the request and the output documents.
 //
 // Private to the implementation: only incident.mjs is a command.
 
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -23,9 +24,15 @@ const READ_NAMES = [URL_NAME, TOKEN_NAME];
 const MAX_CREDENTIAL_BYTES = 64 * 1024;
 const GIT_TIMEOUT_MS = 10_000;
 
-const QUERY_FILE = ['claudedocs', 'incidents', '.query.logql'];
+const INCIDENTS_DIR = ['claudedocs', 'incidents'];
+const RUN_ID = /^\d{8}-\d{6}-[0-9a-f]{8}$/;
+const QUERY_FILE_NAME = /^\.query-\d{8}-\d{6}-[0-9a-f]{8}\.logql$/;
+const STALE_QUERY_MS = 60 * 60 * 1000;
 const MAX_QUERY_BYTES = 8 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const MAX_DOCUMENT_BYTES = 16 * 1024;
+const ELEMENT_INDENT = '    ';
+const ARRAY_WRAP_BYTES = 8;
 const MAX_LINE_CHARS = 4000;
 const MAX_DETAIL_CHARS = 300;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -40,7 +47,7 @@ const DATASOURCE = /^[A-Za-z0-9_-]+$/;
 const REPO_NAME = /^[A-Za-z0-9._-]+$/;
 const LOOPBACK_IPV4 = /^127(?:\.\d{1,3}){3}$/;
 const COMMIT_SHA = /^[0-9a-f]{40,64}$/;
-const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|([+-])([01]\d|2[0-3]):([0-5]\d))$/;
 const POSITIVE_INTEGER = /^[1-9][0-9]{0,3}$/;
 const EPOCH_NANOSECONDS = /^\d{1,19}$/;
 const ERROR_CODE = /^[A-Z][A-Z0-9_]*$/;
@@ -48,12 +55,12 @@ const RESULT_TYPE = /^[a-z]{1,20}$/;
 
 const USAGE =
   'usage: incident.mjs preflight --project-root <abs-path> [--repo <dir-name>] | ' +
-  'incident.mjs query --project-root <abs-path> --start <RFC3339> --end <RFC3339> [--limit <n>] [--direction forward|backward] | ' +
+  'incident.mjs query --project-root <abs-path> --run <run> --start <RFC3339> --end <RFC3339> [--limit <n>] [--direction forward|backward] | ' +
   'incident.mjs --self-test';
 
 const FLAGS = {
   preflight: { '--project-root': 'projectRoot', '--repo': 'repo' },
-  query: { '--project-root': 'projectRoot', '--start': 'start', '--end': 'end', '--limit': 'limit', '--direction': 'direction' },
+  query: { '--project-root': 'projectRoot', '--run': 'run', '--start': 'start', '--end': 'end', '--limit': 'limit', '--direction': 'direction' },
 };
 
 const isSet = (value) => typeof value === 'string' && value !== '';
@@ -116,10 +123,21 @@ export function writeOut(text) {
   }
 }
 
+/** The date and time `ms` reads as at the offset its timestamp was written with. */
+function wallClock(ms, [, sign, hours, minutes]) {
+  const offsetMinutes = sign === undefined ? 0 : (sign === '-' ? -1 : 1) * (Number(hours) * 60 + Number(minutes));
+  return new Date(ms + offsetMinutes * 60_000).toISOString().slice(0, 19);
+}
+
+/**
+ * `Date.parse` rolls a date or time that does not exist over to the next one
+ * that does, so a value is accepted only when it reads back as written.
+ */
 function instant(flag, value) {
-  const ms = RFC3339.test(value) ? Date.parse(value.replace(/(\.\d{3})\d+/, '$1')) : Number.NaN;
-  if (Number.isNaN(ms)) {
-    throw new UsageError(`query: ${flag} must be an RFC3339 timestamp`);
+  const match = RFC3339.exec(value);
+  const ms = match === null ? Number.NaN : Date.parse(value.replace(/(\.\d{3})\d+/, '$1'));
+  if (Number.isNaN(ms) || wallClock(ms, match) !== value.slice(0, 19)) {
+    throw new UsageError(`query: ${flag} must be an RFC3339 timestamp naming a date and time that exist`);
   }
   return new Date(ms).toISOString();
 }
@@ -132,10 +150,13 @@ function finishPreflight(parsed) {
 }
 
 function finishQuery(parsed) {
-  for (const flag of ['--start', '--end']) {
+  for (const flag of ['--run', '--start', '--end']) {
     if (parsed[FLAGS.query[flag]] === undefined) {
       throw new UsageError(`query: ${flag} is required`);
     }
+  }
+  if (!RUN_ID.test(parsed.run)) {
+    throw new UsageError('query: --run must be the run value preflight printed');
   }
   const start = instant('--start', parsed.start);
   const end = instant('--end', parsed.end);
@@ -541,15 +562,51 @@ function fileStamp(date) {
   return rfc3339(date).replace(/[-:Z]/g, '').replace('T', '-');
 }
 
-/** The `preflight` verb: configuration, credentials, clock, report gate and repository head. No network call. */
+function queryFile(projectRoot, run) {
+  return path.join(projectRoot, ...INCIDENTS_DIR, `.query-${run}.logql`);
+}
+
+/**
+ * Remove the query files an interrupted run left under
+ * `<projectRoot>/claudedocs/incidents/`: regular files with a query file's
+ * name, last written more than an hour before `now`.
+ */
+function sweepQueryFiles(projectRoot, now) {
+  const dir = path.join(projectRoot, ...INCIDENTS_DIR);
+  let names;
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names.filter((entry) => QUERY_FILE_NAME.test(entry))) {
+    const file = path.join(dir, name);
+    try {
+      const stat = fs.lstatSync(file);
+      if (stat.isFile() && now.getTime() - stat.mtimeMs > STALE_QUERY_MS) {
+        fs.rmSync(file, { force: true });
+      }
+    } catch {
+      continue;
+    }
+  }
+}
+
+/**
+ * The `preflight` verb: configuration, credentials, clock, run identifier,
+ * report gate and repository head. No network call.
+ */
 export function preflight({ projectRoot, repo }, env = process.env, now = new Date()) {
   const config = loadConfig(projectRoot, env.HOME);
   const access = resolveAccess(env, config);
+  sweepQueryFiles(projectRoot, now);
+  const stamp = fileStamp(now);
   const doc = {
     ok: true,
     verb: 'preflight',
     now: rfc3339(now),
-    stamp: fileStamp(now),
+    stamp,
+    run: `${stamp}-${randomBytes(4).toString('hex')}`,
     grafana: { origin: config.origin, datasource: config.datasource },
     token: { source: access.source },
     report: reportGate(projectRoot, env),
@@ -562,12 +619,12 @@ export function preflight({ projectRoot, repo }, env = process.env, now = new Da
 }
 
 /**
- * Read the query text from the fixed query file and remove the file. A
+ * Read the query text from the run's query file and remove the file. A
  * symbolic link is refused and left alone; a regular file is removed whether
- * or not its content is usable, so no run leaves a query behind.
+ * or not its content is usable, so no query run leaves its query behind.
  */
-export function takeQuery(projectRoot) {
-  const file = path.join(projectRoot, ...QUERY_FILE);
+export function takeQuery(projectRoot, run) {
+  const file = queryFile(projectRoot, run);
   let fd;
   try {
     fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOFOLLOW);
@@ -717,24 +774,60 @@ export function shapeStreams(result) {
   return { lines: entries.map(({ at, ...entry }) => entry), streams, received, skipped };
 }
 
+/** An upper bound on the bytes one element adds to an array of a rendered document. */
+function elementBytes(value) {
+  const text = JSON.stringify(sortKeys(value), null, 2).replaceAll('\n', `\n${ELEMENT_INDENT}`);
+  return Buffer.byteLength(`${ELEMENT_INDENT}${text},\n`);
+}
+
+/**
+ * Keep as many of `lines` as fit `room` bytes of rendered document, counted
+ * from the end `direction` keeps — the oldest for `forward`, the newest for
+ * `backward` — together with the streams those lines name, re-indexed. One
+ * line is kept whatever its size. Returns `{ lines, streams, omitted }`. Pure.
+ */
+export function fitLines({ lines, streams }, direction, room) {
+  const ordered = direction === 'forward' ? lines : lines.toReversed();
+  const named = new Set();
+  let used = 0;
+  let keep = 0;
+  for (const entry of ordered) {
+    const cost = elementBytes(entry) + (named.has(entry.stream) ? 0 : elementBytes(streams[entry.stream]));
+    if (keep > 0 && used + cost > room) {
+      break;
+    }
+    used += cost;
+    named.add(entry.stream);
+    keep += 1;
+  }
+  const kept = direction === 'forward' ? lines.slice(0, keep) : lines.slice(lines.length - keep);
+  const order = [...named].sort((a, b) => a - b);
+  const position = new Map(order.map((index, at) => [index, at]));
+  return {
+    lines: kept.map((entry) => ({ ...entry, stream: position.get(entry.stream) })),
+    streams: order.map((index) => streams[index]),
+    omitted: lines.length - keep,
+  };
+}
+
 /** The `query` verb: one LogQL `query_range` through the datasource proxy. */
-export async function query({ projectRoot, start, end, limit, direction }, env = process.env) {
-  const text = takeQuery(projectRoot);
+export async function query({ projectRoot, run, start, end, limit, direction }, env = process.env) {
+  const text = takeQuery(projectRoot, run);
   const config = loadConfig(projectRoot, env.HOME);
   const access = resolveAccess(env, config);
   const params = new URLSearchParams({ query: text, start, end, limit: String(limit), direction });
   const url = `${config.base}/api/datasources/proxy/uid/${config.datasource}/loki/api/v1/query_range?${params}`;
-  const { lines, streams, received, skipped } = shapeStreams(await fetchStreams(url, access, config));
-  return {
+  const shaped = shapeStreams(await fetchStreams(url, access, config));
+  const head = {
     ok: true,
     verb: 'query',
     origin: config.origin,
     datasource: config.datasource,
     window: { start, end },
-    count: lines.length,
-    skipped,
-    truncated: received >= limit,
-    lines,
-    streams,
+    skipped: shaped.skipped,
   };
+  const widestWithoutLines = { ...head, count: shaped.received, omitted: shaped.received, truncated: false, lines: [], streams: [] };
+  const room = MAX_DOCUMENT_BYTES - Buffer.byteLength(render(widestWithoutLines)) - ARRAY_WRAP_BYTES;
+  const { lines, streams, omitted } = fitLines(shaped, direction, room);
+  return { ...head, count: lines.length, omitted, truncated: shaped.received >= limit || omitted > 0, lines, streams };
 }

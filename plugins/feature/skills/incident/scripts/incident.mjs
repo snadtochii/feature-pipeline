@@ -7,7 +7,7 @@
 //
 // Usage:
 //   incident.mjs preflight --project-root <abs-path> [--repo <dir-name>]
-//   incident.mjs query --project-root <abs-path> --start <RFC3339> --end <RFC3339>
+//   incident.mjs query --project-root <abs-path> --run <run> --start <RFC3339> --end <RFC3339>
 //                      [--limit <n>] [--direction forward|backward]
 //   incident.mjs --self-test
 // Output: exactly one sorted-key JSON document on stdout.
