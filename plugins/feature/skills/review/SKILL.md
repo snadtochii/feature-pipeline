@@ -110,7 +110,7 @@ Build the review body / payload / comment in a **file** and post via `--input` /
 
 ### 5. Run summary
 
-Print the heading, exactly one outcome line, then a label line for each label this run added or found present and a `⚠ Failures` line for each failure:
+Print the heading, then at most one outcome row (none when the run failed before reaching one), then a label row for each label this run added or found present and a `⚠ Failures` row for each failure:
 
 ```
 ## Review — #<num> <title> — PR <PR_URL>
@@ -122,9 +122,9 @@ Print the heading, exactly one outcome line, then a label line for each label th
 ⚠ Failures — <reason>
 ```
 
-The outcome line is `✓ Reviewed` for a posted review, `↺ Skipped` for Step 2's exit 0, and `🛑 Stopped` at the limit. A run that fails before any outcome prints only its `⚠ Failures` lines. `<k>` counts findings after filtering, so a PR whose findings were all dropped reads "no blocking issues". A follow-up with nothing to review reads `✓ Reviewed — no blocking issues — follow-up, only base merges since the last reviewed head`.
+The outcome row is `✓ Reviewed` for a posted review, `↺ Skipped` for Step 2's exit 0, and `🛑 Stopped` at the limit. `<k>` counts findings after filtering, so a PR whose findings were all dropped reads "no blocking issues". A follow-up with nothing to review reads `✓ Reviewed — no blocking issues — follow-up, only base merges since the last reviewed head`.
 
-`⚠ Failures` lines carry any `gh` or checkout error after Step 1. If a precondition failed, the preconditions already printed the one-line skip and exited before this summary.
+`⚠ Failures` rows carry any `gh` or checkout error after Step 1. If a precondition failed, the preconditions already printed the one-line skip and exited before this summary.
 
 ## Boundaries
 
