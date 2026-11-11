@@ -60,11 +60,7 @@ gh pr view "<PR>" --json number,url,state,headRefOid,title
 
 The PR's author, draft state and base do not filter it. A `state` other than `OPEN`, or a "Could not resolve" error → "`<PR>` is not an open PR" and exit cleanly. Any other error → "couldn't review (PR lookup failed: `<reason>`)" and exit, so a failed run never reads as a clean skip.
 
-**Bind from `gh`'s output, never from the argument:** `<PR_URL>` = `url`; `<OWNER>`, `<REPO>` and `<NUMBER>` parsed from it; `<HEAD_SHA>` = `headRefOid`. All later commands take `<PR_URL>`, so none of them depends on the current directory, and `<HEAD_SHA>` is the SHA the posted marker names.
-
-**Bind once for the run:** `<LOGIN>` = the printed value of `gh api user --jq .login`, written as a literal in every footer (§1). A failed or empty read prints the one line "couldn't review (viewer lookup failed: `<reason>`)" and exits. `<Model>` is `Claude` for `--agent claude` and `Codex` for `--agent codex`. The footer form and `<n>` come from Step 2, as [`references/review-memory.md`](references/review-memory.md) §1 decides them.
-
-Build a TodoWrite item for the PR so the run summary (Step 5) is recoverable.
+**Bind, never from the argument:** from `gh`'s output, `<PR_URL>` = `url`, `<OWNER>`, `<REPO>` and `<NUMBER>` parsed from it, and `<HEAD_SHA>` = `headRefOid`; `<LOGIN>` = the printed value of `gh api user --jq .login`, written as a literal in every footer (§1); `<Model>` = `Claude` for `--agent claude` and `Codex` for `--agent codex`. A failed or empty login read prints the one line "couldn't review (viewer lookup failed: `<reason>`)" and exits. All later commands take `<PR_URL>`, so none of them depends on the current directory, and `<HEAD_SHA>` is the SHA the posted marker names. The footer form and `<n>` come from Step 2, as [`references/review-memory.md`](references/review-memory.md) §1 decides them.
 
 ### 2. Idempotency check and round decision
 
@@ -114,26 +110,21 @@ Build the review body / payload / comment in a **file** and post via `--input` /
 
 ### 5. Run summary
 
-Print a grouped summary (omit empty groups). `<url>` is `<PR_URL>`:
+Print the heading, exactly one outcome line, then a label line for each label this run added or found present and a `⚠ Failures` line for each failure:
 
 ```
-## Review — #<num> <title>
+## Review — #<num> <title> — PR <PR_URL>
 
-✓ Reviewed:
-  - #<num> <title> — <k> finding(s) [or "no blocking issues"] — <full|follow-up>[, <m> dropped as dismissed] — PR <url>
-↺ Skipped, already reviewed by this model at current head:
-  - #<num> <title> — PR <url>
-🛑 Stopped at the round limit for this model:
-  - #<num> <title> — PR <url>
-🏷  Labels updated:
-  - #<num> — auto-reviewed | review-round-limit (added | already present)
-⚠ Failures:
-  - #<num> — <reason> — PR <url>
+✓ Reviewed — <k> finding(s) | no blocking issues — <full|follow-up>[, <m> dropped as dismissed]
+↺ Skipped, already reviewed by this model at current head
+🛑 Stopped at the round limit for this model
+🏷 <auto-reviewed | review-round-limit> (added | already present)
+⚠ Failures — <reason>
 ```
 
-`<k>` counts findings after filtering, so a PR whose findings were all dropped reads "no blocking issues". A follow-up with nothing to review reads `no blocking issues — follow-up, only base merges since the last reviewed head`.
+The outcome line is `✓ Reviewed` for a posted review, `↺ Skipped` for Step 2's exit 0, and `🛑 Stopped` at the limit. A run that fails before any outcome prints only its `⚠ Failures` lines. `<k>` counts findings after filtering, so a PR whose findings were all dropped reads "no blocking issues". A follow-up with nothing to review reads `✓ Reviewed — no blocking issues — follow-up, only base merges since the last reviewed head`.
 
-The `⚠ Failures` group carries any `gh` or checkout error after Step 1. If a precondition failed, the preconditions already printed the one-line skip and exited before this summary.
+`⚠ Failures` lines carry any `gh` or checkout error after Step 1. If a precondition failed, the preconditions already printed the one-line skip and exited before this summary.
 
 ## Boundaries
 
