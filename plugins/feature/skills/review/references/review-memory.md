@@ -160,7 +160,7 @@ __FP_LIMIT_NOTE__
 gh pr comment "<PR_URL>" --body-file "$WORK/limit.md" || { echo "limit note post failed" >&2; exit 6; }
 ```
 
-- **Exit 0** → the PR goes in the summary's limit group and the run continues with the next PR.
+- **Exit 0** → the PR goes in the summary's limit group and the run goes to the summary.
 - **Guard exit 3** → a `⚠ Failures` row "head moved or PR closed before flagging, nothing labelled".
 - **Exit 4** → a `⚠ Failures` row. The next run retries the label.
 - **Exit 5 or 6** → the PR goes in the limit group with a `⚠ Failures` row "limit note not posted". The next run at the limit retries it.

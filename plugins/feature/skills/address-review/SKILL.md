@@ -33,7 +33,7 @@ It is the **mutating** sibling of `feature:review`: it edits repository code to 
 Flags may appear in any position; `$1` is the first non-flag argument.
 
 ## When NOT to run
-- To **produce** a review (scan PRs, post findings) → `/feature:review`.
+- To **produce** a review (review a PR, post findings) → `/feature:review`.
 - To open a PR for a ticket → that's build's `--pr` flag, not address-review.
 - To build/implement a ticket from a spec → `/feature:build`.
 - You want a PR approved or merged → address-review never does either; merge it yourself or via `/feature:sync`.
