@@ -93,7 +93,7 @@ For a thread whose text is cut or omitted, read the full body by its id with one
 **The work set** is every `open` and `fix-failed` thread, and every `held` one except under `--auto --hold-decisions`, where a held thread waits per §9 and Step 7 lists it again. A `fix-failed` thread is retried (Step 3). What stays this skill's own call:
 
 - whether a human thread is actionable (Step 3);
-- whether a listed `human-issue` comment newer than a held top-level thread's `reply_at` plainly answers it. Only a comment whose `author` is the `viewer`, or whose `author_association` is `OWNER`, `MEMBER` or `COLLABORATOR`, can answer a hold; any other account's comment is its own thread. An answer that qualifies is the owner's answer, folded into that held thread, which is triaged with it and replied to with `answers=comment:<id>` (§9), and it is not a thread of its own;
+- whether a listed `human-issue` comment newer than a held top-level thread's `reply_at`, from an account §9's `answers=` rule lets answer a hold (its `author` and `author_association` decide), plainly answers it. Such an answer is folded into that held thread, which is triaged with it and replied to with `answers=comment:<id>` (§9), and it is not a thread of its own;
 - one combined reply to a human review summary that plainly bundles several independent asks, each triaged.
 
 Each thread gets its own verdict in Step 3 and its own reply in Step 6 — two `[F<k>]` findings of one summary are two threads.
