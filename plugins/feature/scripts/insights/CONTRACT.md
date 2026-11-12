@@ -3,14 +3,16 @@
 Authoritative surface for `insights.mjs`, which reduces every Claude Code session on this
 machine to one small cached digest. The contract fixes the verb, the transcript store it
 reads, how a session is mapped to a project, the digest schema, the recognition rules, the
-cache and its reuse rules, the summary document, the exit codes and the privacy rules. The
-implementation behind it is private and may change without changing this file.
+cache and its reuse rules, the ticket outcomes joined to the runs, the summary document, the
+exit codes and the privacy rules. The implementation behind it is private and may change
+without changing this file.
 
 The extractor knows Claude Code's transcript layout and recognizes the pipeline's runs in
 it: each agent's role, ticket and stage, the close stage's result line and the validation
 check runs (§5), with the rules `scripts/measure-session.py` in this repository applies
 wherever it has one. Token counts are stored raw and weighted on read, by `lib/runs.mjs`
-(§6).
+(§6). For each fs-native project the runs belong to, it reads the fixed lines of every
+ticket's artifacts and joins each ticket's outcome to its runs, on read (§7).
 
 ---
 
@@ -24,8 +26,8 @@ node <plugin-root>/scripts/insights/insights.mjs --self-test
 | Part | Meaning |
 |---|---|
 | `<plugin-root>` | The installed `feature` plugin's root directory. |
-| `extract` | Scans the store (§2), brings the cache (§6) up to date and prints the summary (§7). Takes no flags: every path derives from `HOME`. |
-| `--self-test` | §9. Takes no verb and no other flag. |
+| `extract` | Scans the store (§2), brings the cache (§6) up to date, joins the cached runs to the ticket trees of the projects the digests name (§7) and prints the summary (§8). Takes no flags: every path derives from `HOME` and from those project paths. |
+| `--self-test` | §10. Takes no verb and no other flag. |
 
 Only `insights.mjs` is a command. Everything under `lib/`, and the modules under `../lib/`
 that the plugin's scripts share, is private.
@@ -36,7 +38,7 @@ progress output.
 
 | Exit | Meaning | Document |
 |---|---|---|
-| 0 | The run finished, malformed lines included. | §7 summary, or the self-test's `{"cases": <n>, "ok": true}`. |
+| 0 | The run finished, malformed lines and unreadable ticket trees included. | §8 summary, or the self-test's `{"cases": <n>, "ok": true}`. |
 | 1 | Could not compute: `HOME` unset or empty, the store unreadable, the cache root not creatable, a digest not writable, or a self-test case failing. | `{"error": "<reason>"}`, naming the path where one is involved. |
 | 2 | Bad invocation: no verb, an unknown verb, any argument after `extract`, or `--self-test` with company. | `{"error": "<reason>"}`. |
 
@@ -327,7 +329,131 @@ Weighted units are `1 × input + 1.25 × cache_write + 0.1 × cache_read + 5 × 
   session in the cross-session totals; the per-session figures are unaffected. A digest of
   another `schema_version` is counted in `without_recognition` and never read.
 
-## §7 The summary document
+## §7 Ticket outcomes
+
+`lib/tickets.mjs` reads the ticket trees and `lib/outcomes.mjs` joins them to the runs, both
+on read: nothing from a ticket tree enters a digest or the cache, so an artifact rewritten
+after its close is read as it now stands. Ticket reading never fails a run.
+
+**Projects.** The projects joined are the distinct non-null `project` paths (§3) of every
+digest in the cache, a digest kept without its transcript included; no other directory is
+searched. Each gets a join state from `<project>/claudedocs/tickets/config.yaml`:
+
+| Join | When |
+|---|---|
+| `fs` | The file is absent, or its top-level `mode` is anything but `server-native`. |
+| `server-native` | `mode: server-native`. The tree is never opened and nothing calls the server. |
+| `missing` | The project directory is gone, `config.yaml` is a symlink, is not a regular file of at most 1 MiB or cannot be read, or an `fs` project's `claudedocs/tickets/` is not a directory. |
+
+**The tree.** For an `fs` project: the folders `<state>/<ID>/` of the four state folders
+`backlog`, `in-progress`, `review` and `done`, and the children `<state>/<EPIC>/tasks/<ID>/`
+of each epic. A folder name must match `^[A-Z][A-Z0-9]*-\d+$`, at most 40 characters; other
+names, and the files beside the state folders such as `config.yaml` and `_lessons.md`, are
+ignored. A folder holding `prd.md` is an epic, one holding `01-spec.md` a ticket. A folder
+holding neither, and a state folder that is a symlink or cannot be listed, is counted in
+`skipped_folders`. An ID met twice keeps the first folder in state-folder order and counts
+one in `duplicates`. Inside the tree no symlink is followed: a symlinked folder is not
+entered and a symlinked artifact is not read. An artifact is read only when it is a regular
+file of at most 1 MiB; any other is listed unrecognized and its record is null.
+
+**Frontmatter** — the first `---` block of `01-spec.md` or `prd.md`:
+
+| Field | Values |
+|---|---|
+| `kind` | `epic` for a `prd.md` or `kind: epic`; `child` when `parent` is set; else `solo`. |
+| `parent` | An ID of the folder-name shape, or null. |
+| `complexity` | `S`, `M`, `L`, `XL`, or null. |
+| `status` | `backlog`, `in-progress`, `in-review`, `done`, `cancelled`, `partial-completion`, or null. |
+| `created` | A `YYYY-MM-DD` date, or null. |
+
+A present value outside its set, one of these keys written twice, a missing `status` and a
+missing block each list the file unrecognized and leave the field null; another absent key is
+null and nothing more. `state` is the state folder the ticket sits under — a child's is its
+epic's — and `epic_folder` is a child's epic ID, else null. `status` comes from the
+frontmatter alone and `state` from the folder alone; neither is derived from the other.
+
+**`04-review.md`.** Line 1, trailing whitespace trimmed, matched exactly:
+
+| Line 1 | `label` |
+|---|---|
+| `verdict: skipped (trivial diff)` | `skipped-trivial` |
+| `verdict: skipped (no changes)` | `skipped-no-changes` |
+| `verdict: reviewed` | `reviewed` |
+| `verdict: reviewed (partial — <N>/4 reviewers)`, `N` from 1 to 3 | `reviewed-partial`, with `reviewers_ok` = `N` |
+| `verdict: failed (all reviewers)` | `failed-all` |
+| `verdict: stuck (<pattern>)` | `stuck`; the pattern is not stored |
+
+`fix_step` is line 2's `fix-step: pending` or `complete`, else null. `decisions` counts
+`accepted`, `dismissed` and `deferred`, and `outcomes` counts `applied`, `fix_failed` and
+`not_attempted`, over every `- decision: <token>` and `- outcome: <token>` line, indented or
+not, on the leading token: trailing text such as `applied (touches …)` or
+`deferred (conflict) — …` still counts. Any other line 1, and a marked line with any other
+leading token, list the file unrecognized, the counts kept. `present` is false for an absent
+file.
+
+**`05-tests.md`**, the first form that fits:
+
+| Form | Record |
+|---|---|
+| No file | `state: absent` |
+| Line 1 `verdict: skipped (<cause>)`, the cause one of the five below | `state: skipped`, `cause` |
+| Line 1 starting `Source: ship end-of-run UI verification`, line 2 `verdict: pass` or `partial` | `state: ran`, `by: ship`, `result` |
+| Line 1 starting with neither `verdict:` nor `Source:`, and a column-0 `## Pass: <repo>` or `## Screenshots` heading | `state: ran`, `by: close`, `failed_criteria`: whether a `## Failed Criteria` heading is present |
+
+| Cause | `cause` |
+|---|---|
+| `no UI work in plan` | `no-ui-work` |
+| `UI testing disabled by --no-ui-testing` | `no-ui-testing-flag` |
+| `no testable repo in ticket` | `no-testable-repo` |
+| `app unreachable` | `app-unreachable` |
+| `browser driver unavailable` | `driver-unavailable` |
+
+Any other file is unrecognized, its `state` null. No label is looked for past line 2, so one
+on a later line is never found.
+
+**`06-summary.md`.** `verdict` is line 1's `verdict: pass`, `partial` or `stuck`. `pr` comes
+from the last column-0 `pr:` line: `{repo: "<owner>/<name>", number}` for
+`pr: https://github.com/<owner>/<name>/pull/<number>`, `none` for `pr: none — <reason>`, the
+reason not stored, and null otherwise. `has_branch` is whether a column-0 `branch: <name>`
+line is present; the name is not stored. Another line 1, or a last `pr:` line of another
+form, lists the file unrecognized. `summary_mtime` is the ISO time of the file's
+modification time; with `created`, it dates a ticket whose sessions are gone, and neither is
+merged into a session's `start` or `end`.
+
+**The join.** `ticketDataset(digests)` reads each project once and joins on (`project`,
+ticket ID), the key of `ticketRuns` (§6), so a ticket has one entry whatever its sources:
+
+| `source` | Entry |
+|---|---|
+| `both` | A run ticket whose project's join is `fs` and whose project's tree holds its ID. |
+| `sessions` | Every other run ticket: its project `server-native` or `missing`, its ID in no folder of its own project's tree, or its `project` null. |
+| `artifacts` | A ticket of an `fs` tree that no run names. |
+
+An entry is a `ticketRuns` entry with `source`, `outcome`, `verdict` and `feature_versions`
+added. `outcome` holds `kind`, `parent`, `complexity`, `status`, `state`, `epic_folder`,
+`created`, `summary_mtime` and the `review`, `tests` and `summary` records above, each record
+null for an epic or an unreadable file; `outcome` is null on a `sessions` entry. `verdict` is
+the summary's. `feature_versions` is the sorted union of the entry's stage versions. On an
+`artifacts` entry the plugin version is unknown: `feature_versions` and `weighted_units` are
+null, and `by_role`, `sessions` and `close_results` empty. The close results stay as
+`ticketRuns` reads them from the transcripts, beside the artifact verdict.
+
+The dataset is `{counts, projects, tickets, unrecognized, without_recognition}`:
+
+| Field | Meaning |
+|---|---|
+| `counts.joined`, `counts.artifacts_only`, `counts.sessions_only` | Entries by `source`, `sessions_only` counting those with a project. |
+| `counts.unmapped_runs` | `sessions` entries whose `project` is null. |
+| `counts.verdict_mismatch` | `both` entries whose last non-null close-result verdict differs from the artifact verdict. Counted, never resolved. |
+| `counts.projects_by_join` | Projects per join state. |
+| `counts.duplicates`, `counts.skipped_folders` | Summed across the trees. |
+| `counts.unrecognized_total` | The length of `unrecognized`. |
+| `projects` | `{join, path}` per project, sorted by path. |
+| `tickets` | The entries, sorted by project, then ticket ID. |
+| `unrecognized` | `{artifact, project, ticket}` per unrecognized artifact, the artifact its file name, sorted. |
+| `without_recognition` | §6. |
+
+## §8 The summary document
 
 | Field | Meaning |
 |---|---|
@@ -340,11 +466,12 @@ Weighted units are `1 × input + 1.25 × cache_write + 0.1 × cache_read + 5 × 
 | `malformed_sessions_total` | How many there are. |
 | `anomalies` | §5's counts summed across the digests of the sessions seen. |
 | `skipped_entries` | §2. |
+| `tickets` | §7's `counts`, plus `projects` — the first 20 `{join, path}` entries — with `projects_total`, how many there are, and `unrecognized`, §7's first 20 entries. |
 
-The document holds counts and store-relative paths only, so its size is bounded whatever
-the store holds.
+The document holds counts, store-relative paths, project paths, ticket IDs and artifact file
+names only, so its size is bounded whatever the store and the ticket trees hold.
 
-## §8 Privacy
+## §9 Privacy
 
 - No message text enters a digest or the summary: no user prompt, assistant text, tool input
   or tool output. Tool-result content is read only to classify it (§5), its first 300
@@ -355,16 +482,24 @@ the store holds.
   shape-checked type, IDs and depth (§4); its `description` is read in memory to derive the role and ticket and
   is never stored. Assistant text, handback messages and `Bash` commands are scanned for §5's
   patterns and never stored either.
-- The store is read-only. Writes go only under `$HOME/.feature-pipeline/insights/`.
+- From a ticket artifact only §7's values are kept: closed tokens, integer counts, ticket
+  IDs, `YYYY-MM-DD` dates, an ISO modification time and a PR's owner, name and number. No
+  title, reason, branch name, stuck pattern, label text or other prose is stored or printed;
+  an unrecognized artifact is listed by ticket ID and file name, never quoted.
+- The store and every ticket tree are read-only: nothing under a project is written,
+  renamed or re-moded, no symlink inside a ticket tree is followed, and only regular files
+  are read. A server-native project's tree is never opened. Writes go only under
+  `$HOME/.feature-pipeline/insights/`.
 - No network access. `git` runs with `-C <cwd>` as one argument, never through a shell.
 
-## §9 Self-test
+## §10 Self-test
 
 `insights.mjs --self-test` runs offline over committed synthetic fixtures under
-`fixtures/transcripts/`, which hold no real transcript content; every free-text field in
-them carries a sentinel string. It materializes the project tree, a git repository with a
-linked worktree, a scratch directory and a `memory/` directory at run time, under a
-temporary `HOME`. It covers:
+`fixtures/transcripts/` and `fixtures/tickets/`, which hold no real transcript or ticket
+content; every free-text field in them carries a sentinel string. It materializes the
+project tree, a git repository with a linked worktree, a scratch directory and a `memory/`
+directory at run time, under a temporary `HOME`, with the ticket fixtures copied into two
+projects' `claudedocs/tickets/` — one fs-native, one server-native. It covers:
 
 - argument handling;
 - token deduplication and the terminal-record preference, top-level usage keys only;
@@ -388,12 +523,28 @@ temporary `HOME`. It covers:
   counted; the run reader's per-session ticket and role totals; one ticket across both
   sessions, its stages and close results in start order; an older-schema digest counted
   without recognition;
+- the ticket artifacts' forms: frontmatter vocabularies, a repeated key and a missing block;
+  every `04-review.md` label and its drift forms, decision and outcome tokens indented or
+  carrying trailing text, unknown tokens; the five skip causes, the ship and close browser
+  passes, an absent `05-tests.md`, a label on line 3; the summary verdict, the last `pr:`
+  line, `pr: none`, malformed PR URLs and `branch:` presence;
+- the storage mode from `config.yaml`, a symlinked `config.yaml` included, and a tree read
+  with a symlinked state folder, a
+  symlinked artifact, an artifact over the cap and a duplicate ID;
+- the join in memory: each `source`, a verdict mismatch, an unmapped run, a server-native
+  or missing project and another project's ID never joined, and one tree read per project;
+- the ticket dataset end to end: a pass with a close browser pass, a partial epic child with
+  fix-failed findings and a skipped browser pass, a stuck ticket, an epic and tickets with no
+  session, a ship browser pass, a ticket unrecognized in every artifact, a symlinked ticket
+  folder skipped, and a server-native project's run kept without an outcome; the summary's
+  `tickets` block;
 - incremental reruns: everything reused, a changed project remapped without a parse, one
   changed transcript parsed, a schema change parsed, a deleted subagent kept stale even
   under a schema change, a deleted transcript kept;
-- after every run: the sentinel — carried by every free-text meta field too — in no digest,
-  stdout or stderr; the store unchanged; digest modes 0600 and directory modes 0700;
-  nothing written outside `$HOME/.feature-pipeline/insights/`.
+- after every run: the sentinel — carried by every free-text meta field and ticket field
+  too — in no digest, stdout, stderr or ticket dataset; the store and the ticket trees
+  unchanged; digest modes 0600 and directory modes 0700; nothing written outside
+  `$HOME/.feature-pipeline/insights/`.
 
 It runs in `.github/workflows/validation.yml` and in the check chain in `AGENTS.md`, and so
 does this repository's `scripts/check-insights-parity.mjs`, which holds the weighted units
