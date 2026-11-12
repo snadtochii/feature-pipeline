@@ -577,7 +577,9 @@ exception's message.
 time the run's own in UTC, `<slug>` either `all` or the project's base name reduced to
 `[A-Za-z0-9._-]` (`project` when nothing is left); a name already taken gets `-2`, `-3` and so
 on. `reports/` is a real directory of mode 0700, and each report a file of mode 0600 written
-through a temporary file and renamed into place. No report is overwritten or removed.
+through a temporary file and hard-linked to its name, a link that fails when the name exists.
+Taking a name and publishing to it are that one step, so of two runs in the same second each
+gets its own name. No report is overwritten or removed.
 
 **The report document.**
 
@@ -678,8 +680,9 @@ projects' `claudedocs/tickets/` — one fs-native, one server-native. It covers:
   end-to-end reports over the fixtures for every project, one project by base name and a
   comparison, usage errors writing no report and an unset `HOME`; and in process an
   extractor failure explained in the page, an unexpected exception explained by its class
-  and code without its message, a second report in the same second, and a `reports` path
-  that is a file; a session starting before the window left out with its stages, a stage
+  and code without its message, a second report in the same second, a name another run
+  already took left as it was with the next suffix taken, and a `reports` path that is a
+  file; a session starting before the window left out with its stages, a stage
   counted in its session's week, the stage and project tables agreeing per week, and the
   session wall-clock beside the stage wall-clock;
 - after every run: the sentinel — carried by every free-text meta field and ticket field

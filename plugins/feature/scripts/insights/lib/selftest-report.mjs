@@ -8,11 +8,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ComputeError, UsageError } from '../../lib/output.mjs';
-import { assert, equal, rejectsKind } from '../../lib/selftest-kit.mjs';
+import { assert, equal, rejectsKind, throwsKind } from '../../lib/selftest-kit.mjs';
+import { writeExclusive } from '../../lib/write-atomic.mjs';
 import { NO_SKILL, aggregate, dayOf, defaultSinceMs, findingsOf, isoWeekStart, skillOf, verdictOf } from './aggregate.mjs';
 import { MIN_COMPARE_RUNS, compareWindows } from './compare.mjs';
 import { esc, renderPage, skeletonSignature } from './html.mjs';
-import { report } from './report.mjs';
+import { publishReport, report } from './report.mjs';
 import { SENTINEL } from './fixtures.mjs';
 import { childEnv, runEntry, listing, checkCache, ticketListings, NO_DECISIONS, NO_TESTS, at, NO_FLAGS, NO_FRICTION, EMPTY_DATASET, NOV, isoNov, synthAgent, synthDigest, runTicket, days, bodyMarkers, boxOf } from './selftest-world.mjs';
 
@@ -221,5 +222,23 @@ export const REPORT_CASES = [
     await rejectsKind(() => run({ home: blocked, runExtractFn: async () => ({ dataset: EMPTY_DATASET, digests: [] }) }), ComputeError, 'reports directory');
     await rejectsKind(() => run({ home: '' }), ComputeError, 'HOME');
     await rejectsKind(() => run({ flags: NO_FLAGS }), UsageError, 'belongs to no project');
+  }],
+  ['report publish: a name another run already took is never replaced; the next suffix is taken', (world) => {
+    const dir = path.join(world.dir, 'reports-race');
+    fs.mkdirSync(dir, { mode: 0o700 });
+    const target = path.join(dir, 'taken.html');
+    fs.writeFileSync(target, 'first run');
+    throwsKind(() => writeExclusive(target, 'second run'), Error, 'EEXIST');
+    equal([fs.readFileSync(target, 'utf8'), fs.readdirSync(dir)], ['first run', ['taken.html']], 'the taken name keeps its report and no temporary file is left');
+    fs.writeFileSync(path.join(dir, '20261112T000000Z-all.html'), 'run one');
+    fs.writeFileSync(path.join(dir, '20261112T000000Z-all-2.html'), 'run two');
+    const file = publishReport(dir, NOV(12, 0), 'all', 'run three');
+    equal(path.basename(file), '20261112T000000Z-all-3.html', 'the first free suffix');
+    equal(
+      ['20261112T000000Z-all.html', '20261112T000000Z-all-2.html', '20261112T000000Z-all-3.html'].map((name) => fs.readFileSync(path.join(dir, name), 'utf8')),
+      ['run one', 'run two', 'run three'],
+      'every report keeps its own contents',
+    );
+    equal(fs.statSync(file).mode & 0o777, 0o600, 'mode of the published report');
   }],
 ];

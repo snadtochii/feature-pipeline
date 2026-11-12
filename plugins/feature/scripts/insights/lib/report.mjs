@@ -7,11 +7,10 @@
 //
 // Private to the implementation: only insights.mjs is a command.
 
-import fs from 'node:fs';
 import path from 'node:path';
 
 import { ComputeError, UsageError, oneLine } from '../../lib/output.mjs';
-import { writeAtomic } from '../../lib/write-atomic.mjs';
+import { writeExclusive } from '../../lib/write-atomic.mjs';
 import { dateMs, shown } from './args.mjs';
 import { aggregate, defaultSinceMs, runTickets, unrecognizedReviews, windowSessions } from './aggregate.mjs';
 import { ensureReportsDir, loadDigests, pathsFor } from './cache.mjs';
@@ -72,16 +71,27 @@ export function matchProject(scope, projects) {
   throw new UsageError(`unknown project ${shown(scope.name)}; known: ${known.length > 0 ? known.join(', ') : 'none'}`);
 }
 
-/** `<YYYYMMDDTHHMMSSZ>-<slug>.html` under `dir`, suffixed `-2`, `-3`, … past any existing name. */
-export function reportFile(dir, now, label) {
+/**
+ * Publish `html` as `<YYYYMMDDTHHMMSSZ>-<slug>.html` under `dir`, suffixed
+ * `-2`, `-3`, … past any name already taken, and return its path. Taking a
+ * name and publishing to it are one exclusive link, so a report started in
+ * the same second by another run never replaces this one, nor this one it.
+ */
+export function publishReport(dir, now, label, html) {
   const stamp = new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z').replace(/[-:]/g, '');
   const slug = label.replace(SLUG_UNSAFE, '') || 'project';
   const base = `${stamp}-${slug}`;
-  let name = `${base}.html`;
-  for (let index = 2; fs.existsSync(path.join(dir, name)); index += 1) {
-    name = `${base}-${index}.html`;
+  for (let index = 1; ; index += 1) {
+    const file = path.join(dir, index === 1 ? `${base}.html` : `${base}-${index}.html`);
+    try {
+      writeExclusive(file, html, 0o600);
+      return file;
+    } catch (err) {
+      if (err?.code !== 'EEXIST') {
+        throw new ComputeError(`cannot write the report ${file} (${err?.code ?? 'error'})`);
+      }
+    }
   }
-  return path.join(dir, name);
 }
 
 const percent = (part, whole) => Math.round((100 * part) / whole);
@@ -162,12 +172,7 @@ export async function report({ flags, home, cwd, now, probe = defaultProbe, runE
       : compareWindows({ tickets: runTickets(dataset, projects, flags.since === null ? null : windowSessions(digests, since)), unrecognized: unrecognizedReviews(dataset), version: flags.compare });
   const html = renderPage({ agg, compare, meta: { extract_error: extractError, generated: new Date(now).toISOString(), label } });
   ensureReportsDir(reportsDir);
-  const file = reportFile(reportsDir, now, label);
-  try {
-    writeAtomic(file, html, 0o600);
-  } catch (err) {
-    throw new ComputeError(`cannot write the report ${file} (${err.code ?? 'error'})`);
-  }
+  const file = publishReport(reportsDir, now, label, html);
   return {
     compare: compare === null ? 'off' : compare.state,
     extract_error: extractError,
