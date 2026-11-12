@@ -165,7 +165,7 @@ With no failing line in the window, passes 2 and 3 run only for IDs the request 
 
 ### 6. Read the code path
 
-From the lines in hand, the describing line first, take what locates the code: a message's literal text, a logger or module name, a route, a handler, a file name, an error type. Write them as patterns, several to one search, and run `search --scope repo --repo '<repo>'`; `Read` the matched files around the matched lines, and follow the call to where the failure arises, searching again for each name the code leads to. The diagnosis names each file and line it rests on. A search that fails is recorded, and the diagnosis rests on what the searches before it found.
+From the lines in hand, the describing line first, take what locates the code: a message's literal text, a logger or module name, a route, a handler, a file name, an error type. Write them as patterns, several to one search, and run `search --scope repo --repo '<repo>'`; when the answer is `truncated`, run each pattern with no listed match again, alone. `Read` the matched files around the matched lines, and follow the call to where the failure arises, searching again for each name the code leads to. The diagnosis names each file and line it rests on. A search that fails is recorded, and the diagnosis rests on what the searches before it found.
 
 The code read is the repository's working tree as it stands, at `repo.head`. Every statement about code is marked unverified against the deployed revision, unless a log line names a version or commit that matches.
 

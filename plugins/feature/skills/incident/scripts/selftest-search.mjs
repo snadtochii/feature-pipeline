@@ -9,8 +9,8 @@ import path from 'node:path';
 
 import { ComputeError, UsageError, exitCodeFor } from '../../../scripts/lib/output.mjs';
 import { assert, equal, throwsKind } from '../../../scripts/lib/selftest-kit.mjs';
-import { parseArgv, searchFile } from './lib.mjs';
-import { takePatterns } from './search.mjs';
+import { parseArgv } from './lib.mjs';
+import { searchFile, takePatterns } from './search.mjs';
 import { OTHER_RUN, RUN, configText, runEntry, withTemp, world, writeConfig, writeCredentials } from './selftest-fixtures.mjs';
 
 function put(root, rel, content) {
@@ -140,13 +140,21 @@ export const SEARCH_CASES = [
       const config = await searchIn(root, env, ['INCIDENT_GRAFANA'], '--scope', 'repo', '--repo', '.config');
       equal([config.status, config.doc.matches.map((match) => match.path)], [0, ['tool.txt']], 'a .config root still leaves gh/ out');
     })],
-  ['search: the project-root repository leaves claudedocs/ out', () =>
+  ['search: the repo scope never reaches into claudedocs/', () =>
     withTemp('search-root', async (dir) => {
       const { root, env } = world(dir);
       put(root, 'notes.md', 'grafana_url is documented here');
+      put(root, 'api/claudedocs/notes.md', 'grafana_url in a service');
       put(root, 'claudedocs/incidents/20261112-040300-bl-api-5xx.md', 'grafana_url');
+      put(root, 'claudedocs/incidents/sub/20261101-000000-bl-api-5xx.md', 'grafana_url');
       const res = await searchIn(root, env, ['grafana_url'], '--scope', 'repo', '--repo', '.');
-      equal([res.status, pathsOf(res.doc)], [0, ['notes.md']], 'claudedocs/ is not searched');
+      equal([res.status, pathsOf(res.doc)], [0, ['api/claudedocs/notes.md', 'notes.md']], 'the top-level claudedocs/ is not searched');
+      fs.symlinkSync(path.join(root, 'claudedocs'), path.join(root, 'docs-link'));
+      for (const named of ['claudedocs', 'docs-link']) {
+        const refused = await searchIn(root, env, ['grafana_url'], '--scope', 'repo', '--repo', named);
+        equal([refused.status, refused.searchFileLeft], [1, false], `a repo root inside claudedocs/ through ${named}`);
+        assert(refused.doc.error.includes('repo search never reads'), `unexpected error: ${refused.doc.error}`);
+      }
     })],
   ['search: the incidents scope reads the top-level reports only', () =>
     withTemp('search-incidents', async (dir) => {

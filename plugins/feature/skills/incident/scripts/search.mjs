@@ -1,4 +1,5 @@
-// The incident log reader's `search` verb (../references/log-query.md §6):
+// The incident log reader's `search` verb and its argument rules
+// (../references/log-query.md §1, §6):
 // fixed strings from the run's search file, matched case-insensitively
 // against the relative paths and the lines of the files under one of three
 // roots inside the project. The walk never follows a symbolic link, never
@@ -12,8 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { parseMiniYaml } from '../../../scripts/lib/mini-yaml.mjs';
-import { ComputeError, largestFit, oneLine, render } from '../../../scripts/lib/output.mjs';
-import { INCIDENTS_DIR, MAX_DOCUMENT_BYTES, TICKETS_DIR, configFile, searchFile, takeInputFile, tokenFilePath } from './lib.mjs';
+import { ComputeError, UsageError, largestFit, oneLine, render } from '../../../scripts/lib/output.mjs';
+import { INCIDENTS_DIR, MAX_DOCUMENT_BYTES, REPO_RULE, RUN_ID, TICKETS_DIR, configFile, isRepoName, takeInputFile, tokenFilePath } from './project.mjs';
 
 const MAX_SEARCH_BYTES = 4 * 1024;
 const MAX_PATTERNS = 20;
@@ -32,26 +33,72 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', '.venv', '__pycache__', '.nex
 const SECRET_FILE = /^(?:\.env.*|.*\.pem|.*\.key|id_.*|secrets.*|.*credentials.*|\.netrc|\.npmrc|\.pypirc)$/i;
 const OPEN_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
 
+const OUTPUTS = ['lines', 'files'];
+
+/** The `search` verb's flags, each mapped to the field it sets. */
+export const SEARCH_FLAGS = { '--project-root': 'projectRoot', '--run': 'run', '--scope': 'scope', '--repo': 'repo', '--output': 'output' };
+
+/**
+ * Each scope's root, whether the walk descends, which file names it reads,
+ * and which project-relative directories it leaves out beyond those no
+ * search enters: the repo scope never reaches into `claudedocs/`.
+ */
 const SCOPES = {
   repo: {
     root: ({ projectRoot, repo }) => (repo === '.' ? projectRoot : path.join(projectRoot, repo)),
     recursive: true,
     reads: () => true,
+    leavesOut: (parts) => parts[0] === 'claudedocs',
   },
   incidents: {
     root: ({ projectRoot }) => path.join(projectRoot, ...INCIDENTS_DIR),
     recursive: false,
     reads: (name) => name.endsWith('.md'),
+    leavesOut: () => false,
   },
   tickets: {
     root: ({ projectRoot }) => path.join(projectRoot, ...TICKETS_DIR),
     recursive: true,
     reads: (name) => name === '01-spec.md' || name === 'prd.md',
+    leavesOut: () => false,
   },
 };
 
+const SCOPE_NAMES = Object.keys(SCOPES);
+
 const byCodeUnit = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Check the parsed `search` flags and default `--output`. Throws a UsageError naming the flag at fault. */
+export function finishSearch(parsed) {
+  if (parsed.run === undefined) {
+    throw new UsageError('search: --run is required');
+  }
+  if (!RUN_ID.test(parsed.run)) {
+    throw new UsageError('search: --run must be the run value preflight printed');
+  }
+  if (!SCOPE_NAMES.includes(parsed.scope)) {
+    throw new UsageError(`search: --scope must be ${SCOPE_NAMES.slice(0, -1).join(', ')} or ${SCOPE_NAMES.at(-1)}`);
+  }
+  if (parsed.scope === 'repo' && parsed.repo === undefined) {
+    throw new UsageError('search: --scope repo needs --repo');
+  }
+  if (parsed.scope !== 'repo' && parsed.repo !== undefined) {
+    throw new UsageError('search: --repo applies to --scope repo only');
+  }
+  if (parsed.repo !== undefined && !isRepoName(parsed.repo)) {
+    throw new UsageError(`search: --repo ${REPO_RULE}`);
+  }
+  const output = parsed.output ?? 'lines';
+  if (!OUTPUTS.includes(output)) {
+    throw new UsageError('search: --output must be lines or files');
+  }
+  return { ...parsed, output };
+}
+
+export function searchFile(projectRoot, run) {
+  return path.join(projectRoot, ...INCIDENTS_DIR, `.search-${run}.txt`);
+}
 
 /**
  * Read the run's patterns from its search file and remove the file: one fixed
@@ -87,15 +134,20 @@ function credentialOf(projectRoot, home) {
   }
 }
 
-/** Whether a directory named `name` under the relative directory `parent` is one the walk never enters. */
-function neverEntered(name, parent) {
-  return SKIP_DIRS.has(name) || (name === 'gh' && path.posix.basename(parent) === '.config');
+/**
+ * Whether a search of `spec`'s scope never enters the directory at the
+ * project-relative path `projectRel`: one under a skipped directory, `gh`
+ * inside `.config`, or one the scope leaves out.
+ */
+function leftOut(spec, projectRel) {
+  const parts = projectRel === '' ? [] : projectRel.split('/');
+  return parts.some((part, index) => SKIP_DIRS.has(part) || (part === 'gh' && parts[index - 1] === '.config')) || spec.leavesOut(parts);
 }
 
 /**
  * The scope's root as a real path inside the project root, and its path
  * relative to the project root, or null when it does not exist. A root at or
- * under a directory the walk never enters is refused.
+ * under a directory the scope never enters is refused.
  */
 function resolveRoot(scope, { projectRoot, repo }) {
   const root = SCOPES[scope].root({ projectRoot, repo });
@@ -112,19 +164,27 @@ function resolveRoot(scope, { projectRoot, repo }) {
   if (real !== project && !real.startsWith(`${project}${path.sep}`)) {
     throw new ComputeError(`${root} resolves outside the project root`);
   }
-  const parts = path.relative(project, real).split(path.sep).filter((part) => part !== '');
-  if (parts.some((part, index) => neverEntered(part, parts.slice(0, index).join('/')))) {
-    throw new ComputeError(`${root} is inside a directory a search never reads`);
+  const rel = path.relative(project, real).split(path.sep).join('/');
+  if (leftOut(SCOPES[scope], rel)) {
+    throw new ComputeError(`${root} is inside a directory a ${scope} search never reads`);
   }
   if (!fs.statSync(real).isDirectory()) {
     throw new ComputeError(`${root} is not a directory`);
   }
-  return { real, rel: parts.join('/') };
+  return { real, rel };
 }
 
-function skipsDirectory(name, parent, walk) {
-  const above = parent === '' ? walk.rootRel : `${walk.rootRel}/${parent}`;
-  return neverEntered(name, above) || (parent === '' && name === walk.skipTop);
+/** Read from `from` on until `buffer` is full or the file ends; the bytes it then holds. */
+function fill(fd, buffer, from) {
+  let length = from;
+  while (length < buffer.length) {
+    const read = fs.readSync(fd, buffer, length, buffer.length - length, length);
+    if (read === 0) {
+      break;
+    }
+    length += read;
+  }
+  return length;
 }
 
 function excerpt(line, at) {
@@ -190,8 +250,8 @@ function scanFile(file, rel, walk) {
       walk.skipped += 1;
       return;
     }
-    const probe = Buffer.alloc(BINARY_PROBE_BYTES);
-    if (probe.subarray(0, fs.readSync(fd, probe, 0, BINARY_PROBE_BYTES, 0)).includes(0)) {
+    const probed = fs.readSync(fd, walk.buffer, 0, BINARY_PROBE_BYTES, 0);
+    if (walk.buffer.subarray(0, probed).includes(0)) {
       walk.skipped += 1;
       return;
     }
@@ -199,14 +259,14 @@ function scanFile(file, rel, walk) {
       walk.partial = 'bytes';
       return;
     }
-    const content = fs.readFileSync(fd);
-    walk.bytes += content.length;
-    if (content.length > MAX_FILE_BYTES || content.subarray(0, BINARY_PROBE_BYTES).includes(0)) {
+    const length = fill(fd, walk.buffer, probed);
+    walk.bytes += length;
+    if (length > MAX_FILE_BYTES) {
       walk.skipped += 1;
       return;
     }
     walk.files += 1;
-    matchLines(rel, content.toString('utf8'), walk);
+    matchLines(rel, walk.buffer.toString('utf8', 0, length), walk);
   } catch {
     walk.skipped += 1;
   } finally {
@@ -214,7 +274,8 @@ function scanFile(file, rel, walk) {
   }
 }
 
-function visit(dir, rel, depth, walk) {
+/** Visit the directory at the project-relative path `projectRel`; a match is reported relative to the scope's root. */
+function visit(dir, projectRel, depth, walk) {
   let items;
   try {
     items = fs.readdirSync(dir, { withFileTypes: true });
@@ -227,13 +288,13 @@ function visit(dir, rel, depth, walk) {
     if (walk.partial !== null) {
       return;
     }
-    const itemRel = rel === '' ? item.name : `${rel}/${item.name}`;
+    const itemRel = projectRel === '' ? item.name : `${projectRel}/${item.name}`;
     if (item.isDirectory()) {
-      if (walk.spec.recursive && depth < MAX_DEPTH && !skipsDirectory(item.name, rel, walk)) {
+      if (walk.spec.recursive && depth < MAX_DEPTH && !leftOut(walk.spec, itemRel)) {
         visit(path.join(dir, item.name), itemRel, depth + 1, walk);
       }
     } else if (item.isFile() && walk.spec.reads(item.name) && !SECRET_FILE.test(item.name)) {
-      scanFile(path.join(dir, item.name), itemRel, walk);
+      scanFile(path.join(dir, item.name), itemRel.slice(walk.prefix.length), walk);
     }
   }
 }
@@ -253,10 +314,10 @@ export function search({ projectRoot, run, scope, repo, output }, env = process.
   const root = resolved?.real ?? null;
   const walk = {
     spec: SCOPES[scope],
-    rootRel: resolved?.rel ?? '',
+    prefix: resolved === null || resolved.rel === '' ? '' : `${resolved.rel}/`,
     matchers: patterns.map((pattern) => new RegExp(escapeRegExp(pattern), 'iu')),
     credential: credentialOf(projectRoot, env.HOME),
-    skipTop: scope === 'repo' && repo === '.' ? 'claudedocs' : undefined,
+    buffer: Buffer.allocUnsafe(MAX_FILE_BYTES + 1),
     files: 0,
     skipped: 0,
     bytes: 0,
@@ -265,7 +326,7 @@ export function search({ projectRoot, run, scope, repo, output }, env = process.
     found: [],
   };
   if (root !== null) {
-    visit(root, '', 0, walk);
+    visit(root, resolved.rel, 0, walk);
   }
   walk.found.sort((a, b) => byCodeUnit(a.path, b.path) || a.line - b.line || a.pattern - b.pattern);
   const listed = output === 'files' ? filesOf(walk.found) : walk.found;

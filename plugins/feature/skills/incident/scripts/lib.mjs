@@ -1,10 +1,10 @@
-// The incident log reader's rules and its `preflight` and `query` verbs
-// (../references/log-query.md): argument parsing for every verb, the
-// `incident:` block's rules, credential resolution, the report gate, the
-// query and search files, the request filter, the request and the output
-// documents. The `search` verb is search.mjs. The output contract, the
-// `config.yaml` reader and the credential-file rules are the plugin's shared
-// script modules.
+// The incident log reader's argument parsing and its `preflight` and `query`
+// verbs (../references/log-query.md): the command line, the `incident:`
+// block's rules, credential resolution, the report gate, the query file, the
+// request filter, the request and the output documents. The `search` verb
+// and its argument rules are search.mjs; the layout and rules both share are
+// project.mjs. The output contract, the `config.yaml` reader and the
+// credential-file rules are the plugin's shared script modules.
 //
 // Private to the implementation: only incident.mjs is a command.
 
@@ -16,6 +16,19 @@ import path from 'node:path';
 import { UNSAFE_VALUE, cleanHttpUrl, readCredentialFile } from '../../../scripts/lib/credential-file.mjs';
 import { parseMiniYaml } from '../../../scripts/lib/mini-yaml.mjs';
 import { ComputeError, UsageError, errorDoc as errorLine, largestFit, oneLine, render } from '../../../scripts/lib/output.mjs';
+import {
+  INCIDENTS_DIR,
+  MAX_DOCUMENT_BYTES,
+  REPO_RULE,
+  RUN_ID,
+  configFile,
+  isRepoName,
+  isSet,
+  sweepInputFiles,
+  takeInputFile,
+  tokenFilePath,
+} from './project.mjs';
+import { SEARCH_FLAGS, finishSearch } from './search.mjs';
 
 const URL_NAME = 'INCIDENT_GRAFANA_URL';
 const TOKEN_NAME = 'INCIDENT_GRAFANA_TOKEN';
@@ -25,14 +38,8 @@ export const READ_NAMES = [URL_NAME, TOKEN_NAME];
 
 const GIT_TIMEOUT_MS = 10_000;
 
-export const INCIDENTS_DIR = ['claudedocs', 'incidents'];
-export const TICKETS_DIR = ['claudedocs', 'tickets'];
-const RUN_ID = /^\d{8}-\d{6}-[0-9a-f]{8}$/;
-const INPUT_FILE_NAME = /^\.(?:query-\d{8}-\d{6}-[0-9a-f]{8}\.logql|search-\d{8}-\d{6}-[0-9a-f]{8}\.txt)$/;
-const STALE_INPUT_MS = 60 * 60 * 1000;
 const MAX_QUERY_BYTES = 8 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
-export const MAX_DOCUMENT_BYTES = 16 * 1024;
 const MAX_LINE_CHARS = 4000;
 const MAX_DETAIL_CHARS = 300;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -41,7 +48,6 @@ const MAX_LIMIT = 1000;
 const DIRECTIONS = ['forward', 'backward'];
 
 const DATASOURCE = /^[A-Za-z0-9_-]+$/;
-const REPO_NAME = /^[A-Za-z0-9._-]+$/;
 const LOOPBACK_IPV4 = /^127(?:\.\d{1,3}){3}$/;
 const COMMIT_SHA = /^[0-9a-f]{40,64}$/;
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|([+-])([01]\d|2[0-3]):([0-5]\d))$/;
@@ -65,7 +71,7 @@ const USAGE =
 
 const FLAGS = {
   preflight: { '--project-root': 'projectRoot', '--repo': 'repo' },
-  search: { '--project-root': 'projectRoot', '--run': 'run', '--scope': 'scope', '--repo': 'repo', '--output': 'output' },
+  search: SEARCH_FLAGS,
   query: {
     '--project-root': 'projectRoot',
     '--run': 'run',
@@ -77,8 +83,6 @@ const FLAGS = {
     '--id-field': 'idField',
   },
 };
-
-const isSet = (value) => typeof value === 'string' && value !== '';
 
 /** The failure document for a thrown error: its message on one line, and `ok: false`. */
 export function errorDoc(err) {
@@ -103,9 +107,6 @@ function instant(flag, value) {
   }
   return new Date(ms).toISOString();
 }
-
-const isRepoName = (value) => REPO_NAME.test(value) && value !== '..';
-const REPO_RULE = 'must be one directory name, or "." for the project root';
 
 function finishPreflight(parsed) {
   if (parsed.repo !== undefined && !isRepoName(parsed.repo)) {
@@ -146,35 +147,6 @@ function finishQuery(parsed) {
     throw new UsageError('query: --id-field must be a letter or _ followed by letters, digits or _');
   }
   return { ...parsed, start, end, limit, direction };
-}
-
-const SEARCH_SCOPES = ['repo', 'incidents', 'tickets'];
-const SEARCH_OUTPUTS = ['lines', 'files'];
-
-function finishSearch(parsed) {
-  if (parsed.run === undefined) {
-    throw new UsageError('search: --run is required');
-  }
-  if (!RUN_ID.test(parsed.run)) {
-    throw new UsageError('search: --run must be the run value preflight printed');
-  }
-  if (!SEARCH_SCOPES.includes(parsed.scope)) {
-    throw new UsageError('search: --scope must be repo, incidents or tickets');
-  }
-  if (parsed.scope === 'repo' && parsed.repo === undefined) {
-    throw new UsageError('search: --scope repo needs --repo');
-  }
-  if (parsed.scope !== 'repo' && parsed.repo !== undefined) {
-    throw new UsageError('search: --repo applies to --scope repo only');
-  }
-  if (parsed.repo !== undefined && !isRepoName(parsed.repo)) {
-    throw new UsageError(`search: --repo ${REPO_RULE}`);
-  }
-  const output = parsed.output ?? 'lines';
-  if (!SEARCH_OUTPUTS.includes(output)) {
-    throw new UsageError('search: --output must be lines or files');
-  }
-  return { ...parsed, output };
 }
 
 const FINISH = { preflight: finishPreflight, query: finishQuery, search: finishSearch };
@@ -231,28 +203,6 @@ function grafanaUrl(value) {
   return url;
 }
 
-export function tokenFilePath(value, home) {
-  if (!isSet(value)) {
-    return undefined;
-  }
-  let file;
-  if (value.startsWith('~/')) {
-    if (!isSet(home)) {
-      throw new ComputeError('config.yaml: incident.token_file starts with ~/ but HOME is not set');
-    }
-    file = path.join(home, value.slice(2));
-  } else if (path.isAbsolute(value)) {
-    file = path.normalize(value);
-  } else {
-    throw new ComputeError('config.yaml: incident.token_file must be an absolute path or start with ~/');
-  }
-  const name = path.basename(file);
-  if (name === '.env' || name.startsWith('.env.') || name.endsWith('.env')) {
-    throw new ComputeError('config.yaml: incident.token_file must not be a dotenv-family file (.env, .env.*, *.env)');
-  }
-  return file;
-}
-
 /**
  * The settings this script consumes from a parsed `config.yaml`:
  * `{ base, origin, datasource, tokenFile }`. `home` is `$HOME` or undefined.
@@ -279,10 +229,6 @@ export function validateConfig(doc, home) {
     datasource: block.datasource,
     tokenFile: tokenFilePath(block.token_file, home),
   };
-}
-
-export function configFile(projectRoot) {
-  return path.join(projectRoot, ...TICKETS_DIR, 'config.yaml');
 }
 
 function loadConfig(projectRoot, home) {
@@ -399,36 +345,6 @@ function queryFile(projectRoot, run) {
   return path.join(projectRoot, ...INCIDENTS_DIR, `.query-${run}.logql`);
 }
 
-export function searchFile(projectRoot, run) {
-  return path.join(projectRoot, ...INCIDENTS_DIR, `.search-${run}.txt`);
-}
-
-/**
- * Remove the query and search files an interrupted run left under
- * `<projectRoot>/claudedocs/incidents/`: regular files with an input file's
- * name, last written more than an hour before `now`.
- */
-function sweepInputFiles(projectRoot, now) {
-  const dir = path.join(projectRoot, ...INCIDENTS_DIR);
-  let names;
-  try {
-    names = fs.readdirSync(dir);
-  } catch {
-    return;
-  }
-  for (const name of names.filter((entry) => INPUT_FILE_NAME.test(entry))) {
-    const file = path.join(dir, name);
-    try {
-      const stat = fs.lstatSync(file);
-      if (stat.isFile() && now.getTime() - stat.mtimeMs > STALE_INPUT_MS) {
-        fs.rmSync(file, { force: true });
-      }
-    } catch {
-      continue;
-    }
-  }
-}
-
 /**
  * The `preflight` verb: configuration, credentials, clock, run identifier,
  * report gate and repository head. No network call.
@@ -459,44 +375,6 @@ export function preflight({ projectRoot, repo }, env = process.env, now = new Da
 /** Read the query text from the run's query file and remove the file. */
 export function takeQuery(projectRoot, run) {
   return takeInputFile(queryFile(projectRoot, run), MAX_QUERY_BYTES, 'write the LogQL query there before each query run');
-}
-
-/**
- * Read an input file's trimmed text and remove the file. A symbolic link is
- * refused and left alone; a regular file is removed whether or not its
- * content is usable, so no run leaves its input behind. `remedy` says what to
- * write when the file is missing.
- */
-export function takeInputFile(file, maxBytes, remedy) {
-  let fd;
-  try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOFOLLOW);
-  } catch (err) {
-    if (err.code === 'ENOENT' || err.code === 'ENOTDIR') {
-      throw new ComputeError(`${file} does not exist — ${remedy}`);
-    }
-    if (err.code === 'ELOOP' || err.code === 'EMLINK') {
-      throw new ComputeError(`${file} is a symbolic link, not a regular file`);
-    }
-    throw new ComputeError(`${file} cannot be read (${err.code ?? 'error'})`);
-  }
-  try {
-    const stat = fs.fstatSync(fd);
-    if (!stat.isFile()) {
-      throw new ComputeError(`${file} is not a regular file`);
-    }
-    fs.rmSync(file, { force: true });
-    if (stat.size > maxBytes) {
-      throw new ComputeError(`${file} is larger than ${maxBytes / 1024} KiB`);
-    }
-    const text = fs.readFileSync(fd, 'utf8').trim();
-    if (text === '') {
-      throw new ComputeError(`${file} is empty`);
-    }
-    return text;
-  } finally {
-    fs.closeSync(fd);
-  }
 }
 
 function causeCode(err) {
