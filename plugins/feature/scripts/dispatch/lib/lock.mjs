@@ -23,7 +23,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { ComputeError } from '../../lib/output.mjs';
-import { RUN_ID_RE, writeAtomic } from './state.mjs';
+import { writeAtomic } from '../../lib/write-atomic.mjs';
+import { RUN_ID_RE } from './state.mjs';
 import { addTeardown } from './teardown.mjs';
 
 export const LOCK_NAME = 'feature-dispatch.lock';
