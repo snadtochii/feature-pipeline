@@ -19,7 +19,7 @@ export function parseMiniYaml(text) {
   let block = null;
   let blockIndent = null;
   for (const raw of text.replace(/^﻿/, '').split(/\r?\n/)) {
-    const line = raw.replace(/\s+$/, '');
+    const line = raw.trimEnd();
     const body = line.trimStart();
     if (body === '' || body.startsWith('#')) {
       continue;

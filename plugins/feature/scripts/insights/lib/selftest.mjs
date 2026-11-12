@@ -1,14 +1,15 @@
-// The insights extractor's self-test (../CONTRACT.md §9).
+// The insights extractor's self-test (../CONTRACT.md §10).
 //
 // Every case is `[name, fn(world)]`. The world is built once per run under a
-// realpath temporary directory: the committed synthetic fixtures copied into
-// a redirected HOME's transcript store, and the project tree, a git
-// repository with a linked worktree, a scratch directory and the entries the
-// scan must skip materialized beside them. The rules are exercised
+// realpath temporary directory: the committed synthetic transcript fixtures
+// copied into a redirected HOME's transcript store, the ticket-tree fixtures
+// copied into the projects' `claudedocs/tickets/`, and the project tree, a
+// git repository with a linked worktree, a scratch directory and the entries
+// the scans must skip materialized beside them. The rules are exercised
 // in-process; the verb end to end as a child process with a minimal
 // environment. The `extract` cases run in order over the same world. Every
 // child run is checked for the fixtures' sentinel in its output, for an
-// unchanged store, and for the cache's modes and contents.
+// unchanged store and ticket trees, and for the cache's modes and contents.
 //
 // Private to the implementation: only insights.mjs is a command.
 
@@ -22,7 +23,8 @@ import { ComputeError, UsageError, render } from '../../lib/output.mjs';
 import { CaseFailure, assert, commitAll, equal, git, initRepo, throwsKind } from '../../lib/selftest-kit.mjs';
 import { parseArgv } from './args.mjs';
 import { SCHEMA_VERSION, loadDigests } from './cache.mjs';
-import { FIXTURES_DIR as FIXTURES, SENTINEL, copyFixtures } from './fixtures.mjs';
+import { FIXTURES_DIR as FIXTURES, SENTINEL, copyFixtures, copyTicketFixtures } from './fixtures.mjs';
+import { defaultReadTree, joinOutcomes, ticketDataset } from './outcomes.mjs';
 import { makeMapper, mapProject } from './project.mjs';
 import {
   UNATTRIBUTED_MARK,
@@ -40,6 +42,7 @@ import {
   validTicket,
 } from './recognize.mjs';
 import { sessionTotals, ticketRuns } from './runs.mjs';
+import { classifyReview, classifySummary, classifyTests, kindOf, parseFrontmatter, readTicketTree, storageModeOf } from './tickets.mjs';
 import { consumeLine, finishAgent, newAgent, readTranscript } from './transcript.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -83,12 +86,16 @@ function makeWorld() {
   const repo = initRepo(path.join(ws, 'repo'));
   fs.writeFileSync(path.join(repo, 'README'), 'fixture\n');
   commitAll(repo);
-  fs.mkdirSync(path.join(repo, 'claudedocs', 'tickets'), { recursive: true });
+  const tickets = { pipeline: path.join(ws, 'pipeline', 'claudedocs', 'tickets'), repo: path.join(repo, 'claudedocs', 'tickets') };
+  fs.mkdirSync(tickets.repo, { recursive: true });
+  copyTicketFixtures('repo', tickets.repo);
   fs.mkdirSync(path.join(repo, 'src'));
   fs.mkdirSync(path.join(ws, 'repo-worktrees'));
   git(repo, 'worktree', 'add', '-q', path.join(ws, 'repo-worktrees', 'wt'));
   fs.mkdirSync(path.join(ws, 'scratch'));
-  fs.mkdirSync(path.join(ws, 'pipeline', 'claudedocs', 'tickets'), { recursive: true });
+  fs.mkdirSync(tickets.pipeline, { recursive: true });
+  copyTicketFixtures('pipeline', tickets.pipeline);
+  fs.symlinkSync(path.join(tickets.pipeline, 'done', 'FP-30'), path.join(tickets.pipeline, 'done', 'FP-40'));
   const store = path.join(home, '.claude', 'projects');
   copyFixtures(FIXTURES, store, JSON.stringify(ws).slice(1, -1));
   fs.mkdirSync(path.join(store, SESSIONS.a.slug, 'memory'));
@@ -103,7 +110,7 @@ function makeWorld() {
   fs.mkdirSync(subagentsOfC, { recursive: true });
   fs.writeFileSync(path.join(subagentsOfC, 'agent-c1.jsonl'), '');
   fs.writeFileSync(path.join(subagentsOfC, 'agent-c1.meta.json'), JSON.stringify([SENTINEL]));
-  return { cacheRoot: path.join(home, '.feature-pipeline', 'insights', 'digests'), dir, home, repo, store, ws };
+  return { cacheRoot: path.join(home, '.feature-pipeline', 'insights', 'digests'), dir, home, repo, store, tickets, ws };
 }
 
 /** Run the entry as a child; the sentinel must reach neither stream. */
@@ -171,16 +178,43 @@ function checkCache(world) {
   }
 }
 
-/** One `extract` run: exit 0, the store untouched, the cache well formed. Returns the summary. */
+const ticketListings = (world) => Object.values(world.tickets).map((dir) => listing(dir));
+
+/** One `extract` run: exit 0, the store and the ticket trees untouched, the cache well formed. Returns the summary. */
 async function extractRun(world) {
   const before = listing(world.store);
+  const ticketsBefore = ticketListings(world);
   const result = await runEntry(['extract'], childEnv(world.home));
   equal(result.status, 0, `extract exit (stdout ${result.stdout.slice(0, 200)})`);
   assert(result.doc !== null, 'extract printed no JSON document');
   equal(result.stderr, '', 'extract stderr');
   equal(listing(world.store), before, 'store listing after extract');
+  equal(ticketListings(world), ticketsBefore, 'ticket tree listings after extract');
   checkCache(world);
   return result.doc;
+}
+
+const NO_DECISIONS = { accepted: 0, deferred: 0, dismissed: 0 };
+const NO_OUTCOMES = { applied: 0, fix_failed: 0, not_attempted: 0 };
+const NO_TESTS = { by: null, cause: null, failed_criteria: null, result: null };
+
+/** A tree record as `readTicketTree` returns it, for the in-memory join cases. */
+function treeRecord(ticket, overrides = {}) {
+  return {
+    complexity: 'M', created: '2026-11-01', epic_folder: null, kind: 'solo', parent: null, review: null, state: 'done', status: 'done', summary: null, summary_mtime: null, tests: null, ticket, unrecognized: [],
+    ...overrides,
+  };
+}
+
+function runOf(project, ticket, closeVerdicts = [], versions = []) {
+  return {
+    by_role: { 'root-session': 1 },
+    close_results: closeVerdicts.map((verdict, index) => ({ agent_id: `c${index}`, close_result: verdict === undefined ? null : { ending: 'caller', verdict }, session_id: 's' })),
+    project,
+    sessions: [{ end: null, session_id: 's', stages: versions.map((feature_versions) => ({ feature_versions })), start: null, transcript: 'x/s.jsonl', weighted_units: 1 }],
+    ticket,
+    weighted_units: 1,
+  };
 }
 
 function digestOf(world, key) {
@@ -416,6 +450,237 @@ const CASES = [
     counted(world.repo);
     equal(calls, first, 'memoized per cwd');
   }],
+  ['tickets: frontmatter fields checked against their vocabularies, the first block only', () => {
+    const fm = (...lines) => parseFrontmatter(`---\n${lines.join('\n')}\n---\n${SENTINEL}\n`);
+    const blank = { complexity: null, created: null, kind: null, parent: null, status: null };
+    equal(
+      fm('id: FP-1', `title: ${SENTINEL}`, 'kind: epic   # comment', 'complexity: XL', 'status: partial-completion', 'created: 2026-11-01', 'parent: FP-2'),
+      { complexity: 'XL', created: '2026-11-01', kind: 'epic', parent: 'FP-2', status: 'partial-completion', unrecognized: false },
+      'every field',
+    );
+    equal(fm('status: done'), { ...blank, status: 'done', unrecognized: false }, 'optional keys absent');
+    equal(fm('complexity: M'), { ...blank, complexity: 'M', unrecognized: true }, 'a missing status');
+    equal(fm('status: done', 'status: done', 'complexity: M'), { ...blank, complexity: 'M', unrecognized: true }, 'a repeated key');
+    const bad = [['complexity: XXL', 'complexity'], ['kind: story', 'kind'], [`parent: ${SENTINEL}`, 'parent'], ['created: 2026-1-1', 'created'], ['parent:', 'parent'], [`parent: FP-${'1'.repeat(38)}`, 'parent']];
+    for (const [line, field] of bad) {
+      const record = fm('status: done', line);
+      equal([record[field], record.status, record.unrecognized], [null, 'done', true], `a ${field} outside its vocabulary`);
+    }
+    equal(fm('status: shipped'), { ...blank, unrecognized: true }, 'a status outside its vocabulary');
+    equal(parseFrontmatter('﻿---\r\nstatus: done\r\n---\r\n---\nstatus: cancelled\n---\n').status, 'done', 'BOM and CRLF, the first block only');
+    for (const text of [`${SENTINEL}\n---\nstatus: done\n---\n`, '---\nstatus: done\n', '', null]) {
+      equal(parseFrontmatter(text), { ...blank, unrecognized: true }, `no block in ${JSON.stringify(text?.slice(0, 3))}`);
+    }
+    equal(
+      [kindOf(fm('status: done'), true), kindOf(fm('status: done', 'kind: epic'), false), kindOf(fm('status: done', 'parent: FP-2'), false), kindOf(fm('status: done'), false)],
+      ['epic', 'epic', 'child', 'solo'],
+      'kinds',
+    );
+  }],
+  ['tickets: 04-review.md labels match exactly, decisions and outcomes count on their leading token', () => {
+    const review = (first, ...body) => classifyReview([first, 'fix-step: complete', ...body].join('\n'));
+    const labels = [
+      ['verdict: skipped (trivial diff)', 'skipped-trivial', null],
+      ['verdict: skipped (no changes)', 'skipped-no-changes', null],
+      ['verdict: reviewed  ', 'reviewed', null],
+      ['verdict: reviewed (partial — 2/4 reviewers)', 'reviewed-partial', 2],
+      ['verdict: failed (all reviewers)', 'failed-all', null],
+      [`verdict: stuck (${SENTINEL})`, 'stuck', null],
+    ];
+    labels.forEach(([line, label, reviewersOk], index) => {
+      const record = review(line);
+      equal([record.label, record.reviewers_ok, record.fix_step, record.unrecognized], [label, reviewersOk, 'complete', false], `label ${index}`);
+    });
+    const drift = ['verdict: reviewed — 8 applied', 'verdict: skipped (trivial diff — by intent)', 'verdict: pass', '# Review', 'reviewed', 'verdict: reviewed (partial — 4/4 reviewers)', 'verdict: stuck ()', ''];
+    drift.forEach((line, index) => equal([review(line).label, review(line).unrecognized], [null, true], `drift label ${index}`));
+    const counted = review(
+      'verdict: reviewed',
+      `- [F1] [security] ${SENTINEL}`,
+      '- decision: accepted — x',
+      `- [F2] ${SENTINEL}`,
+      '  - decision: accepted',
+      `  - [F3] ${SENTINEL}`,
+      '\t- decision: dismissed — y',
+      `- [F4] ${SENTINEL}`,
+      '  - decision: deferred (conflict) — z',
+      '  - outcome: applied (touches w)',
+      '  - outcome: fix-failed — e',
+      '  - outcome: not attempted',
+      `${SENTINEL} decision: the prose`,
+      'decision: accepted',
+    );
+    equal(
+      [counted.decisions, counted.outcomes, counted.unrecognized],
+      [{ accepted: 2, deferred: 1, dismissed: 1 }, { applied: 1, fix_failed: 1, not_attempted: 1 }, false],
+      'indented and unindented marked lines, trailing text, unmarked prose',
+    );
+    const prose = review('verdict: reviewed', '## Summary', `2 applied, 0 dismissed ${SENTINEL}`, `- [F1] ${SENTINEL}`, `- [F2] ${SENTINEL}`);
+    equal([prose.label, prose.decisions, prose.outcomes, prose.unrecognized], ['reviewed', NO_DECISIONS, NO_OUTCOMES, true], 'counts written only as prose under an intact label');
+    const undecided = review('verdict: reviewed', `- [F1] ${SENTINEL}`, '  - decision: accepted', `- [F2] ${SENTINEL}`);
+    equal([undecided.decisions, undecided.unrecognized], [{ ...NO_DECISIONS, accepted: 1 }, true], 'a finding line without its decision line');
+    equal(review('verdict: skipped (trivial diff)', '# Review').unrecognized, false, 'a review with no findings');
+    const unknown = review('verdict: reviewed', '  - outcome: applied', `  - decision: ${SENTINEL}`, '  - outcome: appliedx');
+    equal([unknown.label, unknown.outcomes, unknown.unrecognized], ['reviewed', { ...NO_OUTCOMES, applied: 1 }, true], 'an unknown token');
+    equal(classifyReview('verdict: reviewed\nfix-step: halfway\n').fix_step, null, 'the fix-step vocabulary');
+    equal(
+      classifyReview(null),
+      { decisions: NO_DECISIONS, fix_step: null, label: null, outcomes: NO_OUTCOMES, present: false, reviewers_ok: null, unrecognized: false },
+      'an absent file',
+    );
+  }],
+  ['tickets: 05-tests.md skipped with its cause, ran by ship or close, absent, or unrecognized', () => {
+    const causes = [
+      ['no UI work in plan', 'no-ui-work'],
+      ['UI testing disabled by --no-ui-testing', 'no-ui-testing-flag'],
+      ['no testable repo in ticket', 'no-testable-repo'],
+      ['app unreachable', 'app-unreachable'],
+      ['browser driver unavailable', 'driver-unavailable'],
+    ];
+    for (const [cause, token] of causes) {
+      equal(classifyTests(`verdict: skipped (${cause})\r\n\n${SENTINEL}\n`), { ...NO_TESTS, cause: token, state: 'skipped', unrecognized: false }, cause);
+    }
+    equal(
+      classifyTests(`Source: ship end-of-run UI verification — branch ${SENTINEL} @ abc\nverdict: pass\n`),
+      { ...NO_TESTS, by: 'ship', result: 'pass', state: 'ran', unrecognized: false },
+      'the ship pass',
+    );
+    equal(classifyTests(`# Tests ${SENTINEL}\n\n## Pass: repo\n\n## Screenshots\n`), { ...NO_TESTS, by: 'close', failed_criteria: false, state: 'ran', unrecognized: false }, 'a close pass');
+    equal(classifyTests(`# Tests\n\n## Failed Criteria\n\n## Screenshots\n`).failed_criteria, true, 'a close pass with failed criteria');
+    equal(classifyTests(null), { ...NO_TESTS, state: 'absent', unrecognized: false }, 'an absent file');
+    const drift = [
+      '# Tests\n\nverdict: skipped (--no-ui-testing)\n',
+      'verdict: passed (all criteria)\n## Pass: repo\n',
+      `verdict: skipped (no app surface — ${SENTINEL})\n`,
+      'verdict: skipped (no UI signals)\n',
+      'Source: ship end-of-run UI verification — x\nverdict: fail\n',
+      '# Tests\n\n### Pass: repo\n',
+      '',
+    ];
+    drift.forEach((text, index) => equal([classifyTests(text).state, classifyTests(text).unrecognized], [null, true], `drift form ${index}`));
+  }],
+  ['tickets: 06-summary.md verdict, the last column-0 pr: line and branch presence', () => {
+    equal(
+      classifySummary(`verdict: pass\n\n${SENTINEL}\npr: https://github.com/o/r/pull/1\npr: https://github.com/own-er/re.po_x/pull/42  \nbranch: feature/FP-1-${SENTINEL}\n`),
+      { has_branch: true, pr: { number: 42, repo: 'own-er/re.po_x' }, present: true, unrecognized: false, verdict: 'pass' },
+      'the last pr: wins',
+    );
+    equal(classifySummary(`verdict: partial\npr: none — ${SENTINEL}\n`), { has_branch: false, pr: 'none', present: true, unrecognized: false, verdict: 'partial' }, 'pr: none');
+    equal(classifySummary(`verdict: stuck\npr: https://github.com/o/r/pull/12\n${SENTINEL}\n`).pr, { number: 12, repo: 'o/r' }, 'pr: on line 2');
+    const badPr = ['pr: https://github.com/o/r/pull/7x', 'pr: https://gitlab.com/o/r/pull/7', `pr: ${SENTINEL}`, 'pr: https://github.com/o/r/pull/0', 'pr:'];
+    badPr.forEach((line, index) => {
+      const record = classifySummary(`verdict: pass\n${line}\n`);
+      equal([record.pr, record.verdict, record.unrecognized], [null, 'pass', true], `pr form ${index}`);
+    });
+    equal(classifySummary('verdict: pass\n  pr: https://github.com/o/r/pull/1\nbranch:\n'), { has_branch: false, pr: null, present: true, unrecognized: false, verdict: 'pass' }, 'column 0 only, a branch needs a value');
+    [`# Summary ${SENTINEL}\n\nverdict: pass\n`, 'verdict: passed\n', ''].forEach((text, index) => equal([classifySummary(text).verdict, classifySummary(text).unrecognized], [null, true], `verdict form ${index}`));
+    equal(classifySummary(null), { has_branch: false, pr: null, present: false, unrecognized: false, verdict: null }, 'an absent file');
+  }],
+  ['tickets: the storage mode from config.yaml, and a tree read without following symlinks', (world) => {
+    const base = path.join(world.dir, 'modes');
+    const projectRoot = (name) => {
+      const dir = path.join(base, name);
+      fs.mkdirSync(path.join(dir, 'claudedocs', 'tickets'), { recursive: true });
+      return dir;
+    };
+    const withConfig = (name, text) => {
+      const dir = projectRoot(name);
+      fs.writeFileSync(path.join(dir, 'claudedocs', 'tickets', 'config.yaml'), text);
+      return dir;
+    };
+    const configDir = projectRoot('config-dir');
+    fs.mkdirSync(path.join(configDir, 'claudedocs', 'tickets', 'config.yaml'));
+    const configLink = projectRoot('config-link');
+    fs.symlinkSync(path.join(base, 'server', 'claudedocs', 'tickets', 'config.yaml'), path.join(configLink, 'claudedocs', 'tickets', 'config.yaml'));
+    equal(
+      [
+        storageModeOf(projectRoot('none')),
+        storageModeOf(withConfig('fs', 'mode: fs-native\n')),
+        storageModeOf(withConfig('server', 'prefix: FP\nmode: "server-native" # comment\n')),
+        storageModeOf(withConfig('no-key', 'prefix: FP\n')),
+        storageModeOf(withConfig('odd', `mode: ${SENTINEL}\n`)),
+        storageModeOf(withConfig('typo', 'mode: fs_native\n')),
+        storageModeOf(withConfig('empty', 'mode:\n')),
+        storageModeOf(configDir),
+        storageModeOf(configLink),
+        storageModeOf(path.join(base, 'gone')),
+        storageModeOf('relative/dir'),
+      ],
+      ['fs', 'fs', 'server-native', 'fs', 'unknown-mode', 'unknown-mode', 'unknown-mode', 'missing', 'missing', 'missing', 'missing'],
+      'modes: any other mode value is never guessed',
+    );
+    equal(defaultReadTree(path.join(base, 'odd')), { duplicates: 0, join: 'unknown-mode', skipped_folders: 0, tickets: new Map() }, 'an unknown mode reads no tree');
+    equal(readTicketTree(path.join(base, 'gone')), null, 'no store');
+    const tree = projectRoot('tree');
+    const store = path.join(tree, 'claudedocs', 'tickets');
+    const spec = (status) => `---\nstatus: ${status}\n---\n${SENTINEL}\n`;
+    const put = (relative, text) => {
+      const file = path.join(store, relative);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, text);
+      return file;
+    };
+    put('in-progress/FP-1/01-spec.md', spec('done'));
+    fs.symlinkSync(put('elsewhere/05-tests.md', 'verdict: skipped (app unreachable)\n'), path.join(store, 'in-progress', 'FP-1', '05-tests.md'));
+    put('done/FP-1/01-spec.md', spec('done'));
+    put('done/FP-2/01-spec.md', spec('done'));
+    put('done/FP-2/06-summary.md', `verdict: pass\n${'x'.repeat(1024 * 1024)}\n`);
+    put('done/fp-3/01-spec.md', spec('done'));
+    put('done/FP-4/prd.md', '---\nkind: epic\nstatus: done\n---\n');
+    put('_lessons.md', `${SENTINEL}\n`);
+    fs.mkdirSync(path.join(base, 'real-backlog', 'FP-5'), { recursive: true });
+    fs.writeFileSync(path.join(base, 'real-backlog', 'FP-5', '01-spec.md'), spec('backlog'));
+    fs.symlinkSync(path.join(base, 'real-backlog'), path.join(store, 'backlog'));
+    const read = readTicketTree(tree);
+    equal([[...read.tickets.keys()].sort(), read.duplicates, read.skipped_folders], [['FP-1', 'FP-2', 'FP-4'], 1, 1], 'IDs, one duplicate, the symlinked state folder skipped');
+    const [fp1, fp2, fp4] = ['FP-1', 'FP-2', 'FP-4'].map((id) => read.tickets.get(id));
+    equal([fp1.state, fp1.status, fp1.tests, fp1.unrecognized], ['in-progress', 'done', null, ['05-tests.md']], 'the first state folder kept; a symlinked artifact unread; status beside state');
+    equal([fp2.summary, fp2.summary_mtime, fp2.unrecognized], [null, null, ['06-summary.md']], 'an artifact over the cap unread');
+    equal([fp4.kind, fp4.review, fp4.tests, fp4.summary], ['epic', null, null, null], 'an epic without tasks/');
+  }],
+  ['tickets: the join marks each ticket both, artifacts or sessions, and counts verdict mismatches', () => {
+    const pass = { has_branch: false, pr: null, present: true, verdict: 'pass' };
+    const trees = new Map([
+      ['/p', { duplicates: 1, join: 'fs', skipped_folders: 2, tickets: new Map([['FP-1', treeRecord('FP-1', { summary: pass })], ['FP-4', treeRecord('FP-4', { unrecognized: ['04-review.md'] })]]) }],
+      ['/q', { duplicates: 0, join: 'server-native', skipped_folders: 0, tickets: new Map() }],
+      ['/r', { duplicates: 0, join: 'missing', skipped_folders: 0, tickets: new Map() }],
+      ['/s', { duplicates: 0, join: 'unknown-mode', skipped_folders: 0, tickets: new Map() }],
+    ]);
+    const runs = {
+      tickets: [runOf('/p', 'FP-1', ['pass', 'partial', undefined], [['3.2.0'], ['3.1.0', '3.2.0']]), runOf('/p', 'FP-2'), runOf('/q', 'FP-4'), runOf('/r', 'FP-1'), runOf('/s', 'FP-1'), runOf(null, 'FP-1')],
+      without_recognition: 2,
+    };
+    const joined = joinOutcomes(runs, trees);
+    equal(joined.tickets.map((entry) => [entry.project, entry.ticket, entry.source, entry.verdict]), [
+      [null, 'FP-1', 'sessions', null],
+      ['/p', 'FP-1', 'both', 'pass'],
+      ['/p', 'FP-2', 'sessions', null],
+      ['/p', 'FP-4', 'artifacts', null],
+      ['/q', 'FP-4', 'sessions', null],
+      ['/r', 'FP-1', 'sessions', null],
+      ['/s', 'FP-1', 'sessions', null],
+    ], 'sources; a server-native, missing or unknown-mode project, and another project\'s ID, are never joined');
+    const both = joined.tickets[1];
+    equal([both.feature_versions, both.outcome.summary, both.close_results.length, both.weighted_units], [['3.1.0', '3.2.0'], pass, 3, 1], 'a joined ticket keeps its runs');
+    const { ticket: _ticket, unrecognized: _unrecognized, ...fp4Outcome } = treeRecord('FP-4');
+    equal(
+      joined.tickets[3],
+      { by_role: {}, close_results: [], feature_versions: null, outcome: fp4Outcome, project: '/p', sessions: [], source: 'artifacts', ticket: 'FP-4', verdict: null, weighted_units: null },
+      'an artifact-only entry',
+    );
+    equal(joined.tickets[4].outcome, null, 'a run without a join carries no outcome');
+    equal(joined.counts, {
+      artifacts_only: 1, duplicates: 1, joined: 1, projects_by_join: { fs: 1, missing: 1, 'server-native': 1, 'unknown-mode': 1 }, sessions_only: 4, skipped_folders: 2, unmapped_runs: 1, unrecognized_total: 1, verdict_mismatch: 1,
+    }, 'counts: the last non-null close verdict partial against the artifact pass');
+    equal([joined.unrecognized, joined.without_recognition], [[{ artifact: '04-review.md', project: '/p', ticket: 'FP-4' }], 2], 'unrecognized artifacts listed by ID and name');
+    equal(joined.projects, [{ join: 'fs', path: '/p' }, { join: 'server-native', path: '/q' }, { join: 'missing', path: '/r' }, { join: 'unknown-mode', path: '/s' }], 'projects');
+    const calls = [];
+    const readTree = (root) => {
+      calls.push(root);
+      return { duplicates: 0, join: 'missing', skipped_folders: 0, tickets: new Map() };
+    };
+    const dataset = ticketDataset([{ project: '/b', schema_version: 1 }, { project: '/a', schema_version: 1 }, { project: '/b', schema_version: 1 }, { project: null, schema_version: 1 }], { readTree });
+    equal([calls, dataset.projects.map((project) => project.path), dataset.without_recognition], [['/a', '/b'], ['/a', '/b'], 4], 'every distinct project read once, digests without recognition included');
+  }],
   ['extract: the first run parses every session', async (world) => {
     const doc = await extractRun(world);
     equal(doc.sessions, { ...SESSION_COUNTS, mapped: 5, parsed: 6, seen: 6, unmapped: 1 }, 'sessions');
@@ -427,6 +692,21 @@ const CASES = [
       [3, SCHEMA_VERSION, world.cacheRoot],
       'skipped (memory/, a symlinked transcript, a symlinked subagents), schema and cache dir',
     );
+    const pipeline = path.join(world.ws, 'pipeline');
+    equal(doc.tickets, {
+      artifacts_only: 4,
+      duplicates: 0,
+      joined: 3,
+      projects: [{ join: 'fs', path: pipeline }, { join: 'server-native', path: world.repo }],
+      projects_by_join: { fs: 1, missing: 0, 'server-native': 1, 'unknown-mode': 0 },
+      projects_total: 2,
+      sessions_only: 1,
+      skipped_folders: 1,
+      unmapped_runs: 0,
+      unrecognized: ['01-spec.md', '04-review.md', '05-tests.md', '06-summary.md'].map((artifact) => ({ artifact, project: pipeline, ticket: 'FP-32' })),
+      unrecognized_total: 4,
+      verdict_mismatch: 0,
+    }, 'the tickets block');
     const a = digestOf(world, 'a');
     equal([a.session_id, a.project, a.project_via, a.cwd], [SESSIONS.a.id, world.repo, 'cwd', path.join(world.ws, 'repo')], 'session A identity');
     equal([a.start, a.end, a.duration_ms], [at(5), at(70), 65_000], 'session A span across agents');
@@ -534,6 +814,62 @@ const CASES = [
     near([implement.weighted_units, fp9.weighted_units], [522.5, 522.5], 'root implement subtree holds only FP-9 agents, not the FP-8 implementer under it');
     equal(Object.keys(fp9.by_role), ['claude', 'root-session'], 'FP-9 roles');
     near([fp9.by_role.claude, fp9.by_role['root-session']], [330, 192.5], 'FP-9 units by role');
+  }],
+  ['tickets: the dataset joins the fixture ticket trees to the cached runs', (world) => {
+    const pipeline = path.join(world.ws, 'pipeline');
+    const dataset = ticketDataset(loadDigests(world.cacheRoot));
+    assert(!JSON.stringify(dataset).includes(SENTINEL), 'the sentinel reached the dataset');
+    const entriesOf = (project) => Object.fromEntries(dataset.tickets.filter((entry) => entry.project === project).map((entry) => [entry.ticket, entry]));
+    const p = entriesOf(pipeline);
+    equal(
+      Object.fromEntries(Object.entries(p).map(([id, entry]) => [id, [entry.source, entry.verdict, entry.outcome.kind, entry.outcome.state, entry.outcome.status]])),
+      {
+        'FP-20': ['artifacts', null, 'epic', 'in-progress', 'in-progress'],
+        'FP-30': ['artifacts', 'pass', 'solo', 'done', 'done'],
+        'FP-31': ['artifacts', 'pass', 'solo', 'review', 'in-review'],
+        'FP-32': ['artifacts', null, 'solo', 'done', null],
+        'FP-7': ['both', 'pass', 'solo', 'done', 'done'],
+        'FP-8': ['both', 'partial', 'child', 'in-progress', 'in-review'],
+        'FP-9': ['both', 'stuck', 'solo', 'backlog', 'backlog'],
+      },
+      'pipeline tickets: the symlinked FP-40 and the spec-less FP-33 absent; an epic child\'s state beside its own status',
+    );
+    const mtimeOf = (relative) => new Date(fs.lstatSync(path.join(world.tickets.pipeline, relative, '06-summary.md')).mtimeMs).toISOString();
+    equal(p['FP-7'].outcome, {
+      complexity: 'S',
+      created: '2026-11-01',
+      epic_folder: null,
+      kind: 'solo',
+      parent: null,
+      review: { decisions: { accepted: 2, deferred: 1, dismissed: 1 }, fix_step: 'complete', label: 'reviewed', outcomes: { applied: 2, fix_failed: 0, not_attempted: 1 }, present: true, reviewers_ok: null },
+      state: 'done',
+      status: 'done',
+      summary: { has_branch: true, pr: { number: 7, repo: 'fixture/repo' }, present: true, verdict: 'pass' },
+      summary_mtime: mtimeOf('done/FP-7'),
+      tests: { ...NO_TESTS, by: 'close', failed_criteria: false, state: 'ran' },
+    }, 'FP-7: a pass with a close browser pass');
+    near([p['FP-7'].weighted_units], [1760], 'FP-7 keeps its run units');
+    equal([p['FP-7'].feature_versions, p['FP-7'].close_results.length], [['3.41.1', '3.41.2'], 3], 'FP-7 versions and close results');
+    const fp8 = p['FP-8'].outcome;
+    equal(
+      [fp8.parent, fp8.epic_folder, fp8.complexity, fp8.review.label, fp8.review.reviewers_ok, fp8.review.outcomes, fp8.tests, fp8.summary.pr],
+      ['FP-20', 'FP-20', 'M', 'reviewed-partial', 3, { ...NO_OUTCOMES, fix_failed: 2 }, { ...NO_TESTS, cause: 'app-unreachable', state: 'skipped' }, 'none'],
+      'FP-8: a partial epic child with fix-failed findings and a skipped browser pass',
+    );
+    const fp9 = p['FP-9'].outcome;
+    equal([fp9.review.label, fp9.review.fix_step, fp9.review.outcomes.not_attempted, fp9.tests.state, fp9.summary.has_branch], ['stuck', 'pending', 1, 'absent', false], 'FP-9: a stuck ticket');
+    const fp20 = p['FP-20'];
+    equal(
+      [fp20.feature_versions, fp20.weighted_units, fp20.sessions, fp20.close_results, fp20.outcome.review, fp20.outcome.tests, fp20.outcome.summary, fp20.outcome.summary_mtime],
+      [null, null, [], [], null, null, null, null],
+      'FP-20: an epic with no session',
+    );
+    equal([p['FP-30'].outcome.review.label, p['FP-30'].outcome.tests.cause, p['FP-30'].outcome.summary.pr, p['FP-30'].outcome.summary.has_branch], ['skipped-trivial', 'no-ui-testing-flag', null, true], 'FP-30: artifacts only');
+    equal([p['FP-31'].outcome.review.present, p['FP-31'].outcome.tests, p['FP-31'].outcome.summary.pr], [false, { ...NO_TESTS, by: 'ship', result: 'partial', state: 'ran' }, { number: 31, repo: 'fixture/repo' }], 'FP-31: a ship browser pass');
+    equal(dataset.unrecognized.filter((item) => item.ticket !== 'FP-32'), [], 'only FP-32 is unrecognized');
+    const repo = entriesOf(world.repo);
+    equal([repo['FP-7'].source, repo['FP-7'].outcome, repo['FP-7'].verdict], ['sessions', null, null], 'a server-native project\'s run keeps no outcome and its tree is never read');
+    equal(dataset.projects, [{ join: 'fs', path: pipeline }, { join: 'server-native', path: world.repo }], 'projects');
   }],
   ['extract: a second run reuses every digest', async (world) => {
     const doc = await extractRun(world);

@@ -1,18 +1,20 @@
-// The `extract` verb (../CONTRACT.md §6, §7): scan the store, reuse or
+// The `extract` verb (../CONTRACT.md §6, §8): scan the store, reuse or
 // re-parse each main session's digest, write each one as soon as it is
-// parsed, keep every digest whose transcript is gone, and return the bounded
+// parsed, keep every digest whose transcript is gone, join the cached
+// digests' run tickets to their ticket outcomes (§7), and return the bounded
 // summary document.
 //
 // Private to the implementation: only insights.mjs is a command.
 
 import fs from 'node:fs';
 
-import { SCHEMA_VERSION, digestKeys, digestPathFor, ensureCacheRoot, pathsFor, readDigest, scanStore, sourcesEqual, writeDigest } from './cache.mjs';
+import { SCHEMA_VERSION, digestKeys, digestPathFor, ensureCacheRoot, loadDigests, pathsFor, readDigest, scanStore, sourcesEqual, writeDigest } from './cache.mjs';
+import { ticketDataset } from './outcomes.mjs';
 import { defaultProbe, makeMapper } from './project.mjs';
 import { ROOT_ROLE, findTicket, recognizeSession, roleOf } from './recognize.mjs';
 import { addTokens, countInto, finishAgentWithSignals, isoOf, newAgent, readTranscript, sortedObject, zeroFriction, zeroTokens } from './transcript.mjs';
 
-const MAX_LISTED_SESSIONS = 20;
+const MAX_LISTED = 20;
 const ROOT_AGENT_ID = 'root';
 
 function readMeta(file) {
@@ -178,6 +180,16 @@ async function processSession(session, cacheRoot, mapper, summary) {
   return digest;
 }
 
+/** The summary's bounded `tickets` block: the dataset's counts, its first projects and its first unrecognized artifacts. */
+function ticketsBlock(dataset) {
+  return {
+    ...dataset.counts,
+    projects: dataset.projects.slice(0, MAX_LISTED),
+    projects_total: dataset.projects.length,
+    unrecognized: dataset.unrecognized.slice(0, MAX_LISTED),
+  };
+}
+
 /** Run `extract` for `home`; returns the summary document. */
 export async function extract({ home, probe = defaultProbe }) {
   const { cacheRoot, storeDir } = pathsFor(home);
@@ -197,11 +209,12 @@ export async function extract({ home, probe = defaultProbe }) {
     anomalies: sortedObject(summary.anomalies),
     cache_dir: summary.cache_dir,
     malformed_lines: summary.malformedLines,
-    malformed_sessions: listed.slice(0, MAX_LISTED_SESSIONS),
+    malformed_sessions: listed.slice(0, MAX_LISTED),
     malformed_sessions_total: listed.length,
     schema_version: summary.schema_version,
     sessions: summary.sessions,
     skipped_entries: summary.skipped_entries,
     subagents: summary.subagents,
+    tickets: ticketsBlock(ticketDataset(loadDigests(cacheRoot))),
   };
 }
