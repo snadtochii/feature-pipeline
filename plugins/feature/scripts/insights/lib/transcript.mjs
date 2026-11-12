@@ -1,12 +1,15 @@
 // The transcript accumulator (../CONTRACT.md §5): one agent's transcript
 // lines folded into its digest fields — token usage, models, skill loads,
-// commands, friction counts, timestamps and malformed lines. Every value it
-// keeps is a count, an ID, a timestamp or a validated name; message text is
-// read only to classify it.
+// commands, friction counts, check runs, timestamps and malformed lines — plus
+// the transient recognition inputs finishAgentWithSignals hands back. Every
+// value it keeps is a count, an ID, a timestamp or a validated name; message
+// text is read only to classify it.
 //
 // Private to the implementation: only insights.mjs is a command.
 
 import fs from 'node:fs';
+
+import { closeResultOf, commandTicketOf, isCheckRun, rootStageOf, slashBuildTicket } from './recognize.mjs';
 
 const CONVERSATION_TYPES = new Set(['assistant', 'user', 'attachment', 'system']);
 
@@ -93,6 +96,10 @@ export function newAgent(agentId, meta = null) {
     friction: zeroFriction(),
     malformedLines: 0,
     anomalies: new Map(),
+    slashBuild: null,
+    checkUses: new Map(),
+    checkRuns: { failed: 0, total: 0 },
+    closeResult: null,
   };
 }
 
@@ -200,14 +207,31 @@ function resultPrefix(block) {
   return text === null ? '' : text.slice(0, RESULT_PREFIX_CHARS);
 }
 
+/** Count one tool result's friction; returns its class, or null for a result that is none of them. */
 function noteToolResult(acc, block, toolUseResult) {
   const prefix = resultPrefix(block);
   if (prefix.startsWith(REJECTION_TEXT) || toolUseResult === REJECTION_RESULT) {
     acc.friction.rejections += 1;
-  } else if (PERMISSION_DENIED.test(prefix) || prefix.includes(PERMISSION_NOT_GRANTED)) {
+    return 'rejection';
+  }
+  if (PERMISSION_DENIED.test(prefix) || prefix.includes(PERMISSION_NOT_GRANTED)) {
     acc.friction.permission_denials += 1;
-  } else if (block.is_error === true) {
+    return 'permission_denial';
+  }
+  if (block.is_error === true) {
     acc.friction.tool_errors += 1;
+    return 'tool_error';
+  }
+  return null;
+}
+
+function noteCheckResult(acc, toolUseId, resultClass) {
+  if (acc.checkUses.get(toolUseId) !== 'pending') {
+    return;
+  }
+  acc.checkUses.set(toolUseId, 'done');
+  if (resultClass === 'tool_error') {
+    acc.checkRuns.failed += 1;
   }
 }
 
@@ -217,6 +241,9 @@ function consumeUser(acc, record, message) {
     noteSkillLoad(acc, content);
   }
   noteSlashCommand(acc, content);
+  if (acc.slashBuild === null) {
+    acc.slashBuild = slashBuildTicket(content);
+  }
   for (const text of textsOf(content)) {
     if (text === INTERRUPT_TEXT) {
       acc.friction.interrupts += 1;
@@ -226,9 +253,37 @@ function consumeUser(acc, record, message) {
     const toolUseResult = typeof record.toolUseResult === 'string' ? record.toolUseResult : null;
     for (const block of content) {
       if (isObject(block) && block.type === 'tool_result') {
-        noteToolResult(acc, block, toolUseResult);
+        noteCheckResult(acc, block.tool_use_id, noteToolResult(acc, block, toolUseResult));
       }
     }
+  }
+}
+
+function noteCloseResult(acc, text) {
+  const result = closeResultOf(text);
+  if (result !== null) {
+    acc.closeResult = result;
+  }
+}
+
+function noteCheckRun(acc, toolUseId, command) {
+  if (typeof toolUseId !== 'string' || !OPAQUE_ID.test(toolUseId) || acc.checkUses.has(toolUseId) || !isCheckRun(command)) {
+    return;
+  }
+  acc.checkUses.set(toolUseId, 'pending');
+  acc.checkRuns.total += 1;
+}
+
+function noteToolUse(acc, block) {
+  if (!isObject(block.input)) {
+    return;
+  }
+  if (block.name === 'Skill' && typeof block.input.skill === 'string') {
+    addCommand(acc, block.input.skill, ticketIds(block.input.args));
+  } else if (block.name === 'Bash') {
+    noteCheckRun(acc, block.id, block.input.command);
+  } else if (block.name === 'SubagentHandback') {
+    noteCloseResult(acc, block.input.message);
   }
 }
 
@@ -255,8 +310,10 @@ function consumeAssistant(acc, message) {
   }
   if (Array.isArray(message.content)) {
     for (const block of message.content) {
-      if (isObject(block) && block.type === 'tool_use' && block.name === 'Skill' && isObject(block.input) && typeof block.input.skill === 'string') {
-        addCommand(acc, block.input.skill, ticketIds(block.input.args));
+      if (isObject(block) && block.type === 'tool_use') {
+        noteToolUse(acc, block);
+      } else if (isObject(block) && block.type === 'text') {
+        noteCloseResult(acc, block.text);
       }
     }
   }
@@ -363,6 +420,7 @@ export function finishAgent(acc) {
     agent_id: acc.agentId,
     ...acc.meta,
     anomalies: sortedObject(acc.anomalies),
+    check_runs: { ...acc.checkRuns },
     commands: acc.commands,
     cwd: acc.cwd ?? acc.untimedCwd,
     duration_ms: acc.firstMs === null ? null : acc.lastMs - acc.firstMs,
@@ -377,5 +435,13 @@ export function finishAgent(acc) {
     tokens_by_model: Object.fromEntries([...byModel].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))),
     turns: acc.turnIds.size,
     turns_without_usage: [...acc.turnIds].filter((messageId) => !acc.usageOf.has(messageId)).length,
+  };
+}
+
+/** The digest entry plus the transient inputs recognition needs, which are never stored. */
+export function finishAgentWithSignals(acc) {
+  return {
+    entry: finishAgent(acc),
+    signals: { closeResult: acc.closeResult, commandTicket: commandTicketOf(acc.commands), rootStage: rootStageOf(acc.slashBuild, acc.commands), slashBuild: acc.slashBuild },
   };
 }

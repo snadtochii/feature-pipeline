@@ -22,38 +22,41 @@ import { ComputeError, UsageError, render } from '../../lib/output.mjs';
 import { CaseFailure, assert, commitAll, equal, git, initRepo, throwsKind } from '../../lib/selftest-kit.mjs';
 import { parseArgv } from './args.mjs';
 import { SCHEMA_VERSION, loadDigests } from './cache.mjs';
+import { FIXTURES_DIR as FIXTURES, SENTINEL, copyFixtures } from './fixtures.mjs';
 import { makeMapper, mapProject } from './project.mjs';
+import {
+  UNATTRIBUTED_MARK,
+  closeResultOf,
+  commandTicketOf,
+  findTicket,
+  isCheckRun,
+  recognizeSession,
+  roleOf,
+  rootStageOf,
+  slashBuildTicket,
+  validCloseResult,
+  validRole,
+  validStage,
+  validTicket,
+} from './recognize.mjs';
+import { sessionTotals, ticketRuns } from './runs.mjs';
 import { consumeLine, finishAgent, newAgent, readTranscript } from './transcript.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ENTRY = path.join(HERE, '..', 'insights.mjs');
-const FIXTURES = path.join(HERE, '..', 'fixtures', 'transcripts');
-const SENTINEL = 'FIXTURE-TEXT-9c41';
-const ROOT_TOKEN = '<ROOT>';
 
 const SESSIONS = {
   a: { id: '0a0a0a0a-0000-4000-8000-00000000000a', slug: '-ROOT-repo' },
   b: { id: '0b0b0b0b-0000-4000-8000-00000000000b', slug: '-ROOT-repo-worktrees-wt' },
   c: { id: '0c0c0c0c-0000-4000-8000-00000000000c', slug: '-ROOT-repo-worktrees-gone' },
   d: { id: '0d0d0d0d-0000-4000-8000-00000000000d', slug: '-ROOT-scratch' },
+  e: { id: '0f0f0f0f-0000-4000-8000-00000000000f', slug: '-ROOT-pipeline' },
+  f: { id: '1a1a1a1a-0000-4000-8000-00000000001a', slug: '-ROOT-pipeline' },
 };
 
 const LINKED_SESSION_ID = '0e0e0e0e-0000-4000-8000-00000000000e';
 
 const transcriptOf = (key) => `${SESSIONS[key].slug}/${SESSIONS[key].id}.jsonl`;
-
-function copyFixtures(source, target, root) {
-  fs.mkdirSync(target, { recursive: true });
-  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
-    const from = path.join(source, entry.name);
-    const to = path.join(target, entry.name);
-    if (entry.isDirectory()) {
-      copyFixtures(from, to, root);
-    } else {
-      fs.writeFileSync(to, fs.readFileSync(from, 'utf8').replaceAll(ROOT_TOKEN, root));
-    }
-  }
-}
 
 function gitBinDir() {
   for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
@@ -85,6 +88,7 @@ function makeWorld() {
   fs.mkdirSync(path.join(ws, 'repo-worktrees'));
   git(repo, 'worktree', 'add', '-q', path.join(ws, 'repo-worktrees', 'wt'));
   fs.mkdirSync(path.join(ws, 'scratch'));
+  fs.mkdirSync(path.join(ws, 'pipeline', 'claudedocs', 'tickets'), { recursive: true });
   const store = path.join(home, '.claude', 'projects');
   copyFixtures(FIXTURES, store, JSON.stringify(ws).slice(1, -1));
   fs.mkdirSync(path.join(store, SESSIONS.a.slug, 'memory'));
@@ -201,6 +205,12 @@ function agentOfLines(lines) {
 
 const at = (seconds) => new Date(Date.UTC(2026, 10, 12, 10, 0, seconds)).toISOString();
 
+/** Weighted units are float sums; each must be within 1e-9 of its hand-computed value. */
+function near(actual, expected, label) {
+  equal(actual.length, expected.length, `${label}: count`);
+  actual.forEach((value, index) => assert(Math.abs(value - expected[index]) < 1e-9, `${label}: ${value} is not ${expected[index]}`));
+}
+
 const SESSION_COUNTS = { cache_corrupt: 0, kept_stale: 0, kept_without_transcript: 0, mapped: 0, parsed: 0, remapped: 0, reused: 0, seen: 0, unmapped: 0 };
 
 const CASES = [
@@ -265,6 +275,103 @@ const CASES = [
     const agent = agentOfLines([{ message: { content: '<command-name>/bad name!</command-name>' }, timestamp: at(0), type: 'user' }]);
     equal([agent.commands, agent.anomalies.bad_command_name], [[], 1], 'an invalid command name is not kept');
   }],
+  ['recognize: roles from the type, refined by description for general-purpose only', () => {
+    equal(roleOf('general-purpose', `Build stage for FP-7 ${SENTINEL}`), 'build-stage', 'build stage');
+    equal(roleOf('general-purpose', `${SENTINEL} review stage`), 'review-stage', 'one-word review stage');
+    equal(roleOf('general-purpose', `FP-8 ${SENTINEL} implementer via flow`), 'ship-implementer', 'end-anchored');
+    equal(roleOf('general-purpose', `FP-8 implementer via flow ${SENTINEL}`), 'general-purpose (other)', 'end anchor holds');
+    equal(roleOf('general-purpose', 42), 'general-purpose (other)', 'a non-string description');
+    equal(roleOf('feature:code-reviewer', 'Build stage for FP-7'), 'feature:code-reviewer', 'a typed agent keeps its type');
+    equal(roleOf(null, 'x'), null, 'no type');
+  }],
+  ['recognize: tickets skip standards names and the sentinel', () => {
+    equal(findTicket(`normalise to UTF-8, SHA-256 then FP-8 ${SENTINEL}`), 'FP-8', 'standards skipped');
+    equal(findTicket(SENTINEL), null, 'the sentinel is no ticket');
+    equal(findTicket(undefined), null, 'no text');
+    equal([findTicket('\u00e9FP-12'), findTicket('FP-12\u00e9'), findTicket('_FP-12'), findTicket('(FP-12).')], [null, null, null, 'FP-12'], 'word boundaries are Unicode-aware, as in Python');
+    equal(findTicket('FP-\u0661\u0662 then FP-3'), 'FP-\u0661\u0662', 'any decimal digit, as in Python');
+    equal(validTicket(findTicket('FP-\u0661\u0662')), null, 'a ticket with non-ASCII digits fails its vocabulary');
+  }],
+  ['recognize: the slash-build rule reads string content only', () => {
+    const slash = (args) => `<command-name>/feature:build</command-name>\n<command-args>${args}</command-args>`;
+    equal(slashBuildTicket(slash(`FP-9 ${SENTINEL}`)), 'FP-9', 'string content');
+    equal(slashBuildTicket(slash(SENTINEL)), UNATTRIBUTED_MARK, 'ticket-less');
+    equal(slashBuildTicket([{ text: slash('FP-9'), type: 'text' }]), null, 'array content');
+    equal(slashBuildTicket('<command-name>/feature:plan</command-name>'), null, 'another command');
+    const sticky = newAgent('root', null);
+    const line = (args) => ({ message: { content: slash(args) }, timestamp: at(0), type: 'user' });
+    consumeLine(sticky, JSON.stringify(line(SENTINEL)));
+    consumeLine(sticky, JSON.stringify(line('FP-9')));
+    equal(sticky.slashBuild, UNATTRIBUTED_MARK, 'the first match sticks, ticket-less too');
+    equal(rootStageOf(UNATTRIBUTED_MARK, [{ ids: [], name: '/feature:build' }, { ids: [], name: 'feature:close-stage' }]), 'close', 'a ticket-less slash build is no implement stage');
+    equal(rootStageOf('FP-9', []), 'implement', 'a ticketed slash build');
+    equal(rootStageOf(null, [{ ids: [], name: '/feature:flow' }]), null, 'no stage command');
+  }],
+  ['recognize: check runs strip heredoc bodies and skip read-only leading words', () => {
+    equal(isCheckRun('head -8 scripts/check-tool-parity.sh'), false, 'a read of a check script');
+    equal(isCheckRun('D=/tmp node x.mjs --self-test'), true, 'an assignment before the command');
+    equal(isCheckRun(`cat > f <<'EOF'\nnode ${SENTINEL}\nnpm run lint\nEOF`), false, 'checks inside a heredoc body');
+    equal(isCheckRun(`cat > f <<'EOF'\nbody\nEOF\nbash scripts/check-mode-split.sh`), true, 'a check after a heredoc');
+    equal(isCheckRun('cat <<EOF\nnpm test'), true, 'an unterminated heredoc is not stripped');
+    equal(isCheckRun('grep -n vitest x && ls'), false, 'only read-only segments');
+    equal(isCheckRun(42), false, 'no command');
+  }],
+  ['recognize: the close result line, last match wins', () => {
+    equal(closeResultOf(`PAUSED: ${SENTINEL}\nclose: caller — verdict partial\nclose: done — verdict pass \r\n/abs`), { ending: 'done', verdict: 'pass' }, 'last match, trailing space and CR');
+    equal(closeResultOf('close: done - verdict stuck'), { ending: 'done', verdict: 'stuck' }, 'ASCII dash');
+    equal(closeResultOf('close: merged — verdict pass'), { ending: 'merged', verdict: null }, 'a verdict-less ending drops its verdict');
+    equal(closeResultOf('close: error'), { ending: 'error', verdict: null }, 'error');
+    equal(closeResultOf('close: already-complete'), { ending: 'already-complete', verdict: null }, 'already-complete without a verdict');
+    equal(closeResultOf('close: already-complete — verdict stuck'), { ending: 'already-complete', verdict: 'stuck' }, 'already-complete with a verdict');
+    for (const text of ['close: shipped — verdict pass', '`close: done — verdict pass`', 'see close: done — verdict pass', 'close: done — verdict great', 42]) {
+      equal(closeResultOf(text), null, `no close line in ${JSON.stringify(text)}`);
+    }
+  }],
+  ['recognize: stored values are drawn from closed vocabularies', () => {
+    equal([validRole('close-stage', null), validRole('feature:x', 'feature:x'), validRole('feature:x', 'feature:y'), validRole(SENTINEL, null)], ['close-stage', 'feature:x', null, null], 'roles');
+    equal([validTicket('FP-7'), validTicket(`FP-${'9'.repeat(40)}`), validTicket('fp-7'), validTicket(SENTINEL)], ['FP-7', null, null, null], 'tickets');
+    equal([validStage('implement'), validStage('build')], ['implement', null], 'stages');
+    equal(
+      [validCloseResult({ ending: 'done', verdict: 'pass' }), validCloseResult({ ending: 'done', verdict: null }), validCloseResult({ ending: 'merged', verdict: 'pass' }), validCloseResult({ ending: SENTINEL, verdict: null })],
+      [{ ending: 'done', verdict: 'pass' }, null, null, null],
+      'close results',
+    );
+    equal(
+      [validCloseResult({ ending: 'already-complete', verdict: null }), validCloseResult({ ending: 'already-complete', verdict: 'partial' }), validCloseResult({ ending: 'already-complete', verdict: SENTINEL })],
+      [{ ending: 'already-complete', verdict: null }, { ending: 'already-complete', verdict: 'partial' }, null],
+      'already-complete carries a verdict or none',
+    );
+  }],
+  ['recognize: a root stage command gives the run ticket, never measure-session.py\'s ticket', () => {
+    equal(commandTicketOf([{ ids: ['FP-1'], name: '/feature:build' }, { ids: ['UTF-8', 'FP-5'], name: '/feature:close-stage' }, { ids: ['FP-6'], name: 'feature:flow' }]), 'FP-5', 'the first stage or flow command carrying a ticket');
+    equal([commandTicketOf([{ ids: [], name: 'feature:plan' }, { ids: ['FP-6'], name: 'feature:flow' }]), commandTicketOf([{ ids: ['FP-1'], name: 'feature:ship' }])], ['FP-6', null], 'an ID-less command is passed over; other commands give none');
+    const commands = [{ ids: ['FP-5'], name: '/feature:close-stage' }];
+    const tokens = (input, output) => ({ cache_read: 0, cache_write: 0, input, output });
+    const agent = (agentId, agentType, start, input, output) => ({
+      agent_id: agentId, agent_type: agentType, anomalies: {}, check_runs: { failed: 0, total: 0 }, end: at(start + 5), feature_versions: [], models: [], parent_agent_id: null, start: at(start), tokens: tokens(input, output), turns: 1,
+    });
+    const signal = (role, ownTicket, extra = {}) => ({ closeResult: null, commandTicket: null, ownTicket, role, rootStage: null, slashBuild: null, walks: true, ...extra });
+    const agents = recognizeSession(
+      [agent('root', null, 0, 10, 2), agent('fin', 'general-purpose', 10, 4, 1), agent('ui', 'feature:ui-tester', 20, 2, 0)],
+      [
+        signal('root-session', null, { closeResult: closeResultOf('close: done — verdict pass'), commandTicket: commandTicketOf(commands), rootStage: rootStageOf(null, commands) }),
+        signal(roleOf('general-purpose', 'Finalize FP-5'), findTicket('Finalize FP-5')),
+        signal('feature:ui-tester', null),
+      ],
+    );
+    equal(agents.map((item) => [item.agent_id, item.ticket, item.run_ticket, item.stage, item.close_result]), [
+      ['root', null, 'FP-5', 'close', { ending: 'done', verdict: 'pass' }],
+      ['fin', 'FP-5', 'FP-5', 'close', null],
+      ['ui', null, 'FP-5', 'close', null],
+    ], 'the root keeps measure-session.py\'s null ticket; the run ticket reaches every agent');
+    assert(agents.every((item) => Object.keys(item.anomalies).length === 0), 'no bad_recognition');
+    const digest = { agents, feature_versions: [], project: '/p', schema_version: SCHEMA_VERSION, session_id: 's', transcript: 'x/s.jsonl' };
+    equal(sessionTotals(digest, 'ticket').map((bucket) => [bucket.ticket, bucket.count]), [['unattributed', 2], ['FP-5', 1]], 'per-session ticket totals follow measure-session.py');
+    const [run] = ticketRuns([digest]).tickets;
+    equal([run.ticket, run.sessions[0].stages.map((stage) => [stage.agent_id, stage.stage])], ['FP-5', [['root', 'close']]], 'the root is the ticket\'s close stage head');
+    equal(run.close_results, [{ agent_id: 'root', close_result: { ending: 'done', verdict: 'pass' }, session_id: 's' }], 'the close result is the ticket\'s');
+    near([run.weighted_units, run.sessions[0].stages[0].weighted_units, run.by_role['root-session']], [31, 31, 20], 'the run ticket\'s units hold the whole session');
+  }],
   ['malformed: bad and truncated lines are counted and the read goes on', async (world) => {
     const root = await rootOfA(world);
     equal(root.malformed_lines, 2, 'the broken middle line and the truncated last line');
@@ -311,8 +418,8 @@ const CASES = [
   }],
   ['extract: the first run parses every session', async (world) => {
     const doc = await extractRun(world);
-    equal(doc.sessions, { ...SESSION_COUNTS, mapped: 3, parsed: 4, seen: 4, unmapped: 1 }, 'sessions');
-    equal(doc.subagents, { orphan_jsonl: 1, orphan_meta: 1, parsed: 3 }, 'subagents');
+    equal(doc.sessions, { ...SESSION_COUNTS, mapped: 5, parsed: 6, seen: 6, unmapped: 1 }, 'sessions');
+    equal(doc.subagents, { orphan_jsonl: 1, orphan_meta: 1, parsed: 21 }, 'subagents');
     equal([doc.malformed_lines, doc.malformed_sessions, doc.malformed_sessions_total], [2, [transcriptOf('a')], 1], 'malformed');
     equal(doc.anomalies, { bad_meta: 1, no_message_id: 1, orphan_jsonl: 1, orphan_meta: 1 }, 'anomalies');
     equal(
@@ -338,9 +445,99 @@ const CASES = [
     equal([c.agents[1].agent_id, c.agents[1].agent_type, c.agents[1].anomalies], ['c1', null, { bad_meta: 1 }], 'a meta file that is not an object');
     equal([digestOf(world, 'd').project, digestOf(world, 'd').project_via], [null, null], 'session D');
   }],
+  ['extract: each agent carries its role, ticket, stage, close result and check runs', (world) => {
+    const recognitionOf = (key) =>
+      Object.fromEntries(digestOf(world, key).agents.map((agent) => [agent.agent_id, [agent.role, agent.ticket, agent.stage, agent.close_result]]).sort(([a], [b]) => (a < b ? -1 : 1)));
+    const a = digestOf(world, 'a');
+    equal(recognitionOf('a'), { a1: ['feature:code-reviewer', 'FP-7', 'implement', null], a2: [null, null, null, null], root: ['root-session', 'FP-7', 'implement', null] }, 'session A');
+    equal(a.schema_version, SCHEMA_VERSION, 'schema version');
+    equal(recognitionOf('e'), {
+      e1: ['plan-stage', 'FP-7', 'plan', null],
+      e10: ['ship-implementer', 'FP-8', 'implement', null],
+      e11: ['claude', 'FP-9', 'implement', null],
+      e2: ['feature:code-explorer', 'FP-7', 'plan', null],
+      e3: ['feature:requirements-analyst', 'FP-7', 'plan', null],
+      e4: ['build-stage', 'FP-7', 'implement', null],
+      e5: ['general-purpose (other)', 'FP-7', 'implement', null],
+      e6: ['review-stage', 'FP-7', 'review', null],
+      e7: ['feature:code-reviewer', 'FP-7', 'review', null],
+      e8: ['close-stage', 'FP-7', 'close', { ending: 'caller', verdict: 'pass' }],
+      e9: ['feature:finalizer', 'FP-7', 'close', null],
+      root: ['root-session', 'FP-9', 'implement', null],
+    }, 'session E: relayed close lines and a non-close agent\'s close line do not count');
+    equal(recognitionOf('f'), {
+      f1: ['close-stage', 'FP-7', 'close', { ending: 'continue-with-hint', verdict: 'partial' }],
+      f2: ['review-stage', 'FP-7', 'review', null],
+      f3: ['close-stage', 'FP-7', 'close', { ending: 'done', verdict: 'pass' }],
+      f4: ['finalize-child', 'FP-7', 'close', null],
+      f5: ['ship-review', 'FP-8', null, null],
+      f6: ['ship-address', 'FP-8', null, null],
+      f7: ['close-stage', null, 'close', null],
+      root: ['root-session', null, null, null],
+    }, 'session F: an array-content slash build attributes nothing; every standard prefix is skipped');
+    const e = digestOf(world, 'e');
+    const root = e.agents[0];
+    equal(root.check_runs, { failed: 1, total: 4 }, 'root check runs: the streamed repeat once, the rejection not failed, the background run unpaired');
+    equal([root.friction.rejections, root.friction.tool_errors], [1, 1], 'root friction');
+    assert(e.agents.slice(1).every((agent) => agent.check_runs.total === 0), 'no check runs in the subagents');
+    for (const digest of loadDigests(world.cacheRoot)) {
+      for (const agent of digest.agents) {
+        assert(!('description' in agent), `a description was kept for ${digest.transcript} ${agent.agent_id}`);
+      }
+    }
+    equal(e.anomalies, {}, 'no bad_recognition');
+  }],
+  ['runs: per-session ticket and role totals with measure-session.py weights', (world) => {
+    const e = digestOf(world, 'e');
+    const tickets = sessionTotals(e, 'ticket');
+    equal(tickets.map((bucket) => [bucket.ticket, bucket.count, bucket.turns]), [['FP-7', 9, 10], ['FP-9', 2, 8], ['FP-8', 1, 1]], 'tickets in weighted order');
+    const fp7 = tickets[0];
+    equal([fp7.input_tokens, fp7.cache_write_tokens, fp7.cache_read_tokens, fp7.output_tokens], [540, 108, 5400, 54], 'FP-7 token sums');
+    near(tickets.map((bucket) => bucket.weighted_units), [1485, 522.5, 302.5], 'ticket units');
+    const roles = sessionTotals(e, 'role');
+    equal(roles.length, 12, 'one role per agent');
+    near([roles.find((bucket) => bucket.role === 'close-stage').weighted_units], [247.5], 'close-stage units');
+    equal(sessionTotals(digestOf(world, 'f'), 'ticket').map((bucket) => bucket.ticket), ['FP-7', 'FP-8', 'unattributed'], 'a null ticket is unattributed');
+  }],
+  ['runs: a ticket across sessions is one ticket, its stages and close results in start order', (world) => {
+    const project = path.join(world.ws, 'pipeline');
+    const runs = ticketRuns(loadDigests(world.cacheRoot));
+    equal(runs.without_recognition, 0, 'every digest recognized');
+    const ofProject = runs.tickets.filter((run) => run.project === project);
+    equal(ofProject.map((run) => run.ticket), ['FP-7', 'FP-8', 'FP-9'], 'tickets of the project');
+    const [fp7, fp8, fp9] = ofProject;
+    equal(fp7.sessions.map((session) => session.session_id), [SESSIONS.e.id, SESSIONS.f.id], 'FP-7 sessions');
+    near([fp7.weighted_units, ...fp7.sessions.map((session) => session.weighted_units)], [1760, 1485, 275], 'FP-7 units');
+    equal(fp7.close_results.map((item) => [item.session_id, item.agent_id, item.close_result]), [
+      [SESSIONS.e.id, 'e8', { ending: 'caller', verdict: 'pass' }],
+      [SESSIONS.f.id, 'f1', { ending: 'continue-with-hint', verdict: 'partial' }],
+      [SESSIONS.f.id, 'f3', { ending: 'done', verdict: 'pass' }],
+    ], 'close results');
+    const stagesE = fp7.sessions[0].stages;
+    equal(stagesE.map((stage) => [stage.agent_id, stage.stage, stage.feature_versions]), [
+      ['e1', 'plan', ['3.41.2']],
+      ['e4', 'implement', ['3.41.1']],
+      ['e6', 'review', ['3.41.1']],
+      ['e8', 'close', ['3.41.2']],
+    ], 'session E stages: own versions, else the nearest ancestor\'s');
+    near(stagesE.map((stage) => stage.weighted_units), [247.5, 302.5, 412.5, 522.5], 'stage units: head plus its unstaged descendants');
+    equal(stagesE[0].models, ['claude-opus-test', 'claude-sonnet-test'], 'plan stage models');
+    equal([stagesE[0].start, stagesE[0].end, stagesE[0].duration_ms], ['2026-11-12T12:01:00.000Z', '2026-11-12T12:01:50.000Z', 50_000], 'plan stage span');
+    equal(fp7.sessions[1].stages.map((stage) => [stage.agent_id, stage.stage, stage.feature_versions]), [
+      ['f1', 'close', ['3.41.2']],
+      ['f2', 'review', ['3.41.2']],
+      ['f3', 'close', ['3.41.2']],
+    ], 'session F stages: the session\'s versions when no ancestor has one');
+    equal(fp8.sessions[0].stages, [], 'a ship implementer is no stage head');
+    const [implement] = fp9.sessions[0].stages;
+    equal([implement.agent_id, implement.end, implement.duration_ms, implement.check_runs], ['root', '2026-11-12T12:01:00.000Z', 60_000, { failed: 1, total: 4 }], 'a slash-build root ends where its first stage child starts');
+    near([implement.weighted_units, fp9.weighted_units], [522.5, 522.5], 'root implement subtree holds only FP-9 agents, not the FP-8 implementer under it');
+    equal(Object.keys(fp9.by_role), ['claude', 'root-session'], 'FP-9 roles');
+    near([fp9.by_role.claude, fp9.by_role['root-session']], [330, 192.5], 'FP-9 units by role');
+  }],
   ['extract: a second run reuses every digest', async (world) => {
     const doc = await extractRun(world);
-    equal(doc.sessions, { ...SESSION_COUNTS, mapped: 3, reused: 4, seen: 4, unmapped: 1 }, 'sessions');
+    equal(doc.sessions, { ...SESSION_COUNTS, mapped: 5, reused: 6, seen: 6, unmapped: 1 }, 'sessions');
     equal(doc.subagents.parsed, 0, 'no subagent read');
     equal(doc.malformed_lines, 2, 'malformed lines still reported');
   }],
@@ -348,7 +545,7 @@ const CASES = [
     const before = digestOf(world, 'd');
     fs.mkdirSync(path.join(world.ws, 'scratch', 'claudedocs', 'tickets'), { recursive: true });
     const doc = await extractRun(world);
-    equal(doc.sessions, { ...SESSION_COUNTS, mapped: 4, remapped: 1, reused: 4, seen: 4 }, 'sessions');
+    equal(doc.sessions, { ...SESSION_COUNTS, mapped: 6, remapped: 1, reused: 6, seen: 6 }, 'sessions');
     equal(doc.subagents.parsed, 0, 'no subagent read');
     const after = digestOf(world, 'd');
     equal([after.project, after.project_via], [path.join(world.ws, 'scratch'), 'cwd'], 'session D remapped');
@@ -358,32 +555,33 @@ const CASES = [
     const line = { cwd: path.join(world.ws, 'repo-worktrees', 'wt'), message: { id: 'msg_b2', model: 'claude-opus-test', stop_reason: 'end_turn', usage: { input_tokens: 5 } }, timestamp: '2026-11-12T11:00:20.000Z', type: 'assistant' };
     fs.appendFileSync(path.join(world.store, transcriptOf('b')), `${JSON.stringify(line)}\n`);
     const doc = await extractRun(world);
-    equal([doc.sessions.parsed, doc.sessions.reused], [1, 3], 'parsed and reused');
+    equal([doc.sessions.parsed, doc.sessions.reused], [1, 5], 'parsed and reused');
     equal([digestOf(world, 'b').agents[0].turns, digestOf(world, 'b').tokens.input], [2, 6], 'session B re-read');
   }],
   ['extract: a schema change or a corrupt digest is parsed again', async (world) => {
     const file = digestFile(world, 'c');
-    fs.writeFileSync(file, render({ ...JSON.parse(fs.readFileSync(file, 'utf8')), schema_version: SCHEMA_VERSION + 1 }));
+    fs.writeFileSync(file, render({ ...JSON.parse(fs.readFileSync(file, 'utf8')), schema_version: SCHEMA_VERSION - 1 }));
     const changed = await extractRun(world);
-    equal([changed.sessions.parsed, changed.sessions.reused], [1, 3], 'schema change');
+    equal([changed.sessions.parsed, changed.sessions.reused], [1, 5], 'schema change');
     equal(digestOf(world, 'c').schema_version, SCHEMA_VERSION, 'session C rewritten');
     fs.writeFileSync(digestFile(world, 'b'), '{"not": "a digest"');
     const corrupt = await extractRun(world);
-    equal([corrupt.sessions.cache_corrupt, corrupt.sessions.parsed, corrupt.sessions.reused], [1, 1, 3], 'corrupt digest');
+    equal([corrupt.sessions.cache_corrupt, corrupt.sessions.parsed, corrupt.sessions.reused], [1, 1, 5], 'corrupt digest');
   }],
   ['extract: a session missing a subagent file keeps its digest unchanged, under a schema change too', async (world) => {
     const file = digestFile(world, 'a');
-    fs.writeFileSync(file, render({ ...JSON.parse(fs.readFileSync(file, 'utf8')), schema_version: SCHEMA_VERSION + 1 }));
+    fs.writeFileSync(file, render({ ...JSON.parse(fs.readFileSync(file, 'utf8')), schema_version: SCHEMA_VERSION - 1 }));
     const before = fs.readFileSync(file, 'utf8');
     fs.rmSync(path.join(world.store, SESSIONS.a.slug, SESSIONS.a.id, 'subagents', 'agent-a1.jsonl'));
     const doc = await extractRun(world);
-    equal([doc.sessions.kept_stale, doc.sessions.parsed, doc.sessions.reused], [1, 0, 3], 'kept stale');
+    equal([doc.sessions.kept_stale, doc.sessions.parsed, doc.sessions.reused], [1, 0, 5], 'kept stale');
     equal(fs.readFileSync(digestFile(world, 'a'), 'utf8'), before, 'session A digest bytes');
+    equal(ticketRuns(loadDigests(world.cacheRoot)).without_recognition, 1, 'the kept-stale older-schema digest is counted, never read');
   }],
   ['extract: a digest whose transcript is gone is kept', async (world) => {
     fs.rmSync(path.join(world.store, transcriptOf('d')));
     const doc = await extractRun(world);
-    equal([doc.sessions.seen, doc.sessions.kept_without_transcript, doc.sessions.unmapped], [3, 1, 0], 'kept without transcript');
+    equal([doc.sessions.seen, doc.sessions.kept_without_transcript, doc.sessions.unmapped], [5, 1, 0], 'kept without transcript');
     assert(fs.existsSync(digestFile(world, 'd')), 'session D digest still present');
   }],
 ];
