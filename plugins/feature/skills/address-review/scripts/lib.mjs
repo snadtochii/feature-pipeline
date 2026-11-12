@@ -337,8 +337,8 @@ export function threadStates({ viewer, inline, reviews, issue }) {
   const byId = new Map(comments.map((comment) => [comment.id, comment]));
   const inlineReplies = new Map();
   const inlineFollowups = new Map();
-  for (const comment of comments) {
-    if (comment.in_reply_to_id === undefined || comment.in_reply_to_id === null || isBot(comment)) {
+  for (const comment of people(comments)) {
+    if (comment.in_reply_to_id === undefined || comment.in_reply_to_id === null) {
       continue;
     }
     const root = rootOf(comment, byId);
@@ -383,11 +383,12 @@ export function threadStates({ viewer, inline, reviews, issue }) {
       continue;
     }
     const followups = inlineFollowups.get(comment.id) ?? [];
-    if (isBot(comment) && followups.length === 0) {
+    const bot = isBot(comment);
+    if (bot && followups.length === 0) {
       continue;
     }
     const body = bodyOf(comment);
-    const automated = !isBot(comment) && (isReviewMarked(body) || reviewMarked.get(comment.pull_request_review_id) === true);
+    const automated = !bot && (isReviewMarked(body) || reviewMarked.get(comment.pull_request_review_id) === true);
     threads.push({
       ...record(comment, comment.created_at),
       key: `inline:${comment.id}`,
