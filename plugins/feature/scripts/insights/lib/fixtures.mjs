@@ -1,4 +1,4 @@
-// The committed synthetic fixtures (../CONTRACT.md §10): the transcript
+// The committed synthetic fixtures (../CONTRACT.md §11): the transcript
 // fixtures, shared by the self-test and scripts/check-insights-parity.mjs, and
 // the ticket-tree fixtures the self-test alone uses. Where they live, the
 // sentinel every free-text field carries, the transcript copy that substitutes

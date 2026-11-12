@@ -43,8 +43,9 @@ function outcomeOf(record) {
 
 const versionsOf = (run) => [...new Set(run.sessions.flatMap((session) => session.stages.flatMap((stage) => stage.feature_versions)))].sort();
 
-function lastCloseVerdict(run) {
-  const verdicts = run.close_results.map((result) => result.close_result?.verdict ?? null).filter((verdict) => verdict !== null);
+/** A run's last non-null close-result verdict, or null. */
+export function lastCloseVerdict(run) {
+  const verdicts = (run.close_results ?? []).map((result) => result.close_result?.verdict ?? null).filter((verdict) => verdict !== null);
   return verdicts.at(-1) ?? null;
 }
 

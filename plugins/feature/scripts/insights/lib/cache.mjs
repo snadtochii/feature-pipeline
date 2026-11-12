@@ -3,7 +3,8 @@
 // The store is `$HOME/.claude/projects`, read only. The cache is one JSON
 // digest per main session under `$HOME/.feature-pipeline/insights/digests/
 // <slug>/<session-id>.json`; a digest's own `sources` list is its cache key.
-// Every name taken from the store passes a character-class check before a
+// The reports (§9) live beside it under `$HOME/.feature-pipeline/insights/
+// reports/`. Every name taken from the store passes a character-class check before a
 // cache path is built from it, and symlinks are never followed.
 //
 // Private to the implementation: only insights.mjs is a command.
@@ -24,15 +25,30 @@ const AGENT_PREFIX = /^agent-[A-Za-z0-9_-]+\.prefix\.json$/;
 const DIGEST_FILE = /^([A-Za-z0-9_-][A-Za-z0-9._-]*)\.json$/;
 const SUBAGENTS_DIR = 'subagents';
 
-/** `{ storeDir, cacheRoot }` for `home`; an unset `home` is a ComputeError. */
+/** `{ cacheRoot, reportsDir, storeDir }` for `home`; an unset `home` is a ComputeError. */
 export function pathsFor(home) {
   if (typeof home !== 'string' || home === '') {
     throw new ComputeError('HOME is not set');
   }
   return {
     cacheRoot: path.join(home, '.feature-pipeline', 'insights', 'digests'),
+    reportsDir: path.join(home, '.feature-pipeline', 'insights', 'reports'),
     storeDir: path.join(home, '.claude', 'projects'),
   };
+}
+
+/** Create the reports directory (mode 0700, its parent too) as a real directory; anything else is a ComputeError. */
+export function ensureReportsDir(reportsDir) {
+  try {
+    fs.mkdirSync(reportsDir, { mode: 0o700, recursive: true });
+    if (!fs.lstatSync(reportsDir).isDirectory()) {
+      throw Object.assign(new Error('not a directory'), { code: 'ENOTDIR' });
+    }
+    fs.chmodSync(path.dirname(reportsDir), 0o700);
+    fs.chmodSync(reportsDir, 0o700);
+  } catch (err) {
+    throw new ComputeError(`cannot create the reports directory ${reportsDir} (${err.code ?? 'error'})`);
+  }
 }
 
 /** Create the cache root (mode 0700) when absent. */

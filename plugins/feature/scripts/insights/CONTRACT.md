@@ -1,11 +1,12 @@
 # The session-insights extractor contract
 
 Authoritative surface for `insights.mjs`, which reduces every Claude Code session on this
-machine to one small cached digest. The contract fixes the verb, the transcript store it
-reads, how a session is mapped to a project, the digest schema, the recognition rules, the
-cache and its reuse rules, the ticket outcomes joined to the runs, the summary document, the
-exit codes and the privacy rules. The implementation behind it is private and may change
-without changing this file.
+machine to one small cached digest and reports on the cached runs as one offline HTML page.
+The contract fixes the verbs, the transcript store it reads, how a session is mapped to a
+project, the digest schema, the recognition rules, the cache and its reuse rules, the ticket
+outcomes joined to the runs, the summary document, the report, the exit codes and the
+privacy rules. The implementation behind it is private and may change without changing this
+file.
 
 The extractor knows Claude Code's transcript layout and recognizes the pipeline's runs in
 it: each agent's role, ticket and stage, the close stage's result line and the validation
@@ -20,6 +21,7 @@ ticket's artifacts and joins each ticket's outcome to its runs, on read (§7).
 
 ```text
 node <plugin-root>/scripts/insights/insights.mjs extract
+node <plugin-root>/scripts/insights/insights.mjs report [--project <name>|all] [--since YYYY-MM-DD] [--compare X.Y.Z] [--cwd <abs-dir>]
 node <plugin-root>/scripts/insights/insights.mjs --self-test
 ```
 
@@ -27,7 +29,15 @@ node <plugin-root>/scripts/insights/insights.mjs --self-test
 |---|---|
 | `<plugin-root>` | The installed `feature` plugin's root directory. |
 | `extract` | Scans the store (§2), brings the cache (§6) up to date, joins the cached runs to the ticket trees of the projects the digests name (§7) and prints the summary (§8). Takes no flags: every path derives from `HOME` and from those project paths. |
-| `--self-test` | §10. Takes no verb and no other flag. |
+| `report` | Does what `extract` does, in process, then writes one HTML report and prints the report document (§9). |
+| `--project <name>` | `report` only. `all` for every project a digest names; else one project, by its absolute path or its directory base name. Without it, the project `--cwd` maps to (§3). |
+| `--since YYYY-MM-DD` | `report` only. The window's first day, a real calendar date, from 00:00 UTC, inclusive. Default: 00:00 UTC of the day 30 days before the run's UTC date. |
+| `--compare X.Y.Z` | `report` only. The `feature` plugin version the comparison splits at; each part a decimal integer. |
+| `--cwd <abs-dir>` | `report` only. The directory whose project the report covers when `--project` is absent; an absolute path. Default: the process's working directory. |
+| `--self-test` | §11. Takes no verb and no other flag. |
+
+A `report` flag takes its value as the next argument, appears at most once, and its value
+may not be empty or start with `--`; `--flag=value` is not accepted.
 
 Only `insights.mjs` is a command. Everything under `lib/`, and the modules under `../lib/`
 that the plugin's scripts share, is private.
@@ -38,9 +48,9 @@ progress output.
 
 | Exit | Meaning | Document |
 |---|---|---|
-| 0 | The run finished, malformed lines and unreadable ticket trees included. | §8 summary, or the self-test's `{"cases": <n>, "ok": true}`. |
-| 1 | Could not compute: `HOME` unset or empty, the store unreadable, the cache root not creatable, a digest not writable, or a self-test case failing. | `{"error": "<reason>"}`, naming the path where one is involved. |
-| 2 | Bad invocation: no verb, an unknown verb, any argument after `extract`, or `--self-test` with company. | `{"error": "<reason>"}`. |
+| 0 | The run finished, malformed lines and unreadable ticket trees included; for `report`, an extract failure too, which the report explains (§9). | §8 summary, §9 report document, or the self-test's `{"cases": <n>, "ok": true}`. |
+| 1 | Could not compute: `HOME` unset or empty; for `extract`, the store unreadable, the cache root not creatable or a digest not writable; for `report`, the reports directory not creatable or the report not writable; or a self-test case failing. | `{"error": "<reason>"}`, naming the path where one is involved. |
+| 2 | Bad invocation: no verb, an unknown verb, any argument after `extract`, a `report` argument that is not one of its flags, a repeated flag, a missing value or a value failing its shape (a `--project` value over 4096 characters included), `--self-test` with company; for `report`, a working directory that maps to no project with no `--project`, or a `--project` name matching no project or several. | `{"error": "<reason>"}`. No report is written. |
 
 **Runtime.** Node 22 or newer, no dependency beyond Node's standard library. `git` on `PATH`
 is used for worktree resolution (§3) and its absence is not an error.
@@ -278,9 +288,10 @@ failing its vocabulary, stored as null).
 
 ```text
 $HOME/.feature-pipeline/insights/            mode 0700
-└── digests/                                 mode 0700
-    └── <slug>/                              mode 0700
-        └── <session-id>.json                mode 0600, one per main session
+├── digests/                                 mode 0700
+│   └── <slug>/                              mode 0700
+│       └── <session-id>.json                mode 0600, one per main session
+└── reports/                                 mode 0700, the reports (§9)
 ```
 
 Each digest is written through a temporary file beside it and renamed into place, the
@@ -473,10 +484,115 @@ The dataset is `{counts, projects, tickets, unrecognized, without_recognition}`:
 The document holds counts, store-relative paths, project paths, ticket IDs and artifact file
 names only, so its size is bounded whatever the store and the ticket trees hold.
 
-## §9 Privacy
+## §9 The report
 
-- No message text enters a digest or the summary: no user prompt, assistant text, tool input
-  or tool output. Tool-result content is read only to classify it (§5), its first 300
+`report` resolves its scope, runs §6–§8's extract in process without printing its summary,
+reduces the cached digests and their ticket dataset (§7) to the figures below, writes them
+as one HTML page and prints the report document.
+
+**Scope.** With `--project all`, every distinct project path a digest names. With a name, the
+one project whose absolute path equals it, or else whose base name equals it; none or several
+matching exits 2, listing at most 20 known base names or the clashing paths. Without
+`--project`, the project `--cwd` maps to under §3, checked before the extract runs; a
+directory that maps to none exits 2. That project is reported even when no digest names it.
+
+**Window.** A session is in the window when its `start` is at or after the window's first
+instant, and everything recorded in it counts with it: its tokens, its duration and its
+stages. A run ticket (`source` `both` or `sessions`, §7) is in scope when its project is and
+one of its sessions is in the window; an `artifacts`
+ticket when its project is and its `summary_mtime`, else its `created` date, falls in the
+window. A session of the scope with no `start` and an artifact-only ticket with neither date
+are left out and counted as undated.
+
+**Weeks.** ISO weeks, from Monday 00:00 UTC, labelled by the Monday's date. The list runs from
+the week holding the later of the window's start and the earliest in-scope session start, to
+the week holding the run's time; a week in that span with no data is a row of zeros. The week
+the window starts in, when it starts after that Monday, and the week holding the run's time
+are marked partial. A session counts in the week of its `start`, and so does every stage it
+holds.
+
+**Figures.** Weighted units are §6's. A stage's duration is its wall-clock span, verdict-gate
+waits included; a session's is its digest's `duration_ms` (§4).
+
+| Section | Figures | Source |
+|---|---|---|
+| Stage time | Per stage — `plan`, `implement`, `review`, `close` — over the window and per week: stage runs, weighted units, wall-clock total and median, and the runs whose duration is unknown. | The stage entries (§6) of the in-scope run tickets' in-window sessions. |
+| Project time | Per project with an in-window session, over the window and per week: sessions, weighted units, the units spent inside a recognized stage and the rest, the session wall-clock and the stage wall-clock. | The in-scope digests' token sums and durations, and their sessions' stage entries. |
+| Friction | Per skill and per stage: interrupts, rejected tool calls, permission denials, tool errors and failed check runs, with the check-run total beside them. The page lists the 15 heaviest skills and folds the rest into one `other` row. | Every agent of the in-scope digests that carry recognition (§5, §6). |
+| Outcomes | Verdicts `pass`, `partial`, `stuck` and `unknown`; review findings accepted, dismissed and deferred, with the number of tickets they are known for; browser passes run by the close stage or by ship, skipped per cause, absent, unrecognized, or unknown for a ticket with no artifacts. | The in-scope tickets, epics left out. |
+| Coverage gaps | Unmapped sessions in the window, counted machine-wide; for the scope, artifact-only tickets, unrecognized artifacts of its tickets, sessions without recognition, and the undated items left out. | The digests and the dataset. |
+
+A ticket's verdict is its `06-summary.md` verdict, else its last close-result verdict, else
+`unknown`. Its findings are its `04-review.md` decision counts when that review is present,
+labelled, not listed unrecognized and not `failed-all`; otherwise they are unknown — in no sum
+and outside the coverage, never zero. A `skipped-trivial` or `skipped-no-changes` review is a
+known zero.
+
+**Friction attribution.** An agent's friction counts toward its first `commands[]` name, a
+leading `/` stripped, that is a key of its own `skills` (§4) — a built-in command such as
+`/clear` or `/model` loads no skill and is passed over; failing that, toward its nearest
+ancestor's, walking `parent_agent_id` — an absent or unknown parent means the root — and
+stopping at the root or a cycle; failing that, toward `(no skill)`. Per stage it counts toward the agent's `stage`, or `(no stage)`.
+Each agent counts once in each table.
+
+**Comparison.** With `--compare X.Y.Z` the pool is the scope's run tickets, bounded by the
+window only when `--since` was given; epic runs are left out and counted. A run's versions are
+its `feature_versions` (§7), each compared numerically on its leading `X.Y.Z`. A run whose
+every version is at or above `X.Y.Z` is after; one whose every version is below it is before;
+one spanning both, or with no version, is left out and counted. Runs are ordered by their
+earliest stage start, else their earliest session start, then by ticket ID. With k =
+min(after, before), the after side takes its first k runs and the before side its last k: the
+runs nearest the boundary.
+
+Below `MIN_COMPARE_RUNS` = 5 runs per side the comparison is `insufficient`: the page states
+both sides' run counts, the floor and its reason, and shows no figure. The reason: at 2 to 5
+runs per plugin version, 5 runs per side usually spans more than one version, and a median of
+5 runs survives two outliers where one large ticket would dominate a smaller sample. A shown
+comparison gives, per side, the runs compared and available, the median and total weighted
+units of a run, the median stage wall-clock of a run, the verdicts, and the findings with
+their coverage; the differences of the unit and time figures appear only in that table,
+beside both sides' verdict and findings rows.
+
+**The page.** One HTML document: a viewport meta, one inline stylesheet whose one
+`max-width: 640px` query stacks the cards into a single column, inline SVG charts sized by
+`viewBox` at full width down to a minimum of 560px, each beside a table holding its numbers,
+and charts and tables in horizontally scrolling wrappers. It holds no script, no `<link>`, no `src`, no `url(`, no `@import` and no
+URL, and every interpolated value is entity-escaped. The sections — `status`, `stage-time`,
+`project-time`, `friction`, `outcomes`, `gaps` and `compare`, in that order — and their boxes
+are emitted in every state, each box with a minimum height; a box without data holds a state
+message in place of its chart or table. `<body>` carries `data-state` — `populated`, `empty`
+when the scope has no session, run or artifact-only ticket in the window, or `error` when the
+extract failed — and `data-compare` — `shown`, `insufficient` or `off`. A state message
+carries `data-state` `empty`, `error`, `disabled` or `off`.
+
+**An extract failure.** An extract failing for any reason `extract` exits 1 on, other than an
+unset `HOME`, does not fail the report: the page is built from the digests already cached —
+none when the cache root is absent — its status panel and the document's `extract_error`
+give the failure's one-line reason, and the run exits 0. For a failure the extractor reports
+itself, the reason is the one `extract` prints; for any other exception it is
+`unexpected <class>`, with the error's code in parentheses when it has one, never the
+exception's message.
+
+**The file.** `$HOME/.feature-pipeline/insights/reports/<YYYYMMDDTHHMMSSZ>-<slug>.html`, the
+time the run's own in UTC, `<slug>` either `all` or the project's base name reduced to
+`[A-Za-z0-9._-]` (`project` when nothing is left); a name already taken gets `-2`, `-3` and so
+on. `reports/` is a real directory of mode 0700, and each report a file of mode 0600 written
+through a temporary file and renamed into place. No report is overwritten or removed.
+
+**The report document.**
+
+| Field | Meaning |
+|---|---|
+| `report` | The report's absolute path. |
+| `state` | `populated` or `empty`, as the page's. |
+| `compare` | `shown`, `insufficient` or `off`. |
+| `extract_error` | The extract failure's one-line reason, or null. |
+| `summary` | Ten lines in this order, each opening with its label: `scope:`, `sessions:` (ending `extract: ok` or `extract: failed — <reason>`), `tokens:`, `friction:`, `verdicts:`, `findings:`, `browser pass:`, `gaps:`, the comparison — its state and run counts only: `compare <version>: shown, <k> vs <k> runs — figures in the report`, `compare <version>: insufficient, <a> after, <b> before, minimum 5`, or `compare: not requested` — and `report: <absolute path>`. |
+
+## §10 Privacy
+
+- No message text enters a digest, the summary, the report or the report document: no user
+  prompt, assistant text, tool input or tool output. Tool-result content is read only to classify it (§5), its first 300
   characters at most, and is never stored.
 - The text-derived fields are exactly these: command names passing their shape check,
   ticket-ID-shaped tokens from command arguments, and §5's closed-vocabulary values — role,
@@ -492,9 +608,13 @@ names only, so its size is bounded whatever the store and the ticket trees hold.
   renamed or re-moded, no symlink inside a ticket tree is followed, and only regular files
   are read. A server-native project's tree is never opened. Writes go only under
   `$HOME/.feature-pipeline/insights/`.
+- The report and its document hold §9's figures only: counts, weighted units, durations,
+  closed tokens, ticket IDs, dates, versions, project paths and command and stage names. A
+  page loads nothing: no script, no external asset, no URL. `report` starts no browser and no
+  server.
 - No network access. `git` runs with `-C <cwd>` as one argument, never through a shell.
 
-## §10 Self-test
+## §11 Self-test
 
 `insights.mjs --self-test` runs offline over committed synthetic fixtures under
 `fixtures/transcripts/` and `fixtures/tickets/`, which hold no real transcript or ticket
@@ -546,10 +666,26 @@ projects' `claudedocs/tickets/` — one fs-native, one server-native. It covers:
 - incremental reruns: everything reused, a changed project remapped without a parse, one
   changed transcript parsed, a schema change parsed, a deleted subagent kept stale even
   under a schema change, a deleted transcript kept;
+- the `report` verb: its flags and their rejected forms; ISO weeks across a year boundary
+  and the default window; the friction walk through an own skill command past a built-in
+  one, a built-in command alone, an ancestor, a missing parent, a cycle and no skill, per
+  skill and per stage; an unmapped session counted
+  machine-wide and an undated one left out; the verdict rule and findings unknown, never
+  zero; the comparison's nearest-boundary windows, its exclusions, ties ordered by ticket ID
+  and its floor at 5 and 4 runs per side; the page escaping a project path, with one skeleton
+  across the populated, empty, error and disabled-comparison states, its state markers, the
+  viewport meta and narrow-width query, no script, asset or URL and no missing number;
+  end-to-end reports over the fixtures for every project, one project by base name and a
+  comparison, usage errors writing no report and an unset `HOME`; and in process an
+  extractor failure explained in the page, an unexpected exception explained by its class
+  and code without its message, a second report in the same second, and a `reports` path
+  that is a file; a session starting before the window left out with its stages, a stage
+  counted in its session's week, the stage and project tables agreeing per week, and the
+  session wall-clock beside the stage wall-clock;
 - after every run: the sentinel — carried by every free-text meta field and ticket field
-  too — in no digest, stdout, stderr or ticket dataset; the store and the ticket trees
-  unchanged; digest modes 0600 and directory modes 0700; nothing written outside
-  `$HOME/.feature-pipeline/insights/`.
+  too — in no digest, report, stdout, stderr or ticket dataset; the store and the ticket
+  trees unchanged; digest and report modes 0600 and directory modes 0700; nothing written
+  outside `$HOME/.feature-pipeline/insights/`.
 
 It runs in `.github/workflows/validation.yml` and in the check chain in `AGENTS.md`, and so
 does this repository's `scripts/check-insights-parity.mjs`, which holds the weighted units
