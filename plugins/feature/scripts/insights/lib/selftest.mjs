@@ -27,8 +27,10 @@ import { makeMapper, mapProject } from './project.mjs';
 import {
   UNATTRIBUTED_MARK,
   closeResultOf,
+  commandTicketOf,
   findTicket,
   isCheckRun,
+  recognizeSession,
   roleOf,
   rootStageOf,
   slashBuildTicket,
@@ -286,6 +288,9 @@ const CASES = [
     equal(findTicket(`normalise to UTF-8, SHA-256 then FP-8 ${SENTINEL}`), 'FP-8', 'standards skipped');
     equal(findTicket(SENTINEL), null, 'the sentinel is no ticket');
     equal(findTicket(undefined), null, 'no text');
+    equal([findTicket('\u00e9FP-12'), findTicket('FP-12\u00e9'), findTicket('_FP-12'), findTicket('(FP-12).')], [null, null, null, 'FP-12'], 'word boundaries are Unicode-aware, as in Python');
+    equal(findTicket('FP-\u0661\u0662 then FP-3'), 'FP-\u0661\u0662', 'any decimal digit, as in Python');
+    equal(validTicket(findTicket('FP-\u0661\u0662')), null, 'a ticket with non-ASCII digits fails its vocabulary');
   }],
   ['recognize: the slash-build rule reads string content only', () => {
     const slash = (args) => `<command-name>/feature:build</command-name>\n<command-args>${args}</command-args>`;
@@ -316,6 +321,8 @@ const CASES = [
     equal(closeResultOf('close: done - verdict stuck'), { ending: 'done', verdict: 'stuck' }, 'ASCII dash');
     equal(closeResultOf('close: merged — verdict pass'), { ending: 'merged', verdict: null }, 'a verdict-less ending drops its verdict');
     equal(closeResultOf('close: error'), { ending: 'error', verdict: null }, 'error');
+    equal(closeResultOf('close: already-complete'), { ending: 'already-complete', verdict: null }, 'already-complete without a verdict');
+    equal(closeResultOf('close: already-complete — verdict stuck'), { ending: 'already-complete', verdict: 'stuck' }, 'already-complete with a verdict');
     for (const text of ['close: shipped — verdict pass', '`close: done — verdict pass`', 'see close: done — verdict pass', 'close: done — verdict great', 42]) {
       equal(closeResultOf(text), null, `no close line in ${JSON.stringify(text)}`);
     }
@@ -329,6 +336,41 @@ const CASES = [
       [{ ending: 'done', verdict: 'pass' }, null, null, null],
       'close results',
     );
+    equal(
+      [validCloseResult({ ending: 'already-complete', verdict: null }), validCloseResult({ ending: 'already-complete', verdict: 'partial' }), validCloseResult({ ending: 'already-complete', verdict: SENTINEL })],
+      [{ ending: 'already-complete', verdict: null }, { ending: 'already-complete', verdict: 'partial' }, null],
+      'already-complete carries a verdict or none',
+    );
+  }],
+  ['recognize: a root stage command gives the run ticket, never measure-session.py\'s ticket', () => {
+    equal(commandTicketOf([{ ids: ['FP-1'], name: '/feature:build' }, { ids: ['UTF-8', 'FP-5'], name: '/feature:close-stage' }, { ids: ['FP-6'], name: 'feature:flow' }]), 'FP-5', 'the first stage or flow command carrying a ticket');
+    equal([commandTicketOf([{ ids: [], name: 'feature:plan' }, { ids: ['FP-6'], name: 'feature:flow' }]), commandTicketOf([{ ids: ['FP-1'], name: 'feature:ship' }])], ['FP-6', null], 'an ID-less command is passed over; other commands give none');
+    const commands = [{ ids: ['FP-5'], name: '/feature:close-stage' }];
+    const tokens = (input, output) => ({ cache_read: 0, cache_write: 0, input, output });
+    const agent = (agentId, agentType, start, input, output) => ({
+      agent_id: agentId, agent_type: agentType, anomalies: {}, check_runs: { failed: 0, total: 0 }, end: at(start + 5), feature_versions: [], models: [], parent_agent_id: null, start: at(start), tokens: tokens(input, output), turns: 1,
+    });
+    const signal = (role, ownTicket, extra = {}) => ({ closeResult: null, commandTicket: null, ownTicket, role, rootStage: null, slashBuild: null, walks: true, ...extra });
+    const agents = recognizeSession(
+      [agent('root', null, 0, 10, 2), agent('fin', 'general-purpose', 10, 4, 1), agent('ui', 'feature:ui-tester', 20, 2, 0)],
+      [
+        signal('root-session', null, { closeResult: closeResultOf('close: done — verdict pass'), commandTicket: commandTicketOf(commands), rootStage: rootStageOf(null, commands) }),
+        signal(roleOf('general-purpose', 'Finalize FP-5'), findTicket('Finalize FP-5')),
+        signal('feature:ui-tester', null),
+      ],
+    );
+    equal(agents.map((item) => [item.agent_id, item.ticket, item.run_ticket, item.stage, item.close_result]), [
+      ['root', null, 'FP-5', 'close', { ending: 'done', verdict: 'pass' }],
+      ['fin', 'FP-5', 'FP-5', 'close', null],
+      ['ui', null, 'FP-5', 'close', null],
+    ], 'the root keeps measure-session.py\'s null ticket; the run ticket reaches every agent');
+    assert(agents.every((item) => Object.keys(item.anomalies).length === 0), 'no bad_recognition');
+    const digest = { agents, feature_versions: [], project: '/p', schema_version: SCHEMA_VERSION, session_id: 's', transcript: 'x/s.jsonl' };
+    equal(sessionTotals(digest, 'ticket').map((bucket) => [bucket.ticket, bucket.count]), [['unattributed', 2], ['FP-5', 1]], 'per-session ticket totals follow measure-session.py');
+    const [run] = ticketRuns([digest]).tickets;
+    equal([run.ticket, run.sessions[0].stages.map((stage) => [stage.agent_id, stage.stage])], ['FP-5', [['root', 'close']]], 'the root is the ticket\'s close stage head');
+    equal(run.close_results, [{ agent_id: 'root', close_result: { ending: 'done', verdict: 'pass' }, session_id: 's' }], 'the close result is the ticket\'s');
+    near([run.weighted_units, run.sessions[0].stages[0].weighted_units, run.by_role['root-session']], [31, 31, 20], 'the run ticket\'s units hold the whole session');
   }],
   ['malformed: bad and truncated lines are counted and the read goes on', async (world) => {
     const root = await rootOfA(world);

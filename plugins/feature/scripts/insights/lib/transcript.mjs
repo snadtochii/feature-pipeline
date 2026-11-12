@@ -9,7 +9,7 @@
 
 import fs from 'node:fs';
 
-import { closeResultOf, isCheckRun, rootStageOf, slashBuildTicket } from './recognize.mjs';
+import { closeResultOf, commandTicketOf, isCheckRun, rootStageOf, slashBuildTicket } from './recognize.mjs';
 
 const CONVERSATION_TYPES = new Set(['assistant', 'user', 'attachment', 'system']);
 
@@ -442,6 +442,6 @@ export function finishAgent(acc) {
 export function finishAgentWithSignals(acc) {
   return {
     entry: finishAgent(acc),
-    signals: { closeResult: acc.closeResult, rootStage: rootStageOf(acc.slashBuild, acc.commands), slashBuild: acc.slashBuild },
+    signals: { closeResult: acc.closeResult, commandTicket: commandTicketOf(acc.commands), rootStage: rootStageOf(acc.slashBuild, acc.commands), slashBuild: acc.slashBuild },
   };
 }

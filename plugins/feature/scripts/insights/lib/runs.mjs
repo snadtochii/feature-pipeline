@@ -1,5 +1,5 @@
 // Reading runs (../CONTRACT.md §6): digests turned into weighted token units
-// per ticket and per role, and into each ticket's pipeline runs across
+// per ticket and per role, and into each run ticket's pipeline runs across
 // sessions — one entry per stage head, with its span, plugin versions,
 // models, failed check runs, units and close result. Pure and synchronous:
 // callers load the digests with cache.mjs's loadDigests first. Units are
@@ -127,19 +127,21 @@ function sessionStages(digest) {
   const subtrees = new Map(heads.map((head) => [head, []]));
   for (const agent of digest.agents) {
     const head = owningHead(agent, byId);
-    if (head !== null && head.ticket === agent.ticket) {
+    if (head !== null && head.run_ticket === agent.run_ticket) {
       subtrees.get(head).push(agent);
     }
   }
-  return heads.map((head) => ({ entry: stageEntry(head, subtrees.get(head), byId, digest, heads), ticket: head.ticket }));
+  return heads.map((head) => ({ entry: stageEntry(head, subtrees.get(head), byId, digest, heads), ticket: head.run_ticket }));
 }
 
 const byStart = (a, b) => compare(a.start ?? '', b.start ?? '') || compare(a.agent_id ?? a.session_id, b.agent_id ?? b.session_id);
 
 /**
- * Every recognized ticket across `digests`, grouped on (project, ticket):
- * its weighted units in total and by role, one entry per session holding the
- * ticket's stage heads in start order, and its close results in start order.
+ * Every recognized run ticket across `digests`, grouped on (project,
+ * run_ticket): its weighted units in total and by role, one entry per session
+ * holding the ticket's stage heads in start order, and its close results in
+ * start order. Each session adds its own digest's units, so turns a forked or
+ * resumed root repeats from an earlier session count once per session.
  * Digests without recognition are counted, never read.
  */
 export function ticketRuns(digests) {
@@ -159,8 +161,8 @@ export function ticketRuns(digests) {
     }
     const agentsByTicket = new Map();
     for (const agent of digest.agents) {
-      if (agent.ticket !== null) {
-        agentsByTicket.set(agent.ticket, [...(agentsByTicket.get(agent.ticket) ?? []), agent]);
+      if (agent.run_ticket !== null) {
+        agentsByTicket.set(agent.run_ticket, [...(agentsByTicket.get(agent.run_ticket) ?? []), agent]);
       }
     }
     for (const [ticket, agents] of agentsByTicket) {

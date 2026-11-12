@@ -25,8 +25,10 @@ export const ROLE_MAP = [
   ['ship-address', /^Address review on /],
 ];
 
-// measure-session.py TICKET_RE and NON_TICKET_PREFIXES.
-const TICKET_RE = /\b[A-Z][A-Z0-9]*-\d+\b/g;
+// measure-session.py TICKET_RE and NON_TICKET_PREFIXES. Python's `\b` and `\d` are
+// Unicode-aware on str, so its word boundaries are lookarounds over its word
+// characters (letters, numbers, underscore) and its digits are any decimal digit.
+const TICKET_RE = /(?<![\p{L}\p{N}_])[A-Z][A-Z0-9]*-\p{Nd}+(?![\p{L}\p{N}_])/gu;
 const NON_TICKET_PREFIXES = new Set(
   'UTF SHA RFC ISO CVE CWE MD AES RSA HMAC CRC BASE ASCII PEP ECMA IEEE ANSI HTTP HTTPS TLS SSL IPV EC CJK GB BIG WIN CP KOI'.split(' '),
 );
@@ -54,10 +56,12 @@ export const WEIGHTS = { i: 1.0, cw: 1.25, cr: 0.1, o: 5.0 };
 export const STAGE_OF_ROLE = { 'plan-stage': 'plan', 'build-stage': 'implement', 'review-stage': 'review', 'close-stage': 'close' };
 const STAGES = new Set(Object.values(STAGE_OF_ROLE));
 const ROOT_STAGE_COMMANDS = { 'feature:plan': 'plan', 'feature:review-stage': 'review', 'feature:close-stage': 'close' };
+const ROOT_TICKET_COMMANDS = new Set([...Object.keys(ROOT_STAGE_COMMANDS), 'feature:flow']);
 
 const CLOSE_LINE = /^close: (done|review|backlog|caller|continue-with-hint|merged|pr-open|already-complete|error)(?: (?:—|-) verdict (pass|partial|stuck))?\s*$/;
 const CLOSE_ENDINGS = new Set(['done', 'review', 'backlog', 'caller', 'continue-with-hint', 'merged', 'pr-open', 'already-complete', 'error']);
 const VERDICT_LESS_ENDINGS = new Set(['merged', 'pr-open', 'error']);
+const OPTIONAL_VERDICT_ENDINGS = new Set(['already-complete']);
 const VERDICTS = new Set(['pass', 'partial', 'stuck']);
 
 const TICKET = /^[A-Z][A-Z0-9]*-\d+$/;
@@ -104,6 +108,19 @@ export function rootStageOf(slashBuild, commands) {
     const stage = ROOT_STAGE_COMMANDS[name.replace(/^\//, '')];
     if (stage !== undefined) {
       return stage;
+    }
+  }
+  return null;
+}
+
+/** The first ID, not a standard's name, of the first plan, review-stage, close-stage or flow command carrying one, or null. */
+export function commandTicketOf(commands) {
+  for (const { name, ids } of commands) {
+    if (ROOT_TICKET_COMMANDS.has(name.replace(/^\//, ''))) {
+      const ticket = ids.find((id) => !NON_TICKET_PREFIXES.has(id.split('-', 1)[0]));
+      if (ticket !== undefined) {
+        return ticket;
+      }
     }
   }
   return null;
@@ -171,7 +188,9 @@ export function validCloseResult(result) {
   if (result === null || typeof result !== 'object' || !CLOSE_ENDINGS.has(result.ending)) {
     return null;
   }
-  const verdictOk = VERDICT_LESS_ENDINGS.has(result.ending) ? result.verdict === null : VERDICTS.has(result.verdict);
+  const verdictOk = VERDICT_LESS_ENDINGS.has(result.ending)
+    ? result.verdict === null
+    : VERDICTS.has(result.verdict) || (OPTIONAL_VERDICT_ENDINGS.has(result.ending) && result.verdict === null);
   return verdictOk ? { ending: result.ending, verdict: result.verdict } : null;
 }
 
@@ -204,22 +223,27 @@ function* ancestorsOf(entries, signals, indexOf, start) {
 }
 
 /**
- * Give every digest entry of one session its `role`, `ticket`, `stage` and
- * `close_result`. `signals[i]` holds entry i's transient inputs: `role`,
- * `ownTicket` (from its description), `walks` (false when its meta is absent
- * or unreadable), `slashBuild`, `rootStage` and `closeResult`.
+ * Give every digest entry of one session its `role`, `ticket`, `run_ticket`,
+ * `stage` and `close_result`. `signals[i]` holds entry i's transient inputs:
+ * `role`, `ownTicket` (from its description), `walks` (false when its meta is
+ * absent or unreadable), `slashBuild`, `commandTicket`, `rootStage` and
+ * `closeResult`. `ticket` is measure-session.py's attribution; `run_ticket`
+ * adds the root's command ticket, which measure-session.py has no rule for.
  */
 export function recognizeSession(entries, signals) {
   const indexOf = new Map(entries.map((entry, index) => [entry.agent_id, index]));
   const own = signals.map((signal) => signal.ownTicket ?? (typeof signal.slashBuild === 'string' ? signal.slashBuild : null));
+  const ownRun = own.map((ticket, index) => ticket ?? (entries[index].agent_id === ROOT_AGENT_ID ? (signals[index].commandTicket ?? null) : null));
   const headStage = entries.map((entry, index) => (entry.agent_id === ROOT_AGENT_ID ? signals[index].rootStage : (STAGE_OF_ROLE[signals[index].role] ?? null)));
   entries.forEach((entry, index) => {
     const chain = [index, ...ancestorsOf(entries, signals, indexOf, index)];
     const ticket = chain.map((at) => own[at]).find((value) => value !== null) ?? null;
+    const runTicket = chain.map((at) => ownRun[at]).find((value) => value !== null) ?? null;
     const stage = chain.map((at) => headStage[at]).find((value) => value !== null) ?? null;
     const closeResult = headStage[index] === 'close' ? signals[index].closeResult : null;
     entry.role = stored(entry, signals[index].role, validRole(signals[index].role, entry.agent_type));
     entry.ticket = stored(entry, ticket, validTicket(ticket));
+    entry.run_ticket = runTicket === ticket ? entry.ticket : stored(entry, runTicket, validTicket(runTicket));
     entry.stage = stored(entry, stage, validStage(stage));
     entry.close_result = stored(entry, closeResult, validCloseResult(closeResult));
   });
