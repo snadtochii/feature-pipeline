@@ -43,6 +43,7 @@ const FIX_STEP = /^fix-step: (pending|complete)$/;
 const DECISION = /^[ \t]*- decision: (accepted|dismissed|deferred)\b/;
 const OUTCOME = /^[ \t]*- outcome: (applied|fix-failed|not attempted)\b/;
 const MARKED_LINE = /^[ \t]*- (decision|outcome):/;
+const FINDING = /^[ \t]*- \[F\d+\]/;
 const OUTCOME_KEYS = { applied: 'applied', 'fix-failed': 'fix_failed', 'not attempted': 'not_attempted' };
 
 const SKIP_LINE = /^verdict: skipped \((.+)\)$/;
@@ -134,8 +135,9 @@ export function kindOf(frontmatter, hasPrd) {
  * `04-review.md`: its line-1 label, `reviewers_ok` for a partial review, the
  * line-2 `fix-step` marker, and the counts of each decision and outcome
  * token, matched on the leading token of every `- decision:` / `- outcome:`
- * line. A label outside the producer's set, or a marked line with another
- * token, marks it unrecognized; the counts are kept either way.
+ * line. A label outside the producer's set, a marked line with another
+ * token, or a count of `- [F<k>]` finding lines other than the count of
+ * decision lines marks it unrecognized; the counts are kept either way.
  */
 export function classifyReview(text) {
   const decisions = { accepted: 0, deferred: 0, dismissed: 0 };
@@ -155,17 +157,23 @@ export function classifyReview(text) {
     label = 'stuck';
   }
   let unrecognized = label === null;
+  let findings = 0;
+  let decided = 0;
   for (const line of lines) {
     const decision = DECISION.exec(line);
     const outcome = OUTCOME.exec(line);
     if (decision !== null) {
       decisions[decision[1]] += 1;
+      decided += 1;
     } else if (outcome !== null) {
       outcomes[OUTCOME_KEYS[outcome[1]]] += 1;
     } else if (MARKED_LINE.test(line)) {
       unrecognized = true;
+    } else if (FINDING.test(line)) {
+      findings += 1;
     }
   }
+  unrecognized ||= findings !== decided;
   const fixStep = FIX_STEP.exec(trimmed(lines[1]));
   return { decisions, fix_step: fixStep === null ? null : fixStep[1], label, outcomes, present: true, reviewers_ok: reviewersOk, unrecognized };
 }

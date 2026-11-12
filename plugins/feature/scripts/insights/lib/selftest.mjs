@@ -495,9 +495,13 @@ const CASES = [
     drift.forEach((line, index) => equal([review(line).label, review(line).unrecognized], [null, true], `drift label ${index}`));
     const counted = review(
       'verdict: reviewed',
+      `- [F1] [security] ${SENTINEL}`,
       '- decision: accepted — x',
+      `- [F2] ${SENTINEL}`,
       '  - decision: accepted',
+      `  - [F3] ${SENTINEL}`,
       '\t- decision: dismissed — y',
+      `- [F4] ${SENTINEL}`,
       '  - decision: deferred (conflict) — z',
       '  - outcome: applied (touches w)',
       '  - outcome: fix-failed — e',
@@ -510,6 +514,11 @@ const CASES = [
       [{ accepted: 2, deferred: 1, dismissed: 1 }, { applied: 1, fix_failed: 1, not_attempted: 1 }, false],
       'indented and unindented marked lines, trailing text, unmarked prose',
     );
+    const prose = review('verdict: reviewed', '## Summary', `2 applied, 0 dismissed ${SENTINEL}`, `- [F1] ${SENTINEL}`, `- [F2] ${SENTINEL}`);
+    equal([prose.label, prose.decisions, prose.outcomes, prose.unrecognized], ['reviewed', NO_DECISIONS, NO_OUTCOMES, true], 'counts written only as prose under an intact label');
+    const undecided = review('verdict: reviewed', `- [F1] ${SENTINEL}`, '  - decision: accepted', `- [F2] ${SENTINEL}`);
+    equal([undecided.decisions, undecided.unrecognized], [{ ...NO_DECISIONS, accepted: 1 }, true], 'a finding line without its decision line');
+    equal(review('verdict: skipped (trivial diff)', '# Review').unrecognized, false, 'a review with no findings');
     const unknown = review('verdict: reviewed', '  - outcome: applied', `  - decision: ${SENTINEL}`, '  - outcome: appliedx');
     equal([unknown.label, unknown.outcomes, unknown.unrecognized], ['reviewed', { ...NO_OUTCOMES, applied: 1 }, true], 'an unknown token');
     equal(classifyReview('verdict: reviewed\nfix-step: halfway\n').fix_step, null, 'the fix-step vocabulary');

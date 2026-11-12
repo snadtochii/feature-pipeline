@@ -388,8 +388,9 @@ frontmatter alone and `state` from the folder alone; neither is derived from the
 `not_attempted`, over every `- decision: <token>` and `- outcome: <token>` line, indented or
 not, on the leading token: trailing text such as `applied (touches …)` or
 `deferred (conflict) — …` still counts. Any other line 1, and a marked line with any other
-leading token, list the file unrecognized, the counts kept. `present` is false for an absent
-file.
+leading token, list the file unrecognized, the counts kept, and so does a count of
+`- [F<k>]` finding lines, indented or not, other than the count of decision lines: counts
+written only as prose are never read as zeros. `present` is false for an absent file.
 
 **`05-tests.md`**, the first form that fits:
 
@@ -525,7 +526,8 @@ projects' `claudedocs/tickets/` — one fs-native, one server-native. It covers:
   without recognition;
 - the ticket artifacts' forms: frontmatter vocabularies, a repeated key and a missing block;
   every `04-review.md` label and its drift forms, decision and outcome tokens indented or
-  carrying trailing text, unknown tokens; the five skip causes, the ship and close browser
+  carrying trailing text, unknown tokens, counts written only as prose and a finding without
+  its decision line; the five skip causes, the ship and close browser
   passes, an absent `05-tests.md`, a label on line 3; the summary verdict, the last `pr:`
   line, `pr: none`, malformed PR URLs and `branch:` presence;
 - the storage mode from `config.yaml`, a symlinked `config.yaml` included, and a tree read
