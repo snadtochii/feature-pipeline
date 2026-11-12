@@ -14,7 +14,7 @@ import path from 'node:path';
 import { ComputeError, render } from '../../lib/output.mjs';
 import { writeAtomic } from '../../lib/write-atomic.mjs';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const NAME = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 const SESSION_FILE = /^([A-Za-z0-9_-][A-Za-z0-9._-]*)\.jsonl$/;

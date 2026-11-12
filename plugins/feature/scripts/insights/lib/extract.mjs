@@ -9,7 +9,8 @@ import fs from 'node:fs';
 
 import { SCHEMA_VERSION, digestKeys, digestPathFor, ensureCacheRoot, pathsFor, readDigest, scanStore, sourcesEqual, writeDigest } from './cache.mjs';
 import { defaultProbe, makeMapper } from './project.mjs';
-import { addTokens, countInto, finishAgent, isoOf, newAgent, readTranscript, sortedObject, zeroFriction, zeroTokens } from './transcript.mjs';
+import { ROOT_ROLE, findTicket, recognizeSession, roleOf } from './recognize.mjs';
+import { addTokens, countInto, finishAgentWithSignals, isoOf, newAgent, readTranscript, sortedObject, zeroFriction, zeroTokens } from './transcript.mjs';
 
 const MAX_LISTED_SESSIONS = 20;
 const ROOT_AGENT_ID = 'root';
@@ -23,12 +24,20 @@ function readMeta(file) {
   }
 }
 
+function recognitionOf(meta) {
+  if (meta === null) {
+    return { ownTicket: null, role: null, walks: false };
+  }
+  return { ownTicket: findTicket(String(meta.description ?? '')), role: roleOf(meta.agentType, meta.description), walks: true };
+}
+
 async function parseAgents(session) {
   const root = newAgent(ROOT_AGENT_ID, null);
   await readTranscript(session.mainFile, root);
-  const agents = [finishAgent(root)];
+  const finished = [{ ...finishAgentWithSignals(root), recognition: { ownTicket: null, role: ROOT_ROLE, walks: true } }];
   for (const sub of session.agents) {
     const meta = sub.metaFile === null ? null : readMeta(sub.metaFile);
+    const recognition = recognitionOf(meta);
     const acc = newAgent(sub.agentId, meta);
     if (sub.metaFile === null) {
       countInto(acc.anomalies, 'orphan_jsonl');
@@ -36,9 +45,10 @@ async function parseAgents(session) {
       countInto(acc.anomalies, 'bad_meta');
     }
     await readTranscript(sub.jsonlFile, acc);
-    agents.push(finishAgent(acc));
+    finished.push({ ...finishAgentWithSignals(acc), recognition });
   }
-  return agents;
+  const agents = finished.map(({ entry }) => entry);
+  return recognizeSession(agents, finished.map(({ recognition, signals }) => ({ ...signals, ...recognition })));
 }
 
 function rollUp(agents, extraAnomalies) {
