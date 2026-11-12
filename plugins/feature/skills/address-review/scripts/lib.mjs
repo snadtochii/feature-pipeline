@@ -19,6 +19,9 @@ const PR_NUMBER = /^[1-9][0-9]{0,9}$/;
 
 export const MAX_DOCUMENT_BYTES = 16 * 1024;
 export const MAX_TEXT_CHARS = 1500;
+// A thread lists at most this many follow-ups, the newest, so its text-free
+// form stays a few KiB and any one thread fits the document bound.
+export const MAX_LISTED_FOLLOWUPS = 20;
 
 const REVIEW_FOOTER = /^_— 🔎/u;
 const ANY_FOOTER = /^_— (?:🔎|🛠)/u;
@@ -471,7 +474,11 @@ function listed(thread, withText) {
     out.reply_url = thread.reply.url;
   }
   if (thread.followups?.length > 0) {
-    out.followups = thread.followups.map((followup) => {
+    const unlisted = Math.max(0, thread.followups.length - MAX_LISTED_FOLLOWUPS);
+    if (unlisted > 0) {
+      out.followups_unlisted = unlisted;
+    }
+    out.followups = thread.followups.slice(unlisted).map((followup) => {
       const entry = { id: followup.id, at: followup.at, author: followup.author, author_association: followup.association };
       if (withText) {
         const text = capped(followup.text);

@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 import { ComputeError, UsageError, render } from '../../../scripts/lib/output.mjs';
 import { assert, equal, runNode, throwsKind, withTemp as withTempDir } from '../../../scripts/lib/selftest-kit.mjs';
-import { MAX_DOCUMENT_BYTES, MAX_TEXT_CHARS, addressMarker, findings, parseArgv, parseItems, readAll, shapeDocument, threadStates } from './lib.mjs';
+import { MAX_DOCUMENT_BYTES, MAX_LISTED_FOLLOWUPS, MAX_TEXT_CHARS, addressMarker, findings, parseArgv, parseItems, readAll, shapeDocument, threadStates } from './lib.mjs';
 
 const ENTRY = fileURLToPath(new URL('./threads.mjs', import.meta.url));
 const VIEWER = 'owner';
@@ -269,6 +269,23 @@ const CASES = [
     const doc = shapeDocument(threadStates(surfaces(w)), { repo: 'o/r', pr: 5 });
     const listed = doc.threads.at(-1);
     equal([listed.key, listed.text_omitted, listed.followups], [`inline:${root.id}`, true, [{ id: answer.id, at: at(31), author: VIEWER, author_association: '' }]], 'ids without text');
+  }],
+  ['followups: an oversized conversation lists its newest replies and never hides a later thread', () => {
+    const w = world();
+    const big = addInline(w, { login: 'alice', body: 'Why a loop here?', minute: 1 });
+    const small = addInline(w, { login: 'bob', body: 'Rename this?', minute: 2 });
+    const replies = [];
+    for (let index = 0; index < 200; index += 1) {
+      replies.push(addInline(w, { login: 'alice', body: `Still thinking ${index}.`, minute: 3, replyTo: big.id }));
+    }
+    const doc = shapeDocument(threadStates(surfaces(w)), { repo: 'o/r', pr: 5 });
+    assert(Buffer.byteLength(render(doc)) <= MAX_DOCUMENT_BYTES, 'within the bound');
+    equal([doc.complete, doc.threads.map((thread) => thread.key)], [true, [`inline:${big.id}`, `inline:${small.id}`]], 'both threads listed');
+    const listed = doc.threads[0];
+    equal([listed.followups_unlisted, listed.followups.map((item) => item.id)], [200 - MAX_LISTED_FOLLOWUPS, replies.slice(-MAX_LISTED_FOLLOWUPS).map((item) => item.id)], 'the newest replies, oldest first');
+    addInline(w, { body: addressBody(), minute: 4, replyTo: big.id });
+    const next = shapeDocument(threadStates(surfaces(w)), { repo: 'o/r', pr: 5 });
+    equal(next.threads.map((thread) => thread.key), [`inline:${small.id}`], 'a reply settles the long thread and the pass moves on');
   }],
   ['bot roots: a human reply under a bot\'s inline comment makes a human thread with the bot\'s text', () => {
     const w = world();
