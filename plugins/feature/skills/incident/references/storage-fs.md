@@ -8,9 +8,9 @@ The lookup is advisory. It reads ticket specs, writes nothing, and never stops a
 
 Tickets are files under `<project-root>/claudedocs/tickets/`: a ticket's spec is its `01-spec.md`, an epic's is its `prd.md`.
 
-- **Keywords** — from the failure's signature ([output-format.md](output-format.md) §2): the service, the rule, and the distinctive words of the normalized message — the literal words left around its `*` placeholders, leaving out words any log line carries (`error`, `failed`, `request`).
-- **Search** — `Grep` each keyword, case-insensitively, over `claudedocs/tickets/**`, limited to files named `01-spec.md` or `prd.md`, listing matching files only. The `**` reaches an epic's children under `tasks/`.
-- **Rank** — a file is a candidate when it matches the rule, or two or more message keywords; the service's name alone is too broad. Order candidates by the number of keywords matched.
+- **Keywords** — from the failure's signature ([output-format.md](output-format.md) §2): the service; the rule's name, and its UID when known; and the distinctive words of the signature's message field, the message and its error text — the literal words left around its `*` placeholders, leaving out words any log line carries (`error`, `failed`, `request`).
+- **Search** — `Write` the keywords to the search file, one per line, and run one `search --scope tickets --output files` (`incident/SKILL.md`, Roots and the script). A keyword shorter than 3 characters is left out, and at most 20 are kept, the service and the rule first. The scope reads only files named `01-spec.md` or `prd.md`, at any depth, so an epic's children under `tasks/` are included; each listed file's `patterns` are the keywords it matched.
+- **Rank** — a file is a candidate when it matches the rule's name or UID, or two or more message keywords; the service's name alone is too broad. Order candidates by the number of keywords matched. A `files` list the size bound cut short (`truncated`) is ranked on what arrived, and the lookup is recorded as partial.
 - **Open at most 5** — `Read` the best-ranked candidates' frontmatter and description, 5 files at most.
 
 ## §2 Match
@@ -30,6 +30,6 @@ A match whose frontmatter cannot be read is reported by path with status `unknow
 ## §3 When the lookup cannot run
 
 - No `claudedocs/tickets/` tree, or no spec inside it → recorded as `no tickets found`.
-- A `Grep` or `Read` that fails → recorded as `ticket lookup not run: <tool> — <error>`, never retried.
+- A `search` or `Read` that fails → recorded as `ticket lookup not run: <search | Read> — <error>`, never retried.
 
 Either way the run continues to its report.

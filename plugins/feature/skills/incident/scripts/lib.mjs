@@ -1,8 +1,10 @@
-// The incident log reader's rules and verbs (../references/log-query.md):
-// argument parsing, the `incident:` block's rules, credential resolution, the
-// report gate, the query files, the request and the output documents. The
-// output contract, the `config.yaml` reader and the credential-file rules are
-// the plugin's shared script modules.
+// The incident log reader's argument parsing and its `preflight` and `query`
+// verbs (../references/log-query.md): the command line, the `incident:`
+// block's rules, credential resolution, the report gate, the query file, the
+// request filter, the request and the output documents. The `search` verb
+// and its argument rules are search.mjs; the layout and rules both share are
+// project.mjs. The output contract, the `config.yaml` reader and the
+// credential-file rules are the plugin's shared script modules.
 //
 // Private to the implementation: only incident.mjs is a command.
 
@@ -14,6 +16,19 @@ import path from 'node:path';
 import { UNSAFE_VALUE, cleanHttpUrl, readCredentialFile } from '../../../scripts/lib/credential-file.mjs';
 import { parseMiniYaml } from '../../../scripts/lib/mini-yaml.mjs';
 import { ComputeError, UsageError, errorDoc as errorLine, largestFit, oneLine, render } from '../../../scripts/lib/output.mjs';
+import {
+  MAX_DOCUMENT_BYTES,
+  REPO_RULE,
+  RUN_ID,
+  configFile,
+  inputFile,
+  isRepoName,
+  isSet,
+  sweepInputFiles,
+  takeInputFile,
+  tokenFilePath,
+} from './project.mjs';
+import { SEARCH_FLAGS, finishSearch } from './search.mjs';
 
 const URL_NAME = 'INCIDENT_GRAFANA_URL';
 const TOKEN_NAME = 'INCIDENT_GRAFANA_TOKEN';
@@ -23,13 +38,8 @@ export const READ_NAMES = [URL_NAME, TOKEN_NAME];
 
 const GIT_TIMEOUT_MS = 10_000;
 
-const INCIDENTS_DIR = ['claudedocs', 'incidents'];
-const RUN_ID = /^\d{8}-\d{6}-[0-9a-f]{8}$/;
-const QUERY_FILE_NAME = /^\.query-\d{8}-\d{6}-[0-9a-f]{8}\.logql$/;
-const STALE_QUERY_MS = 60 * 60 * 1000;
 const MAX_QUERY_BYTES = 8 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
-const MAX_DOCUMENT_BYTES = 16 * 1024;
 const MAX_LINE_CHARS = 4000;
 const MAX_DETAIL_CHARS = 300;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -38,7 +48,6 @@ const MAX_LIMIT = 1000;
 const DIRECTIONS = ['forward', 'backward'];
 
 const DATASOURCE = /^[A-Za-z0-9_-]+$/;
-const REPO_NAME = /^[A-Za-z0-9._-]+$/;
 const LOOPBACK_IPV4 = /^127(?:\.\d{1,3}){3}$/;
 const COMMIT_SHA = /^[0-9a-f]{40,64}$/;
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|([+-])([01]\d|2[0-3]):([0-5]\d))$/;
@@ -46,18 +55,34 @@ const POSITIVE_INTEGER = /^[1-9][0-9]{0,3}$/;
 const EPOCH_NANOSECONDS = /^\d{1,19}$/;
 const ERROR_CODE = /^[A-Z][A-Z0-9_]*$/;
 const RESULT_TYPE = /^[a-z]{1,20}$/;
+const REQUEST_ID = /^[A-Za-z0-9._:-]{6,128}$/;
+const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+const METRIC_QUERY_HINT =
+  'a log query starts with a stream selector {…}; a metric query such as sum(count_over_time({…}[10m])) returns numbers, ' +
+  'so write the selector and filters inside it, without the range';
 
 const USAGE =
   'usage: incident.mjs preflight --project-root <abs-path> [--repo <dir-name>] | ' +
-  'incident.mjs query --project-root <abs-path> --run <run> --start <RFC3339> --end <RFC3339> [--limit <n>] [--direction forward|backward] | ' +
+  'incident.mjs query --project-root <abs-path> --run <run> --start <RFC3339> --end <RFC3339> [--limit <n>] [--direction forward|backward] ' +
+  '[--request-id <id> [--id-field <name>]] | ' +
+  'incident.mjs search --project-root <abs-path> --run <run> --scope repo|incidents|tickets [--repo <dir-name>] [--output lines|files] | ' +
   'incident.mjs --self-test';
 
 const FLAGS = {
   preflight: { '--project-root': 'projectRoot', '--repo': 'repo' },
-  query: { '--project-root': 'projectRoot', '--run': 'run', '--start': 'start', '--end': 'end', '--limit': 'limit', '--direction': 'direction' },
+  search: SEARCH_FLAGS,
+  query: {
+    '--project-root': 'projectRoot',
+    '--run': 'run',
+    '--start': 'start',
+    '--end': 'end',
+    '--limit': 'limit',
+    '--direction': 'direction',
+    '--request-id': 'requestId',
+    '--id-field': 'idField',
+  },
 };
-
-const isSet = (value) => typeof value === 'string' && value !== '';
 
 /** The failure document for a thrown error: its message on one line, and `ok: false`. */
 export function errorDoc(err) {
@@ -84,8 +109,8 @@ function instant(flag, value) {
 }
 
 function finishPreflight(parsed) {
-  if (parsed.repo !== undefined && (!REPO_NAME.test(parsed.repo) || parsed.repo === '..')) {
-    throw new UsageError('preflight: --repo must be one directory name, or "." for the project root');
+  if (parsed.repo !== undefined && !isRepoName(parsed.repo)) {
+    throw new UsageError(`preflight: --repo ${REPO_RULE}`);
   }
   return parsed;
 }
@@ -112,10 +137,19 @@ function finishQuery(parsed) {
   if (!DIRECTIONS.includes(direction)) {
     throw new UsageError('query: --direction must be forward or backward');
   }
+  if (parsed.idField !== undefined && parsed.requestId === undefined) {
+    throw new UsageError('query: --id-field needs --request-id');
+  }
+  if (parsed.requestId !== undefined && !REQUEST_ID.test(parsed.requestId)) {
+    throw new UsageError('query: --request-id must be 6 to 128 characters from A-Z, a-z, 0-9 and . _ : -');
+  }
+  if (parsed.idField !== undefined && !FIELD_NAME.test(parsed.idField)) {
+    throw new UsageError('query: --id-field must be a letter or _ followed by letters, digits or _');
+  }
   return { ...parsed, start, end, limit, direction };
 }
 
-const FINISH = { preflight: finishPreflight, query: finishQuery };
+const FINISH = { preflight: finishPreflight, query: finishQuery, search: finishSearch };
 
 /** Parse the command line into `{ selfTest }` or `{ verb, ...flags }`. Pure. */
 export function parseArgv(argv) {
@@ -169,28 +203,6 @@ function grafanaUrl(value) {
   return url;
 }
 
-function tokenFilePath(value, home) {
-  if (!isSet(value)) {
-    return undefined;
-  }
-  let file;
-  if (value.startsWith('~/')) {
-    if (!isSet(home)) {
-      throw new ComputeError('config.yaml: incident.token_file starts with ~/ but HOME is not set');
-    }
-    file = path.join(home, value.slice(2));
-  } else if (path.isAbsolute(value)) {
-    file = path.normalize(value);
-  } else {
-    throw new ComputeError('config.yaml: incident.token_file must be an absolute path or start with ~/');
-  }
-  const name = path.basename(file);
-  if (name === '.env' || name.startsWith('.env.') || name.endsWith('.env')) {
-    throw new ComputeError('config.yaml: incident.token_file must not be a dotenv-family file (.env, .env.*, *.env)');
-  }
-  return file;
-}
-
 /**
  * The settings this script consumes from a parsed `config.yaml`:
  * `{ base, origin, datasource, tokenFile }`. `home` is `$HOME` or undefined.
@@ -220,7 +232,7 @@ export function validateConfig(doc, home) {
 }
 
 function loadConfig(projectRoot, home) {
-  const file = path.join(projectRoot, 'claudedocs', 'tickets', 'config.yaml');
+  const file = configFile(projectRoot);
   let text;
   try {
     text = fs.readFileSync(file, 'utf8');
@@ -329,36 +341,6 @@ function fileStamp(date) {
   return rfc3339(date).replace(/[-:Z]/g, '').replace('T', '-');
 }
 
-function queryFile(projectRoot, run) {
-  return path.join(projectRoot, ...INCIDENTS_DIR, `.query-${run}.logql`);
-}
-
-/**
- * Remove the query files an interrupted run left under
- * `<projectRoot>/claudedocs/incidents/`: regular files with a query file's
- * name, last written more than an hour before `now`.
- */
-function sweepQueryFiles(projectRoot, now) {
-  const dir = path.join(projectRoot, ...INCIDENTS_DIR);
-  let names;
-  try {
-    names = fs.readdirSync(dir);
-  } catch {
-    return;
-  }
-  for (const name of names.filter((entry) => QUERY_FILE_NAME.test(entry))) {
-    const file = path.join(dir, name);
-    try {
-      const stat = fs.lstatSync(file);
-      if (stat.isFile() && now.getTime() - stat.mtimeMs > STALE_QUERY_MS) {
-        fs.rmSync(file, { force: true });
-      }
-    } catch {
-      continue;
-    }
-  }
-}
-
 /**
  * The `preflight` verb: configuration, credentials, clock, run identifier,
  * report gate and repository head. No network call.
@@ -366,7 +348,7 @@ function sweepQueryFiles(projectRoot, now) {
 export function preflight({ projectRoot, repo }, env = process.env, now = new Date()) {
   const config = loadConfig(projectRoot, env.HOME);
   const access = resolveAccess(env, config);
-  sweepQueryFiles(projectRoot, now);
+  sweepInputFiles(projectRoot, now);
   const stamp = fileStamp(now);
   const doc = {
     ok: true,
@@ -380,47 +362,15 @@ export function preflight({ projectRoot, repo }, env = process.env, now = new Da
   };
   if (repo !== undefined) {
     const dir = repo === '.' ? projectRoot : path.join(projectRoot, repo);
-    doc.repo = { dir, head: headOf(dir, env) };
+    const exists = fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory() === true;
+    doc.repo = { dir, exists, head: headOf(dir, env) };
   }
   return doc;
 }
 
-/**
- * Read the query text from the run's query file and remove the file. A
- * symbolic link is refused and left alone; a regular file is removed whether
- * or not its content is usable, so no query run leaves its query behind.
- */
+/** Read the query text from the run's query file and remove the file. */
 export function takeQuery(projectRoot, run) {
-  const file = queryFile(projectRoot, run);
-  let fd;
-  try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOFOLLOW);
-  } catch (err) {
-    if (err.code === 'ENOENT' || err.code === 'ENOTDIR') {
-      throw new ComputeError(`${file} does not exist — write the LogQL query there before each query run`);
-    }
-    if (err.code === 'ELOOP' || err.code === 'EMLINK') {
-      throw new ComputeError(`${file} is a symbolic link, not a regular file`);
-    }
-    throw new ComputeError(`${file} cannot be read (${err.code ?? 'error'})`);
-  }
-  try {
-    const stat = fs.fstatSync(fd);
-    if (!stat.isFile()) {
-      throw new ComputeError(`${file} is not a regular file`);
-    }
-    fs.rmSync(file, { force: true });
-    if (stat.size > MAX_QUERY_BYTES) {
-      throw new ComputeError(`${file} is larger than ${MAX_QUERY_BYTES / 1024} KiB`);
-    }
-    const text = fs.readFileSync(fd, 'utf8').trim();
-    if (text === '') {
-      throw new ComputeError(`${file} is empty`);
-    }
-    return text;
-  } finally {
-    fs.closeSync(fd);
-  }
+  return takeInputFile(inputFile(projectRoot, 'query', run), MAX_QUERY_BYTES, 'write the LogQL query there before each query run');
 }
 
 function causeCode(err) {
@@ -489,7 +439,9 @@ async function fetchStreams(url, { token }, { origin, datasource }) {
   const data = parsed !== null && typeof parsed === 'object' ? parsed.data : undefined;
   if (data === null || typeof data !== 'object' || data.resultType !== 'streams' || !Array.isArray(data.result)) {
     const type = typeof data?.resultType === 'string' && RESULT_TYPE.test(data.resultType) ? data.resultType : 'unknown';
-    throw new ComputeError(`${origin} answered HTTP ${status} with a result that is not Loki streams (resultType: ${type}) — the query must select log lines`);
+    throw new ComputeError(
+      `${origin} answered HTTP ${status} with a result that is not Loki streams (resultType: ${type}) — the query must select log lines: ${METRIC_QUERY_HINT}`,
+    );
   }
   return data.result;
 }
@@ -556,9 +508,67 @@ export function keepLines({ lines, streams }, direction, keep) {
   };
 }
 
+/**
+ * Move every label all kept streams carry with one value into `common`:
+ * `{ lines, streams, common }`. Fewer than two streams move nothing. Pure.
+ */
+export function commonLabels({ lines, streams }) {
+  const common = {};
+  if (streams.length < 2) {
+    return { lines, streams, common };
+  }
+  for (const [name, value] of Object.entries(streams[0])) {
+    if (streams.every((labels) => Object.hasOwn(labels, name) && labels[name] === value)) {
+      common[name] = value;
+    }
+  }
+  const own = (labels) => Object.fromEntries(Object.entries(labels).filter(([name]) => !Object.hasOwn(common, name)));
+  return { lines, streams: streams.map(own), common };
+}
+
+/** The index of the `}` closing a query's leading stream selector, -1 when none does. */
+function selectorEnd(text) {
+  let quote = null;
+  for (let index = 1; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote === null) {
+      if (char === '}') {
+        return index;
+      }
+      if (char === '"' || char === '`') {
+        quote = char;
+      }
+    } else if (char === '\\' && quote === '"') {
+      index += 1;
+    } else if (char === quote) {
+      quote = null;
+    }
+  }
+  return -1;
+}
+
+/**
+ * The LogQL a `query` run sends: the query file's text, and with a request ID
+ * the request filter the script composes after the bare stream selector the
+ * file then holds. Throws a ComputeError for text that is not a log query.
+ * Pure.
+ */
+export function composeQuery(text, { requestId, idField }) {
+  if (!text.startsWith('{')) {
+    throw new ComputeError(`the query file holds no log query — ${METRIC_QUERY_HINT}`);
+  }
+  if (requestId === undefined) {
+    return text;
+  }
+  if (selectorEnd(text) !== text.length - 1) {
+    throw new ComputeError('with --request-id the query file holds only the stream selector {…}; the script adds the request filter');
+  }
+  return idField === undefined ? `${text} |= "${requestId}"` : `${text} | ${idField}="${requestId}"`;
+}
+
 /** The `query` verb: one LogQL `query_range` through the datasource proxy. */
-export async function query({ projectRoot, run, start, end, limit, direction }, env = process.env) {
-  const text = takeQuery(projectRoot, run);
+export async function query({ projectRoot, run, start, end, limit, direction, requestId, idField }, env = process.env) {
+  const text = composeQuery(takeQuery(projectRoot, run), { requestId, idField });
   const config = loadConfig(projectRoot, env.HOME);
   const access = resolveAccess(env, config);
   const params = new URLSearchParams({ query: text, start, end, limit: String(limit), direction });
@@ -576,7 +586,7 @@ export async function query({ projectRoot, run, start, end, limit, direction }, 
       count: keep,
       omitted,
       truncated: shaped.received >= limit || omitted > 0,
-      ...keepLines(shaped, direction, keep),
+      ...commonLabels(keepLines(shaped, direction, keep)),
     };
   };
   const fits = (keep) => Buffer.byteLength(render(documentKeeping(keep))) <= MAX_DOCUMENT_BYTES;
