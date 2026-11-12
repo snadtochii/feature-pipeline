@@ -190,8 +190,12 @@ function ticketsBlock(dataset) {
   };
 }
 
-/** Run `extract` for `home`; returns the summary document. */
-export async function extract({ home, probe = defaultProbe }) {
+/**
+ * Bring the cache up to date for `home` and load it once. Returns
+ * `{ cacheRoot, dataset, digests, summary }`: the summary document, every
+ * cached digest and their ticket dataset.
+ */
+export async function runExtract({ home, probe = defaultProbe }) {
   const { cacheRoot, storeDir } = pathsFor(home);
   const { sessions, skipped } = scanStore(storeDir);
   ensureCacheRoot(cacheRoot);
@@ -205,16 +209,28 @@ export async function extract({ home, probe = defaultProbe }) {
   const seen = new Set(sessions.map((session) => session.key));
   summary.sessions.kept_without_transcript = digestKeys(cacheRoot).filter((key) => !seen.has(key)).length;
   const listed = summary.malformedSessions.sort();
+  const digests = loadDigests(cacheRoot);
+  const dataset = ticketDataset(digests);
   return {
-    anomalies: sortedObject(summary.anomalies),
-    cache_dir: summary.cache_dir,
-    malformed_lines: summary.malformedLines,
-    malformed_sessions: listed.slice(0, MAX_LISTED),
-    malformed_sessions_total: listed.length,
-    schema_version: summary.schema_version,
-    sessions: summary.sessions,
-    skipped_entries: summary.skipped_entries,
-    subagents: summary.subagents,
-    tickets: ticketsBlock(ticketDataset(loadDigests(cacheRoot))),
+    cacheRoot,
+    dataset,
+    digests,
+    summary: {
+      anomalies: sortedObject(summary.anomalies),
+      cache_dir: summary.cache_dir,
+      malformed_lines: summary.malformedLines,
+      malformed_sessions: listed.slice(0, MAX_LISTED),
+      malformed_sessions_total: listed.length,
+      schema_version: summary.schema_version,
+      sessions: summary.sessions,
+      skipped_entries: summary.skipped_entries,
+      subagents: summary.subagents,
+      tickets: ticketsBlock(dataset),
+    },
   };
+}
+
+/** Run `extract` for `home`; returns the summary document. */
+export async function extract(options) {
+  return (await runExtract(options)).summary;
 }
