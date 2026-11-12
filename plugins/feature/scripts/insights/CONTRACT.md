@@ -341,8 +341,9 @@ searched. Each gets a join state from `<project>/claudedocs/tickets/config.yaml`
 
 | Join | When |
 |---|---|
-| `fs` | The file is absent, or its top-level `mode` is anything but `server-native`. |
+| `fs` | The file is absent, it has no top-level `mode` key, or its `mode` is `fs-native`. |
 | `server-native` | `mode: server-native`. The tree is never opened and nothing calls the server. |
+| `unknown-mode` | Any other `mode` value. No storage mode is guessed and the tree is never opened. |
 | `missing` | The project directory is gone, `config.yaml` is a symlink, is not a regular file of at most 1 MiB or cannot be read, or an `fs` project's `claudedocs/tickets/` is not a directory. |
 
 **The tree.** For an `fs` project: the folders `<state>/<ID>/` of the four state folders
@@ -427,7 +428,7 @@ ticket ID), the key of `ticketRuns` (§6), so a ticket has one entry whatever it
 | `source` | Entry |
 |---|---|
 | `both` | A run ticket whose project's join is `fs` and whose project's tree holds its ID. |
-| `sessions` | Every other run ticket: its project `server-native` or `missing`, its ID in no folder of its own project's tree, or its `project` null. |
+| `sessions` | Every other run ticket: its project `server-native`, `unknown-mode` or `missing`, its ID in no folder of its own project's tree, or its `project` null. |
 | `artifacts` | A ticket of an `fs` tree that no run names. |
 
 An entry is a `ticketRuns` entry with `source`, `outcome`, `verdict` and `feature_versions`
@@ -530,11 +531,13 @@ projects' `claudedocs/tickets/` — one fs-native, one server-native. It covers:
   its decision line; the five skip causes, the ship and close browser
   passes, an absent `05-tests.md`, a label on line 3; the summary verdict, the last `pr:`
   line, `pr: none`, malformed PR URLs and `branch:` presence;
-- the storage mode from `config.yaml`, a symlinked `config.yaml` included, and a tree read
+- the storage mode from `config.yaml`, a symlinked `config.yaml` and an unknown `mode` value
+  read as no tree included, and a tree read
   with a symlinked state folder, a
   symlinked artifact, an artifact over the cap and a duplicate ID;
-- the join in memory: each `source`, a verdict mismatch, an unmapped run, a server-native
-  or missing project and another project's ID never joined, and one tree read per project;
+- the join in memory: each `source`, a verdict mismatch, an unmapped run, a server-native,
+  unknown-mode or missing project and another project's ID never joined, and one tree read
+  per project;
 - the ticket dataset end to end: a pass with a close browser pass, a partial epic child with
   fix-failed findings and a skipped browser pass, a stuck ticket, an epic and tickets with no
   session, a ship browser pass, a ticket unrecognized in every artifact, a symlinked ticket

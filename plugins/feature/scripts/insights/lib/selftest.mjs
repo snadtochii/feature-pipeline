@@ -24,7 +24,7 @@ import { CaseFailure, assert, commitAll, equal, git, initRepo, throwsKind } from
 import { parseArgv } from './args.mjs';
 import { SCHEMA_VERSION, loadDigests } from './cache.mjs';
 import { FIXTURES_DIR as FIXTURES, SENTINEL, copyFixtures, copyTicketFixtures } from './fixtures.mjs';
-import { joinOutcomes, ticketDataset } from './outcomes.mjs';
+import { defaultReadTree, joinOutcomes, ticketDataset } from './outcomes.mjs';
 import { makeMapper, mapProject } from './project.mjs';
 import {
   UNATTRIBUTED_MARK,
@@ -596,15 +596,19 @@ const CASES = [
         storageModeOf(projectRoot('none')),
         storageModeOf(withConfig('fs', 'mode: fs-native\n')),
         storageModeOf(withConfig('server', 'prefix: FP\nmode: "server-native" # comment\n')),
+        storageModeOf(withConfig('no-key', 'prefix: FP\n')),
         storageModeOf(withConfig('odd', `mode: ${SENTINEL}\n`)),
+        storageModeOf(withConfig('typo', 'mode: fs_native\n')),
+        storageModeOf(withConfig('empty', 'mode:\n')),
         storageModeOf(configDir),
         storageModeOf(configLink),
         storageModeOf(path.join(base, 'gone')),
         storageModeOf('relative/dir'),
       ],
-      ['fs', 'fs', 'server-native', 'fs', 'missing', 'missing', 'missing', 'missing'],
-      'modes',
+      ['fs', 'fs', 'server-native', 'fs', 'unknown-mode', 'unknown-mode', 'unknown-mode', 'missing', 'missing', 'missing', 'missing'],
+      'modes: any other mode value is never guessed',
     );
+    equal(defaultReadTree(path.join(base, 'odd')), { duplicates: 0, join: 'unknown-mode', skipped_folders: 0, tickets: new Map() }, 'an unknown mode reads no tree');
     equal(readTicketTree(path.join(base, 'gone')), null, 'no store');
     const tree = projectRoot('tree');
     const store = path.join(tree, 'claudedocs', 'tickets');
@@ -639,9 +643,10 @@ const CASES = [
       ['/p', { duplicates: 1, join: 'fs', skipped_folders: 2, tickets: new Map([['FP-1', treeRecord('FP-1', { summary: pass })], ['FP-4', treeRecord('FP-4', { unrecognized: ['04-review.md'] })]]) }],
       ['/q', { duplicates: 0, join: 'server-native', skipped_folders: 0, tickets: new Map() }],
       ['/r', { duplicates: 0, join: 'missing', skipped_folders: 0, tickets: new Map() }],
+      ['/s', { duplicates: 0, join: 'unknown-mode', skipped_folders: 0, tickets: new Map() }],
     ]);
     const runs = {
-      tickets: [runOf('/p', 'FP-1', ['pass', 'partial', undefined], [['3.2.0'], ['3.1.0', '3.2.0']]), runOf('/p', 'FP-2'), runOf('/q', 'FP-4'), runOf('/r', 'FP-1'), runOf(null, 'FP-1')],
+      tickets: [runOf('/p', 'FP-1', ['pass', 'partial', undefined], [['3.2.0'], ['3.1.0', '3.2.0']]), runOf('/p', 'FP-2'), runOf('/q', 'FP-4'), runOf('/r', 'FP-1'), runOf('/s', 'FP-1'), runOf(null, 'FP-1')],
       without_recognition: 2,
     };
     const joined = joinOutcomes(runs, trees);
@@ -652,7 +657,8 @@ const CASES = [
       ['/p', 'FP-4', 'artifacts', null],
       ['/q', 'FP-4', 'sessions', null],
       ['/r', 'FP-1', 'sessions', null],
-    ], 'sources; a server-native or missing project, and another project\'s ID, are never joined');
+      ['/s', 'FP-1', 'sessions', null],
+    ], 'sources; a server-native, missing or unknown-mode project, and another project\'s ID, are never joined');
     const both = joined.tickets[1];
     equal([both.feature_versions, both.outcome.summary, both.close_results.length, both.weighted_units], [['3.1.0', '3.2.0'], pass, 3, 1], 'a joined ticket keeps its runs');
     const { ticket: _ticket, unrecognized: _unrecognized, ...fp4Outcome } = treeRecord('FP-4');
@@ -663,10 +669,10 @@ const CASES = [
     );
     equal(joined.tickets[4].outcome, null, 'a run without a join carries no outcome');
     equal(joined.counts, {
-      artifacts_only: 1, duplicates: 1, joined: 1, projects_by_join: { fs: 1, missing: 1, 'server-native': 1 }, sessions_only: 3, skipped_folders: 2, unmapped_runs: 1, unrecognized_total: 1, verdict_mismatch: 1,
+      artifacts_only: 1, duplicates: 1, joined: 1, projects_by_join: { fs: 1, missing: 1, 'server-native': 1, 'unknown-mode': 1 }, sessions_only: 4, skipped_folders: 2, unmapped_runs: 1, unrecognized_total: 1, verdict_mismatch: 1,
     }, 'counts: the last non-null close verdict partial against the artifact pass');
     equal([joined.unrecognized, joined.without_recognition], [[{ artifact: '04-review.md', project: '/p', ticket: 'FP-4' }], 2], 'unrecognized artifacts listed by ID and name');
-    equal(joined.projects, [{ join: 'fs', path: '/p' }, { join: 'server-native', path: '/q' }, { join: 'missing', path: '/r' }], 'projects');
+    equal(joined.projects, [{ join: 'fs', path: '/p' }, { join: 'server-native', path: '/q' }, { join: 'missing', path: '/r' }, { join: 'unknown-mode', path: '/s' }], 'projects');
     const calls = [];
     const readTree = (root) => {
       calls.push(root);
@@ -692,7 +698,7 @@ const CASES = [
       duplicates: 0,
       joined: 3,
       projects: [{ join: 'fs', path: pipeline }, { join: 'server-native', path: world.repo }],
-      projects_by_join: { fs: 1, missing: 0, 'server-native': 1 },
+      projects_by_join: { fs: 1, missing: 0, 'server-native': 1, 'unknown-mode': 0 },
       projects_total: 2,
       sessions_only: 1,
       skipped_folders: 1,

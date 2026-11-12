@@ -9,7 +9,7 @@
 import { ticketRuns } from './runs.mjs';
 import { readTicketTree, storageModeOf } from './tickets.mjs';
 
-const JOIN_STATES = ['fs', 'missing', 'server-native'];
+const JOIN_STATES = ['fs', 'missing', 'server-native', 'unknown-mode'];
 
 const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 

@@ -18,6 +18,10 @@ import { parseMiniYaml } from '../../lib/mini-yaml.mjs';
 import { validTicket } from './recognize.mjs';
 
 const STATES = ['backlog', 'in-progress', 'review', 'done'];
+const STORAGE_MODES = new Map([
+  ['fs-native', 'fs'],
+  ['server-native', 'server-native'],
+]);
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const OUTCOME_ARTIFACTS = [
   ['04-review.md', 'review', classifyReview],
@@ -272,9 +276,10 @@ const isRealDirectory = (dir) => entryKind(dir) === 'dir';
 
 /**
  * A project's join state from `<root>/claudedocs/tickets/config.yaml`: `fs`
- * for a missing file or any mode but `server-native`, `server-native`, or
- * `missing` when the root is gone or the file is not a readable regular file
- * under the artifact cap — the same read rule as every artifact.
+ * for a missing file, a missing `mode` key or `mode: fs-native`;
+ * `server-native`; `unknown-mode` for any other `mode` value, never guessed
+ * as either; or `missing` when the root is gone or the file is not a readable
+ * regular file under the artifact cap — the same read rule as every artifact.
  */
 export function storageModeOf(root) {
   if (typeof root !== 'string' || !path.isAbsolute(root) || !isDirectory(root)) {
@@ -287,7 +292,11 @@ export function storageModeOf(root) {
   if (config.state !== 'ok') {
     return 'missing';
   }
-  return parseMiniYaml(config.text).mode === 'server-native' ? 'server-native' : 'fs';
+  const doc = parseMiniYaml(config.text);
+  if (!Object.hasOwn(doc, 'mode')) {
+    return 'fs';
+  }
+  return STORAGE_MODES.get(doc.mode) ?? 'unknown-mode';
 }
 
 const ABSENT = Object.freeze({ state: 'absent' });
