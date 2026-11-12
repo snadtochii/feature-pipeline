@@ -6,9 +6,11 @@
 //
 // Private to the implementation: only insights.mjs is a command.
 
-import { SCHEMA_VERSION } from './cache.mjs';
+import { lineage } from './agents.mjs';
 import { lastCloseVerdict } from './outcomes.mjs';
 import { weightedUnits } from './recognize.mjs';
+import { recognized } from './runs.mjs';
+import { compare, msOf, sum } from './util.mjs';
 
 export const STAGES = ['plan', 'implement', 'review', 'close'];
 export const VERDICTS = ['pass', 'partial', 'stuck', 'unknown'];
@@ -19,18 +21,13 @@ export const FRICTION_KEYS = ['interrupts', 'rejections', 'permission_denials', 
 const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
 const DEFAULT_WINDOW_DAYS = 30;
-const ROOT_AGENT_ID = 'root';
 const UNKNOWN_REVIEW_LABELS = new Set(['failed-all']);
 
-const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
-const sum = (values) => values.reduce((total, value) => total + value, 0);
-const msOf = (iso) => (typeof iso === 'string' ? Date.parse(iso) : Number.NaN);
 const inWindow = (iso, since) => {
   const ms = msOf(iso);
   return Number.isFinite(ms) && ms >= since;
 };
 const keyOf = (project, ticket) => JSON.stringify([project, ticket]);
-const recognized = (digest) => digest.schema_version === SCHEMA_VERSION && Array.isArray(digest.agents);
 const unitsOf = (tokens) => (tokens !== null && typeof tokens === 'object' ? weightedUnits(tokens) : 0);
 
 /** The `YYYY-MM-DD` UTC date of `ms`. */
@@ -111,15 +108,11 @@ function firstSkillCommand(agent) {
 
 /** The skill an agent's friction counts toward: its first skill command, else its nearest ancestor's, else `(no skill)`. */
 export function skillOf(agent, byId) {
-  const seen = new Set();
-  let cursor = agent;
-  while (cursor !== null && !seen.has(cursor.agent_id)) {
+  for (const cursor of lineage(agent, byId)) {
     const name = firstSkillCommand(cursor);
     if (name !== null) {
       return name;
     }
-    seen.add(cursor.agent_id);
-    cursor = cursor.agent_id === ROOT_AGENT_ID ? null : (byId.get(cursor.parent_agent_id) ?? byId.get(ROOT_AGENT_ID) ?? null);
   }
   return NO_SKILL;
 }

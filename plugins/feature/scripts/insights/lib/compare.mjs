@@ -7,6 +7,7 @@
 // Private to the implementation: only insights.mjs is a command.
 
 import { isEpic, median, tallyOutcomes } from './aggregate.mjs';
+import { compare, sum } from './util.mjs';
 
 export const MIN_COMPARE_RUNS = 5;
 export const MIN_COMPARE_REASON =
@@ -14,9 +15,6 @@ export const MIN_COMPARE_REASON =
 
 const VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
 const LEADING_VERSION = /^\d+\.\d+\.\d+/;
-
-const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
-const sum = (values) => values.reduce((total, value) => total + value, 0);
 
 /** `[x, y, z]` of an `X.Y.Z` version, each part a safe integer; null otherwise. */
 export function versionParts(text) {

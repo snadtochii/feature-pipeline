@@ -8,10 +8,9 @@
 
 import { ticketRuns } from './runs.mjs';
 import { readTicketTree, storageModeOf } from './tickets.mjs';
+import { compare } from './util.mjs';
 
 const JOIN_STATES = ['fs', 'missing', 'server-native', 'unknown-mode'];
-
-const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 const emptyTree = (join) => ({ duplicates: 0, join, skipped_folders: 0, tickets: new Map() });
 

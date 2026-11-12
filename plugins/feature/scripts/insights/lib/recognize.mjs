@@ -7,11 +7,13 @@
 //
 // Private to the implementation: only insights.mjs is a command.
 
+import { ROOT_AGENT_ID, lineage } from './agents.mjs';
+import { countInto, sortedObject } from './util.mjs';
+
 export const GENERIC_ROLE = 'general-purpose';
 export const GENERIC_FALLBACK_ROLE = 'general-purpose (other)';
 export const ROOT_ROLE = 'root-session';
 export const UNATTRIBUTED = 'unattributed';
-const ROOT_AGENT_ID = 'root';
 
 // measure-session.py DEFAULT_ROLE_MAP. Python's `$` also matches before a final newline.
 export const ROLE_MAP = [
@@ -196,8 +198,8 @@ export function validCloseResult(result) {
 
 function addAnomaly(entry, name) {
   const counts = new Map(Object.entries(entry.anomalies));
-  counts.set(name, (counts.get(name) ?? 0) + 1);
-  entry.anomalies = Object.fromEntries([...counts].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+  countInto(counts, name);
+  entry.anomalies = sortedObject(counts);
 }
 
 function stored(entry, value, validated) {
@@ -207,20 +209,6 @@ function stored(entry, value, validated) {
   return validated;
 }
 
-/** Indices of entry `start`'s ancestors, nearest first; measure-session.py attribute_tickets's walk. */
-function* ancestorsOf(entries, signals, indexOf, start) {
-  const seen = new Set([entries[start].agent_id]);
-  let cursor = start;
-  while (signals[cursor].walks) {
-    const parentId = entries[cursor].agent_id === ROOT_AGENT_ID ? null : (entries[cursor].parent_agent_id ?? ROOT_AGENT_ID);
-    if (parentId === null || seen.has(parentId) || !indexOf.has(parentId)) {
-      return;
-    }
-    seen.add(parentId);
-    cursor = indexOf.get(parentId);
-    yield cursor;
-  }
-}
 
 /**
  * Give every digest entry of one session its `role`, `ticket`, `run_ticket`,
@@ -231,12 +219,15 @@ function* ancestorsOf(entries, signals, indexOf, start) {
  * adds the root's command ticket, which measure-session.py has no rule for.
  */
 export function recognizeSession(entries, signals) {
-  const indexOf = new Map(entries.map((entry, index) => [entry.agent_id, index]));
+  const byId = new Map(entries.map((entry) => [entry.agent_id, entry]));
+  const indexOf = new Map(entries.map((entry, index) => [entry, index]));
+  // measure-session.py attribute_tickets's walk: it does not step up from an agent whose meta is absent or unreadable.
+  const walks = (entry) => signals[indexOf.get(entry)].walks;
   const own = signals.map((signal) => signal.ownTicket ?? (typeof signal.slashBuild === 'string' ? signal.slashBuild : null));
   const ownRun = own.map((ticket, index) => ticket ?? (entries[index].agent_id === ROOT_AGENT_ID ? (signals[index].commandTicket ?? null) : null));
   const headStage = entries.map((entry, index) => (entry.agent_id === ROOT_AGENT_ID ? signals[index].rootStage : (STAGE_OF_ROLE[signals[index].role] ?? null)));
   entries.forEach((entry, index) => {
-    const chain = [index, ...ancestorsOf(entries, signals, indexOf, index)];
+    const chain = [...lineage(entry, byId, walks)].map((agent) => indexOf.get(agent));
     const ticket = chain.map((at) => own[at]).find((value) => value !== null) ?? null;
     const runTicket = chain.map((at) => ownRun[at]).find((value) => value !== null) ?? null;
     const stage = chain.map((at) => headStage[at]).find((value) => value !== null) ?? null;

@@ -8,14 +8,13 @@
 //
 // Private to the implementation: only insights.mjs is a command.
 
+import { ROOT_AGENT_ID, lineage } from './agents.mjs';
 import { SCHEMA_VERSION } from './cache.mjs';
 import { STAGE_OF_ROLE, UNATTRIBUTED, weightedUnits } from './recognize.mjs';
+import { compare, msOf } from './util.mjs';
 
-const ROOT_AGENT_ID = 'root';
-
-const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
-
-const recognized = (digest) => digest.schema_version === SCHEMA_VERSION && Array.isArray(digest.agents);
+/** Whether a digest carries recognition: the current schema and an `agents` array. */
+export const recognized = (digest) => digest.schema_version === SCHEMA_VERSION && Array.isArray(digest.agents);
 
 function emptyBucket() {
   return { cache_read_tokens: 0, cache_write_tokens: 0, count: 0, input_tokens: 0, output_tokens: 0, turns: 0, weighted_units: 0 };
@@ -55,44 +54,18 @@ export function roleTotals(digests) {
 
 const isStageHead = (agent) => (agent.agent_id === ROOT_AGENT_ID ? agent.stage !== null : STAGE_OF_ROLE[agent.role] !== undefined);
 
-function parentOf(agent, byId) {
-  if (agent.agent_id === ROOT_AGENT_ID) {
-    return null;
-  }
-  return byId.get(agent.parent_agent_id ?? ROOT_AGENT_ID) ?? null;
-}
-
 /** The agent's nearest self-or-ancestor stage head, or null when its stage is unresolved. */
 function owningHead(agent, byId) {
   if (agent.stage === null) {
     return null;
   }
-  const seen = new Set();
-  let cursor = agent;
-  while (cursor !== null && !seen.has(cursor.agent_id)) {
-    if (isStageHead(cursor)) {
-      return cursor;
-    }
-    seen.add(cursor.agent_id);
-    cursor = parentOf(cursor, byId);
-  }
-  return null;
+  return [...lineage(agent, byId)].find(isStageHead) ?? null;
 }
 
+/** The plugin versions of the head's nearest ancestor that has any, else the session's. */
 function inheritedVersions(head, byId, digest) {
-  const seen = new Set([head.agent_id]);
-  let cursor = parentOf(head, byId);
-  while (cursor !== null && !seen.has(cursor.agent_id)) {
-    if (cursor.feature_versions.length > 0) {
-      return cursor.feature_versions;
-    }
-    seen.add(cursor.agent_id);
-    cursor = parentOf(cursor, byId);
-  }
-  return digest.feature_versions ?? [];
+  return [...lineage(head, byId)].find((agent) => agent !== head && agent.feature_versions.length > 0)?.feature_versions ?? digest.feature_versions ?? [];
 }
-
-const msOf = (iso) => (iso === null ? null : Date.parse(iso));
 
 function stageEntry(head, subtree, byId, digest, heads) {
   const versions = [...new Set(subtree.flatMap((agent) => agent.feature_versions))].sort();

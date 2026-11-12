@@ -14,6 +14,7 @@ import path from 'node:path';
 
 import { ComputeError, render } from '../../lib/output.mjs';
 import { writeAtomic } from '../../lib/write-atomic.mjs';
+import { compare } from './util.mjs';
 
 export const SCHEMA_VERSION = 2;
 
@@ -151,7 +152,7 @@ function scanSlug(storeDir, slug, counts) {
     }
   }
   const sessions = [];
-  for (const [sessionId, fileName] of [...mains].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+  for (const [sessionId, fileName] of [...mains].sort(([a], [b]) => compare(a, b))) {
     const transcript = `${slug}/${fileName}`;
     const main = sourceOf(path.join(slugDir, fileName), transcript);
     if (main === null) {

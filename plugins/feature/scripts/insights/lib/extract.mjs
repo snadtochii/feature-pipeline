@@ -8,14 +8,15 @@
 
 import fs from 'node:fs';
 
+import { ROOT_AGENT_ID } from './agents.mjs';
 import { SCHEMA_VERSION, digestKeys, digestPathFor, ensureCacheRoot, loadDigests, pathsFor, readDigest, scanStore, sourcesEqual, writeDigest } from './cache.mjs';
 import { ticketDataset } from './outcomes.mjs';
 import { defaultProbe, makeMapper } from './project.mjs';
 import { ROOT_ROLE, findTicket, recognizeSession, roleOf } from './recognize.mjs';
-import { addTokens, countInto, finishAgentWithSignals, isoOf, newAgent, readTranscript, sortedObject, zeroFriction, zeroTokens } from './transcript.mjs';
+import { addTokens, finishAgentWithSignals, isoOf, newAgent, readTranscript, zeroFriction, zeroTokens } from './transcript.mjs';
+import { countInto, sortedObject } from './util.mjs';
 
 const MAX_LISTED = 20;
-const ROOT_AGENT_ID = 'root';
 
 function readMeta(file) {
   try {

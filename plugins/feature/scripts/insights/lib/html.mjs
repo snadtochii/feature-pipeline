@@ -10,6 +10,7 @@
 
 import { FRICTION_KEYS, STAGES, VERDICTS, foldRows } from './aggregate.mjs';
 import { MIN_COMPARE_REASON, MIN_COMPARE_RUNS } from './compare.mjs';
+import { sum } from './util.mjs';
 
 export const MAX_SKILL_ROWS = 15;
 
@@ -54,7 +55,6 @@ dd{margin:0;overflow-wrap:anywhere}
 /** `value` as text with `& < > " '` entity-escaped. */
 export const esc = (value) => String(value).replace(/[&<>"']/g, (char) => ENTITIES[char]);
 
-const sum = (values) => values.reduce((total, value) => total + value, 0);
 
 /** Weighted units rounded, with thousands separators; a dash when unknown. */
 export function fmtUnits(value) {

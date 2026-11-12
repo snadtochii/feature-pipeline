@@ -41,7 +41,7 @@ export const REPORT_CASES = [
       synthAgent('a5', 'a4'),
     ];
     const byId = new Map(agents.map((agent) => [agent.agent_id, agent]));
-    equal(agents.map((agent) => skillOf(agent, byId)), ['feature:flow', 'feature:flow', 'feature:build', 'feature:flow', NO_SKILL, NO_SKILL], 'skill per agent');
+    equal(agents.map((agent) => skillOf(agent, byId)), ['feature:flow', 'feature:flow', 'feature:build', NO_SKILL, NO_SKILL, NO_SKILL], 'skill per agent; a missing parent ends the walk, as it does for recognition');
     const bare = synthAgent('root', null);
     equal(skillOf(bare, new Map([['root', bare]])), NO_SKILL, 'no command anywhere up the chain');
     const builtIn = synthAgent('root', null, { commands: [{ ids: [], name: '/model' }] });
@@ -49,7 +49,7 @@ export const REPORT_CASES = [
     const digests = [synthDigest('/p', isoNov(10), agents), synthDigest(null, isoNov(11), [synthAgent('root', null)]), synthDigest('/p', null, [synthAgent('root', null)], 'undated')];
     const agg = aggregate({ dataset: EMPTY_DATASET, digests, now: NOV(12), projects: ['/p'], since: NOV(1, 0) });
     assert(!JSON.stringify(agg).includes(SENTINEL), 'the sentinel reached the aggregate');
-    equal(agg.friction.by_skill.map((row) => [row.name, row.total]), [['feature:flow', 4], [NO_SKILL, 1], ['feature:build', 1]], 'friction per skill, heaviest first');
+    equal(agg.friction.by_skill.map((row) => [row.name, row.total]), [['feature:flow', 3], [NO_SKILL, 2], ['feature:build', 1]], 'friction per skill, heaviest first');
     equal(agg.friction.by_skill[2].check_runs, 3, 'check runs beside the failed ones');
     equal(agg.friction.by_stage.map((row) => [row.name, row.total]), [['(no stage)', 3], ['plan', 2], ['implement', 1]], 'friction per stage');
     equal(

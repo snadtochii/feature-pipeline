@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 
 import { closeResultOf, commandTicketOf, isCheckRun, rootStageOf, slashBuildTicket } from './recognize.mjs';
+import { countInto, sortedObject } from './util.mjs';
 
 const CONVERSATION_TYPES = new Set(['assistant', 'user', 'attachment', 'system']);
 
@@ -57,10 +58,6 @@ export function zeroTokens() {
 
 export function zeroFriction() {
   return { interrupts: 0, permission_denials: 0, rejections: 0, tool_errors: 0 };
-}
-
-export function countInto(counts, key, by = 1) {
-  counts.set(key, (counts.get(key) ?? 0) + by);
 }
 
 /**
@@ -399,8 +396,6 @@ export function addTokens(into, tokens) {
 
 export const isoOf = (ms) => (ms === null ? null : new Date(ms).toISOString());
 
-export const sortedObject = (map) => Object.fromEntries([...map].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-
 /** The agent's digest entry as a plain object. */
 export function finishAgent(acc) {
   const tokens = zeroTokens();
@@ -432,7 +427,7 @@ export function finishAgent(acc) {
     skills: sortedObject(acc.skills),
     start: isoOf(acc.firstMs),
     tokens,
-    tokens_by_model: Object.fromEntries([...byModel].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))),
+    tokens_by_model: sortedObject(byModel),
     turns: acc.turnIds.size,
     turns_without_usage: [...acc.turnIds].filter((messageId) => !acc.usageOf.has(messageId)).length,
   };

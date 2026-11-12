@@ -239,7 +239,9 @@ string holding `<command-name>/feature:build</command-name>` fixes it from
 its `<command-args>`, and no later record replaces it, a ticket-less one included. An agent
 with no own ticket takes its nearest ancestor's, walking `parent_agent_id` (absent means the
 root) and stopping at a missing parent, a cycle, or an agent whose meta file is absent or not
-an object. Another `/feature:<skill> <ID>` command attributes no `ticket`, because
+an object. Every walk up an agent tree — this one, a run's stage head and plugin versions
+(§6) and friction's skill (§9) — is the one walk of `lib/agents.mjs`; only this one also
+stops at an agent without a readable meta file. Another `/feature:<skill> <ID>` command attributes no `ticket`, because
 `measure-session.py` has no rule for it; its IDs stay in `commands[]`, and the run ticket reads
 them.
 
@@ -531,8 +533,8 @@ known zero.
 **Friction attribution.** An agent's friction counts toward its first `commands[]` name, a
 leading `/` stripped, that is a key of its own `skills` (§4) — a built-in command such as
 `/clear` or `/model` loads no skill and is passed over; failing that, toward its nearest
-ancestor's, walking `parent_agent_id` — an absent or unknown parent means the root — and
-stopping at the root or a cycle; failing that, toward `(no skill)`. Per stage it counts toward the agent's `stage`, or `(no stage)`.
+ancestor's, through §5's walk: an absent parent means the root, and the walk stops at the
+root, at a parent missing from the session or at a cycle; failing that, toward `(no skill)`. Per stage it counts toward the agent's `stage`, or `(no stage)`.
 Each agent counts once in each table.
 
 **Comparison.** With `--compare X.Y.Z` the pool is the scope's run tickets, bounded by the
