@@ -17,11 +17,11 @@ import { UNSAFE_VALUE, cleanHttpUrl, readCredentialFile } from '../../../scripts
 import { parseMiniYaml } from '../../../scripts/lib/mini-yaml.mjs';
 import { ComputeError, UsageError, errorDoc as errorLine, largestFit, oneLine, render } from '../../../scripts/lib/output.mjs';
 import {
-  INCIDENTS_DIR,
   MAX_DOCUMENT_BYTES,
   REPO_RULE,
   RUN_ID,
   configFile,
+  inputFile,
   isRepoName,
   isSet,
   sweepInputFiles,
@@ -341,10 +341,6 @@ function fileStamp(date) {
   return rfc3339(date).replace(/[-:Z]/g, '').replace('T', '-');
 }
 
-function queryFile(projectRoot, run) {
-  return path.join(projectRoot, ...INCIDENTS_DIR, `.query-${run}.logql`);
-}
-
 /**
  * The `preflight` verb: configuration, credentials, clock, run identifier,
  * report gate and repository head. No network call.
@@ -374,7 +370,7 @@ export function preflight({ projectRoot, repo }, env = process.env, now = new Da
 
 /** Read the query text from the run's query file and remove the file. */
 export function takeQuery(projectRoot, run) {
-  return takeInputFile(queryFile(projectRoot, run), MAX_QUERY_BYTES, 'write the LogQL query there before each query run');
+  return takeInputFile(inputFile(projectRoot, 'query', run), MAX_QUERY_BYTES, 'write the LogQL query there before each query run');
 }
 
 function causeCode(err) {

@@ -18,11 +18,21 @@ export const RUN_ID = /^\d{8}-\d{6}-[0-9a-f]{8}$/;
 export const REPO_RULE = 'must be one directory name, or "." for the project root';
 
 const REPO_NAME = /^[A-Za-z0-9._-]+$/;
-const INPUT_FILE_NAME = /^\.(?:query-\d{8}-\d{6}-[0-9a-f]{8}\.logql|search-\d{8}-\d{6}-[0-9a-f]{8}\.txt)$/;
+const INPUT_EXTENSIONS = { query: 'logql', search: 'txt' };
+const INPUT_FILE_NAME = new RegExp(
+  `^\\.(?:${Object.entries(INPUT_EXTENSIONS)
+    .map(([kind, extension]) => `${kind}-${RUN_ID.source.slice(1, -1)}\\.${extension}`)
+    .join('|')})$`,
+);
 const STALE_INPUT_MS = 60 * 60 * 1000;
 
 export const isSet = (value) => typeof value === 'string' && value !== '';
 export const isRepoName = (value) => REPO_NAME.test(value) && value !== '..';
+
+/** The run's input file of `kind` (`query` or `search`) under `<projectRoot>/claudedocs/incidents/`. */
+export function inputFile(projectRoot, kind, run) {
+  return path.join(projectRoot, ...INCIDENTS_DIR, `.${kind}-${run}.${INPUT_EXTENSIONS[kind]}`);
+}
 
 export function configFile(projectRoot) {
   return path.join(projectRoot, ...TICKETS_DIR, 'config.yaml');

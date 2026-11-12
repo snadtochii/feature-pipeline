@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import { parseMiniYaml } from '../../../scripts/lib/mini-yaml.mjs';
 import { ComputeError, UsageError, largestFit, oneLine, render } from '../../../scripts/lib/output.mjs';
-import { INCIDENTS_DIR, MAX_DOCUMENT_BYTES, REPO_RULE, RUN_ID, TICKETS_DIR, configFile, isRepoName, takeInputFile, tokenFilePath } from './project.mjs';
+import { INCIDENTS_DIR, MAX_DOCUMENT_BYTES, REPO_RULE, RUN_ID, TICKETS_DIR, configFile, inputFile, isRepoName, takeInputFile, tokenFilePath } from './project.mjs';
 
 const MAX_SEARCH_BYTES = 4 * 1024;
 const MAX_PATTERNS = 20;
@@ -96,17 +96,13 @@ export function finishSearch(parsed) {
   return { ...parsed, output };
 }
 
-export function searchFile(projectRoot, run) {
-  return path.join(projectRoot, ...INCIDENTS_DIR, `.search-${run}.txt`);
-}
-
 /**
  * Read the run's patterns from its search file and remove the file: one fixed
  * string per line, trimmed, blank and repeated lines dropped, 1 to 20 of
  * them, each 3 to 200 characters. A refusal never echoes a pattern.
  */
 export function takePatterns(projectRoot, run) {
-  const file = searchFile(projectRoot, run);
+  const file = inputFile(projectRoot, 'search', run);
   const text = takeInputFile(file, MAX_SEARCH_BYTES, 'write the search patterns there, one per line, before each search run');
   const patterns = [...new Set(text.split('\n').map((line) => line.trim()).filter((line) => line !== ''))];
   if (patterns.length > MAX_PATTERNS) {
@@ -307,6 +303,26 @@ function filesOf(found) {
   return [...byPath].map(([rel, patterns]) => ({ path: rel, patterns: [...patterns].sort((a, b) => a - b) }));
 }
 
+/**
+ * `listed` in the order the size bound keeps it: each pattern's first entry,
+ * then each pattern's second, and so on, ties in `listed`'s order. Every
+ * pattern with a match keeps one listed entry before any pattern gets a
+ * second. Each entry carries its index in `listed`, which restores that order.
+ */
+function boundOrder(listed, patternsOf) {
+  const seen = new Map();
+  const ranked = listed.map((entry, index) => {
+    let rank = Infinity;
+    for (const pattern of patternsOf(entry)) {
+      const count = seen.get(pattern) ?? 0;
+      seen.set(pattern, count + 1);
+      rank = Math.min(rank, count);
+    }
+    return { entry, index, rank };
+  });
+  return ranked.sort((a, b) => a.rank - b.rank || a.index - b.index);
+}
+
 /** The `search` verb: the run's patterns over one scope, as matched lines or matched files. */
 export function search({ projectRoot, run, scope, repo, output }, env = process.env) {
   const patterns = takePatterns(projectRoot, run);
@@ -331,6 +347,12 @@ export function search({ projectRoot, run, scope, repo, output }, env = process.
   walk.found.sort((a, b) => byCodeUnit(a.path, b.path) || a.line - b.line || a.pattern - b.pattern);
   const listed = output === 'files' ? filesOf(walk.found) : walk.found;
   const overflow = output === 'files' ? 0 : walk.overflow;
+  const ordered = boundOrder(listed, output === 'files' ? (entry) => entry.patterns : (entry) => [entry.pattern]);
+  const kept = (keep) =>
+    ordered
+      .slice(0, keep)
+      .sort((a, b) => a.index - b.index)
+      .map(({ entry }) => entry);
   const documentKeeping = (keep) => ({
     ok: true,
     verb: 'search',
@@ -339,7 +361,7 @@ export function search({ projectRoot, run, scope, repo, output }, env = process.
     exists: root !== null,
     output,
     patterns,
-    [output === 'files' ? 'files' : 'matches']: listed.slice(0, keep),
+    [output === 'files' ? 'files' : 'matches']: kept(keep),
     count: keep,
     omitted: listed.length - keep + overflow,
     truncated: listed.length > keep || overflow > 0 || walk.partial !== null,

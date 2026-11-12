@@ -10,7 +10,7 @@ import path from 'node:path';
 import { ComputeError, UsageError, exitCodeFor } from '../../../scripts/lib/output.mjs';
 import { assert, equal, throwsKind } from '../../../scripts/lib/selftest-kit.mjs';
 import { parseArgv } from './lib.mjs';
-import { searchFile, takePatterns } from './search.mjs';
+import { takePatterns } from './search.mjs';
 import { OTHER_RUN, RUN, configText, runEntry, withTemp, world, writeConfig, writeCredentials } from './selftest-fixtures.mjs';
 
 function put(root, rel, content) {
@@ -21,7 +21,7 @@ function put(root, rel, content) {
 }
 
 function writeSearch(root, patterns) {
-  const file = searchFile(root, RUN);
+  const file = path.join(root, 'claudedocs', 'incidents', `.search-${RUN}.txt`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, Array.isArray(patterns) ? patterns.join('\n') : patterns);
   return file;
@@ -209,6 +209,21 @@ export const SEARCH_CASES = [
       equal([res.doc.truncated, res.doc.scanned], [true, { files: 60, skipped: 2 }], 'truncated, and the two skipped files');
       assert(res.doc.count > 0 && res.doc.omitted > 60 && res.doc.count + res.doc.omitted === 240, `counts: ${res.doc.count} + ${res.doc.omitted}`);
       assert(res.doc.matches.every((match) => match.cut === true && match.text.length <= 400), 'windows are cut to 400 characters');
+    })],
+  ['search: a pattern with a match keeps a listed entry when the size bound cuts the rest', () =>
+    withTemp('search-fair', async (dir) => {
+      const { root, env } = world(dir);
+      for (let index = 0; index < 60; index += 1) {
+        put(root, `api/logs/file-${String(index).padStart(2, '0')}.txt`, `${'x'.repeat(300)} waybill ${'y'.repeat(300)}\n`.repeat(4));
+      }
+      put(root, 'api/zz/rare.txt', 'decode: unexpected type\n');
+      const res = await searchIn(root, env, ['waybill', 'unexpected type'], '--scope', 'repo', '--repo', 'api');
+      equal([res.status, res.doc.truncated, res.doc.partial], [0, true, null], 'truncated by the size bound alone');
+      assert(Buffer.byteLength(res.stdout) <= 16 * 1024, `the document is ${Buffer.byteLength(res.stdout)} bytes`);
+      equal(res.doc.matches.filter((match) => match.pattern === 1).map((match) => [match.path, match.line]), [['zz/rare.txt', 1]], 'the rare pattern is listed');
+      const paths = pathsOf(res.doc);
+      equal(paths, [...paths].sort(), 'the kept entries are listed in path order');
+      equal(res.doc.count + res.doc.omitted, 241, 'every match is counted');
     })],
   ['search: a missing root answers with nothing, and preflight sweeps an old search file', () =>
     withTemp('search-missing', async (dir) => {
