@@ -7,14 +7,12 @@
 //
 // Private to the implementation: only threads.mjs is a command.
 
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { ComputeError, UsageError, render } from '../../../scripts/lib/output.mjs';
-import { assert, equal, throwsKind } from '../../../scripts/lib/selftest-kit.mjs';
+import { assert, equal, runNode, throwsKind, withTemp as withTempDir } from '../../../scripts/lib/selftest-kit.mjs';
 import { MAX_DOCUMENT_BYTES, MAX_TEXT_CHARS, addressMarker, findings, parseArgv, parsePages, readAll, shapeDocument, threadStates } from './lib.mjs';
 
 const ENTRY = fileURLToPath(new URL('./threads.mjs', import.meta.url));
@@ -161,14 +159,7 @@ const ok = (value) => ({ status: 0, stdout: typeof value === 'string' ? value : 
 const USER = ok({ login: VIEWER });
 const ENDPOINTS = ['user', 'repos/o/r/pulls/5/comments', 'repos/o/r/pulls/5/reviews', 'repos/o/r/issues/5/comments'];
 
-async function withTemp(label, fn) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), `fp-threads-${label}-`)));
-  try {
-    return await fn(dir);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-}
+const withTemp = (label, fn) => withTempDir(`fp-threads-${label}`, fn);
 
 /** The stand-in `gh`: answers `api <endpoint>` from fixture files in $FAKE_GH_DIR. */
 const FAKE_GH = `#!/bin/sh
@@ -202,30 +193,7 @@ function fakeGh(dir, w) {
   return { bin, data };
 }
 
-function runEntry(args, env) {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [ENTRY, ...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk;
-    });
-    const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
-    child.on('close', (status) => {
-      clearTimeout(timer);
-      let doc = null;
-      try {
-        doc = JSON.parse(stdout);
-      } catch {
-        doc = null;
-      }
-      resolve({ status, stdout, stderr, doc });
-    });
-  });
-}
+const runEntry = (args, env) => runNode(ENTRY, args, env);
 
 /** A PR with one settled inline finding and one open human issue comment. */
 function smallPr() {

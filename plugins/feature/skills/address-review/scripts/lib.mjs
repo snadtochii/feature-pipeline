@@ -1,23 +1,21 @@
 // The address-review thread-state reader's rules: argument parsing, the `gh`
 // reads, the page parser, the marker and finding parsers, the thread-state
 // classifier (../../review/references/pr-comments.md §9) and the bounded
-// output document (../SKILL.md Step 2). The output contract is the plugin's
-// shared script module.
+// output document (../SKILL.md Step 2). The output contract and the `gh`
+// runner are the plugin's shared script modules.
 //
 // Private to the implementation: only threads.mjs is a command.
 
 import { spawnSync } from 'node:child_process';
 
-import { ComputeError, UsageError, errorDoc as errorLine, oneLine, render } from '../../../scripts/lib/output.mjs';
+import { ghStdout } from '../../../scripts/lib/gh.mjs';
+import { ComputeError, UsageError, errorDoc as errorLine, largestFit, oneLine, render } from '../../../scripts/lib/output.mjs';
 
 const USAGE = 'usage: threads.mjs --repo <owner>/<repo> --pr <number> | threads.mjs --self-test';
 
 const FLAGS = { '--repo': 'repo', '--pr': 'pr' };
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const PR_NUMBER = /^[1-9][0-9]{0,9}$/;
-
-const GH_TIMEOUT_MS = 60_000;
-const GH_MAX_BUFFER = 64 * 1024 * 1024;
 
 export const MAX_DOCUMENT_BYTES = 16 * 1024;
 export const MAX_TEXT_CHARS = 1500;
@@ -75,25 +73,6 @@ export function parseArgv(argv) {
     throw new UsageError('--pr must be a pull-request number');
   }
   return { repo: parsed.repo, pr: Number(parsed.pr) };
-}
-
-/** Run one `gh` command with an argument vector; its stdout, or a ComputeError. */
-export function runGh(args, runner = spawnSync) {
-  const result = runner('gh', args, {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: GH_TIMEOUT_MS,
-    maxBuffer: GH_MAX_BUFFER,
-  });
-  const label = `gh ${args.slice(0, 2).join(' ')}`;
-  if (result.error) {
-    throw new ComputeError(result.error.code === 'ENOENT' ? 'gh not found on PATH' : `${label} could not run (${result.error.code ?? 'error'})`);
-  }
-  if (result.status !== 0) {
-    const stderr = oneLine(result.stderr ?? '').slice(-200);
-    throw new ComputeError(`${label} exited ${result.status ?? `on ${result.signal}`}${stderr ? `: ${stderr}` : ''}`);
-  }
-  return result.stdout ?? '';
 }
 
 const UNEXPECTED = 'unexpected gh output';
@@ -159,7 +138,7 @@ export function parsePages(text) {
 function readViewer(runner) {
   let login;
   try {
-    login = JSON.parse(runGh(['api', 'user'], runner)).login;
+    login = JSON.parse(ghStdout(['api', 'user'], { runner })).login;
   } catch (err) {
     if (err instanceof ComputeError) {
       throw err;
@@ -172,7 +151,7 @@ function readViewer(runner) {
   return login;
 }
 
-const readList = (endpoint, runner) => parsePages(runGh(['api', `${endpoint}?per_page=100`, '--paginate'], runner));
+const readList = (endpoint, runner) => parsePages(ghStdout(['api', `${endpoint}?per_page=100`, '--paginate'], { runner }));
 
 /** The viewer and the PR's three comment surfaces, read through `gh api`. */
 export function readAll({ repo, pr, runner = spawnSync }) {
@@ -489,21 +468,6 @@ function listed(thread, withText) {
   return out;
 }
 
-/** The largest `n` in 0..`total` that `fits`, where fitting is monotone in `n`. */
-function largestFitting(total, fits) {
-  let low = 0;
-  let high = total;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if (fits(middle)) {
-      low = middle;
-    } else {
-      high = middle - 1;
-    }
-  }
-  return low;
-}
-
 /**
  * The output document for a `threadStates` result: settled threads as a count,
  * every other thread listed oldest first, bounded to MAX_DOCUMENT_BYTES by
@@ -522,9 +486,9 @@ export function shapeDocument(result, { repo, pr }) {
     threads: open.slice(0, count).map((thread, index) => listed(thread, index < withTextCount)),
   });
   const fits = (doc) => Buffer.byteLength(render(doc)) <= MAX_DOCUMENT_BYTES;
-  const textCount = largestFitting(open.length, (n) => fits(build(open.length, n)));
+  const textCount = largestFit(open.length, (n) => fits(build(open.length, n)));
   if (fits(build(open.length, textCount))) {
     return build(open.length, textCount);
   }
-  return build(largestFitting(open.length, (n) => fits(build(n, 0))), 0);
+  return build(largestFit(open.length, (n) => fits(build(n, 0))), 0);
 }
