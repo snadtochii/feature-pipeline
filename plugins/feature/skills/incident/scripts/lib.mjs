@@ -13,7 +13,7 @@ import path from 'node:path';
 
 import { UNSAFE_VALUE, cleanHttpUrl, readCredentialFile } from '../../../scripts/lib/credential-file.mjs';
 import { parseMiniYaml } from '../../../scripts/lib/mini-yaml.mjs';
-import { ComputeError, UsageError, errorDoc as errorLine, oneLine, render } from '../../../scripts/lib/output.mjs';
+import { ComputeError, UsageError, errorDoc as errorLine, largestFit, oneLine, render } from '../../../scripts/lib/output.mjs';
 
 const URL_NAME = 'INCIDENT_GRAFANA_URL';
 const TOKEN_NAME = 'INCIDENT_GRAFANA_TOKEN';
@@ -556,25 +556,6 @@ export function keepLines({ lines, streams }, direction, keep) {
   };
 }
 
-/**
- * The largest count from 1 to `total` that `fits`, where a count that fits
- * leaves every smaller one fitting. One is the floor whether or not it fits,
- * and zero is the answer only when `total` is zero. Pure.
- */
-export function largestFit(total, fits) {
-  let low = Math.min(1, total);
-  let high = total;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if (fits(middle)) {
-      low = middle;
-    } else {
-      high = middle - 1;
-    }
-  }
-  return low;
-}
-
 /** The `query` verb: one LogQL `query_range` through the datasource proxy. */
 export async function query({ projectRoot, run, start, end, limit, direction }, env = process.env) {
   const text = takeQuery(projectRoot, run);
@@ -599,5 +580,5 @@ export async function query({ projectRoot, run, start, end, limit, direction }, 
     };
   };
   const fits = (keep) => Buffer.byteLength(render(documentKeeping(keep))) <= MAX_DOCUMENT_BYTES;
-  return documentKeeping(largestFit(shaped.lines.length, fits));
+  return documentKeeping(largestFit(shaped.lines.length, fits, 1));
 }

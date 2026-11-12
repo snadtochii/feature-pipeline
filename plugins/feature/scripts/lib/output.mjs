@@ -64,6 +64,26 @@ export function errorDoc(err) {
 }
 
 /**
+ * The largest count from `floor` to `total` that `fits`, where a count that
+ * fits leaves every smaller one fitting — how a script bounds the document it
+ * prints. `floor` is the answer when no larger count fits, whether or not it
+ * fits itself, and `total` caps it. Pure.
+ */
+export function largestFit(total, fits, floor = 0) {
+  let low = Math.min(floor, total);
+  let high = total;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (fits(middle)) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return low;
+}
+
+/**
  * Write to stdout synchronously, so a document followed by process.exit is
  * never truncated on a pipe.
  */
