@@ -42,7 +42,7 @@ caption{text-align:left;font-weight:600;padding:0 0 6px}
 th,td{padding:4px 8px;border-bottom:1px solid #d1d9e0;text-align:right;white-space:nowrap}
 thead th:first-child,th[scope="row"]{text-align:left}
 th[scope="row"]{white-space:normal;overflow-wrap:anywhere;min-width:8em;font-weight:normal}
-.chart{display:block;width:100%;height:auto}
+.chart{display:block;width:100%;min-width:560px;height:auto}
 .state{display:flex;align-items:center;justify-content:center;min-height:220px;margin:0;color:#59636e;text-align:center}
 .state[data-state="error"]{color:#a40e26}
 dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 12px;margin:0}
@@ -94,7 +94,7 @@ function table(caption, headers, rows) {
   return `<div class="scroll"><table><caption>${esc(caption)}</caption><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
-const svgOpen = (height, title) => `<svg class="chart" viewBox="0 0 ${CHART_WIDTH} ${height}" width="100%" role="img" aria-label="${esc(title)}"><title>${esc(title)}</title>`;
+const svgOpen = (height, title) => `<div class="scroll"><svg class="chart" viewBox="0 0 ${CHART_WIDTH} ${height}" width="100%" role="img" aria-label="${esc(title)}"><title>${esc(title)}</title>`;
 const text = (x, y, anchor, body) => `<text x="${x}" y="${y}" font-size="11" fill="currentColor" text-anchor="${anchor}">${esc(body)}</text>`;
 const round = (value) => Math.round(value * 10) / 10;
 
@@ -130,7 +130,7 @@ export function columnChart(title, weeks, series) {
       parts.push(text(round(x + barWidth / 2), height - 14, 'middle', week.week.slice(5)));
     }
   });
-  parts.push('</svg>');
+  parts.push('</svg></div>');
   return parts.join('');
 }
 
@@ -152,7 +152,7 @@ export function barChart(title, rows, format) {
       text(round(labelWidth + width + 6), y + 14, 'start', format(row.value)),
     );
   });
-  parts.push('</svg>');
+  parts.push('</svg></div>');
   return parts.join('');
 }
 
@@ -168,7 +168,7 @@ function statusBox(meta, agg, state) {
     ['Projects', agg.scope.projects.length > 0 ? agg.scope.projects.join(', ') : 'none'],
     ['Window', `${agg.scope.since} to ${agg.scope.until} (UTC), ${agg.weeks.length} ISO weeks starting Monday`],
     ['Generated', meta.generated],
-    ['Durations', 'wall-clock spans of each stage, verdict-gate waits included'],
+    ['Durations', "stage wall-clock is each stage's span, verdict-gate waits included; session wall-clock is each session's span"],
   ];
   const list = `<dl>${rows.map(([term, detail]) => `<dt>${esc(term)}</dt><dd>${esc(detail)}</dd>`).join('')}</dl>`;
   const message =
@@ -224,8 +224,8 @@ function projectSection(meta, agg) {
         'project-table',
         table(
           'Per project, whole window',
-          ['Project', 'Sessions', 'Weighted units', 'In a stage', 'Other', 'Stage wall-clock'],
-          agg.projects.map((row) => [row.project, row.sessions, fmtUnits(row.units), fmtUnits(row.stage_units), fmtUnits(row.other_units), fmtDuration(row.stage_duration_ms)]),
+          ['Project', 'Sessions', 'Weighted units', 'In a stage', 'Other', 'Session wall-clock', 'Stage wall-clock'],
+          agg.projects.map((row) => [row.project, row.sessions, fmtUnits(row.units), fmtUnits(row.stage_units), fmtUnits(row.other_units), fmtDuration(row.session_duration_ms), fmtDuration(row.stage_duration_ms)]),
         ),
       )
     : emptyBox(meta, 'project-table', 'sessions');
@@ -234,9 +234,9 @@ function projectSection(meta, agg) {
         'project-weeks',
         table(
           'Per project, by week',
-          ['Week', 'Project', 'Sessions', 'Weighted units', 'In a stage', 'Stage wall-clock'],
+          ['Week', 'Project', 'Sessions', 'Weighted units', 'In a stage', 'Session wall-clock', 'Stage wall-clock'],
           agg.weeks.flatMap((week, index) =>
-            agg.projects.map((row) => [weekLabel(week), row.project, row.weeks[index].sessions, fmtUnits(row.weeks[index].units), fmtUnits(row.weeks[index].stage_units), fmtDuration(row.weeks[index].stage_duration_ms)]),
+            agg.projects.map((row) => [weekLabel(week), row.project, row.weeks[index].sessions, fmtUnits(row.weeks[index].units), fmtUnits(row.weeks[index].stage_units), fmtDuration(row.weeks[index].session_duration_ms), fmtDuration(row.weeks[index].stage_duration_ms)]),
           ),
         ),
       )

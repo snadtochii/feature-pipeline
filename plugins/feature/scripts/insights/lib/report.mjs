@@ -13,7 +13,7 @@ import path from 'node:path';
 import { ComputeError, UsageError, oneLine } from '../../lib/output.mjs';
 import { writeAtomic } from '../../lib/write-atomic.mjs';
 import { dateMs, shown } from './args.mjs';
-import { aggregate, defaultSinceMs, runTickets, unrecognizedReviews } from './aggregate.mjs';
+import { aggregate, defaultSinceMs, runTickets, unrecognizedReviews, windowSessions } from './aggregate.mjs';
 import { ensureReportsDir, loadDigests, pathsFor } from './cache.mjs';
 import { compareWindows } from './compare.mjs';
 import { runExtract } from './extract.mjs';
@@ -24,6 +24,8 @@ import { defaultProbe, mapProject } from './project.mjs';
 const MAX_LISTED = 20;
 const MAX_REASON = 200;
 const SLUG_UNSAFE = /[^A-Za-z0-9._-]/g;
+const ERROR_NAME = /^[A-Za-z]{1,40}$/;
+const ERROR_CODE = /^[A-Z0-9_]{1,40}$/;
 
 /**
  * The scope a report asks for, decided before the extract runs: `{ kind:
@@ -117,16 +119,26 @@ export function summaryLines({ agg, compare, extractError, file, label }) {
   ];
 }
 
+/** An extract failure's one-line reason: a ComputeError's own message, else the error's class and code only, never its message. */
+function extractReason(err) {
+  if (err instanceof ComputeError) {
+    return oneLine(err.message);
+  }
+  const name = typeof err?.name === 'string' && ERROR_NAME.test(err.name) ? err.name : 'Error';
+  const code = typeof err?.code === 'string' && ERROR_CODE.test(err.code) ? ` (${err.code})` : '';
+  return `unexpected ${name}${code}`;
+}
+
 async function loadData({ cacheRoot, home, probe, runExtractFn }) {
   try {
     const { dataset, digests } = await runExtractFn({ home, probe });
     return { dataset, digests, extractError: null };
   } catch (err) {
-    if (!(err instanceof ComputeError)) {
+    if (err instanceof UsageError) {
       throw err;
     }
     const digests = loadDigests(cacheRoot);
-    return { dataset: ticketDataset(digests), digests, extractError: oneLine(err.message) };
+    return { dataset: ticketDataset(digests), digests, extractError: extractReason(err) };
   }
 }
 
@@ -147,7 +159,7 @@ export async function report({ flags, home, cwd, now, probe = defaultProbe, runE
   const compare =
     flags.compare === null
       ? null
-      : compareWindows({ tickets: runTickets(dataset, projects, flags.since === null ? null : since), unrecognized: unrecognizedReviews(dataset), version: flags.compare });
+      : compareWindows({ tickets: runTickets(dataset, projects, flags.since === null ? null : windowSessions(digests, since)), unrecognized: unrecognizedReviews(dataset), version: flags.compare });
   const html = renderPage({ agg, compare, meta: { extract_error: extractError, generated: new Date(now).toISOString(), label } });
   ensureReportsDir(reportsDir);
   const file = reportFile(reportsDir, now, label);

@@ -497,26 +497,27 @@ matching exits 2, listing at most 20 known base names or the clashing paths. Wit
 directory that maps to none exits 2. That project is reported even when no digest names it.
 
 **Window.** A session is in the window when its `start` is at or after the window's first
-instant, and a stage when its own `start` is. A run ticket (`source` `both` or `sessions`, §7)
-is in scope when its project is and one of its sessions starts in the window; an `artifacts`
+instant, and everything recorded in it counts with it: its tokens, its duration and its
+stages. A run ticket (`source` `both` or `sessions`, §7) is in scope when its project is and
+one of its sessions is in the window; an `artifacts`
 ticket when its project is and its `summary_mtime`, else its `created` date, falls in the
 window. A session of the scope with no `start` and an artifact-only ticket with neither date
 are left out and counted as undated.
 
 **Weeks.** ISO weeks, from Monday 00:00 UTC, labelled by the Monday's date. The list runs from
-the week holding the later of the window's start and the earliest in-scope session or stage
-start, to the week holding the run's time; a week in that span with no data is a row of zeros.
-The week the window starts in, when it starts after that Monday, and the week holding the
-run's time are marked partial. A stage counts in the week of its `start`, a session in the
-week of its own.
+the week holding the later of the window's start and the earliest in-scope session start, to
+the week holding the run's time; a week in that span with no data is a row of zeros. The week
+the window starts in, when it starts after that Monday, and the week holding the run's time
+are marked partial. A session counts in the week of its `start`, and so does every stage it
+holds.
 
-**Figures.** Weighted units are §6's. Durations are stage wall-clock spans, verdict-gate waits
-included.
+**Figures.** Weighted units are §6's. A stage's duration is its wall-clock span, verdict-gate
+waits included; a session's is its digest's `duration_ms` (§4).
 
 | Section | Figures | Source |
 |---|---|---|
-| Stage time | Per stage — `plan`, `implement`, `review`, `close` — over the window and per week: stage runs, weighted units, wall-clock total and median, and the runs whose duration is unknown. | The in-window stage entries (§6) of the in-scope run tickets. |
-| Project time | Per project with an in-window session, over the window and per week: sessions, weighted units, the units spent inside a recognized stage and the rest, and the stage wall-clock. | The in-scope digests' token sums and their sessions' stage entries. |
+| Stage time | Per stage — `plan`, `implement`, `review`, `close` — over the window and per week: stage runs, weighted units, wall-clock total and median, and the runs whose duration is unknown. | The stage entries (§6) of the in-scope run tickets' in-window sessions. |
+| Project time | Per project with an in-window session, over the window and per week: sessions, weighted units, the units spent inside a recognized stage and the rest, the session wall-clock and the stage wall-clock. | The in-scope digests' token sums and durations, and their sessions' stage entries. |
 | Friction | Per skill and per stage: interrupts, rejected tool calls, permission denials, tool errors and failed check runs, with the check-run total beside them. The page lists the 15 heaviest skills and folds the rest into one `other` row. | Every agent of the in-scope digests that carry recognition (§5, §6). |
 | Outcomes | Verdicts `pass`, `partial`, `stuck` and `unknown`; review findings accepted, dismissed and deferred, with the number of tickets they are known for; browser passes run by the close stage or by ship, skipped per cause, absent, unrecognized, or unknown for a ticket with no artifacts. | The in-scope tickets, epics left out. |
 | Coverage gaps | Unmapped sessions in the window, counted machine-wide; for the scope, artifact-only tickets, unrecognized artifacts of its tickets, sessions without recognition, and the undated items left out. | The digests and the dataset. |
@@ -554,8 +555,8 @@ beside both sides' verdict and findings rows.
 
 **The page.** One HTML document: a viewport meta, one inline stylesheet whose one
 `max-width: 640px` query stacks the cards into a single column, inline SVG charts sized by
-`viewBox` at full width, each beside a table holding its numbers, and tables in horizontally
-scrolling wrappers. It holds no script, no `<link>`, no `src`, no `url(`, no `@import` and no
+`viewBox` at full width down to a minimum of 560px, each beside a table holding its numbers,
+and charts and tables in horizontally scrolling wrappers. It holds no script, no `<link>`, no `src`, no `url(`, no `@import` and no
 URL, and every interpolated value is entity-escaped. The sections — `status`, `stage-time`,
 `project-time`, `friction`, `outcomes`, `gaps` and `compare`, in that order — and their boxes
 are emitted in every state, each box with a minimum height; a box without data holds a state
@@ -567,7 +568,10 @@ carries `data-state` `empty`, `error`, `disabled` or `off`.
 **An extract failure.** An extract failing for any reason `extract` exits 1 on, other than an
 unset `HOME`, does not fail the report: the page is built from the digests already cached —
 none when the cache root is absent — its status panel and the document's `extract_error`
-give the failure's one-line reason, and the run exits 0.
+give the failure's one-line reason, and the run exits 0. For a failure the extractor reports
+itself, the reason is the one `extract` prints; for any other exception it is
+`unexpected <class>`, with the error's code in parentheses when it has one, never the
+exception's message.
 
 **The file.** `$HOME/.feature-pipeline/insights/reports/<YYYYMMDDTHHMMSSZ>-<slug>.html`, the
 time the run's own in UTC, `<slug>` either `all` or the project's base name reduced to
@@ -673,8 +677,11 @@ projects' `claudedocs/tickets/` — one fs-native, one server-native. It covers:
   viewport meta and narrow-width query, no script, asset or URL and no missing number;
   end-to-end reports over the fixtures for every project, one project by base name and a
   comparison, usage errors writing no report and an unset `HOME`; and in process an
-  extractor failure explained in the page, a second report in the same second, an error
-  other than the extractor's propagating, and a `reports` path that is a file;
+  extractor failure explained in the page, an unexpected exception explained by its class
+  and code without its message, a second report in the same second, and a `reports` path
+  that is a file; a session starting before the window left out with its stages, a stage
+  counted in its session's week, the stage and project tables agreeing per week, and the
+  session wall-clock beside the stage wall-clock;
 - after every run: the sentinel — carried by every free-text meta field and ticket field
   too — in no digest, report, stdout, stderr or ticket dataset; the store and the ticket
   trees unchanged; digest and report modes 0600 and directory modes 0700; nothing written

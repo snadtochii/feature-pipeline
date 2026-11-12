@@ -1051,11 +1051,35 @@ const CASES = [
         { close_results: [], outcome: outcome({ created: '2026-11-06' }), project: '/other', sessions: [], source: 'artifacts', ticket: 'FP-6', verdict: 'pass' },
       ],
     };
-    const agg = aggregate({ dataset, digests: [], now: NOV(12), projects: ['/p'], since: NOV(1, 0) });
+    const agg = aggregate({ dataset, digests: [synthDigest('/p', isoNov(10), [synthAgent('root', null)], 's')], now: NOV(12), projects: ['/p'], since: NOV(1, 0) });
     equal(agg.outcomes.verdicts, { pass: 1, partial: 1, stuck: 1, unknown: 0 },'verdicts: epics, undated and other projects left out');
     equal(agg.outcomes.findings, { accepted: 2, deferred: 0, dismissed: 0, known_for: 2, of: 3 }, 'findings with their coverage');
     equal(agg.outcomes.browser, { absent: 0, ran: { close: 1, ship: 0 }, skipped: { 'no-ui-work': 1 }, unknown: 1, unrecognized: 0 }, 'browser pass');
     equal([agg.counts.runs, agg.counts.artifacts_only, agg.counts.excluded_undated], [2, 2, 1], 'runs, artifact-only tickets and the undated one');
+  }],
+  ['report window: a session counts whole, its stages with it and in its week; session wall-clock beside stage time', () => {
+    const stage = (name, start, units, duration) => ({ agent_id: 'root', duration_ms: duration, stage: name, start, weighted_units: units });
+    const before = { ...synthDigest('/p', isoNov(1, 22), [synthAgent('root', null)], 'a'), duration_ms: 18_000_000 };
+    const sunday = { ...synthDigest('/p', isoNov(8, 22), [synthAgent('root', null)], 'b'), duration_ms: 7_200_000 };
+    const sessions = [
+      { session_id: 'a', stages: [stage('implement', isoNov(2, 1), 1000, 600_000)], start: isoNov(2, 1) },
+      { session_id: 'b', stages: [stage('review', isoNov(9, 1), 40, 3_600_000)], start: isoNov(9, 1) },
+    ];
+    const dataset = { ...EMPTY_DATASET, tickets: [{ close_results: [], outcome: null, project: '/p', sessions, source: 'sessions', ticket: 'FP-1', verdict: null }] };
+    const agg = aggregate({ dataset, digests: [before, sunday], now: NOV(12), projects: ['/p'], since: NOV(2, 0) });
+    equal([agg.totals.units, agg.totals.stage_units, agg.counts.runs], [150, 40, 1], 'a stage of a session started before the window is left out with it');
+    equal(agg.weeks.map((week) => week.week), ['2026-11-02', '2026-11-09'], 'weeks');
+    const byStage = Object.fromEntries(agg.stages.map((row) => [row.stage, [row.count, row.units, row.weeks.map((week) => week.units)]]));
+    equal([byStage.implement, byStage.review], [[0, 0, [0, 0]], [1, 40, [40, 0]]], "a stage counts in its session's week");
+    const [row] = agg.projects;
+    equal(
+      [row.sessions, row.units, row.stage_units, row.other_units, row.session_duration_ms, row.stage_duration_ms],
+      [1, 150, 40, 110, 7_200_000, 3_600_000],
+      'the project row: session wall-clock beside the stage wall-clock',
+    );
+    equal(row.weeks.map((week) => [week.stage_units, week.session_duration_ms]), [[40, 7_200_000], [0, 0]], 'the weekly project rows');
+    const total = (values) => values.reduce((acc, value) => acc + value, 0);
+    agg.weeks.forEach((_, index) => equal(total(agg.stages.map((item) => item.weeks[index].units)), total(agg.projects.map((item) => item.weeks[index].stage_units)), `week ${index} stage units agree across the tables`));
   }],
   ['report compare: equal windows nearest the boundary, the floor of 5, exclusions', () => {
     equal(MIN_COMPARE_RUNS, 5, 'the floor');
@@ -1103,6 +1127,7 @@ const CASES = [
       assert(!html.includes(SENTINEL), `the sentinel reached the ${name} page`);
       assert(!/NaN|undefined|Infinity/.test(html), `the ${name} page renders a missing number`);
     }
+    assert(pages.populated.includes('<div class="scroll"><svg class="chart"') && pages.populated.includes('.chart{display:block;width:100%;min-width:560px'), 'a chart keeps a minimum width and scrolls below it');
     assert(!pages.populated.includes(`<x>&"`) && pages.populated.includes('/w/&lt;x&gt;&amp;&quot;&#39;/proj'), 'the project path appears only escaped');
     assert(boxOf(pages.empty, 'stage-chart').includes('data-state="empty"') && boxOf(pages.error, 'stage-chart').includes('data-state="error"'), 'empty and error boxes carry their state');
     assert(boxOf(pages.disabled, 'compare-table').includes('data-state="disabled"') && boxOf(pages.empty, 'compare-table').includes('data-state="off"'), 'disabled and off comparisons carry their state');
@@ -1125,7 +1150,7 @@ const CASES = [
     equal(doc.summary.at(-1), `report: ${doc.report}`, 'the report path last');
     equal(doc.summary[0], 'scope: all projects (3), since 2000-01-01', 'scope line');
     const html = fs.readFileSync(doc.report, 'utf8');
-    assert(html.includes('data-box="stage-chart"><svg') && html.includes('<th scope="row">plan</th>'), 'the stage section holds the fixture stages');
+    assert(html.includes('data-box="stage-chart"><div class="scroll"><svg') && html.includes('<th scope="row">plan</th>'), 'the stage section holds the fixture stages');
     assert(!/NaN|undefined|Infinity/.test(html), 'the fixture page renders a missing number');
     const compared = await runEntry(['report', '--project', 'all', '--since', '2000-01-01', '--compare', '0.0.1', '--cwd', pipeline], env);
     equal([compared.status, compared.doc.compare], [0, 'insufficient'], 'a comparison with nothing before it');
@@ -1156,7 +1181,10 @@ const CASES = [
     equal(doc.summary[1], 'sessions: 0 in scope, 0 pipeline runs; extract: failed — store unreadable', 'the summary names the failure');
     assert(fs.readFileSync(doc.report, 'utf8').includes('<body data-state="error"'), 'the page carries the error state');
     equal(path.basename((await run({})).report), '20261112T000000Z-all-2.html', 'a second report in the same second');
-    await rejectsKind(() => run({ runExtractFn: () => { throw new TypeError('boom'); } }), TypeError, 'boom');
+    const unexpected = await run({ runExtractFn: () => { throw Object.assign(new TypeError(`boom ${SENTINEL}`), { code: 'ERR_BOOM' }); } });
+    equal([unexpected.extract_error, unexpected.state], ['unexpected TypeError (ERR_BOOM)', 'empty'], 'an unexpected extractor exception is explained by its class and code');
+    const unexpectedPage = fs.readFileSync(unexpected.report, 'utf8');
+    assert(unexpectedPage.includes('<body data-state="error"') && !unexpectedPage.includes('boom') && !unexpected.summary.join('\n').includes('boom'), 'the unexpected failure is explained without its message');
     const blocked = path.join(world.dir, 'home-blocked');
     fs.mkdirSync(path.join(blocked, '.feature-pipeline', 'insights'), { recursive: true });
     fs.writeFileSync(path.join(blocked, '.feature-pipeline', 'insights', 'reports'), '');

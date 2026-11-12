@@ -86,11 +86,19 @@ export function findingsOf(ticket, unrecognized) {
 
 export const isEpic = (ticket) => ticket.outcome?.kind === 'epic';
 
-/** The run tickets of `projects`: source `both` or `sessions`, with a session starting at or after `since` (any session when `since` is null). */
-export function runTickets(dataset, projects, since) {
+/** The `(project, session_id)` key of every digest starting at or after `since`, mapped to that start. */
+export function windowSessions(digests, since) {
+  return new Map(digests.filter((digest) => inWindow(digest.start, since)).map((digest) => [keyOf(digest.project, digest.session_id), digest.start]));
+}
+
+/** The run tickets of `projects`: source `both` or `sessions`, with a session among `sessions`' keys (any session when `sessions` is null). */
+export function runTickets(dataset, projects, sessions) {
   const inScope = new Set(projects);
   return dataset.tickets.filter(
-    (ticket) => (ticket.source === 'both' || ticket.source === 'sessions') && inScope.has(ticket.project) && ticket.sessions.some((session) => since === null || inWindow(session.start, since)),
+    (ticket) =>
+      (ticket.source === 'both' || ticket.source === 'sessions') &&
+      inScope.has(ticket.project) &&
+      ticket.sessions.some((session) => sessions === null || sessions.has(keyOf(ticket.project, session.session_id))),
   );
 }
 
@@ -199,7 +207,14 @@ function projectFigures(digests, stageBySession) {
   const units = sum(digests.map((digest) => unitsOf(digest.tokens)));
   const staged = digests.map((digest) => stageBySession.get(keyOf(digest.project, digest.session_id)) ?? { duration_ms: 0, units: 0 });
   const stageUnits = sum(staged.map((item) => item.units));
-  return { other_units: Math.max(0, units - stageUnits), sessions: digests.length, stage_duration_ms: sum(staged.map((item) => item.duration_ms)), stage_units: stageUnits, units };
+  return {
+    other_units: Math.max(0, units - stageUnits),
+    session_duration_ms: sum(digests.map((digest) => digest.duration_ms).filter(Number.isFinite)),
+    sessions: digests.length,
+    stage_duration_ms: sum(staged.map((item) => item.duration_ms)),
+    stage_units: stageUnits,
+    units,
+  };
 }
 
 function projectTable(digests, entries, weeks) {
@@ -272,16 +287,17 @@ export function aggregate({ digests, dataset, projects, since, now }) {
   const inScope = new Set(projects);
   const windowDigests = digests.filter((digest) => inWindow(digest.start, since));
   const scoped = windowDigests.filter((digest) => inScope.has(digest.project));
-  const runs = runTickets(dataset, projects, since);
+  const sessionStarts = windowSessions(scoped, since);
+  const runs = runTickets(dataset, projects, sessionStarts);
   const entries = runs.flatMap((ticket) =>
-    ticket.sessions.flatMap((session) =>
-      session.stages
-        .filter((stage) => STAGES.includes(stage.stage) && inWindow(stage.start, since))
-        .map((stage) => ({ ...stage, project: ticket.project, session_id: session.session_id, week: isoWeekStart(stage.start) })),
-    ),
+    ticket.sessions
+      .filter((session) => sessionStarts.has(keyOf(ticket.project, session.session_id)))
+      .flatMap((session) => {
+        const week = isoWeekStart(sessionStarts.get(keyOf(ticket.project, session.session_id)));
+        return session.stages.filter((stage) => STAGES.includes(stage.stage)).map((stage) => ({ ...stage, project: ticket.project, session_id: session.session_id, week }));
+      }),
   );
-  const starts = [...scoped.map((digest) => msOf(digest.start)), ...entries.map((entry) => msOf(entry.start))];
-  const weeks = windowWeeks(since, now, starts);
+  const weeks = windowWeeks(since, now, scoped.map((digest) => msOf(digest.start)));
   const artifacts = dataset.tickets.filter((ticket) => ticket.source === 'artifacts' && inScope.has(ticket.project));
   const datedArtifacts = artifacts.filter((ticket) => inWindow(artifactDate(ticket), since));
   const undated = digests.filter((digest) => inScope.has(digest.project) && !Number.isFinite(msOf(digest.start))).length + artifacts.filter((ticket) => !Number.isFinite(msOf(artifactDate(ticket)))).length;
