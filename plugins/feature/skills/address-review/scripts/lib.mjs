@@ -1,5 +1,5 @@
 // The address-review thread-state reader's rules: argument parsing, the `gh`
-// reads, the page parser, the marker and finding parsers, the thread-state
+// reads, the item parser, the marker and finding parsers, the thread-state
 // classifier (../../review/references/pr-comments.md §9) and the bounded
 // output document (../SKILL.md Step 2). The output contract and the `gh`
 // runner are the plugin's shared script modules.
@@ -78,61 +78,26 @@ export function parseArgv(argv) {
 const UNEXPECTED = 'unexpected gh output';
 
 /**
- * The items of the JSON arrays `text` holds one after another, as
- * `gh api --paginate` prints them. Empty output is no items; anything that is
- * not a run of arrays is a ComputeError. Pure.
+ * The items `gh api --paginate --jq '.[]'` prints, one compact JSON object per
+ * line. Empty output is no items; a line that is not a JSON object is a
+ * ComputeError. Pure.
  */
-export function parsePages(text) {
-  const items = [];
-  let depth = 0;
-  let start = -1;
-  let inString = false;
-  let escaped = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-    if (depth === 0) {
-      if (/\s/.test(char)) {
-        continue;
-      }
-      if (char !== '[') {
+export function parseItems(text) {
+  return text
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .map((line) => {
+      let item;
+      try {
+        item = JSON.parse(line);
+      } catch {
         throw new ComputeError(UNEXPECTED);
       }
-      start = index;
-    }
-    if (char === '"') {
-      inString = true;
-    } else if (char === '[' || char === '{') {
-      depth += 1;
-    } else if (char === ']' || char === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        let page;
-        try {
-          page = JSON.parse(text.slice(start, index + 1));
-        } catch {
-          throw new ComputeError(UNEXPECTED);
-        }
-        if (!Array.isArray(page)) {
-          throw new ComputeError(UNEXPECTED);
-        }
-        items.push(...page);
+      if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+        throw new ComputeError(UNEXPECTED);
       }
-    }
-  }
-  if (depth !== 0 || inString) {
-    throw new ComputeError(UNEXPECTED);
-  }
-  return items;
+      return item;
+    });
 }
 
 function readViewer(runner) {
@@ -151,7 +116,7 @@ function readViewer(runner) {
   return login;
 }
 
-const readList = (endpoint, runner) => parsePages(ghStdout(['api', `${endpoint}?per_page=100`, '--paginate'], { runner }));
+const readList = (endpoint, runner) => parseItems(ghStdout(['api', `${endpoint}?per_page=100`, '--paginate', '--jq', '.[]'], { runner }));
 
 /** The viewer and the PR's three comment surfaces, read through `gh api`. */
 export function readAll({ repo, pr, runner = spawnSync }) {

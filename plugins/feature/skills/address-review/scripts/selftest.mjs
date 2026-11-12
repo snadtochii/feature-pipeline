@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 import { ComputeError, UsageError, render } from '../../../scripts/lib/output.mjs';
 import { assert, equal, runNode, throwsKind, withTemp as withTempDir } from '../../../scripts/lib/selftest-kit.mjs';
-import { MAX_DOCUMENT_BYTES, MAX_TEXT_CHARS, addressMarker, findings, parseArgv, parsePages, readAll, shapeDocument, threadStates } from './lib.mjs';
+import { MAX_DOCUMENT_BYTES, MAX_TEXT_CHARS, addressMarker, findings, parseArgv, parseItems, readAll, shapeDocument, threadStates } from './lib.mjs';
 
 const ENTRY = fileURLToPath(new URL('./threads.mjs', import.meta.url));
 const VIEWER = 'owner';
@@ -151,7 +151,7 @@ function stubRunner(routes, calls = []) {
         return typeof answer === 'function' ? answer(args) : answer;
       }
     }
-    return { status: 0, stdout: '[]', stderr: '' };
+    return { status: 0, stdout: '', stderr: '' };
   };
 }
 
@@ -161,14 +161,14 @@ const ENDPOINTS = ['user', 'repos/o/r/pulls/5/comments', 'repos/o/r/pulls/5/revi
 
 const withTemp = (label, fn) => withTempDir(`fp-threads-${label}`, fn);
 
-/** The stand-in `gh`: answers `api <endpoint>` from fixture files in $FAKE_GH_DIR. */
+/** The stand-in `gh`: answers `api <endpoint>` from fixture files in $FAKE_GH_DIR, one item per line. */
 const FAKE_GH = `#!/bin/sh
 d="$FAKE_GH_DIR"
 if [ "$1" != "api" ]; then echo "unexpected: $*" >&2; exit 3; fi
 case "$2" in
   user) cat "$d/user.json"; exit 0 ;;
 esac
-if [ "$3" != "--paginate" ]; then echo "not paginated: $*" >&2; exit 4; fi
+if [ "$3" != "--paginate" ] || [ "$4" != "--jq" ] || [ "$5" != ".[]" ]; then echo "not paginated per item: $*" >&2; exit 4; fi
 case "$2" in
   */pulls/*/comments\\?*) cat "$d/inline-1.json" "$d/inline-2.json" ;;
   */pulls/*/reviews\\?*) cat "$d/reviews.json" ;;
@@ -186,10 +186,11 @@ function fakeGh(dir, w) {
   fs.chmodSync(path.join(bin, 'gh'), 0o755);
   const half = Math.ceil(w.inline.length / 2);
   fs.writeFileSync(path.join(data, 'user.json'), JSON.stringify({ login: VIEWER }));
-  fs.writeFileSync(path.join(data, 'inline-1.json'), JSON.stringify(w.inline.slice(0, half)));
-  fs.writeFileSync(path.join(data, 'inline-2.json'), `${JSON.stringify(w.inline.slice(half))}\n`);
-  fs.writeFileSync(path.join(data, 'reviews.json'), JSON.stringify(w.reviews));
-  fs.writeFileSync(path.join(data, 'issue.json'), JSON.stringify(w.issue));
+  const lines = (items) => items.map((item) => `${JSON.stringify(item)}\n`).join('');
+  fs.writeFileSync(path.join(data, 'inline-1.json'), lines(w.inline.slice(0, half)));
+  fs.writeFileSync(path.join(data, 'inline-2.json'), lines(w.inline.slice(half)));
+  fs.writeFileSync(path.join(data, 'reviews.json'), lines(w.reviews));
+  fs.writeFileSync(path.join(data, 'issue.json'), lines(w.issue));
   return { bin, data };
 }
 
@@ -343,12 +344,12 @@ const CASES = [
     equal(keysOf(w), [`comment:${summary.id}#F1`, `comment:${summary.id}#F2`, `comment:${human.id}`], 'quoted markers keep their threads');
     equal(addressMarker('see `<!-- fp-address re=comment:1 -->` here'), null, 'mid-line');
   }],
-  ['pages: concatenated pages parse, strings may hold brackets, garbage is rejected', () => {
-    equal(parsePages('[{"a":"]["}]\n[{"b":"\\"]"}]'), [{ a: '][' }, { b: '"]' }], 'two pages');
-    equal(parsePages(''), [], 'empty');
-    equal(parsePages('[]\n'), [], 'one empty page');
-    for (const bad of ['{"a":1}', '[1] x', '[1', '[1]]', '"text"']) {
-      throwsKind(() => parsePages(bad), ComputeError, 'unexpected gh output');
+  ['items: one object per line parses, a newline inside a string stays escaped, anything else is rejected', () => {
+    equal(parseItems('{"a":"x\\ny"}\n{"b":2}\n'), [{ a: 'x\ny' }, { b: 2 }], 'two items');
+    equal(parseItems(''), [], 'empty');
+    equal(parseItems('\n'), [], 'blank line');
+    for (const bad of ['[{"a":1}]', '{"a":1} x', '{"a":', '1', '"text"', 'null']) {
+      throwsKind(() => parseItems(bad), ComputeError, 'unexpected gh output');
     }
   }],
   ['bound: long text is cut by characters', () => {
@@ -414,16 +415,16 @@ const CASES = [
       throwsKind(() => parseArgv(argv), UsageError);
     }
   }],
-  ['reads: four argv-array gh calls, paginated lists, two pages joined', () => {
+  ['reads: four argv-array gh calls, paginated lists read one item per line', () => {
     const calls = [];
-    const runner = stubRunner({ user: USER, 'repos/o/r/pulls/5/comments': ok('[{"id":1}]\n[{"id":2}]') }, calls);
+    const runner = stubRunner({ user: USER, 'repos/o/r/pulls/5/comments': ok('{"id":1}\n{"id":2}\n') }, calls);
     const read = readAll({ repo: 'o/r', pr: 5, runner });
     equal([read.viewer, read.inline.length, read.reviews, read.issue], [VIEWER, 2, [], []], 'read');
     equal(calls.map((call) => call.slice(1).join(' ')), [
       'api user',
-      'api repos/o/r/pulls/5/comments?per_page=100 --paginate',
-      'api repos/o/r/pulls/5/reviews?per_page=100 --paginate',
-      'api repos/o/r/issues/5/comments?per_page=100 --paginate',
+      'api repos/o/r/pulls/5/comments?per_page=100 --paginate --jq .[]',
+      'api repos/o/r/pulls/5/reviews?per_page=100 --paginate --jq .[]',
+      'api repos/o/r/issues/5/comments?per_page=100 --paginate --jq .[]',
     ], 'argv');
   }],
   ['reads: each failing read is a ComputeError', () => {
