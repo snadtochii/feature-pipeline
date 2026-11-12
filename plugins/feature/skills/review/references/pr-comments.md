@@ -159,7 +159,7 @@ Mirror `../build/references/pr-creation.md`'s discipline for every `gh`/`git` ca
 
 ## §8 The `auto-reviewed` label
 
-A coarse, model-neutral **reviewed signal**: label **present** = an automated review ran and no address pass has pushed since, or an address pass holds a thread for the owner (§9); label **absent** = never reviewed, or an address pass pushed and no review has run since. It says nothing about which model reviewed or whether findings are open, and a push from outside `address-review` leaves it on until the next review. The §2/§9 hidden markers — never the label — are the precise idempotency keys (`fp-review` on reviewer plus head, `fp-address` per head); the label never gates a skill's skip decision.
+A coarse, model-neutral **reviewed signal**: label **present** = an automated review ran and no address pass has pushed since, or an address pass holds a thread for the owner (§9); label **absent** = never reviewed, or an address pass pushed and no review has run since. It says nothing about which model reviewed or whether findings are open, and a push from outside `address-review` leaves it on until the next review. The §2/§9 hidden markers — never the label — are the precise keys (`fp-review` on reviewer plus head, `fp-address` through the §9 thread state); the label never gates a skill's skip decision.
 
 Two kinds of writer, one direction each:
 
@@ -170,7 +170,7 @@ Two kinds of writer, one direction each:
   # Add is idempotent — a no-op if already present:
   gh pr edit "<N>" --add-label auto-reviewed
   ```
-- **`address-review` removes it** when its pass pushed a commit and no thread is held (§9) (best-effort — an already-absent label is fine):
+- **`address-review` removes it** when its pass pushed a commit and no thread is held (§9) — a fix-failed thread is not held and does not keep it on (best-effort — an already-absent label is fine):
   ```bash
   gh pr edit "<N>" --remove-label auto-reviewed 2>/dev/null || true
   ```
@@ -186,30 +186,39 @@ Its work set is **not limited to automated findings**: a **human comment** — a
 - **Footer (reuse §1, do not redefine):** every reply ends with `_— 🛠️ addressed by <Model> on behalf of <LOGIN>_` on its own last line — the address role's §1 footer. Footer **presence** still distinguishes an agent reply from the author's own manual note.
 - **Reply marker:**
   ```
-  <!-- fp-address agent=<codex|claude> head=<SHA> re=<review|comment>:<id>[#F<k>] [hold=1] [answers=comment:<id>] -->
+  <!-- fp-address agent=<codex|claude> head=<SHA> [re=<review|comment>:<id>[#F<k>]] [hold=1] [failed=1] [answers=comment:<id>] -->
   ```
-  - `head=<SHA>` is **load-bearing** — the full current head SHA of the PR at address time (`gh pr view <N> --json headRefOid --jq '.headRefOid'`). It keys reply idempotency: a finding is "already addressed" only when its thread already carries an `fp-address` reply for the **current** head SHA. When new commits land (head moves), a prior reply no longer matches and the finding is addressed again.
+  - `head=<SHA>` is **informational** — the full PR head SHA at the moment the reply was posted: the post-push head when that pass pushed fixes, the unchanged head otherwise. It records which code the reply describes and gates nothing.
   - `re=<review|comment>:<id>[#F<k>]` is the **source key** — **load-bearing on every top-level reply**, where GitHub gives no threading to pair a reply with what it answers. It names the source by shape and REST id: an automated summary finding → `re=review:<id>#F<k>` (Reviews-API summary) or `re=comment:<id>#F<k>` (fallback issue-comment summary), with the finding's `[F<k>]` ordinal; a human review summary → `re=review:<id>`; a human issue comment → `re=comment:<id>`. **Omitted on threaded inline replies** — the inline thread (`in_reply_to_id`) is the pairing there. The ids are controlled integers from the fetch (§7).
-  - `agent=<codex|claude>` is **informational** — the runtime that posted: `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`. It never gates idempotency — only `head` and `re` do.
-
-  - `hold=1` marks a **hold reply**: `address-review --hold-decisions` left this finding for the owner, and the reply states why, the options and how to answer. It is neither a fix claim nor a dismissal, and it never counts as addressed. Unlike `head=`, it does not expire when the head moves. With `--hold-decisions`, a thread whose newest paired reply carries it stays out of the work set; a fix or answer reply, a newer human comment on an inline thread, or a top-level answer ends the hold. Without the flag the thread is triaged like any other.
+  - `agent=<codex|claude>` is **informational** — the runtime that posted: `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`. It never gates a thread's state.
+  - `hold=1` marks a **hold reply**: `address-review --hold-decisions` left this finding for the owner, and the reply states why, the options and how to answer. It is neither a fix claim nor a dismissal. With `--hold-decisions`, a held thread stays out of the work set whatever the head; a fix or answer reply, a newer human comment on an inline thread, or a top-level answer ends the hold. Without the flag the thread is triaged like any other.
+  - `failed=1` marks a **fix-failed reply**: the finding was accepted, but its fix did not land. Never together with `hold=1`. The thread stays in the work set on every later pass until a reply without the key settles it.
   - `answers=comment:<id>` records a **top-level answer**. On a held thread whose replies are top-level (a summary finding, human review summary or human issue comment), a human issue comment newer than the hold reply that plainly names the finding answers it: the held thread is triaged with that comment as the owner's answer. The reply carries the held thread's `re=` key plus this key, and a comment named by an `answers=` key is never triaged as its own thread, then or on any later pass.
 
-ACCEPTed findings (reply notes the fix), DISMISSed findings (reply explains why it doesn't apply) and held findings (hold reply) all get a signed reply in this exact shape.
+ACCEPTed findings (reply notes the fix), accepted findings whose fix did not land (fix-failed reply), DISMISSed findings (reply explains why it doesn't apply) and held findings (hold reply) all get a signed reply in this exact shape.
 
-### Reply idempotency scan
+### Thread states
 
-Before replying, read the PR's existing reply surfaces and skip any finding whose thread already carries an `fp-address` marker at the current head SHA. Review comments (inline + their replies) come from the Pulls API; summary replies are issue comments:
+A **thread** is an inline review comment with no `in_reply_to_id` together with its replies, one `[F<k>]` finding of an automated summary, a human review summary, or a human issue comment. Its key follows the `re=` grammar: `inline:<id>` for an inline thread, and the `re=` value itself for the rest.
 
-```bash
-HEAD_SHA=$(gh pr view "<N>" --json headRefOid --jq '.headRefOid')
-# Inline review comments + their replies (each carries id + in_reply_to_id):
-gh api "repos/$OWNER/$REPO/pulls/<N>/comments" --paginate
-# Issue-level comments (summary replies land here):
-gh pr view "<N>" --json comments --jq '.comments[].body'
-```
+**Paired replies.** Only an `fp-address` reply posted by the viewer's `gh` login counts. On an inline thread the paired replies are the thread's own replies (`in_reply_to_id`); on a top-level thread they are the issue comments whose `re=` equals the thread's key. Pairing is structural, never quote-matching. A comment carrying an `fp-address` marker from any other account is ignored entirely: it pairs with nothing, re-opens nothing, and is not a thread.
 
-A thread is **already addressed** iff a reply **paired to it** carries `fp-address … head=<HEAD_SHA>` without `hold=1`. Pairing is structural, never quote-matching: for an **inline** thread the pairing is the thread itself (`in_reply_to_id`); for a **top-level** reply it is the marker's `re=` key matched against the thread's source id (+ `#F<k>` ordinal for summary findings). Additionally, a human comment in an **inline** thread newer than the paired reply **re-opens the thread even at an unchanged head** — the author is continuing the conversation, and the marker alone must not silence them. (On the flat issue-comment surface there is no in-thread follow-up: a newer human comment is a new comment with its own id, so it enters the work set as its own thread, unless it is a top-level answer.) `<N>` is a controlled integer; `HEAD_SHA`/`OWNER`/`REPO` load via command substitution — never interpolate free text (§7).
+**State.** The newest paired reply — by creation time, ties broken by the higher id — decides:
+
+| State | Newest paired reply | Next pass |
+|---|---|---|
+| open | none, or — on an inline thread — one a newer human comment follows (below) | triage and reply |
+| settled | a plain `fp-address` reply | skip, no reply |
+| held | carries `hold=1` | out of the work set under `--hold-decisions`; triaged like any other without it |
+| fix-failed | carries `failed=1` | retry the fix |
+
+**Re-open.** On an inline thread, a reply newer than the newest paired reply, from a non-bot author and carrying no fp footer or marker, makes the thread open whatever its state: the author is continuing the conversation. A bot reply or another `fp-address` reply does not. On the flat issue-comment surface a newer human comment is a new comment with its own id, so it is its own thread, unless it is a top-level answer.
+
+**Settled is final.** `head=` gates nothing, so a later push re-opens no thread. The reviewer raises an automated finding again on its next round, and a human re-opens a thread by commenting on it.
+
+**Not threads:** a bot's comment, an `fp-address` reply, an automated comment with no `[F<k>]` finding and no inline comment of its own (the §6 empty review, the limit note), and an issue comment named by a viewer `answers=` key.
+
+`address-review` computes these states with `skills/address-review/scripts/threads.mjs`. It reads the three surfaces through the REST endpoints (`pulls/<N>/comments`, `pulls/<N>/reviews`, `issues/<N>/comments`), so every id, issue comments included, is the REST number a `re=` key names. A failed read stops the pass; it never reads as open.
 
 ### Posting the reply (anchor on the original comment id)
 

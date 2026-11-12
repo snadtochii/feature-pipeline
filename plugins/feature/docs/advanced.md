@@ -337,6 +337,7 @@ Fresh means the server row's `updated_at` is at most `max_age_days` old; an olde
 
 - `Bash(git *)` and `Bash(gh *)` — branches, commits, pushes, PRs and the integration merges.
 - The project's validation commands — the lint, typecheck and test commands its `CLAUDE.md` or `AGENTS.md` documents, such as `Bash(pnpm *)` or `Bash(npm *)` — and its `test.start` and `worktree.setup` commands.
+- `Bash(node '<plugin-root>/skills/address-review/scripts/threads.mjs' *)` — `ship`'s address hop reads the PR's thread states with it, quoted exactly as `address-review` writes it. After every plugin update, `<plugin-root>` changes with the version: update the path in that rule, or every address hop stops at `couldn't address review`.
 - `Edit` and `Write`, or `"defaultMode": "acceptEdits"` — a child runs under your default permission mode.
 - `permissions.additionalDirectories` holding the absolute `<repo-dirname>-worktrees` directory beside the checkout: `--worktree` builds there, outside the project root. The dispatcher adds `<home>/.feature-pipeline` itself with `--add-dir`.
 - The connector's tools: `mcp__plugin_server-native_ps`.
@@ -414,7 +415,7 @@ A model whose limit note is missing stays owed, so its next run posts the note. 
 
 Removing `review-round-limit` is how the owner resumes reviews on a PR past the limit: each model's rounds then count only from the removal, so each gets a new budget, and its first review covers the changes since its last reviewed head. A model that uses the new budget adds the label again and posts a new limit note. A scheduler that counts a limit note from before the removal stops both models as soon as one of them reaches the limit again.
 
-A scheduler never passes `--full`. To act on the findings, run `/feature:address-review <PR_URL> --auto --hold-decisions` from a checkout of the PR's repository: it fixes and replies with no gate, and holds only a finding that needs the owner's decision.
+A scheduler never passes `--full`. To act on the findings, run `/feature:address-review <PR_URL> --auto --hold-decisions` from a checkout of the PR's repository: it fixes and replies with no gate, and holds only a finding that needs the owner's decision. A scheduled or `claude -p` run cannot answer a permission prompt, so allow `Bash(node '<plugin-root>/skills/address-review/scripts/threads.mjs' *)` in the settings of the project it runs in, quoted exactly as the skill writes it, with `<plugin-root>` the installed `feature` plugin's absolute directory, as under [Night dispatch](#night-dispatch). After every plugin update, `<plugin-root>` changes with the version: update the path in that rule, or the run stops at `couldn't address review`.
 
 ## Configuration reference
 
