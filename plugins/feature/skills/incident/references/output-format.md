@@ -7,8 +7,8 @@ The shape of the one report an incident run produces: its file name, the signatu
 `<project-root>/claudedocs/incidents/<stamp>-<rule-slug>.md`
 
 - `<stamp>` is the `stamp` the script's `preflight` reported — the run's UTC time as `yyyyMMdd-HHmmss` ([log-query.md](log-query.md) §5). It is never composed by hand.
-- `<rule-slug>` is the rule's name lowercased, every run of characters outside `[a-z0-9]` replaced by one `-`, leading and trailing `-` removed, cut to 40 characters. A name that leaves nothing gives `alert`.
-- A run writes one report. A file of that name already present is left as it is: the new report takes the suffix `-2`, then `-3`, before `.md`.
+- `<rule-slug>` is the rule's identity — its UID when the runbook section labels one, else its name (`incident/SKILL.md` step 4) — lowercased, every run of characters outside `[a-z0-9]` replaced by one `-`, leading and trailing `-` removed, cut to 40 characters. A value that leaves nothing gives `alert`.
+- A run writes one report. A file of that name already present is left as it is: the new report takes the suffix `-2`, then `-3`, before `.md`. The names already present are the ones step 9's search over the reports lists.
 
 ## §2 Signature
 
@@ -19,9 +19,18 @@ Signature: <service> | <rule> | <normalized message> | <top code location>
 ```
 
 - **`<service>`** — the service's key under `incident.services`.
-- **`<rule>`** — the rule's name as the runbook writes it.
-- **`<normalized message>`** — the failing line's message text, with every variable part replaced so that two occurrences of one failure read the same. Apply in this order: a quoted value (`"…"` or `'…'`) becomes `*`; a UUID becomes `*`; a hexadecimal string of 8 or more characters becomes `*`; a number becomes `*`. Then collapse whitespace, replace each `|` with `/` so the four fields stay separable, and cut to 120 characters. With no failing line, the field is `no failing line`.
+- **`<rule>`** — the rule's identity: its UID when the runbook section labels one (`incident/SKILL.md` step 4), else its name as the runbook writes it.
+- **`<normalized message>`** — the describing line's message text (below), and its error text when it carries one, as `<message>: <error text>`, with every variable part replaced so that two occurrences of one failure read the same. Normalize each part on its own, in this order: a quoted value (`"…"` or `'…'`) becomes `*`; a UUID becomes `*`; a hexadecimal string of 8 or more characters becomes `*`; a number becomes `*`. Then collapse whitespace, replace each `|` with `/` so the four fields stay separable, and cut the message to 120 characters and the error text to 120. An error text that is empty after this adds nothing, so the field never ends in `: `. With no failing line, the field is `no failing line`.
 - **`<top code location>`** — the file where the failure arises, as a path relative to the service's repository, with the function's name when one is identifiable: `<path>:<function>`. No line number, since lines move between revisions. With no code location, the field is `unknown`.
+
+**The describing line.** The rule often matches a request log whose message is fixed text, the same for every request, so a signature built from it would give every failure on any route one message. The describing line is, among the correlated lines of the earliest failing request (`incident/SKILL.md` step 5, pass 2), other than the lines the rule matched, the earliest that carries an error: its labels give `detected_level`, `level`, `severity` or `severity_text` as `error`, `fatal` or `critical`, in any case, or carry a non-empty `error`, `err`, `exception` or `exception_message`. With no such line, it is the earliest line the rule matched. Its **error text** is the first non-empty value among its `error`, `err`, `exception` and `exception_message` labels, in that order; a line with none of them carries no error text.
+
+Two failures that share a message and differ in their error text have different signatures:
+
+```
+Signature: orders | orders-5xx | refund cancel failed: decode response: invalid character * | src/refunds/cancel.go:Cancel
+Signature: orders | orders-5xx | refund cancel failed: context deadline exceeded | src/refunds/cancel.go:Cancel
+```
 
 **Match rule.** Two signatures name the same failure when their service, rule and normalized message are equal. The code location strengthens a match; a different or `unknown` location does not break one.
 
@@ -53,7 +62,7 @@ Signature: <service> | <rule> | <normalized message> | <top code location>
 
 ### Logs
 
-<The lines the diagnosis rests on, each with its timestamp; the request IDs followed; what the history query showed. A partial result is named as partial.>
+<The describing line with its timestamp and its error text — or, when no correlated line carries an error, the sentence "The signature is built from the rule-matched line: no correlated line carries an error."; the other lines the diagnosis rests on, each with its timestamp; the request IDs followed, and the failing requests whose own error line differs from the describing line; what the history query showed, which counts the message whatever its error text. A partial result is named as partial.>
 
 ### Code
 

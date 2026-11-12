@@ -1,4 +1,6 @@
-// The incident log reader's self-test (../references/log-query.md §7).
+// The incident log reader's self-test (../references/log-query.md §8): the
+// rules, `preflight` and `query` cases here, the `search` cases in
+// selftest-search.mjs, the fixtures both share in selftest-fixtures.mjs.
 //
 // Every case is `[name, fn]`. Pure rules are exercised in-process over inline
 // fixtures; the verbs are exercised end to end as child processes with a
@@ -12,14 +14,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { parseCredentialFile, readCredentialFile } from '../../../scripts/lib/credential-file.mjs';
 import { parseMiniYaml } from '../../../scripts/lib/mini-yaml.mjs';
 import { ComputeError, UsageError, exitCodeFor, largestFit } from '../../../scripts/lib/output.mjs';
-import { CaseFailure, assert, commitAll, equal, initRepo, runNode, throwsKind, withStub, withTemp as withTempDir } from '../../../scripts/lib/selftest-kit.mjs';
+import { assert, commitAll, equal, initRepo, throwsKind, withStub } from '../../../scripts/lib/selftest-kit.mjs';
 import {
   READ_NAMES,
+  commonLabels,
   keepLines,
   parseArgv,
   reportGate,
@@ -28,78 +30,23 @@ import {
   takeQuery,
   validateConfig,
 } from './lib.mjs';
-
-const ENTRY = fileURLToPath(new URL('./incident.mjs', import.meta.url));
-const TOKEN = 'glsa_selftest_7f3c9e10';
-const ORIGIN = 'https://grafana.example.invalid';
-const DATASOURCE = 'loki-uid';
-const CREDENTIALS = '~/.config/feature-incident/grafana.credentials';
-
-const withTemp = (label, fn) => withTempDir(`fp-incident-${label}`, fn);
-
-function configText({ url = ORIGIN, datasource = DATASOURCE, tokenFile = CREDENTIALS } = {}) {
-  const lines = ['prefix: FP', 'incident:'];
-  if (url !== null) {
-    lines.push(`  grafana_url: ${url}`);
-  }
-  if (datasource !== null) {
-    lines.push(`  datasource: ${datasource}`);
-  }
-  if (tokenFile !== null) {
-    lines.push(`  token_file: ${tokenFile}`);
-  }
-  lines.push('  services:', '    api:', '      repo: api', "      selector: '{app=\"api\"}'", '      runbook: docs/alerts.md', '');
-  return lines.join('\n');
-}
+import {
+  CREDENTIALS,
+  DATASOURCE,
+  ORIGIN,
+  OTHER_RUN,
+  RUN,
+  TOKEN,
+  childEnv,
+  configText,
+  runEntry,
+  withTemp,
+  world,
+  writeCredentials,
+} from './selftest-fixtures.mjs';
+import { SEARCH_CASES } from './selftest-search.mjs';
 
 const configOf = (options, home = '/home/selftest') => validateConfig(parseMiniYaml(configText(options)), home);
-
-function writeConfig(root, text) {
-  const dir = path.join(root, 'claudedocs', 'tickets');
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'config.yaml'), text);
-}
-
-function writeCredentials(file, text = `INCIDENT_GRAFANA_URL=${ORIGIN}\nINCIDENT_GRAFANA_TOKEN=${TOKEN}\n`, mode = 0o600) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, text);
-  fs.chmodSync(file, mode);
-  return file;
-}
-
-function gitBinDir() {
-  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
-    if (dir !== '' && fs.existsSync(path.join(dir, 'git'))) {
-      return dir;
-    }
-  }
-  return null;
-}
-
-function childEnv(home, extra = {}) {
-  const dirs = [gitBinDir(), '/usr/bin', '/bin'].filter(Boolean);
-  return { PATH: dirs.join(path.delimiter), HOME: home, ...extra };
-}
-
-/** A workspace with a config, and a home holding the credential file. */
-function world(dir, { url = ORIGIN, credentialUrl = url } = {}) {
-  const root = path.join(dir, 'workspace');
-  const home = path.join(dir, 'home');
-  fs.mkdirSync(root);
-  fs.mkdirSync(home);
-  writeConfig(root, configText({ url }));
-  writeCredentials(path.join(home, CREDENTIALS.slice(2)), `INCIDENT_GRAFANA_URL=${credentialUrl}\nINCIDENT_GRAFANA_TOKEN=${TOKEN}\n`);
-  return { root, home, env: childEnv(home) };
-}
-
-/** Run the entry as a child; the fixture token must reach neither stream. */
-async function runEntry(args, env) {
-  const run = await runNode(ENTRY, args, env);
-  if (run.stdout.includes(TOKEN) || run.stderr.includes(TOKEN)) {
-    throw new CaseFailure(`the token reached the output of: ${args.join(' ')}`);
-  }
-  return run;
-}
 
 const CASES = [
   ['args: the verbs and the self-test flag parse', () => {
@@ -249,12 +196,15 @@ const CASES = [
       equal(doc.stamp, doc.now.replace(/[-:Z]/g, '').replace('T', '-'), 'stamp follows now');
       assert(doc.run.startsWith(`${doc.stamp}-`) && /^\d{8}-\d{6}-[0-9a-f]{8}$/.test(doc.run), `run is not <stamp>-<8 hex>: ${doc.run}`);
       equal(doc.report.writable, true, 'the workspace is not a git work tree');
-      equal(doc.repo.dir, api, 'repo dir');
+      equal([doc.repo.dir, doc.repo.exists], [api, true], 'repo dir');
       assert(/^[0-9a-f]{40,64}$/.test(doc.repo.head), `head is not a commit: ${doc.repo.head}`);
       equal(res.stdout, `${JSON.stringify(doc, Object.keys(flatKeys(doc)).sort(), 2)}\n`, 'sorted-key document');
 
-      const plain = await runEntry(['preflight', '--project-root', root, '--repo', 'missing'], env);
-      equal([plain.status, plain.doc.repo.head], [0, null], 'a directory with no repository has a null head');
+      const missing = await runEntry(['preflight', '--project-root', root, '--repo', 'missing'], env);
+      equal([missing.status, missing.doc.repo.exists, missing.doc.repo.head], [0, false, null], 'a missing directory');
+      fs.mkdirSync(path.join(root, 'plain'));
+      const plain = await runEntry(['preflight', '--project-root', root, '--repo', 'plain'], env);
+      equal([plain.status, plain.doc.repo.exists, plain.doc.repo.head], [0, true, null], 'a directory with no repository has a null head');
       const bare = await runEntry(['preflight', '--project-root', root], env);
       assert(!Object.hasOwn(bare.doc, 'repo'), 'repo must be absent without --repo');
       assert(bare.doc.run !== doc.run, 'two preflight runs must not share a run value');
@@ -515,13 +465,67 @@ const CASES = [
         equal(calls, 0, 'requests reaching the server');
       });
     })],
+  ['args: query takes a pattern-checked request ID and the attribute it is under', () => {
+    const both = parseArgv([...windowArgs('/w'), '--request-id', 'abc.12:3-def', '--id-field', 'request_id']);
+    equal([both.requestId, both.idField], ['abc.12:3-def', 'request_id'], 'both flags');
+    equal(parseArgv([...windowArgs('/w'), '--request-id', 'abc123def']).idField, undefined, 'the attribute is optional');
+    const bad = [
+      ['--request-id', 'abc12'],
+      ['--request-id', 'x'.repeat(129)],
+      ['--request-id', 'abc"123def'],
+      ['--request-id', 'abc 123 def'],
+      ['--request-id', 'abc123def', '--id-field', 'a-b'],
+      ['--request-id', 'abc123def', '--id-field', '1x'],
+      ['--request-id', 'abc123def', '--id-field', 'a"b'],
+      ['--id-field', 'request_id'],
+    ];
+    for (const extra of bad) {
+      const err = throwsKind(() => parseArgv([...windowArgs('/w'), ...extra]), UsageError);
+      equal(exitCodeFor(err), 2, `exit code for ${JSON.stringify(extra)}`);
+      const refused = extra.filter((value, at) => at % 2 === 1 && value !== 'abc123def');
+      assert(!refused.some((value) => err.message.includes(value)), `the error echoed a value: ${err.message}`);
+    }
+  }],
+  ['query: the script appends the request filter to a bare stream selector', async () => {
+    const sentQuery = (res) => new URL(res.requests[0].url, res.origin).searchParams.get('query');
+    const byField = await queryAgainst(reply(200, streamsBody()), { text: '{app="api"}\n', extra: ['--request-id', 'abc123def', '--id-field', 'request_id'] });
+    equal([byField.status, sentQuery(byField)], [0, '{app="api"} | request_id="abc123def"'], 'an attribute match');
+    const byText = await queryAgainst(reply(200, streamsBody()), { text: '{app="api"}', extra: ['--request-id', 'abc.12:3-def'] });
+    equal([byText.status, sentQuery(byText)], [0, '{app="api"} |= "abc.12:3-def"'], 'a line filter');
+    const quoted = await queryAgainst(reply(200, streamsBody()), { text: '{app=~"a}b|c"}', extra: ['--request-id', 'abc123def'] });
+    equal([quoted.status, sentQuery(quoted)], [0, '{app=~"a}b|c"} |= "abc123def"'], 'a brace inside a quoted value');
+    const filtered = await queryAgainst(reply(200, streamsBody()), { extra: ['--request-id', 'abc123def'] });
+    equal([filtered.status, filtered.requests.length, filtered.queryFileLeft], [1, 0, false], 'a filtered query with --request-id');
+    assert(filtered.doc.error.includes('only the stream selector'), `unexpected error: ${filtered.doc.error}`);
+  }],
+  ['query: a metric query is refused before any request', async () => {
+    for (const text of ['sum(count_over_time({app="api"} | status >= 500 [10m]))', 'app="api"']) {
+      const res = await queryAgainst(reply(200, streamsBody()), { text });
+      equal([res.status, res.doc.ok, res.requests.length, res.queryFileLeft], [1, false, 0, false], `exit for ${text}`);
+      assert(res.doc.error.includes('metric query') && res.doc.error.includes('stream selector'), `unexpected error: ${res.doc.error}`);
+    }
+  }],
+  ['query: the labels every kept stream shares move into common', async () => {
+    const at = (second) => nanos(`2026-11-11T04:03:0${second}.000Z`);
+    const first = { stream: { service_name: 'api', request_id: 'r1', level: 'info' }, values: [[at(1), 'request']] };
+    const second = { stream: { service_name: 'api', request_id: 'r2' }, values: [[at(2), 'waybill delete failed']] };
+    const res = await queryAgainst(reply(200, streamsBody(first, second)));
+    equal(res.status, 0, 'exit status');
+    equal([res.doc.common, res.doc.streams], [{ service_name: 'api' }, [{ level: 'info', request_id: 'r1' }, { request_id: 'r2' }]], 'common and per-stream labels');
+    const single = await queryAgainst(reply(200, streamsBody(first)));
+    equal([single.doc.common, single.doc.streams], [{}, [{ level: 'info', request_id: 'r1', service_name: 'api' }]], 'one stream keeps its labels');
+    equal(commonLabels({ lines: [], streams: [] }), { lines: [], streams: [], common: {} }, 'no streams');
+    equal(
+      commonLabels({ lines: [], streams: [{ a: '1', b: '2' }, { a: '1' }, { a: '1', b: '2' }] }).common,
+      { a: '1' },
+      'a label some streams lack is not common',
+    );
+  }],
 ];
 
 const START = '2026-11-11T03:53:00Z';
 const END = '2026-11-11T04:08:00Z';
 const QUERY = '{app="api"} |= "error"';
-const RUN = '20261111-040300-0123abcd';
-const OTHER_RUN = '20261111-040300-89abcdef';
 
 const windowArgs = (root) => ['query', '--project-root', root, '--run', RUN, '--start', START, '--end', END];
 const nanos = (iso) => String(BigInt(Date.parse(iso)) * 1_000_000n);
@@ -541,7 +545,7 @@ function writeQuery(root, text = QUERY, run = RUN) {
 }
 
 /** One `query` child run against a stand-in that answers every request with `respond`. */
-function queryAgainst(respond, { limit, direction } = {}) {
+function queryAgainst(respond, { limit, direction, text = QUERY, extra = [] } = {}) {
   return withTemp('query', (dir) => {
     const requests = [];
     const record = (req, out) => {
@@ -550,11 +554,12 @@ function queryAgainst(respond, { limit, direction } = {}) {
     };
     return withStub(record, async (url) => {
       const { root, env } = world(dir, { url });
-      const file = writeQuery(root);
+      const file = writeQuery(root, text);
       const args = [
         ...windowArgs(root),
         ...(limit === undefined ? [] : ['--limit', String(limit)]),
         ...(direction === undefined ? [] : ['--direction', direction]),
+        ...extra,
       ];
       const res = await runEntry(args, env);
       return { ...res, requests, origin: url, queryFileLeft: fs.existsSync(file) };
@@ -577,7 +582,8 @@ function flatKeys(doc, out = {}) {
 
 /** Run every case; return the document, or throw a ComputeError naming the first failure. */
 export async function runSelfTest() {
-  for (const [name, fn] of CASES) {
+  const cases = [...CASES, ...SEARCH_CASES];
+  for (const [name, fn] of cases) {
     try {
       await fn();
     } catch (err) {
@@ -585,5 +591,5 @@ export async function runSelfTest() {
       throw new ComputeError(`self-test: ${name} — ${detail}`);
     }
   }
-  return { cases: CASES.length, ok: true };
+  return { cases: cases.length, ok: true };
 }

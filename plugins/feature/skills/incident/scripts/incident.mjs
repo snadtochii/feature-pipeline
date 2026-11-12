@@ -9,18 +9,23 @@
 //   incident.mjs preflight --project-root <abs-path> [--repo <dir-name>]
 //   incident.mjs query --project-root <abs-path> --run <run> --start <RFC3339> --end <RFC3339>
 //                      [--limit <n>] [--direction forward|backward]
+//                      [--request-id <id> [--id-field <name>]]
+//   incident.mjs search --project-root <abs-path> --run <run> --scope repo|incidents|tickets
+//                       [--repo <dir-name>] [--output lines|files]
 //   incident.mjs --self-test
 // Output: exactly one sorted-key JSON document on stdout.
 // Exit: 0 answered, 1 could not compute, 2 bad invocation.
 //
 // Zero dependencies: Node 22+ built-ins only.
-// This file is the only command; lib.mjs and selftest.mjs beside it are
-// private, as are the plugin's shared script modules they import.
+// This file is the only command; lib.mjs, search.mjs and the selftest*.mjs
+// modules beside it are private, as are the plugin's shared script modules
+// they import.
 
 import { exitCodeFor, render, writeOut } from '../../../scripts/lib/output.mjs';
 import { errorDoc, parseArgv, preflight, query } from './lib.mjs';
+import { search } from './search.mjs';
 
-const VERBS = { preflight, query };
+const VERBS = { preflight, query, search };
 
 async function main(argv) {
   try {

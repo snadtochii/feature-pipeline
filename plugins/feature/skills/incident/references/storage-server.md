@@ -8,9 +8,9 @@ The lookup is advisory. It reads ticket rows through `pipeline_list_tickets` and
 
 Tickets are rows on the personal server.
 
-- **Keywords** — from the failure's signature ([output-format.md](output-format.md) §2): the service, the rule, and the distinctive words of the normalized message — the literal words left around its `*` placeholders, leaving out words any log line carries (`error`, `failed`, `request`).
+- **Keywords** — from the failure's signature ([output-format.md](output-format.md) §2): the service; the rule's name, and its UID when known; and the distinctive words of the signature's message field, the message and its error text — the literal words left around its `*` placeholders, leaving out words any log line carries (`error`, `failed`, `request`).
 - **Search** — call `pipeline_list_tickets` once and match each keyword, case-insensitively, against every row's `title`, in memory.
-- **Rank** — a row is a candidate when its title matches the rule, or two or more message keywords; the service's name alone is too broad. Order candidates by the number of keywords matched.
+- **Rank** — a row is a candidate when its title matches the rule's name or UID, or two or more message keywords; the service's name alone is too broad. Order candidates by the number of keywords matched.
 - **Open at most 5** — call `pipeline_get_ticket` for the best-ranked candidates' descriptions, 5 rows at most.
 
 ## §2 Match
