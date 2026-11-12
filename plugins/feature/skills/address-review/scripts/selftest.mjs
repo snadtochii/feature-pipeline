@@ -367,9 +367,18 @@ const CASES = [
     const found = stateOf(w, `inline:${root.id}`);
     equal([found.source, found.text, found.line], ['review', 'Off by one.', 12], 'inline');
   }],
-  ['findings: split on tags, stop at the footer, fold a repeated ordinal', () => {
-    const body = `intro\n**[F1]**\nalpha\n- [F2] beta\n[F1] more alpha\n\n${REVIEW_FOOTER}\n[F3] after the footer`;
+  ['findings: split on tags, stop at the signature, fold a repeated ordinal', () => {
+    const body = `intro\n**[F1]**\nalpha\n- [F2] beta\n[F1] more alpha\n\n${REVIEW_FOOTER}\n${REVIEW_MARKER}`;
     equal(findings(body), [{ k: 1, text: '**[F1]**\nalpha\n[F1] more alpha' }, { k: 2, text: '- [F2] beta' }], 'findings');
+  }],
+  ['findings: an unfenced example footer or marker followed by more text is text, and later findings survive', () => {
+    const body = `[F1] The footer should read:\n${REVIEW_FOOTER}\nnot the old form.\n${REVIEW_MARKER}\n[F2] Second finding.\n\n${REVIEW_FOOTER}\n${REVIEW_MARKER}`;
+    equal(findings(body), [{ k: 1, text: `[F1] The footer should read:\n${REVIEW_FOOTER}\nnot the old form.\n${REVIEW_MARKER}` }, { k: 2, text: '[F2] Second finding.' }], 'both findings, the example kept');
+    const w = world();
+    const summary = addReview(w, { body });
+    equal(keysOf(w), [`review:${summary.id}#F1`, `review:${summary.id}#F2`], 'two threads');
+    const root = addInline(w, { login: 'alice', body: `Should it be\n${REVIEW_FOOTER}\nhere?`, minute: 2 });
+    equal(stateOf(w, `inline:${root.id}`).text, `Should it be\n${REVIEW_FOOTER}\nhere?`, 'visible text keeps a quoted footer');
   }],
   ['markers: keys parse, malformed values read as absent, the last marker wins', () => {
     equal(addressMarker('no marker'), null, 'none');

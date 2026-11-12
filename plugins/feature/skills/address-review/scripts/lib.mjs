@@ -155,24 +155,36 @@ function scanLines(body) {
 }
 
 /**
- * Where an automated post signs itself: its last non-blank line outside a
- * fence, which is the hidden marker when it has one, and the line before a
- * trailing marker, which is the footer. `{ marker, footer }`, each the line or
- * null. A marker or footer quoted anywhere else is text. Pure.
+ * Where an automated post signs itself, over `scanLines` output: its last
+ * non-blank line outside a fence, which is the hidden marker when it has one,
+ * and the line before a trailing marker, which is the footer.
+ * `{ marker, footer, markerAt, footerAt }` — each line and its index in
+ * `scanned`, or null. A marker or footer anywhere else is text. Pure.
  */
-function signature(body) {
-  const lines = scanLines(body).filter((entry) => entry.line.trim() !== '');
+function signatureOf(scanned) {
+  const lines = scanned.map((entry, index) => ({ ...entry, index })).filter((entry) => entry.line.trim() !== '');
+  const none = { marker: null, footer: null, markerAt: null, footerAt: null };
   const last = lines.at(-1);
   if (last === undefined || last.fenced) {
-    return { marker: null, footer: null };
+    return none;
   }
   const tail = last.line.trim();
   if (!MARKER_LINE.test(tail)) {
-    return { marker: null, footer: ANY_FOOTER.test(tail) ? tail : null };
+    return ANY_FOOTER.test(tail) ? { ...none, footer: tail, footerAt: last.index } : none;
   }
   const before = lines.at(-2);
-  const footer = before !== undefined && !before.fenced && ANY_FOOTER.test(before.line.trim()) ? before.line.trim() : null;
-  return { marker: tail, footer };
+  if (before !== undefined && !before.fenced && ANY_FOOTER.test(before.line.trim())) {
+    return { marker: tail, footer: before.line.trim(), markerAt: last.index, footerAt: before.index };
+  }
+  return { ...none, marker: tail, markerAt: last.index };
+}
+
+const signature = (body) => signatureOf(scanLines(body));
+
+/** The index of the first signature line of `scanned`, or its length when it has none. */
+function signatureStart(scanned) {
+  const { markerAt, footerAt } = signatureOf(scanned);
+  return footerAt ?? markerAt ?? scanned.length;
 }
 
 /** The kind (`fp-address`, `fp-review`, …) and key text of `body`'s trailing marker, or null. Pure. */
@@ -221,13 +233,11 @@ export function addressMarker(body) {
   };
 }
 
-/** Whether an unfenced `line` is an fp footer or a whole hidden fp marker line. */
-const isSignatureLine = (line) => ANY_FOOTER.test(line.trim()) || MARKER_LINE.test(line.trim());
-
-/** `body` without its unfenced footer and hidden-marker lines, trimmed. Pure. */
+/** `body` without its signature lines, trimmed. Pure. */
 export function visibleText(body) {
-  return scanLines(body)
-    .filter((entry) => entry.fenced || !isSignatureLine(entry.line))
+  const scanned = scanLines(body);
+  return scanned
+    .slice(0, signatureStart(scanned))
     .map((entry) => entry.line)
     .join('\n')
     .trim();
@@ -235,19 +245,14 @@ export function visibleText(body) {
 
 /**
  * The `[F<k>]` findings of a review summary, in order: `{ k, text }`, each
- * running to the next unfenced tag and stopping at the footer. A repeated
+ * running to the next unfenced tag and stopping at the signature. A repeated
  * ordinal is folded into its first occurrence. Pure.
  */
 export function findings(body) {
   const found = new Map();
   let current = null;
-  for (const { line, fenced } of scanLines(body)) {
-    if (!fenced && ANY_FOOTER.test(line.trim())) {
-      break;
-    }
-    if (!fenced && MARKER_LINE.test(line.trim())) {
-      continue;
-    }
+  const scanned = scanLines(body);
+  for (const { line, fenced } of scanned.slice(0, signatureStart(scanned))) {
     const tag = fenced ? null : FINDING_TAG.exec(line);
     if (tag) {
       const k = Number(tag[1]);
