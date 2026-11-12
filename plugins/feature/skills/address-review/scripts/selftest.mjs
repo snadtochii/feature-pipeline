@@ -335,7 +335,37 @@ const CASES = [
     equal([parsed.re, parsed.failed, parsed.hold], ['review:7#F2', true, false], 'keys');
     equal(addressMarker('<!-- fp-address agent=claude head=1 re=review:x answers=issue:3 -->').re, undefined, 'bad re');
     equal(addressMarker('<!-- fp-address re=comment:1 -->\n<!-- fp-address re=comment:2 hold=1 -->').re, 'comment:2', 'last');
-    equal(addressMarker('<!-- fp-address unterminated'), {}, 'unterminated');
+    equal(addressMarker('<!-- fp-address unterminated'), null, 'unterminated');
+    equal(addressMarker('<!-- fp-address agent=claude head=1 --> and some words'), null, 'text after the marker');
+    equal(addressMarker('<!-- fp-address agent=claude head=1 -->\nA line after it.'), null, 'not the last line');
+  }],
+  ['markers: a malformed marker from the viewer settles nothing and suppresses nothing', () => {
+    const w = world();
+    const thread = SHAPES['inline finding'](w);
+    addInline(w, { body: `Fixed.\n\n${ADDRESS_FOOTER}\n<!-- fp-address agent=claude head=1`, minute: 2, replyTo: thread.root.id });
+    equal(stateOf(w, thread.key).state, 'open', 'inline');
+    const note = SHAPES['human issue comment'](w);
+    addIssue(w, { body: `Answered.\n\n${ADDRESS_FOOTER}\n<!-- fp-address agent=claude head=1 re=${note.key}`, minute: 2 });
+    equal(stateOf(w, note.key).state, 'open', 'top-level');
+  }],
+  ['markers: a marker or footer quoted on its own line inside a fence is text on every surface', () => {
+    const fenced = (line) => `\n\`\`\`text\n${line}\n\`\`\`\n`;
+    const addressLine = '<!-- fp-address agent=claude head=1 re=review:7#F2 failed=1 -->';
+    const w = world();
+    const summary = addReview(w, { body: reviewBody(`**[F1]**\nThe grammar omits a key:${fenced(addressLine)}\n**[F2]**\nSecond finding.`) });
+    const review = addReview(w, { body: reviewBody('One note inline.') });
+    const root = addInline(w, { login: 'reviewer', body: `The re= key is wrong here:${fenced(addressLine)}`, reviewId: review.id });
+    const human = addIssue(w, { login: 'alice', body: `Should the marker carry the round?${fenced('<!-- fp-review agent=claude head=1 -->')}` });
+    const quoting = addIssue(w, { login: 'alice', body: `This footer reads oddly:${fenced(REVIEW_FOOTER)}` });
+    const tagged = addIssue(w, { body: reviewBody(`[F1] first${fenced('[F2] quoted, not a finding')}`) });
+    equal(keysOf(w), [`review:${summary.id}#F1`, `review:${summary.id}#F2`, `inline:${root.id}`, `comment:${human.id}`, `comment:${quoting.id}`, `comment:${tagged.id}#F1`], 'every quoting thread is kept');
+    equal(stateOf(w, `review:${summary.id}#F1`).text, `**[F1]**\nThe grammar omits a key:\n\`\`\`text\n${addressLine}\n\`\`\``, 'the quoted line stays in the text');
+    equal([stateOf(w, `comment:${human.id}`).source, stateOf(w, `comment:${quoting.id}`).source], ['human', 'human'], 'quoting comments are human');
+  }],
+  ['markers: an inline comment signed with the review footer alone is an automated finding', () => {
+    const w = world();
+    const root = addInline(w, { login: 'reviewer', body: `Off by one.\n\n${REVIEW_FOOTER}\n` });
+    equal(stateOf(w, `inline:${root.id}`).source, 'review', 'footer only');
   }],
   ['markers: a marker quoted inside a line is text, not a marker', () => {
     const w = world();

@@ -20,14 +20,12 @@ const PR_NUMBER = /^[1-9][0-9]{0,9}$/;
 export const MAX_DOCUMENT_BYTES = 16 * 1024;
 export const MAX_TEXT_CHARS = 1500;
 
-const REVIEW_FOOTER = /^_— 🔎/mu;
-const ANY_FOOTER = /^_— (?:🔎|🛠)/mu;
-const FP_MARKER = /^[ \t]*<!-- fp-/m;
-const REVIEW_MARKER = /^[ \t]*<!-- fp-review[\s>]/m;
-const ADDRESS_MARKER_LINE = /^[ \t]*<!-- fp-address[ \t]([^\n]*?)[ \t]*-->[ \t\r]*$/gm;
-const ADDRESS_MARKER = /^[ \t]*<!-- fp-address[\s>]/m;
+const REVIEW_FOOTER = /^_— 🔎/u;
+const ANY_FOOTER = /^_— (?:🔎|🛠)/u;
+const MARKER_LINE = /^<!-- (fp-[a-z]+)(?:[ \t]+([^\n]*?))?[ \t]*-->$/;
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 const FINDING_TAG = /^\s*(?:[-*]\s+)?(?:\*\*)?\[F([1-9][0-9]*)\]/;
-const HIDDEN_LINE = /^\s*<!-- fp-[^\n]*-->\s*$/;
 const RE_KEY = /^(?:review|comment):[0-9]+(?:#F[0-9]+)?$/;
 const ANSWERS_KEY = /^comment:[0-9]+$/;
 
@@ -130,27 +128,84 @@ export function readAll({ repo, pr, runner = spawnSync }) {
 
 const bodyOf = (item) => (typeof item?.body === 'string' ? item.body : '');
 
-/** Whether `body` carries an fp footer or an fp marker. Pure. */
-export function isMarked(body) {
-  return ANY_FOOTER.test(body) || FP_MARKER.test(body);
-}
-
-/** Whether `body` carries a review footer or an `fp-review` marker. Pure. */
-export function isReviewMarked(body) {
-  return REVIEW_FOOTER.test(body) || REVIEW_MARKER.test(body);
+/**
+ * Each line of `body` with whether it sits inside a fenced code block, the
+ * fence lines themselves counted as fenced. Pure.
+ */
+function scanLines(body) {
+  const out = [];
+  let fence = null;
+  for (const raw of body.split('\n')) {
+    const line = raw.replace(/\r$/, '');
+    if (fence === null) {
+      const open = FENCE_OPEN.exec(line);
+      if (open) {
+        fence = open[1];
+      }
+      out.push({ line, fenced: fence !== null });
+      continue;
+    }
+    const close = FENCE_CLOSE.exec(line);
+    if (close && close[1][0] === fence[0] && close[1].length >= fence.length) {
+      fence = null;
+    }
+    out.push({ line, fenced: true });
+  }
+  return out;
 }
 
 /**
- * The keys of the last `fp-address` marker line in `body`, or null when it has
- * none. A malformed `re=` or `answers=` value reads as absent. Pure.
+ * Where an automated post signs itself: its last non-blank line outside a
+ * fence, which is the hidden marker when it has one, and the line before a
+ * trailing marker, which is the footer. `{ marker, footer }`, each the line or
+ * null. A marker or footer quoted anywhere else is text. Pure.
+ */
+function signature(body) {
+  const lines = scanLines(body).filter((entry) => entry.line.trim() !== '');
+  const last = lines.at(-1);
+  if (last === undefined || last.fenced) {
+    return { marker: null, footer: null };
+  }
+  const tail = last.line.trim();
+  if (!MARKER_LINE.test(tail)) {
+    return { marker: null, footer: ANY_FOOTER.test(tail) ? tail : null };
+  }
+  const before = lines.at(-2);
+  const footer = before !== undefined && !before.fenced && ANY_FOOTER.test(before.line.trim()) ? before.line.trim() : null;
+  return { marker: tail, footer };
+}
+
+/** The kind (`fp-address`, `fp-review`, …) and key text of `body`'s trailing marker, or null. Pure. */
+function trailingMarker(body) {
+  const { marker } = signature(body);
+  const match = marker === null ? null : MARKER_LINE.exec(marker);
+  return match === null ? null : { kind: match[1], keys: match[2] ?? '' };
+}
+
+/** Whether `body` signs itself with an fp footer or an fp marker. Pure. */
+export function isMarked(body) {
+  const { marker, footer } = signature(body);
+  return marker !== null || footer !== null;
+}
+
+/** Whether `body` signs itself with a review footer or an `fp-review` marker. Pure. */
+export function isReviewMarked(body) {
+  const { footer } = signature(body);
+  return trailingMarker(body)?.kind === 'fp-review' || (footer !== null && REVIEW_FOOTER.test(footer));
+}
+
+/**
+ * The keys of `body`'s trailing `fp-address` marker, or null when it does not
+ * end with a complete one. A malformed `re=` or `answers=` value reads as
+ * absent. Pure.
  */
 export function addressMarker(body) {
-  const lines = [...body.matchAll(ADDRESS_MARKER_LINE)];
-  if (lines.length === 0) {
-    return ADDRESS_MARKER.test(body) ? {} : null;
+  const marker = trailingMarker(body);
+  if (marker === null || marker.kind !== 'fp-address') {
+    return null;
   }
   const keys = {};
-  for (const token of lines.at(-1)[1].split(/\s+/)) {
+  for (const token of marker.keys.split(/\s+/)) {
     const eq = token.indexOf('=');
     if (eq > 0) {
       keys[token.slice(0, eq)] = token.slice(eq + 1);
@@ -166,31 +221,34 @@ export function addressMarker(body) {
   };
 }
 
-/** `body` without its footer and hidden-marker lines, trimmed. Pure. */
+/** Whether an unfenced `line` is an fp footer or a whole hidden fp marker line. */
+const isSignatureLine = (line) => ANY_FOOTER.test(line.trim()) || MARKER_LINE.test(line.trim());
+
+/** `body` without its unfenced footer and hidden-marker lines, trimmed. Pure. */
 export function visibleText(body) {
-  return body
-    .split('\n')
-    .filter((line) => !ANY_FOOTER.test(line) && !HIDDEN_LINE.test(line))
+  return scanLines(body)
+    .filter((entry) => entry.fenced || !isSignatureLine(entry.line))
+    .map((entry) => entry.line)
     .join('\n')
     .trim();
 }
 
 /**
  * The `[F<k>]` findings of a review summary, in order: `{ k, text }`, each
- * running to the next tag and stopping at the footer. A repeated ordinal is
- * folded into its first occurrence. Pure.
+ * running to the next unfenced tag and stopping at the footer. A repeated
+ * ordinal is folded into its first occurrence. Pure.
  */
 export function findings(body) {
   const found = new Map();
   let current = null;
-  for (const line of body.split('\n')) {
-    if (ANY_FOOTER.test(line)) {
+  for (const { line, fenced } of scanLines(body)) {
+    if (!fenced && ANY_FOOTER.test(line.trim())) {
       break;
     }
-    if (HIDDEN_LINE.test(line)) {
+    if (!fenced && MARKER_LINE.test(line.trim())) {
       continue;
     }
-    const tag = FINDING_TAG.exec(line);
+    const tag = fenced ? null : FINDING_TAG.exec(line);
     if (tag) {
       const k = Number(tag[1]);
       current = found.get(k) ?? { k, lines: [] };
