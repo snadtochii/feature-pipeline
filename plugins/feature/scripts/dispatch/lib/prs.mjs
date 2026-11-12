@@ -13,34 +13,9 @@
 
 import { spawnSync } from 'node:child_process';
 
-import { oneLine } from '../../lib/output.mjs';
+import { runGh } from '../../lib/gh.mjs';
 
 const GH_LIST_ARGS = ['pr', 'list', '--state', 'open', '--limit', '1000', '--json', 'number,title,url'];
-const GH_TIMEOUT_MS = 60_000;
-const GH_MAX_BUFFER = 16 * 1024 * 1024;
-
-/**
- * Run one `gh` command in the project root: `{ ok: true, stdout }` or
- * `{ ok: false, detail }`, the detail carrying the tail of stderr.
- */
-function runGh(args, { projectRoot, env, runner }) {
-  const result = runner('gh', args, {
-    cwd: projectRoot,
-    env,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: GH_TIMEOUT_MS,
-    maxBuffer: GH_MAX_BUFFER,
-  });
-  if (result.error) {
-    return { ok: false, detail: result.error.code === 'ENOENT' ? 'gh not found on PATH' : `gh could not run (${result.error.code ?? 'error'})` };
-  }
-  if (result.status !== 0) {
-    const stderr = oneLine(result.stderr ?? '').slice(-200);
-    return { ok: false, detail: `gh ${args[0]} ${args[1]} exited ${result.status ?? `on ${result.signal}`}${stderr ? `: ${stderr}` : ''}` };
-  }
-  return { ok: true, stdout: result.stdout ?? '' };
-}
 
 /** The JSON array `text` holds, or null when it holds anything else. */
 function parseJsonArray(text) {
@@ -60,7 +35,7 @@ const NOT_A_PR_LIST = 'gh pr list printed something other than a pull-request li
  * `{ ok: false, detail }`. The caller decides what a failure means.
  */
 export function listOpenPrs({ projectRoot, env = process.env, runner = spawnSync }) {
-  const run = runGh(GH_LIST_ARGS, { projectRoot, env, runner });
+  const run = runGh(GH_LIST_ARGS, { cwd: projectRoot, env, runner });
   if (!run.ok) {
     return run;
   }
@@ -87,7 +62,7 @@ export function prState({ projectRoot, env = process.env, url, runner = spawnSyn
   if (typeof url !== 'string' || !PR_URL.test(url)) {
     return { ok: false, detail: 'not a pull-request URL' };
   }
-  const run = runGh(['pr', 'view', url, '--json', 'state,baseRefName,labels', '--jq', PR_VIEW_JQ], { projectRoot, env, runner });
+  const run = runGh(['pr', 'view', url, '--json', 'state,baseRefName,labels', '--jq', PR_VIEW_JQ], { cwd: projectRoot, env, runner });
   if (!run.ok) {
     return run;
   }
@@ -107,7 +82,7 @@ export function failingChecks({ projectRoot, env = process.env, url, runner = sp
   if (typeof url !== 'string' || !PR_URL.test(url)) {
     return null;
   }
-  const run = runGh(['pr', 'checks', url, '--json', 'bucket', '--jq', '[.[] | select(.bucket == "fail")] | length'], { projectRoot, env, runner });
+  const run = runGh(['pr', 'checks', url, '--json', 'bucket', '--jq', '[.[] | select(.bucket == "fail")] | length'], { cwd: projectRoot, env, runner });
   const text = run.ok ? run.stdout.trim() : '';
   return /^\d+$/.test(text) ? Number(text) : null;
 }
@@ -117,7 +92,7 @@ export function failingChecks({ projectRoot, env = process.env, url, runner = sp
  * `{ ok: true, url }`, `url` null when there is none, or `{ ok: false, detail }`.
  */
 export function openPrFromHead({ projectRoot, env = process.env, head, base, runner = spawnSync }) {
-  const run = runGh(['pr', 'list', '--head', head, '--base', base, '--state', 'open', '--json', 'number,url,isCrossRepository'], { projectRoot, env, runner });
+  const run = runGh(['pr', 'list', '--head', head, '--base', base, '--state', 'open', '--json', 'number,url,isCrossRepository'], { cwd: projectRoot, env, runner });
   if (!run.ok) {
     return run;
   }

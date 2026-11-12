@@ -1,11 +1,14 @@
-// The helpers the plugin's script self-tests share: assertions, a loopback
-// stand-in server and a temporary git repository.
+// The helpers the plugin's script self-tests share: assertions, a temporary
+// directory, a command run as a child process, a loopback stand-in server and
+// a temporary git repository.
 //
 // Private to the implementation: no file under this directory is a command.
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 
 export class CaseFailure extends Error {}
 
@@ -47,6 +50,46 @@ export async function rejectsKind(fn, Kind, fragment) {
     return checkThrown(err, Kind, fragment);
   }
   throw new CaseFailure(`expected a ${Kind.name}, nothing was thrown`);
+}
+
+/** Run `fn(dir)` in a fresh temporary directory named `<prefix>-…`, removed afterwards. */
+export async function withTemp(prefix, fn) {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`)));
+  try {
+    return await fn(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Run the script `entry` as a Node child with `args` and exactly `env`, killed
+ * after 30 seconds: `{ status, stdout, stderr, doc }`, `doc` the parsed stdout
+ * or null when it is not JSON.
+ */
+export function runNode(entry, args, env) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [entry, ...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
+    child.on('close', (status) => {
+      clearTimeout(timer);
+      let doc = null;
+      try {
+        doc = JSON.parse(stdout);
+      } catch {
+        doc = null;
+      }
+      resolve({ status, stdout, stderr, doc });
+    });
+  });
 }
 
 /** A loopback stand-in server; `handler(req, res)` answers, `fn(url)` runs against it. */

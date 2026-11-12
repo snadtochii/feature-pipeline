@@ -14,7 +14,7 @@ argument-hint: "[pr-number-or-url] [--auto] [--hold-decisions]"
 
 # Address-Review — validate and address PR feedback
 
-Fetch the **inline + summary** review comments on a pull request — both the findings a `feature:review` pass posted **and human comments** (the author or a teammate commenting on the PR directly) — validate each against the real code (**ACCEPT** if it holds, **DISMISS** if it does not, **ANSWER** for a human question that needs a response but no code change — each with a one-line reason), apply code fixes for the accepted ones, and post one **signed reply** per thread. The reply for an accepted finding notes the fix; the reply for a dismissed finding explains why it does not apply; the reply for an answered question responds to it. Every reply carries the visible role footer and a hidden head-SHA marker so the loop is self-identifying and idempotent.
+Fetch the **inline + summary** review comments on a pull request — both the findings a `feature:review` pass posted **and human comments** (the author or a teammate commenting on the PR directly) — validate each against the real code (**ACCEPT** if it holds, **DISMISS** if it does not, **ANSWER** for a human question that needs a response but no code change — each with a one-line reason), apply code fixes for the accepted ones, and post one **signed reply** per thread. The reply for an accepted finding notes the fix; the reply for a dismissed finding explains why it does not apply; the reply for an answered question responds to it. Every reply carries the visible role footer and the §9 hidden marker, so the loop is self-identifying and each thread is answered once.
 
 **This skill runs in the main conversation, standalone** — **not a pipeline stage**. It spawns **no subagents** (no `Task`) and uses **no MCP**, so it behaves identically on Claude Code and Codex, including headless/scheduled `--auto` runs. It is **PR-coupled**: it operates on one PR in the repo it is invoked in and never resolves a ticket.
 
@@ -55,47 +55,54 @@ read -r OWNER REPO < <(gh repo view --json owner,name --jq '"\(.owner.login) \(.
 - **No `$1`** → auto-detect the current branch's PR: `gh pr view --json number,headRefOid,title,url,state`. `gh pr view` with no argument resolves the PR whose head is the current branch. If it doesn't resolve to an open PR, report "no open PR for the current branch — pass a PR number or URL" and exit.
 - **`$1` given (number or URL)** → resolve it together with its repository: `gh pr view "$1" --json number,headRefOid,title,url,state`, then parse the owner/repo from the resolved `.url` and **require it to equal the current origin `$OWNER/$REPO`**. A PR **URL can name a different repository**, but every later lookup uses `$OWNER/$REPO` + the bare number — so a cross-repo `…/other/repo/pull/2` would silently validate/edit/reply against `$OWNER/$REPO` PR #2 (a different PR with the same number). If the repos differ, **STOP and report** ("PR `$1` is in `<owner/repo>`, not the current repo `$OWNER/$REPO` — run address-review from that repo's checkout"); never reduce the target to an unqualified number against the wrong repo. If it doesn't resolve to an open PR, report "`$1` is not an open PR" and exit.
 
-Capture `N` (the PR number, a controlled integer) and `HEAD_SHA` (`headRefOid`). A `CLOSED`/`MERGED` PR → report "PR `#<N>` is `<state>` — nothing to address" and exit (don't post to a closed thread).
+Capture `N` (the PR number, a controlled integer) and `HEAD_SHA` (`headRefOid`), which the checkout binding below checks against. A `CLOSED`/`MERGED` PR → report "PR `#<N>` is `<state>` — nothing to address" and exit (don't post to a closed thread).
 
 **Bind the working tree to the PR's exact commit before editing.** A branch *name* alone identifies neither the code nor the push destination — a same-named local branch can be stale or diverged, and a fork PR can check out cleanly while a plain `git push` targets `origin` (the wrong repo). Capture the PR's head **commit, ref, and repository**: `gh pr view "$N" --json headRefName,headRefOid,headRepositoryOwner,headRepository`. Then, before Step 5 edits anything: check out the PR head (`gh pr checkout "$N"`) and require the tree to be **clean** with `git rev-parse HEAD` equal to the captured `headRefOid` **exactly** — not merely a same-named branch. If it doesn't match, the tree is dirty, or the head repo is a fork you cannot push to, **STOP and report** rather than editing whatever is checked out — otherwise `address-review 123` edits unrelated/stale code and reports it against PR #123. Record the writable head remote + ref for Step 5's push. (Auto-detect mode is already on the PR's exact head, so this is a no-op there.)
 
-### 2. Fetch and group the feedback (idempotency-aware)
+### 2. Read the thread states
 
-Read **both** comment surfaces the review skill may have used (Reviews-API path vs. issue-comment fallback) — the same reads also surface every human comment — per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §3–§6 and §9:
+One command reads the PR's comment surfaces and computes every thread's state per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §9: which comments are threads, which replies pair with them, and whether each thread is open, settled, held or fix-failed. This skill acts on those states and never pairs replies itself.
 
-```bash
-# Inline review comments + their replies (each carries id, path, line, body, in_reply_to_id,
-# and pull_request_review_id — the REST numeric id of the review the comment belongs to):
-gh api "repos/$OWNER/$REPO/pulls/$N/comments" --paginate
-# Review summaries via REST, so the review `id` is the NUMERIC id the inline comments'
-# pull_request_review_id joins on (`gh pr view --json reviews` returns a GraphQL node id like
-# `PRR_…`, which does NOT match pull_request_review_id):
-gh api "repos/$OWNER/$REPO/pulls/$N/reviews" --paginate
-# Issue-level comments (fallback / empty-review / summary replies):
-gh pr view "$N" --json comments
-```
+- `<plugin-root>` — the parent of the `skills/` directory that holds this skill, the plugin's root; on Claude Code, the path `${CLAUDE_PLUGIN_ROOT}` resolves to.
+- **The command** — `node '<plugin-root>/skills/address-review/scripts/threads.mjs' --repo "$OWNER/$REPO" --pr "$N"`, with `<plugin-root>` written out as the literal absolute path inside single quotes, exactly in that form every time: an unattended run's permission allowlist matches the command text. `OWNER`, `REPO` and `N` are the values Step 1 loaded (§7). Its JSON is model-read.
+- **Exit codes** — 0 answered; 1 a read failed, `gh` is missing or it printed something unexpected; 2 a bad invocation. A non-zero exit, or a document carrying `error`, prints `couldn't address review (thread-state read failed: <error>)` and stops: nothing is edited, pushed or posted.
+- **A result that does not arrive whole.** The document stays within 16 KiB so that it arrives whole. If the session still stores it in a file and shows only a preview, run the command once more; a second preview is a failed read.
 
-Then:
+The document:
 
-- **Identify automated review findings.** A finding is review-produced when its source carries a §1 review footer (a line starting `_— 🔎`) or the §2 marker (`fp-review`). Three finding shapes exist, mirroring how review posts:
-  - **Inline review comment** — a line-anchored entry from `.../pulls/$N/comments` belonging to a review whose body carries the review marker (join the inline comment's `pull_request_review_id` to the matching review `id` from `.../pulls/$N/reviews` — both REST numeric ids), OR any inline comment that itself carries the footer/marker. It has a numeric `id`, `path`, and `line` — repliable inline.
-  - **Summary (Reviews-API)** — a review entry (from `.../pulls/$N/reviews`) whose `body` carries the footer/marker. Not line-anchored; its findings live in the body text, and a summary may carry **several**, each tagged `[F<k>]` per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §4 — treat **each `[F<k>]` as its own finding**.
-  - **Summary (fallback)** — a `comments[]` issue comment whose `body` carries the footer/marker. Per pr-comments.md §5 **every** finding is tagged `[F<k>]` — both the folded-in former-inline ones (`[F<k>] path:line — finding`) and the unanchored ones — so split on `[F<k>]` and you drop none.
-  - **Not a finding — skip it:** an automated comment with no `[F<k>]` finding and no inline comment of its own reports on the review rather than raising anything — the §6 *empty-review* comment ("no blocking issues"), the merge-only comment, and the limit note that says a model stopped reviewing. It is **not** a triable thread — exclude it from the work set.
-- **Identify human comments (§9).** A comment carrying **no** fp footer/marker with a non-bot author (skip `user.type == "Bot"` entries — CI, coverage bots, etc.) is a human comment, and it is in scope exactly like an automated finding. Three shapes:
-  - **Human inline review comment** — a line-anchored entry from `.../pulls/$N/comments` with no marker whose review (if any) also carries no marker. A top-level one (no `in_reply_to_id`) starts its own thread; replies group into the thread they answer.
-  - **Human review summary** — a review from `.../pulls/$N/reviews` with a non-empty, unmarked body. No `[F<k>]` tags to split on — treat the whole body as **one thread** keyed by the review id (if it plainly bundles several independent asks, triage each but post one combined reply to the source).
-  - **Human issue comment** — a `comments[]` entry with no marker. PR-level discussion lands here, so not all of it is review feedback — Step 3's triage decides actionability; obvious non-feedback ("LGTM", "thanks", bot noise) is skipped without a reply. A top-level answer to a held thread, or a comment named by an `answers=` key (§9), is not its own thread.
-- **Group into threads.** Each inline comment is its own thread (anchored to its `id` + `path:line`). Each **`[F<k>]` finding within an automated summary is its own thread**, keyed by the **source review/comment id plus its ordinal** `k` (the `[F<k>]` ordinal is unique only within one summary, so `[F1]` from two summaries are distinct threads; a single-finding summary is just `[F1]`). Step 3 gives each thread its own verdict and Step 6 its own reply — never collapse a multi-finding summary into one verdict. Skip a comment that is itself an `fp-address` reply (its body carries the §9 reply marker) — never triage your own prior replies.
-- **Skip already-addressed threads (reply idempotency).** Per §9: a thread is already addressed at the current head iff a reply **paired to it** carries `fp-address … head=$HEAD_SHA`. Pairing is structural, never quote-matching: an **inline** thread pairs via `in_reply_to_id`; a **top-level-replied** thread (summary `[F<k>]` finding, human review summary, human issue comment) pairs via the reply marker's `re=<review|comment>:<id>[#F<k>]` key matched against the thread's source id (+ ordinal). For **inline** threads only, a human comment newer than the paired reply re-opens the thread even at an unchanged head (on the flat issue-comment surface a newer human comment has its own id and enters the work set as its own thread, unless it is a top-level answer (§9)). A hold reply (§9) never counts as addressed. Drop the addressed ones from the work set so a re-run doesn't double-reply. (When the head moved since a prior address pass, the old `fp-address` marker no longer matches `$HEAD_SHA`, so the finding is re-addressed — correct, the code changed.)
+| Field | Meaning |
+|---|---|
+| `viewer` | the `gh` login this run posts as — Step 6's `<LOGIN>` |
+| `counts` | every thread on the PR by state — `open`, `settled`, `held`, `fix_failed` — plus `unlisted`, the threads the size bound left out of `threads` |
+| `complete` | `false` when the size bound left threads out. The listing keeps the oldest threads, so an unlisted thread is reached only as listed threads settle; a listed thread that gets no reply (not actionable, held under `--auto --hold-decisions`, a fix still failing) keeps its place on the next pass |
+| `threads` | every thread that is not settled, oldest first; settled threads appear only in `counts` |
 
-- **Leave held threads waiting (`--hold-decisions` only).** Per §9, a thread whose newest paired reply is a hold reply stays out of the work set whatever the head, and Step 7 lists it again. A top-level answer (§9) ends the hold: triage the held thread with that comment as the owner's answer. Without the flag a held thread is triaged like any other.
+Each `threads` entry:
 
-Build a TodoWrite item per surviving thread so the Step 7 summary is recoverable. If there are **no** un-addressed threads (automated or human) and none held, report "No outstanding review comments to address on PR `#<N>` (current head)." and exit cleanly. With none un-addressed and at least one held, go straight to Step 7 and list them.
+- `key` — the thread key in the §9 `re=` grammar (`inline:<id>`, `review:<id>[#F<k>]`, `comment:<id>[#F<k>]`); a top-level reply's `re=` is this value.
+- `shape` — `inline`, `review-summary`, `issue-summary`, `human-review` or `human-issue`; `source` — `review` or `human`; `state` — `open`, `held` or `fix-failed`.
+- `id` — the source's REST id: the inline comment a threaded reply anchors to, or the review or issue comment; `k` — a summary finding's `[F<k>]` ordinal.
+- `at`, `url` — when the source was posted, and its link; `path`, `line` — an inline thread's anchor.
+- `author`, `author_association` — the source's login and its GitHub association with the repository (`OWNER`, `MEMBER`, `COLLABORATOR`, `CONTRIBUTOR`, `NONE`, …).
+- `text` — the comment or finding text: `cut: true` when it was capped at 1500 characters, `text_omitted: true` in its place when the size bound dropped it.
+- `reply_at`, `reply_url` — the newest paired reply, when the thread has one.
+- `followups` — an inline thread's human replies that no paired reply answers, oldest first: every human reply when the thread has no paired reply, else those newer than it, which re-opened the thread. Each carries `id`, `at`, `author`, `author_association` and `text` (`cut: true` when capped at 1500 characters); when the thread's text is omitted, its followups list no `text` either. At most the newest 20 are listed; `followups_unlisted` counts the earlier ones when there are more, and the triage works from the listed ones, since the newer replies are the ones that supersede the older. Read them with the thread: a human reply can narrow or withdraw what the root asks. An inline thread a bot started is listed only once a person replied in it, with `source` `human`, the bot's comment as `text` and the replies in `followups`.
+
+For a thread whose text is cut or omitted, read the full body by its id with one `gh api` call — `repos/$OWNER/$REPO/pulls/comments/<id>` for an inline thread, `repos/$OWNER/$REPO/pulls/$N/reviews/<id>` for a review, `repos/$OWNER/$REPO/issues/comments/<id>` for an issue comment — and a cut or omitted followup the same way by its `id`, as an inline comment. Each id is a controlled integer from the document (§7).
+
+**The work set** is every `open` and `fix-failed` thread, and every `held` one except under `--auto --hold-decisions`, where a held thread waits per §9 and Step 7 lists it again. A `fix-failed` thread is retried (Step 3). What stays this skill's own call:
+
+- whether a human thread is actionable (Step 3);
+- whether a listed `human-issue` comment newer than a held top-level thread's `reply_at`, from an account §9's `answers=` rule lets answer a hold (its `author` and `author_association` decide), plainly answers it. Such an answer is folded into that held thread, which is triaged with it and replied to with `answers=comment:<id>` (§9), and it is not a thread of its own;
+- one combined reply to a human review summary that plainly bundles several independent asks, each triaged.
+
+Each thread gets its own verdict in Step 3 and its own reply in Step 6 — two `[F<k>]` findings of one summary are two threads.
+
+Build a TodoWrite item per work-set thread so the Step 7 summary is recoverable. If the work set is empty and nothing is held, report "No outstanding review comments to address on PR `#<N>` (<settled> settled)." and exit cleanly. With an empty work set and at least one held thread, go straight to Step 7 and list them.
 
 ### 3. Validate each thread (ACCEPT / DISMISS / ANSWER + one-line reason)
 
-For each thread, read the finding against the **real current code** (use `Read`/`Grep`/`Glob` on the referenced `path:line`, and `git diff "$base"...HEAD` for the change under review where useful — resolve `$base` non-interactively: `base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)`). Judge it:
+For each thread, read the finding against the **real current code** (use `Read`/`Grep`/`Glob` on the referenced `path:line`, and `git diff "$base"...HEAD` for the change under review where useful — resolve `$base` non-interactively: `base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)`). A `fix-failed` thread is judged again like any other, and ACCEPT retries its fix. Judge it:
 
 - **ACCEPT** — the finding is real and applies to the current code (a human ask for a change counts the same as an automated finding). Record a one-line reason and the intended fix.
 - **DISMISS** — the finding is wrong, stale (already fixed / no longer applies), out of scope, or a false positive. Record a one-line reason.
@@ -122,34 +129,36 @@ Step 5 runs only when Step 3 produced at least one ACCEPT. With zero ACCEPTs, sk
 Edit the repository code to apply each accepted fix, smallest change first, validating as you go:
 
 - **Validation after each edit** runs the project's **lint/typecheck commands**, resolved as build's implement checkpoint resolves them: read the project instruction files for **both** runtimes — `CLAUDE.md` (Claude Code) **and** `AGENTS.md` (Codex) — for lint/typecheck commands (a `## Commands` / `## Validation` / `## Testing` section, or inline `npm run lint` / `pnpm test` / `cargo check` / `pytest` references), with a deterministic precedence (the current runtime's primary file first — `AGENTS.md` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not, else `CLAUDE.md` — then the other), and run them via `Bash` after each meaningful change. A Codex repo that documents its checks only in `AGENTS.md` must NOT be mistaken for "no commands". If neither file documents any, log one line ("No validation commands found in project CLAUDE.md/AGENTS.md — proceeding without skill-body validation") and continue.
-- **On a failing fix** (lint/typecheck won't pass, or the change can't be made cleanly): **report rather than silently proceed.** Mark that finding `fix-failed` with the error, leave its code reverted/untouched so the tree stays green, and downgrade its reply (Step 6) to a note that the finding was accepted but the fix could not be completed this pass. Do not post a "fixed" reply for a fix that didn't land.
+- **On a failing fix** (lint/typecheck won't pass, or the change can't be made cleanly): **report rather than silently proceed.** Mark that finding `fix-failed` with the error, leave its code reverted/untouched so the tree stays green, and give it the fix-failed reply (Step 6). Do not post a "fixed" reply for a fix that didn't land.
 
 DISMISSed and ANSWERed threads make no code change, so they run no validation. When every accepted fix ends `fix-failed`, the code is reverted and the tree is the PR head: no commit, no push, and no validation run to confirm the revert.
 
-**Publish the fixes to the PR before replying.** Step 6 must never claim a fix the PR doesn't contain. The per-edit result stands — there is no separate pre-commit run: once the last edit's validation is green, commit the fixes (subject `address-review: <pr-or-ticket-id>` — no `Co-Authored-By`, one concern) and push **explicitly to the writable head repository + ref captured in Step 1** (`git push <head-remote> HEAD:<head-ref>` — never assume `origin`, since a fork PR's head lives on another remote). Then confirm the push landed: the PR's `headRefOid` now points at your commit. Only a finding whose fix is **pushed to the PR head** earns a `Fixed` reply; a fix validated locally but not pushed (or fix-failed) gets the pending/failed reply (Step 6), never `Fixed`. In `--auto` this commit + push + confirmation is mandatory before any `Fixed` reply.
+**Publish the fixes to the PR before replying.** Step 6 must never claim a fix the PR doesn't contain. The per-edit result stands — there is no separate pre-commit run: once the last edit's validation is green, commit the fixes (subject `address-review: <pr-or-ticket-id>` — no `Co-Authored-By`, one concern) and push **explicitly to the writable head repository + ref captured in Step 1** (`git push <head-remote> HEAD:<head-ref>` — never assume `origin`, since a fork PR's head lives on another remote). Then confirm the push landed: the PR's `headRefOid` now points at your commit. Only a finding whose fix is **pushed to the PR head** earns a `Fixed` reply; a fix validated locally but not pushed (or fix-failed) gets the fix-failed reply (Step 6), never `Fixed`. In `--auto` this commit + push + confirmation is mandatory before any `Fixed` reply.
 
 ### 6. Post signed replies
 
 Post one reply per thread, per [`../review/references/pr-comments.md`](../review/references/pr-comments.md) §9. In interactive mode this is a **second, separate gate**: the Step 4 go-signal authorized *applying the fixes* only — after fixing, present the drafted replies (one per thread, with its verdict and text) and post **only after** the user approves them. The user may edit a reply or hold one back before posting. In `--auto`, post autonomously with no gate.
 
-Each reply carries the §1 footer `_— 🛠️ addressed by <Model> on behalf of <LOGIN>_` and the §9 hidden marker `<!-- fp-address agent=<codex|claude> head=$HEAD_SHA -->` (detect `agent` per §9: `agent=codex` when `$PLUGIN_ROOT` is set and `$CLAUDE_PLUGIN_ROOT` is not; otherwise `agent=claude`). `<Model>` is `Codex` or `Claude` to match `agent`, and `<LOGIN>` is the printed value of `gh api user --jq .login`, written as a literal with no `@`; a failed read goes under `? Couldn't post` with no reply posted. Every **top-level** reply additionally carries the §9 `re=<review|comment>:<id>[#F<k>]` source key in its marker, and a reply to a top-level answer its `answers=comment:<id>` key — the machine-readable pairing to the thread it answers; threaded inline replies omit it (the thread is the pairing). Reply content by verdict:
+**Bind the reply head once.** Before the first reply, read the PR head with `gh pr view "$N" --json headRefOid --jq .headRefOid`, print it, and carry the printed SHA as the literal `REPLY_HEAD`. It is the post-push head when Step 5 pushed and the Step 1 head otherwise, and every marker this pass posts names it — this is the one place `head=` is bound. A failed read puts every reply under `? Couldn't post`, with none posted.
 
-- **ACCEPTed + fixed** → a one-line note of what changed (e.g. "Fixed — extracted the duplicated guard into `validateInput`.").
-- **ACCEPTed + fix-failed** → a one-line note that the finding is valid but the fix couldn't land this pass, with the blocker.
+Each reply carries the §1 footer `_— 🛠️ addressed by <Model> on behalf of <LOGIN>_` and the §9 `fp-address` marker with `head=<REPLY_HEAD>` and the §9 keys the reply needs: `re=` (the thread's `key`) on every top-level reply, `answers=` on a reply to a top-level answer, `hold=1` on a hold reply, `failed=1` on a fix-failed reply. `agent`, and `<Model>` to match it, follow §9. `<LOGIN>` is the Step 2 document's `viewer`, written as a literal with no `@`. Reply content by verdict:
+
+- **ACCEPTed + fixed** → a one-line note of what changed (e.g. "Fixed — extracted the duplicated guard into `validateInput`."). On a `fix-failed` thread this is the reply that settles it.
+- **ACCEPTed + fix-failed** → a one-line note that the finding is valid but the fix couldn't land this pass, with the blocker, and `failed=1` in the marker — posted only when the thread's state was not already `fix-failed`. A retry that fails again posts nothing; Step 7 lists it.
 - **DISMISSed** → a one-line note explaining why it doesn't apply (stale / out of scope / false positive).
 - **ANSWERed** → the answer to the question/discussion point, no fix claim.
 - **HELD** → why it is the owner's call, the options with your recommendation, how to answer, and `hold=1` in the marker (§9). No fix claim.
 
-Anchor by thread shape (§9): an **inline** review comment (automated or human) → a threaded reply to its review-comment `id` via `gh api … /pulls/$N/comments/<COMMENT_ID>/replies --input <payload>` (or the `in_reply_to` equivalent); a **summary `[F<k>]` finding** → one top-level `gh pr comment "$N" --body-file <file>` per finding, its marker keyed `re=<review|comment>:<id>#F<k>` and its visible text naming the same source; a **human review summary or issue comment** (no inline thread to anchor to) → one top-level `gh pr comment "$N" --body-file <file>`, its marker keyed `re=review:<id>` / `re=comment:<id>`, opening with a short quote or paraphrase of the comment it answers so the pairing stays readable for humans. Build every reply body with the **Write tool** to a temp path whose absolute location a prior Bash call printed (§9 — shell `$WORK` does not survive across tool calls; thread the literal path, never the repo worktree) and post via `--input`/`--body-file` — never a `--body "…"` literal, never `eval` (§7).
+Anchor by thread shape per §9's "Posting the reply": an `inline` thread → a threaded reply to its `id`; a summary finding → one top-level `gh pr comment "$N" --body-file <file>` per finding, its visible text naming the same source; a human review summary or issue comment → one top-level comment opening with a short quote or paraphrase of the comment it answers, so the pairing stays readable for humans. Build every reply body with the **Write tool** to a temp path a prior Bash call printed (§9) and post via `--input`/`--body-file` — never a `--body "…"` literal, never `eval` (§7).
 
-**Remove the `auto-reviewed` label after the replies land** (§8): once this pass has pushed a commit and no thread is held, whether from this pass or an earlier one, run `gh pr edit "$N" --remove-label auto-reviewed 2>/dev/null || true` (best-effort — an absent label is fine). The label means "reviewed since the last automated fix"; a push moves the head past that review, and a later review pass re-adds it. A pass that only replies, such as a dismissal, leaves it on. This is the only label action this skill takes — it never adds the label.
+**Remove the `auto-reviewed` label after the replies land**, per §8, when this pass pushed a commit and no thread is held — neither held this pass nor, under `--hold-decisions`, still held from an earlier one (`counts.held`): `gh pr edit "$N" --remove-label auto-reviewed 2>/dev/null || true` (best-effort — an absent label is fine). This is the only label action this skill takes — it never adds the label.
 
 ### 7. Report
 
 Print a grouped summary with counts (omit empty groups):
 
 ```
-## Address-review — PR #<N> (<k> finding(s))
+## Address-review — PR #<N> (<k> thread(s))
 
 ✓ Accepted & fixed (<n>):
   - <path:line | summary> [review|human] — <finding> → <fix> — replied
@@ -159,18 +168,22 @@ Print a grouped summary with counts (omit empty groups):
   - <path:line | summary> [human] — <question> — <answer> — replied
 ⚠ Accepted, fix failed (<n>):
   - <path:line | summary> [review|human] — <finding> — <blocker> — replied (fix deferred)
+⚠ Fix still failing, no reply (<n>):
+  - <path:line | summary> [review|human] — <finding> — <blocker>
 – Not actionable, skipped (<n>):
   - <comment> — <reason>
-↺ Skipped, already addressed at current head (<n>):
-  - <path:line | summary>
+↺ Settled, skipped: <n>
+… Not listed this pass: <unlisted>
 ? Couldn't post (<n>):
   - <path:line | summary> — <reason>
 ⏸ Needs your decision (<n>):
-  - <path:line | summary> [review|human] — <finding> — <why it is held> — options: <recommended> (recommended) | <other> — hold reply posted
+  - <path:line | summary> [review|human] — <finding> — <why it is held> — options: <recommended> (recommended) | <other> — hold reply posted | held earlier
 🏷 Label: auto-reviewed removed | not present | left (nothing pushed) | left (threads held)
 ```
 
-When a thread is held, the run ends here with the fixes already pushed and asks nothing further. If the owner answers in this conversation, that answer authorizes both the fix and the reply: re-run Step 1's resolve and bind first and stop if it fails, then apply it per Step 5 and reply per Step 6 with no further gate. A newer human comment on an inline thread re-opens it for the next pass.
+A line says `replied` only for a thread that got a reply this pass. `↺ Settled, skipped` is `counts.settled` from Step 2, and `… Not listed this pass` appears only when the document's `complete` is false. A `⏸` line says `hold reply posted` for a hold this pass and `held earlier` for a thread that was already held.
+
+When a thread is held, the run ends here with the fixes already pushed and asks nothing further. If the owner answers in this conversation, that answer authorizes both the fix and the reply: re-run Step 1's resolve and bind first and stop if it fails, then apply it per Step 5 and reply per Step 6 with no further gate.
 
 If `gh`/auth/origin was unavailable, the preconditions already printed the one-line skip and exited before this summary. One reply that fails to post never aborts the rest — record it under `? Couldn't post` and continue.
 

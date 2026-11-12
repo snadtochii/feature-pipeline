@@ -70,3 +70,6 @@ jobs:
 
       - name: Incident script self-test
         run: node plugins/feature/skills/incident/scripts/incident.mjs --self-test
+
+      - name: Address-review thread-state self-test
+        run: node plugins/feature/skills/address-review/scripts/threads.mjs --self-test

@@ -10,20 +10,17 @@
 //
 // Private to the implementation: only incident.mjs is a command.
 
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { parseCredentialFile, readCredentialFile } from '../../../scripts/lib/credential-file.mjs';
 import { parseMiniYaml } from '../../../scripts/lib/mini-yaml.mjs';
-import { ComputeError, UsageError, exitCodeFor } from '../../../scripts/lib/output.mjs';
-import { CaseFailure, assert, commitAll, equal, initRepo, throwsKind, withStub } from '../../../scripts/lib/selftest-kit.mjs';
+import { ComputeError, UsageError, exitCodeFor, largestFit } from '../../../scripts/lib/output.mjs';
+import { CaseFailure, assert, commitAll, equal, initRepo, runNode, throwsKind, withStub, withTemp as withTempDir } from '../../../scripts/lib/selftest-kit.mjs';
 import {
   READ_NAMES,
   keepLines,
-  largestFit,
   parseArgv,
   reportGate,
   resolveAccess,
@@ -38,14 +35,7 @@ const ORIGIN = 'https://grafana.example.invalid';
 const DATASOURCE = 'loki-uid';
 const CREDENTIALS = '~/.config/feature-incident/grafana.credentials';
 
-async function withTemp(label, fn) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `fp-incident-${label}-`)));
-  try {
-    return await fn(dir);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-}
+const withTemp = (label, fn) => withTempDir(`fp-incident-${label}`, fn);
 
 function configText({ url = ORIGIN, datasource = DATASOURCE, tokenFile = CREDENTIALS } = {}) {
   const lines = ['prefix: FP', 'incident:'];
@@ -103,33 +93,12 @@ function world(dir, { url = ORIGIN, credentialUrl = url } = {}) {
 }
 
 /** Run the entry as a child; the fixture token must reach neither stream. */
-function runEntry(args, env) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [ENTRY, ...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk;
-    });
-    const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
-    child.on('close', (status) => {
-      clearTimeout(timer);
-      if (stdout.includes(TOKEN) || stderr.includes(TOKEN)) {
-        reject(new CaseFailure(`the token reached the output of: ${args.join(' ')}`));
-        return;
-      }
-      let doc = null;
-      try {
-        doc = JSON.parse(stdout);
-      } catch {
-        doc = null;
-      }
-      resolve({ status, stdout, stderr, doc });
-    });
-  });
+async function runEntry(args, env) {
+  const run = await runNode(ENTRY, args, env);
+  if (run.stdout.includes(TOKEN) || run.stderr.includes(TOKEN)) {
+    throw new CaseFailure(`the token reached the output of: ${args.join(' ')}`);
+  }
+  return run;
 }
 
 const CASES = [
@@ -468,7 +437,7 @@ const CASES = [
     equal(keepLines(shaped, 'backward', 1), { lines: [lines[1]], streams: [{ app: 'api' }] }, 'backward keeps the newest line');
     equal(keepLines({ lines: [], streams: [] }, 'backward', 0), { lines: [], streams: [] }, 'nothing to keep');
     equal(
-      [largestFit(0, () => true), largestFit(5, () => false), largestFit(5, (count) => count <= 3), largestFit(5, () => true)],
+      [largestFit(0, () => true, 1), largestFit(5, () => false, 1), largestFit(5, (count) => count <= 3, 1), largestFit(5, () => true, 1)],
       [0, 1, 3, 5],
       'the most that fit, and one whatever its size',
     );
