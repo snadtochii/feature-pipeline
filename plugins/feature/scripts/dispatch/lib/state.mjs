@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { ComputeError, render } from '../../lib/output.mjs';
+import { writeAtomic } from '../../lib/write-atomic.mjs';
 
 const NAME_RE = /^[A-Za-z0-9._-]+$/;
 export const RUN_ID_RE = /^\d{4}-\d{2}-\d{2}-[0-9a-f]{6}$/;
@@ -19,19 +20,6 @@ export const RUN_ID_RE = /^\d{4}-\d{2}-\d{2}-[0-9a-f]{6}$/;
 /** A fresh run id: the UTC date and 3 random bytes. */
 export function newRunId(now) {
   return `${now.toISOString().slice(0, 10)}-${crypto.randomBytes(3).toString('hex')}`;
-}
-
-/** Write `text` to `file` through a temporary file beside it, with `mode`. */
-export function writeAtomic(file, text, mode = 0o600) {
-  const tmp = `${file}.tmp-${crypto.randomBytes(4).toString('hex')}`;
-  try {
-    fs.writeFileSync(tmp, text, { mode });
-    fs.chmodSync(tmp, mode);
-    fs.renameSync(tmp, file);
-  } catch (err) {
-    fs.rmSync(tmp, { force: true });
-    throw err;
-  }
 }
 
 /** The project name: the name of the directory holding the git common dir. */

@@ -1,0 +1,2 @@
+{"type":"user","timestamp":"2026-11-12T10:00:50.000Z","cwd":"<ROOT>/repo","isSidechain":true,"agentId":"a1","message":{"role":"user","content":"FIXTURE-TEXT-9c41 prompt"}}
+{"type":"assistant","timestamp":"2026-11-12T10:01:10.000Z","cwd":"<ROOT>/repo","isSidechain":true,"agentId":"a1","message":{"id":"msg_s1","model":"claude-sonnet-test","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":2,"cache_read_input_tokens":3,"cache_creation_input_tokens":4},"content":[{"type":"text","text":"FIXTURE-TEXT-9c41"}]}}

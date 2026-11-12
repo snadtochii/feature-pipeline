@@ -1,0 +1,2 @@
+{"type":"user","timestamp":"2026-11-13T09:06:10.000Z","cwd":"<ROOT>/pipeline","isSidechain":true,"agentId":"f5","message":{"role":"user","content":"FIXTURE-TEXT-9c41 prompt"}}
+{"type":"assistant","timestamp":"2026-11-13T09:06:15.000Z","cwd":"<ROOT>/pipeline","isSidechain":true,"agentId":"f5","message":{"id":"msg_f5","model":"claude-opus-test","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":1,"cache_read_input_tokens":100,"cache_creation_input_tokens":2},"content":[{"type":"text","text":"FIXTURE-TEXT-9c41"}]}}

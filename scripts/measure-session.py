@@ -73,6 +73,13 @@ the sum of the per-turn window over a phase's turns, where a turn's window is
 `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`. Every
 column header carries its unit.
 
+The session-insights extractor applies the same weights, role map, ticket
+rule, slash-build rule, check pattern and stage roles:
+`plugins/feature/scripts/insights/lib/recognize.mjs` mirrors them, and
+`scripts/check-insights-parity.mjs` holds the two parsers' per-ticket and
+per-role units equal on a committed synthetic session. A change to one of
+these rules lands in both files.
+
 ## Regression anchor
 
 The anchor is a three-ticket ship session: 33 subagents plus the root, three

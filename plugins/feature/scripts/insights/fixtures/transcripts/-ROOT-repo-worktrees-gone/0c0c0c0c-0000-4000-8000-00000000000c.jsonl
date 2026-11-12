@@ -1,0 +1,2 @@
+{"type":"user","timestamp":"2026-11-12T12:00:00.000Z","cwd":"<ROOT>/repo-worktrees/gone","message":{"role":"user","content":"FIXTURE-TEXT-9c41"}}
+{"type":"assistant","timestamp":"2026-11-12T12:00:10.000Z","cwd":"<ROOT>/repo-worktrees/gone","message":{"id":"msg_c1","model":"claude-opus-test","stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":2,"cache_read_input_tokens":2,"cache_creation_input_tokens":2},"content":[{"type":"text","text":"FIXTURE-TEXT-9c41"}]}}

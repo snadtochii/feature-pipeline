@@ -14,6 +14,7 @@ Deeper material that doesn't belong in the [README](../../../README.md) front do
 - [Ship flags (`--base`, `--no-ui-testing`, `--attach-screenshots`, `--parallel`, `--worktree`, `--headless`)](#ship-flags---base---no-ui-testing---attach-screenshots---parallel---worktree---headless)
 - [Inbox triage (`/feature:triage`)](#inbox-triage-featuretriage)
 - [Incident investigation (`/feature:incident`)](#incident-investigation-featureincident)
+- [Session insights (`/feature:insights`)](#session-insights-featureinsights)
 - [Night dispatch](#night-dispatch)
 - [Scheduling reviews](#scheduling-reviews)
 - [Configuration reference](#configuration-reference)
@@ -303,6 +304,13 @@ Alert payload:
 - **After every plugin update**, `<plugin-root>` changes with the version. Update the path in that `Bash` rule; with a stale path the run stops at its first command.
 
 **Each run** resolves the alert to a service, a rule and a window, checks the configuration and the token source without a network call, reads the rule's runbook section, and then queries the logs: the failing lines for the window, every line of up to 5 failing requests, and the failing message's oldest 20 occurrences in the 7 days before, which date its first one. A query returns up to 200 lines unless a step names another limit, 1000 at most, each cut at 4000 characters, and its result is held to 16 KiB by leaving lines out, which the report names as partial evidence. The run ends with a summary naming the report, `claudedocs/incidents/<UTC-yyyyMMdd-HHmmss>-<rule-slug>.md`. A missing or malformed key, an unknown service or rule, an unreachable token or a failing first query stops the run with one `Incident stopped:` message naming what is at fault; nothing is guessed. A later query that fails, or a lookup that finds nothing or cannot run, is a line in the report, and the run continues. The script's contract is [log-query.md](../skills/incident/references/log-query.md), and the report's format is [output-format.md](../skills/incident/references/output-format.md).
+
+## Session insights (`/feature:insights`)
+
+`/feature:insights` reports where pipeline runs spend tokens, wall-clock time and friction, and how they end, as one HTML file under `~/.feature-pipeline/insights/reports/`, built from this machine's Claude Code sessions and the projects' ticket artifacts. It runs one command, the session-insights script's `report` verb; the figures and the page are [CONTRACT.md](../scripts/insights/CONTRACT.md) "§9 The report".
+
+- **Permissions.** The skill's `allowed-tools` leaves `Bash` out on purpose — a listed tool is granted whole, any command — so the session's rules decide the call, and a run asks for it until a rule admits it. Allow it with `Bash(node '<plugin-root>/scripts/insights/insights.mjs' report *)`, quoted exactly as the skill writes the command: Bash rules match the command text as written. `<plugin-root>` is the installed `feature` plugin's absolute directory, as under [Night dispatch](#night-dispatch).
+- **After every plugin update**, `<plugin-root>` changes with the version. Update the path in that rule; with a stale path the run asks again.
 
 ## Night dispatch
 

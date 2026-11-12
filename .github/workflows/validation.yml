@@ -3,8 +3,9 @@
 #
 # These are bash plus python3 or jq — and Node 22, pinned below, for the deepen
 # contract's script self-tests, the verify browser driver's self-test, the
-# margin server's self-test, the feature dispatcher's self-test and the
-# incident log reader's self-test — and finish in seconds, so they carry no path filter: a change anywhere can break a
+# margin server's self-test, the feature dispatcher's self-test, the
+# incident log reader's self-test, the session-insights extractor's self-test and its
+# parity check against measure-session.py — and finish in seconds, so they carry no path filter: a change anywhere can break a
 # frontmatter budget, a mode-split rule, or the runtime contract. Pushes to other
 # branches are checked through their pull request alone, so one commit runs the
 # scripts once.
@@ -73,3 +74,9 @@ jobs:
 
       - name: Address-review thread-state self-test
         run: node plugins/feature/skills/address-review/scripts/threads.mjs --self-test
+
+      - name: Insights extractor self-test
+        run: node plugins/feature/scripts/insights/insights.mjs --self-test
+
+      - name: Insights parity with measure-session.py
+        run: node scripts/check-insights-parity.mjs

@@ -1,0 +1,2 @@
+{"type":"user","timestamp":"2026-11-12T12:03:10.000Z","cwd":"<ROOT>/pipeline","isSidechain":true,"agentId":"e7","message":{"role":"user","content":"FIXTURE-TEXT-9c41 prompt"}}
+{"type":"assistant","timestamp":"2026-11-12T12:03:20.000Z","cwd":"<ROOT>/pipeline","isSidechain":true,"agentId":"e7","message":{"id":"msg_e7","model":"claude-sonnet-test","stop_reason":"end_turn","usage":{"input_tokens":80,"output_tokens":8,"cache_read_input_tokens":800,"cache_creation_input_tokens":16},"content":[{"type":"text","text":"FIXTURE-TEXT-9c41"}]}}
