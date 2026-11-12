@@ -218,7 +218,7 @@ A **thread** is an inline review comment with no `in_reply_to_id` together with 
 
 **Settled is final.** `head=` gates nothing, so a later push re-opens no thread. The reviewer raises an automated finding again on its next round, and a human re-opens a thread by commenting on it.
 
-**Not threads:** a bot's comment, an `fp-address` reply, an automated comment with no `[F<k>]` finding and no inline comment of its own (the §6 empty review, the limit note), and an issue comment named by a viewer `answers=` key.
+**Not threads:** a bot's comment — except a bot's inline comment a person replied to, which roots a human thread — an `fp-address` reply, an automated comment with no `[F<k>]` finding and no inline comment of its own (the §6 empty review, the limit note), and an issue comment named by a viewer `answers=` key.
 
 `address-review` computes these states with `skills/address-review/scripts/threads.mjs`. It reads the three surfaces through the REST endpoints (`pulls/<N>/comments`, `pulls/<N>/reviews`, `issues/<N>/comments`), so every id, issue comments included, is the REST number a `re=` key names. A failed read stops the pass; it never reads as open.
 

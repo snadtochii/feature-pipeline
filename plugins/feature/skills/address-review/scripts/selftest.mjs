@@ -235,10 +235,52 @@ const CASES = [
       reply(w, thread, { minute: 2, ...marker });
       const followup = addInline(w, { login: 'alice', body: 'Still broken for `null`.', minute: 3, replyTo: thread.root.id });
       const found = stateOf(w, thread.key);
-      equal([found.state, found.followup.id, found.followup.text], ['open', followup.id, 'Still broken for `null`.'], JSON.stringify(marker));
+      equal([found.state, found.followups.map((item) => [item.id, item.text])], ['open', [[followup.id, 'Still broken for `null`.']]], JSON.stringify(marker));
       const doc = shapeDocument(threadStates(surfaces(w)), { repo: 'o/r', pr: 5 });
-      equal([doc.threads[0].followup, doc.threads[0].followup_id], ['Still broken for `null`.', followup.id], 'listed followup');
+      equal(doc.threads[0].followups.map((item) => [item.id, item.text, item.author]), [[followup.id, 'Still broken for `null`.', 'alice']], 'listed followups');
     }
+  }],
+  ['followups: an open inline thread with no address reply carries every human reply, oldest first', () => {
+    const w = world();
+    const thread = SHAPES['human inline comment'](w);
+    const first = addInline(w, { body: 'Intentional, see the doc — please do not change.', minute: 3, replyTo: thread.root.id });
+    const second = addInline(w, { login: 'alice', body: 'Fair enough.', minute: 4, replyTo: first.id });
+    addInline(w, { login: 'ci-bot', type: 'Bot', body: 'Coverage dropped.', minute: 5, replyTo: thread.root.id });
+    const found = stateOf(w, thread.key);
+    equal([found.state, found.followups.map((item) => item.id)], ['open', [first.id, second.id]], 'first pass');
+    const doc = shapeDocument(threadStates(surfaces(w)), { repo: 'o/r', pr: 5 });
+    equal(doc.threads[0].followups.map((item) => [item.author, item.text]), [['owner', 'Intentional, see the doc — please do not change.'], ['alice', 'Fair enough.']], 'listed');
+  }],
+  ['followups: a re-opened thread carries every human reply newer than the paired reply', () => {
+    const w = world();
+    const thread = SHAPES['inline finding'](w);
+    addInline(w, { login: 'alice', body: 'Before the fix.', minute: 2, replyTo: thread.root.id });
+    reply(w, thread, { minute: 3 });
+    const later = [addInline(w, { login: 'alice', body: 'Not quite.', minute: 4, replyTo: thread.root.id }), addInline(w, { body: 'Agreed, reopen.', minute: 5, replyTo: thread.root.id })];
+    equal(stateOf(w, thread.key).followups.map((item) => item.id), later.map((item) => item.id), 'newer replies only');
+  }],
+  ['followups: a thread whose text the bound drops keeps its replies\' ids', () => {
+    const w = world();
+    for (let index = 0; index < 20; index += 1) {
+      addIssue(w, { login: 'alice', body: `${index} ${'x'.repeat(1400)}`, minute: index });
+    }
+    const root = addInline(w, { login: 'alice', body: 'Why a loop here?', minute: 30 });
+    const answer = addInline(w, { body: 'Keep it.', minute: 31, replyTo: root.id });
+    const doc = shapeDocument(threadStates(surfaces(w)), { repo: 'o/r', pr: 5 });
+    const listed = doc.threads.at(-1);
+    equal([listed.key, listed.text_omitted, listed.followups], [`inline:${root.id}`, true, [{ id: answer.id, at: at(31), author: VIEWER, author_association: '' }]], 'ids without text');
+  }],
+  ['bot roots: a human reply under a bot\'s inline comment makes a human thread with the bot\'s text', () => {
+    const w = world();
+    const root = addInline(w, { login: 'copilot', type: 'Bot', body: 'Consider a guard here.' });
+    const silent = addInline(w, { login: 'coderabbit', type: 'Bot', body: 'Nit: spacing.' });
+    addInline(w, { login: 'ci-bot', type: 'Bot', body: 'Same.', minute: 2, replyTo: silent.id });
+    const human = addInline(w, { login: 'alice', body: 'Agreed, please add it.', minute: 2, replyTo: root.id });
+    equal(keysOf(w), [`inline:${root.id}`], 'only the bot thread a person replied in');
+    const found = stateOf(w, `inline:${root.id}`);
+    equal([found.state, found.source, found.author, found.text, found.followups.map((item) => item.id)], ['open', 'human', 'copilot', 'Consider a guard here.', [human.id]], 'thread');
+    addInline(w, { body: addressBody(), minute: 3, replyTo: human.id });
+    equal(stateOf(w, `inline:${root.id}`).state, 'settled', 'a reply in the thread settles it');
   }],
   ['re-open: an older human reply, a bot reply or another fp-address reply does not re-open', () => {
     const w = world();

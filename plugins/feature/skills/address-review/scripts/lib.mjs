@@ -322,7 +322,7 @@ function record(item, at) {
 export function threadStates({ viewer, inline, reviews, issue }) {
   const me = String(viewer).toLowerCase();
   const people = (list) => list.filter((item) => item && !isBot(item));
-  const comments = people(inline);
+  const comments = inline.filter(Boolean);
   const notes = people(issue);
   const summaries = people(reviews).filter((review) => review.state !== 'PENDING');
 
@@ -333,7 +333,7 @@ export function threadStates({ viewer, inline, reviews, issue }) {
   const inlineReplies = new Map();
   const inlineFollowups = new Map();
   for (const comment of comments) {
-    if (comment.in_reply_to_id === undefined || comment.in_reply_to_id === null) {
+    if (comment.in_reply_to_id === undefined || comment.in_reply_to_id === null || isBot(comment)) {
       continue;
     }
     const root = rootOf(comment, byId);
@@ -377,8 +377,12 @@ export function threadStates({ viewer, inline, reviews, issue }) {
     if ((comment.in_reply_to_id !== undefined && comment.in_reply_to_id !== null) || isAddress(comment)) {
       continue;
     }
+    const followups = inlineFollowups.get(comment.id) ?? [];
+    if (isBot(comment) && followups.length === 0) {
+      continue;
+    }
     const body = bodyOf(comment);
-    const automated = isReviewMarked(body) || reviewMarked.get(comment.pull_request_review_id) === true;
+    const automated = !isBot(comment) && (isReviewMarked(body) || reviewMarked.get(comment.pull_request_review_id) === true);
     threads.push({
       ...record(comment, comment.created_at),
       key: `inline:${comment.id}`,
@@ -388,7 +392,7 @@ export function threadStates({ viewer, inline, reviews, issue }) {
       line: comment.line ?? comment.original_line ?? null,
       text: visibleText(body),
       replies: inlineReplies.get(comment.id) ?? [],
-      followups: inlineFollowups.get(comment.id) ?? [],
+      followups,
     });
   }
 
@@ -425,18 +429,12 @@ export function threadStates({ viewer, inline, reviews, issue }) {
   }
 
   const counts = { open: 0, settled: 0, held: 0, fix_failed: 0 };
-  const result = threads.map(({ replies, followups, ...thread }) => {
+  const result = threads.map(({ replies, followups = [], ...thread }) => {
     const reply = newest(replies);
-    let state = stateOf(reply);
-    let followup = null;
-    if (reply !== null && followups !== undefined) {
-      followup = newest(followups.filter((item) => byTime(item, reply) > 0));
-      if (followup !== null) {
-        state = 'open';
-      }
-    }
+    const unanswered = followups.filter((item) => reply === null || byTime(item, reply) > 0).sort(byTime);
+    const state = reply !== null && unanswered.length > 0 ? 'open' : stateOf(reply);
     counts[state === 'fix-failed' ? 'fix_failed' : state] += 1;
-    return { ...thread, state, reply, followup };
+    return { ...thread, state, reply, followups: unanswered };
   });
   result.sort((a, b) => byTime(a, b) || (a.k ?? 0) - (b.k ?? 0));
   return { viewer, threads: result, counts };
@@ -466,11 +464,18 @@ function listed(thread, withText) {
     out.reply_at = thread.reply.at;
     out.reply_url = thread.reply.url;
   }
-  if (thread.followup !== null) {
-    out.followup_id = thread.followup.id;
-    out.followup_at = thread.followup.at;
-    out.followup_author = thread.followup.author;
-    out.followup_author_association = thread.followup.association;
+  if (thread.followups?.length > 0) {
+    out.followups = thread.followups.map((followup) => {
+      const entry = { id: followup.id, at: followup.at, author: followup.author, author_association: followup.association };
+      if (withText) {
+        const text = capped(followup.text);
+        entry.text = text.text;
+        if (text.cut) {
+          entry.cut = true;
+        }
+      }
+      return entry;
+    });
   }
   if (!withText) {
     out.text_omitted = true;
@@ -480,13 +485,6 @@ function listed(thread, withText) {
   out.text = text.text;
   if (text.cut) {
     out.cut = true;
-  }
-  if (thread.followup !== null) {
-    const followup = capped(thread.followup.text);
-    out.followup = followup.text;
-    if (followup.cut) {
-      out.followup_cut = true;
-    }
   }
   return out;
 }
