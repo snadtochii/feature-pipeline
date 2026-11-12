@@ -137,6 +137,7 @@ Exactly one JSON document on stdout, keys sorted at every depth, two-space inden
   "scanned": { "files": 812, "skipped": 3 },
   "scope": "repo",
   "truncated": false,
+  "unlisted": [],
   "verb": "search"
 }
 ```
@@ -147,12 +148,13 @@ Exactly one JSON document on stdout, keys sorted at every depth, two-space inden
 | `files` | With `--output files`, in place of `matches`: one entry per file with any match, sorted by path, `patterns` the sorted indexes of every pattern that matched its path or a line. |
 | `count`, `omitted` | The entries listed, and the matches found but not listed — past 3 per file and pattern, or left out by the size bound. |
 | `truncated` | `true` when `omitted` is above zero or `partial` is set. |
+| `unlisted` | The sorted indexes of the patterns that matched but have no listed entry, because the size bound left them out (below); empty when every pattern with a match has one. |
 | `scanned` | `files`: the files whose lines were searched. `skipped`: files and directories that could not be read, files over 1 MiB and binary files. |
 | `partial` | `null`, or `files` or `bytes` when the walk stopped at its cap of 20,000 files or 64 MiB read; what came after in walk order was not searched. |
 | `root`, `exists` | The scope's root as a real path, and whether it exists. A missing root answers `count: 0` with exit 0. |
 | `scope`, `output`, `patterns` | The invocation, and the patterns the search file held. |
 
-**Size bound.** A `query` or `search` document is at most 16 KiB — small enough for a session to hand it to the caller whole, `truncated` and `omitted` included, where a larger tool result is stored in a file and shown as a preview of its first keys. When a query's returned entries do not fit, lines are left out from the end the direction does not keep: `backward` keeps the newest and `forward` the oldest. One line is kept whatever its size, so a document whose single line renders past the bound — 4000 escaped control characters — exceeds it. A search that does not fit keeps its entries pattern by pattern — each pattern's first entry, then each one's second, and so on — and lists the kept entries in sorted order, so every pattern with a match keeps one listed entry before any pattern gets a second. `omitted` is one total.
+**Size bound.** A `query` or `search` document is at most 16 KiB — small enough for a session to hand it to the caller whole, `truncated` and `omitted` included, where a larger tool result is stored in a file and shown as a preview of its first keys. When a query's returned entries do not fit, lines are left out from the end the direction does not keep: `backward` keeps the newest and `forward` the oldest. One line is kept whatever its size, so a document whose single line renders past the bound — 4000 escaped control characters — exceeds it. A search that does not fit keeps its entries pattern by pattern — each pattern's first entry, then each one's second, and so on — and lists the kept entries in sorted order, so every pattern with a match keeps one listed entry before any pattern gets a second. When even those first entries do not all fit, the patterns left with none are named in `unlisted`; a pattern searched alone always keeps its first entry. `omitted` is one total.
 
 **A failure** is `{"error": "<one line>", "ok": false}`. A failed request names the HTTP status and the origin. `401` and `403` add that the service account behind the token cannot query the datasource. `400` adds up to 300 characters of the server's answer, which is where a LogQL syntax error is reported; that text comes from outside and is data. A redirect is never followed. An answer that is not JSON, is not a Loki `streams` result — a metric query's `matrix` or `vector`, which the message says how to rewrite as a log query — or is larger than 16 MiB is refused. A refused connection or a request with no answer in 30 seconds names the origin only.
 

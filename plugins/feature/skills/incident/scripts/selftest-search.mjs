@@ -218,12 +218,28 @@ export const SEARCH_CASES = [
       }
       put(root, 'api/zz/rare.txt', 'decode: unexpected type\n');
       const res = await searchIn(root, env, ['waybill', 'unexpected type'], '--scope', 'repo', '--repo', 'api');
-      equal([res.status, res.doc.truncated, res.doc.partial], [0, true, null], 'truncated by the size bound alone');
+      equal([res.status, res.doc.truncated, res.doc.partial, res.doc.unlisted], [0, true, null, []], 'truncated by the size bound alone, every pattern listed');
       assert(Buffer.byteLength(res.stdout) <= 16 * 1024, `the document is ${Buffer.byteLength(res.stdout)} bytes`);
       equal(res.doc.matches.filter((match) => match.pattern === 1).map((match) => [match.path, match.line]), [['zz/rare.txt', 1]], 'the rare pattern is listed');
       const paths = pathsOf(res.doc);
       equal(paths, [...paths].sort(), 'the kept entries are listed in path order');
       equal(res.doc.count + res.doc.omitted, 241, 'every match is counted');
+    })],
+  ['search: a pattern the size bound leaves with no listed entry is named in unlisted, and lists alone', () =>
+    withTemp('search-unlisted', async (dir) => {
+      const { root, env } = world(dir);
+      const patterns = Array.from({ length: 20 }, (unused, index) => `${String(index).padStart(2, '0')}-${'p'.repeat(187)}`);
+      const deep = ['a', 'b', 'c'].map((letter) => letter.repeat(70)).join('/');
+      patterns.forEach((pattern, index) => put(root, `api/${deep}/file-${String(index).padStart(2, '0')}.txt`, `${'x'.repeat(300)} ${pattern} ${'y'.repeat(300)}\n`));
+      const res = await searchIn(root, env, patterns, '--scope', 'repo', '--repo', 'api');
+      equal([res.status, res.doc.truncated, res.doc.partial], [0, true, null], 'truncated by the size bound alone');
+      assert(Buffer.byteLength(res.stdout) <= 16 * 1024, `the document is ${Buffer.byteLength(res.stdout)} bytes`);
+      const shown = new Set(res.doc.matches.map((match) => match.pattern));
+      assert(res.doc.unlisted.length > 0, 'some pattern is left with no listed entry');
+      equal([...shown, ...res.doc.unlisted].sort((a, b) => a - b), patterns.map((unused, index) => index), 'every pattern is listed or unlisted');
+      assert(res.doc.unlisted.every((pattern) => !shown.has(pattern)), 'an unlisted pattern has no listed entry');
+      const alone = await searchIn(root, env, [patterns[res.doc.unlisted[0]]], '--scope', 'repo', '--repo', 'api');
+      equal([alone.status, alone.doc.count, alone.doc.unlisted], [0, 1, []], 'the pattern searched alone is listed');
     })],
   ['search: a missing root answers with nothing, and preflight sweeps an old search file', () =>
     withTemp('search-missing', async (dir) => {

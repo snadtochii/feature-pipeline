@@ -19,12 +19,15 @@ export const REPO_RULE = 'must be one directory name, or "." for the project roo
 
 const REPO_NAME = /^[A-Za-z0-9._-]+$/;
 const INPUT_EXTENSIONS = { query: 'logql', search: 'txt' };
-const INPUT_FILE_NAME = new RegExp(
-  `^\\.(?:${Object.entries(INPUT_EXTENSIONS)
-    .map(([kind, extension]) => `${kind}-${RUN_ID.source.slice(1, -1)}\\.${extension}`)
-    .join('|')})$`,
-);
 const STALE_INPUT_MS = 60 * 60 * 1000;
+
+/** Whether `name` is an input file's name: `.<kind>-<run>.<extension>` for a kind of the table and a run `RUN_ID` accepts. */
+const isInputFileName = (name) =>
+  Object.entries(INPUT_EXTENSIONS).some(([kind, extension]) => {
+    const prefix = `.${kind}-`;
+    const suffix = `.${extension}`;
+    return name.startsWith(prefix) && name.endsWith(suffix) && RUN_ID.test(name.slice(prefix.length, -suffix.length));
+  });
 
 export const isSet = (value) => typeof value === 'string' && value !== '';
 export const isRepoName = (value) => REPO_NAME.test(value) && value !== '..';
@@ -112,7 +115,7 @@ export function sweepInputFiles(projectRoot, now) {
   } catch {
     return;
   }
-  for (const name of names.filter((entry) => INPUT_FILE_NAME.test(entry))) {
+  for (const name of names.filter(isInputFileName)) {
     const file = path.join(dir, name);
     try {
       const stat = fs.lstatSync(file);

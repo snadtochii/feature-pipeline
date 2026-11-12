@@ -347,27 +347,32 @@ export function search({ projectRoot, run, scope, repo, output }, env = process.
   walk.found.sort((a, b) => byCodeUnit(a.path, b.path) || a.line - b.line || a.pattern - b.pattern);
   const listed = output === 'files' ? filesOf(walk.found) : walk.found;
   const overflow = output === 'files' ? 0 : walk.overflow;
-  const ordered = boundOrder(listed, output === 'files' ? (entry) => entry.patterns : (entry) => [entry.pattern]);
-  const kept = (keep) =>
-    ordered
+  const patternsOf = output === 'files' ? (entry) => entry.patterns : (entry) => [entry.pattern];
+  const ordered = boundOrder(listed, patternsOf);
+  const matched = new Set(listed.flatMap(patternsOf));
+  const documentKeeping = (keep) => {
+    const entries = ordered
       .slice(0, keep)
       .sort((a, b) => a.index - b.index)
       .map(({ entry }) => entry);
-  const documentKeeping = (keep) => ({
-    ok: true,
-    verb: 'search',
-    scope,
-    root: root ?? SCOPES[scope].root({ projectRoot, repo }),
-    exists: root !== null,
-    output,
-    patterns,
-    [output === 'files' ? 'files' : 'matches']: kept(keep),
-    count: keep,
-    omitted: listed.length - keep + overflow,
-    truncated: listed.length > keep || overflow > 0 || walk.partial !== null,
-    scanned: { files: walk.files, skipped: walk.skipped },
-    partial: walk.partial,
-  });
+    const shown = new Set(entries.flatMap(patternsOf));
+    return {
+      ok: true,
+      verb: 'search',
+      scope,
+      root: root ?? SCOPES[scope].root({ projectRoot, repo }),
+      exists: root !== null,
+      output,
+      patterns,
+      [output === 'files' ? 'files' : 'matches']: entries,
+      count: keep,
+      omitted: listed.length - keep + overflow,
+      unlisted: [...matched].filter((pattern) => !shown.has(pattern)).sort((a, b) => a - b),
+      truncated: listed.length > keep || overflow > 0 || walk.partial !== null,
+      scanned: { files: walk.files, skipped: walk.skipped },
+      partial: walk.partial,
+    };
+  };
   const fits = (keep) => Buffer.byteLength(render(documentKeeping(keep))) <= MAX_DOCUMENT_BYTES;
   return documentKeeping(largestFit(listed.length, fits, 0));
 }

@@ -223,7 +223,12 @@ const CASES = [
       fs.writeFileSync(target, 'kept');
       const link = path.join(root, 'claudedocs', 'incidents', '.query-20260101-000000-0000beef.logql');
       fs.symlinkSync(target, link);
-      for (const file of [stale, report, target]) {
+      const nearMisses = ['.query-20260101-000000-0000beef.txt', '.search-20260101-000000-0000beef.logql', '.query-2026-0000beef.logql', '.notes-20260101-000000-0000beef.logql'].map((name) => {
+        const file = path.join(root, 'claudedocs', 'incidents', name);
+        fs.writeFileSync(file, 'kept');
+        return file;
+      });
+      for (const file of [stale, report, target, ...nearMisses]) {
         fs.utimesSync(file, twoHoursAgo, twoHoursAgo);
       }
       fs.lutimesSync(link, twoHoursAgo, twoHoursAgo);
@@ -234,6 +239,7 @@ const CASES = [
         [false, true, true, true, true],
         'only the old regular query file is removed',
       );
+      equal(nearMisses.map((file) => fs.existsSync(file)), [true, true, true, true], 'a name that is not an input file is kept');
     })],
   ['preflight: a failure exits 1 or 2 with one error document', () =>
     withTemp('failure', async (dir) => {
