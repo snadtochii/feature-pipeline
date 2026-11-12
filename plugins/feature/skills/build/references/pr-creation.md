@@ -150,7 +150,7 @@ fi
 [ -n "$base" ] || base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
 ```
 
-**The integration fallback** runs only for a `MERGED` PR based on `integration/<epic-id>` whose merge commit is not reachable from `origin/<base>` — what a squash- or rebase-merged integration PR leaves, since the child's merge commit lives only on the integration branch. GitHub's PR search finds the PRs that contain a commit SHA, so one `gh pr list --head "$PR_BASE" --state merged --search "$MERGE_SHA"` returns the merged integration PRs carrying the child — among same-named PRs left by ship's `spent` reset, only the one that carries it — with no need for the integration branch locally. The child has landed when one of them has its own merge commit on `origin/<its base>`. A search index that has not caught up returns nothing, which leaves the child `integration-pending` until a later run, never promoted.
+**The integration fallback** runs only for a `MERGED` PR based on `integration/<epic-id>` whose merge commit is not reachable from `origin/<base>` — what a squash- or rebase-merged integration PR leaves, since the child's merge commit lives only on the integration branch. GitHub's PR search finds the PRs that contain a commit SHA, so one `gh pr list --head "$PR_BASE" --state merged --search "$MERGE_SHA"` returns the merged integration PRs carrying the child — among same-named PRs left by ship's `spent` reset, only the one that carries it — with no need for the integration branch locally. With `--search`, `--head` matches branch-name prefixes (`integration/FP-4` also returns `integration/FP-47`), so a returned PR counts as a carrier only when its `headRefName` equals `PR_BASE` exactly. The child has landed when one of them has its own merge commit on `origin/<its base>`. A search index that has not caught up returns nothing, which leaves the child `integration-pending` until a later run, never promoted.
 
 Then, with `STATE`, `MERGE_SHA` and `PR_BASE` as the lookup bound them (`MERGE_SHA` is the `mergeCommit.oid` — a controlled command-substitution value, never free text, and checked as hex before use):
 
@@ -167,10 +167,11 @@ if [ "$STATE" = MERGED ]; then
       else
         OUTCOME=integration-pending
         if CARRIERS=$(gh pr list --head "$PR_BASE" --state merged --search "$MERGE_SHA" \
-            --json number,mergeCommit,baseRefName,isCrossRepository \
-            --jq '.[] | select(.isCrossRepository | not) | "\(.number) \(.mergeCommit.oid // "-") \(.baseRefName)"' 2>/dev/null); then
-          while read -r PR_N PR_SHA PR_TRUNK; do
+            --json number,mergeCommit,baseRefName,headRefName,isCrossRepository \
+            --jq '.[] | select(.isCrossRepository | not) | "\(.number) \(.mergeCommit.oid // "-") \(.baseRefName) \(.headRefName)"' 2>/dev/null); then
+          while read -r PR_N PR_SHA PR_TRUNK PR_HEAD; do
             case "$PR_N" in '') continue ;; *[!0-9]*) OUTCOME=unverifiable; continue ;; esac
+            [ "$PR_HEAD" = "$PR_BASE" ] || continue
             case "$PR_SHA" in ''|*[!0-9a-f]*) OUTCOME=unverifiable; continue ;; esac
             case "$PR_TRUNK" in ''|*[!A-Za-z0-9._/-]*) OUTCOME=unverifiable; continue ;; esac
             git merge-base --is-ancestor "$PR_SHA" "origin/$PR_TRUNK" 2>/dev/null
