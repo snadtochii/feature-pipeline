@@ -20,6 +20,7 @@ const NAME = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 const SESSION_FILE = /^([A-Za-z0-9_-][A-Za-z0-9._-]*)\.jsonl$/;
 const AGENT_JSONL = /^agent-([A-Za-z0-9_-]+)\.jsonl$/;
 const AGENT_META = /^agent-([A-Za-z0-9_-]+)\.meta\.json$/;
+const AGENT_PREFIX = /^agent-[A-Za-z0-9_-]+\.prefix\.json$/;
 const DIGEST_FILE = /^([A-Za-z0-9_-][A-Za-z0-9._-]*)\.json$/;
 const SUBAGENTS_DIR = 'subagents';
 
@@ -69,10 +70,20 @@ function byPath(a, b) {
   return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 }
 
+/** `'missing'`, `'dir'` for a real directory, or `'other'` for a symlink, a file or an unreadable entry. */
+function dirKind(dir) {
+  try {
+    return fs.lstatSync(dir).isDirectory() ? 'dir' : 'other';
+  } catch (err) {
+    return err.code === 'ENOENT' ? 'missing' : 'other';
+  }
+}
+
 function scanSubagents(dir, relative, counts) {
   const jsonl = new Map();
   const meta = new Map();
-  const entries = readDir(dir);
+  const kind = dirKind(dir);
+  const entries = kind === 'dir' ? readDir(dir) : kind === 'missing' ? [] : null;
   if (entries === null) {
     counts.skipped += 1;
     return { agents: [], orphanMeta: 0 };
@@ -84,6 +95,8 @@ function scanSubagents(dir, relative, counts) {
       jsonl.set(jsonlMatch[1], entry.name);
     } else if (metaMatch !== null) {
       meta.set(metaMatch[1], entry.name);
+    } else if (entry.isFile() && AGENT_PREFIX.test(entry.name)) {
+      continue;
     } else {
       counts.skipped += 1;
     }

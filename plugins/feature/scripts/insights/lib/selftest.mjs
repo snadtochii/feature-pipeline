@@ -38,6 +38,8 @@ const SESSIONS = {
   d: { id: '0d0d0d0d-0000-4000-8000-00000000000d', slug: '-ROOT-scratch' },
 };
 
+const LINKED_SESSION_ID = '0e0e0e0e-0000-4000-8000-00000000000e';
+
 const transcriptOf = (key) => `${SESSIONS[key].slug}/${SESSIONS[key].id}.jsonl`;
 
 function copyFixtures(source, target, root) {
@@ -88,6 +90,15 @@ function makeWorld() {
   fs.mkdirSync(path.join(store, SESSIONS.a.slug, 'memory'));
   fs.writeFileSync(path.join(store, SESSIONS.a.slug, 'memory', 'MEMORY.md'), `${SENTINEL}\n`);
   fs.writeFileSync(path.join(store, SESSIONS.a.slug, SESSIONS.a.id, 'custom-title.json'), JSON.stringify({ title: SENTINEL }));
+  const subagentsOfA = path.join(store, SESSIONS.a.slug, SESSIONS.a.id, 'subagents');
+  fs.writeFileSync(path.join(subagentsOfA, 'agent-a1.prefix.json'), JSON.stringify({ prefix: SENTINEL }));
+  fs.symlinkSync(path.join(store, transcriptOf('a')), path.join(store, SESSIONS.a.slug, `${LINKED_SESSION_ID}.jsonl`));
+  fs.mkdirSync(path.join(store, SESSIONS.b.slug, SESSIONS.b.id));
+  fs.symlinkSync(subagentsOfA, path.join(store, SESSIONS.b.slug, SESSIONS.b.id, 'subagents'));
+  const subagentsOfC = path.join(store, SESSIONS.c.slug, SESSIONS.c.id, 'subagents');
+  fs.mkdirSync(subagentsOfC, { recursive: true });
+  fs.writeFileSync(path.join(subagentsOfC, 'agent-c1.jsonl'), '');
+  fs.writeFileSync(path.join(subagentsOfC, 'agent-c1.meta.json'), JSON.stringify([SENTINEL]));
   return { cacheRoot: path.join(home, '.feature-pipeline', 'insights', 'digests'), dir, home, repo, store, ws };
 }
 
@@ -301,10 +312,14 @@ const CASES = [
   ['extract: the first run parses every session', async (world) => {
     const doc = await extractRun(world);
     equal(doc.sessions, { ...SESSION_COUNTS, mapped: 3, parsed: 4, seen: 4, unmapped: 1 }, 'sessions');
-    equal(doc.subagents, { orphan_jsonl: 1, orphan_meta: 1, parsed: 2 }, 'subagents');
+    equal(doc.subagents, { orphan_jsonl: 1, orphan_meta: 1, parsed: 3 }, 'subagents');
     equal([doc.malformed_lines, doc.malformed_sessions, doc.malformed_sessions_total], [2, [transcriptOf('a')], 1], 'malformed');
-    equal(doc.anomalies, { no_message_id: 1, orphan_jsonl: 1, orphan_meta: 1 }, 'anomalies');
-    equal([doc.skipped_entries, doc.schema_version, doc.cache_dir], [1, SCHEMA_VERSION, world.cacheRoot], 'skipped, schema and cache dir');
+    equal(doc.anomalies, { bad_meta: 1, no_message_id: 1, orphan_jsonl: 1, orphan_meta: 1 }, 'anomalies');
+    equal(
+      [doc.skipped_entries, doc.schema_version, doc.cache_dir],
+      [3, SCHEMA_VERSION, world.cacheRoot],
+      'skipped (memory/, a symlinked transcript, a symlinked subagents), schema and cache dir',
+    );
     const a = digestOf(world, 'a');
     equal([a.session_id, a.project, a.project_via, a.cwd], [SESSIONS.a.id, world.repo, 'cwd', path.join(world.ws, 'repo')], 'session A identity');
     equal([a.start, a.end, a.duration_ms], [at(5), at(70), 65_000], 'session A span across agents');
@@ -313,10 +328,14 @@ const CASES = [
     equal(a.sources.map((source) => source.path.split('/').pop()), [`${SESSIONS.a.id}.jsonl`, 'agent-a1.jsonl', 'agent-a1.meta.json', 'agent-a2.jsonl'], 'sources');
     const [, a1, a2] = a.agents;
     equal([a1.agent_type, a1.tool_use_id, a1.spawn_depth, a1.parent_agent_id], ['feature:code-reviewer', 'toolu_agent1', 1, null], 'subagent meta');
-    equal([a1.description.length, a1.description.startsWith('Code review for FP-7 label')], [200, true], 'description label');
+    assert(!('description' in a1), 'the meta description is not kept');
     equal([a2.agent_type, a2.anomalies], [null, { orphan_jsonl: 1 }], 'orphan transcript');
-    equal([digestOf(world, 'b').project, digestOf(world, 'b').project_via], [world.repo, 'worktree'], 'session B');
-    equal([digestOf(world, 'c').project, digestOf(world, 'c').project_via], [world.repo, 'worktree-sibling'], 'session C');
+    const b = digestOf(world, 'b');
+    equal([b.project, b.project_via], [world.repo, 'worktree'], 'session B');
+    equal([b.agents.length, b.sources.length], [1, 1], 'session B: its symlinked subagents directory is not followed');
+    const c = digestOf(world, 'c');
+    equal([c.project, c.project_via], [world.repo, 'worktree-sibling'], 'session C');
+    equal([c.agents[1].agent_id, c.agents[1].agent_type, c.agents[1].anomalies], ['c1', null, { bad_meta: 1 }], 'a meta file that is not an object');
     equal([digestOf(world, 'd').project, digestOf(world, 'd').project_via], [null, null], 'session D');
   }],
   ['extract: a second run reuses every digest', async (world) => {
@@ -324,6 +343,16 @@ const CASES = [
     equal(doc.sessions, { ...SESSION_COUNTS, mapped: 3, reused: 4, seen: 4, unmapped: 1 }, 'sessions');
     equal(doc.subagents.parsed, 0, 'no subagent read');
     equal(doc.malformed_lines, 2, 'malformed lines still reported');
+  }],
+  ['extract: a reused digest whose project changed is remapped, not parsed', async (world) => {
+    const before = digestOf(world, 'd');
+    fs.mkdirSync(path.join(world.ws, 'scratch', 'claudedocs', 'tickets'), { recursive: true });
+    const doc = await extractRun(world);
+    equal(doc.sessions, { ...SESSION_COUNTS, mapped: 4, remapped: 1, reused: 4, seen: 4 }, 'sessions');
+    equal(doc.subagents.parsed, 0, 'no subagent read');
+    const after = digestOf(world, 'd');
+    equal([after.project, after.project_via], [path.join(world.ws, 'scratch'), 'cwd'], 'session D remapped');
+    equal({ ...after, project: null, project_via: null }, before, 'only the project fields rewritten');
   }],
   ['extract: a grown transcript is parsed again', async (world) => {
     const line = { cwd: path.join(world.ws, 'repo-worktrees', 'wt'), message: { id: 'msg_b2', model: 'claude-opus-test', stop_reason: 'end_turn', usage: { input_tokens: 5 } }, timestamp: '2026-11-12T11:00:20.000Z', type: 'assistant' };
@@ -342,8 +371,10 @@ const CASES = [
     const corrupt = await extractRun(world);
     equal([corrupt.sessions.cache_corrupt, corrupt.sessions.parsed, corrupt.sessions.reused], [1, 1, 3], 'corrupt digest');
   }],
-  ['extract: a session missing a subagent file keeps its digest unchanged', async (world) => {
-    const before = fs.readFileSync(digestFile(world, 'a'), 'utf8');
+  ['extract: a session missing a subagent file keeps its digest unchanged, under a schema change too', async (world) => {
+    const file = digestFile(world, 'a');
+    fs.writeFileSync(file, render({ ...JSON.parse(fs.readFileSync(file, 'utf8')), schema_version: SCHEMA_VERSION + 1 }));
+    const before = fs.readFileSync(file, 'utf8');
     fs.rmSync(path.join(world.store, SESSIONS.a.slug, SESSIONS.a.id, 'subagents', 'agent-a1.jsonl'));
     const doc = await extractRun(world);
     equal([doc.sessions.kept_stale, doc.sessions.parsed, doc.sessions.reused], [1, 0, 3], 'kept stale');

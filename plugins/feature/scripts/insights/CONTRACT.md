@@ -50,17 +50,19 @@ and is not an error.
 |---|---|
 | `<slug>/<session-id>.jsonl` | A main session's transcript. |
 | `<slug>/<session-id>/subagents/agent-<agent-id>.jsonl` | One subagent's transcript in that session. |
-| `<slug>/<session-id>/subagents/agent-<agent-id>.meta.json` | That subagent's metadata (`agentType`, `description`, `toolUseId`, `spawnDepth`, `parentAgentId`). |
+| `<slug>/<session-id>/subagents/agent-<agent-id>.meta.json` | That subagent's metadata, of which `agentType`, `toolUseId`, `spawnDepth` and `parentAgentId` are read. |
 
 - `<slug>` and `<session-id>` match `^[A-Za-z0-9_-][A-Za-z0-9._-]*$`; `<agent-id>` matches
   `^[A-Za-z0-9_-]+$`. A name that does not is skipped.
 - Only regular files and real directories are read. A symlink is never followed.
 - **Counted in `skipped_entries`:** every other entry directly under the store, every other
   entry directly under a `<slug>/` (the `memory/` directory, stray files, a symlink), a
-  `<session-id>/` directory with no matching main transcript, every other entry under
-  `subagents/`, and a file that vanishes or cannot be listed between scan and stat.
+  `<session-id>/` directory with no matching main transcript, a `subagents` entry that is not
+  a real directory, every other entry under `subagents/`, and a file that vanishes or cannot
+  be listed between scan and stat.
 - Entries of a `<session-id>/` directory other than `subagents/` (`custom-title.json`,
-  `*.txt`, tool-result spill files) are ignored and not counted.
+  `*.txt`, tool-result spill files), and the `agent-<agent-id>.prefix.json` files under
+  `subagents/`, are ignored and not counted.
 - A subagent `.jsonl` with no `.meta.json` becomes an agent with null metadata fields
   (`anomalies.orphan_jsonl`). A `.meta.json` with no `.jsonl` is counted only
   (`anomalies.orphan_meta` on the session, `subagents.orphan_meta` in the summary).
@@ -127,7 +129,6 @@ Each `agents[]` entry:
 |---|---|---|
 | `agent_id` | string | `root` for the main transcript; else the `<agent-id>` of its file name. |
 | `agent_type` | string or null | The meta `agentType`, kept when it matches `^[A-Za-z0-9][A-Za-z0-9:._-]{0,99}$`. |
-| `description` | string or null | The meta `description`, collapsed to one line and cut at 200 characters (§8). |
 | `tool_use_id` | string or null | The meta `toolUseId`, kept when it matches `^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$`. |
 | `spawn_depth` | integer or null | The meta `spawnDepth`, kept when it is a non-negative integer. |
 | `parent_agent_id` | string or null | The meta `parentAgentId`, same shape as `tool_use_id`. |
@@ -244,10 +245,9 @@ the store holds.
 - No message text enters a digest or the summary: no user prompt, assistant text, tool input
   or tool output. Tool-result content is read only to classify it (§5), its first 300
   characters at most, and is never stored.
-- The text-derived fields are exactly these: the subagent `description` label, one line of
-  at most 200 characters, which the agent's spawner wrote and which identifies the agent's
-  role and ticket; command names passing their shape check; and ticket-ID-shaped tokens
-  from command arguments.
+- The text-derived fields are exactly these: command names passing their shape check, and
+  ticket-ID-shaped tokens from command arguments. A subagent's metadata contributes only its
+  shape-checked type, IDs and depth (§4); its free-text fields are never read.
 - The store is read-only. Writes go only under `$HOME/.feature-pipeline/insights/`.
 - No network access. `git` runs with `-C <cwd>` as one argument, never through a shell.
 
@@ -268,11 +268,14 @@ temporary `HOME`. It covers:
 - start and end as the minimum and maximum timestamps;
 - project mapping: a project root, a subdirectory, a live worktree, a deleted worktree and an
   unmapped session;
-- an end-to-end first run, with subagents, an orphan transcript and an orphan meta file;
-- incremental reruns: everything reused, one changed transcript parsed, a schema change
-  parsed, a deleted subagent kept stale, a deleted transcript kept;
-- after every run: the sentinel in no digest, stdout or stderr; the store unchanged; digest
-  modes 0600 and directory modes 0700; nothing written outside
-  `$HOME/.feature-pipeline/insights/`.
+- an end-to-end first run, with subagents, an orphan transcript, an orphan meta file, a
+  meta file that is not an object, ignored prefix files, and a symlinked transcript and a
+  symlinked `subagents` directory skipped unfollowed;
+- incremental reruns: everything reused, a changed project remapped without a parse, one
+  changed transcript parsed, a schema change parsed, a deleted subagent kept stale even
+  under a schema change, a deleted transcript kept;
+- after every run: the sentinel — carried by every free-text meta field too — in no digest,
+  stdout or stderr; the store unchanged; digest modes 0600 and directory modes 0700;
+  nothing written outside `$HOME/.feature-pipeline/insights/`.
 
 It runs in `.github/workflows/validation.yml` and in the check chain in `AGENTS.md`.

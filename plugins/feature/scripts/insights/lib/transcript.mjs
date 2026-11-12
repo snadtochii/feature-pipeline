@@ -1,14 +1,12 @@
 // The transcript accumulator (../CONTRACT.md §5): one agent's transcript
 // lines folded into its digest fields — token usage, models, skill loads,
 // commands, friction counts, timestamps and malformed lines. Every value it
-// keeps is a count, an ID, a timestamp, a validated name or the capped
-// description label; message text is read only to classify it.
+// keeps is a count, an ID, a timestamp or a validated name; message text is
+// read only to classify it.
 //
 // Private to the implementation: only insights.mjs is a command.
 
 import fs from 'node:fs';
-
-import { oneLine } from '../../lib/output.mjs';
 
 const CONVERSATION_TYPES = new Set(['assistant', 'user', 'attachment', 'system']);
 
@@ -30,7 +28,6 @@ const TICKET_ID = /\b[A-Z][A-Z0-9]*-\d+\b/g;
 const MAX_COMMAND_IDS = 10;
 const MAX_COMMANDS = 50;
 
-const MAX_DESCRIPTION_CHARS = 200;
 const MAX_CWD_CHARS = 4096;
 const RESULT_PREFIX_CHARS = 300;
 
@@ -63,12 +60,14 @@ export function countInto(counts, key, by = 1) {
   counts.set(key, (counts.get(key) ?? 0) + by);
 }
 
-/** The digest fields of a subagent's `.meta.json`, each kept only when it has its expected shape. */
+/**
+ * The digest fields of a subagent's `.meta.json`, each kept only when it has
+ * its expected shape. Its free-text fields are never read.
+ */
 export function metaFields(meta) {
   const source = isObject(meta) ? meta : {};
   return {
     agent_type: matchOrNull(source.agentType, AGENT_TYPE),
-    description: typeof source.description === 'string' ? oneLine(source.description).slice(0, MAX_DESCRIPTION_CHARS) : null,
     parent_agent_id: matchOrNull(source.parentAgentId, OPAQUE_ID),
     spawn_depth: Number.isSafeInteger(source.spawnDepth) && source.spawnDepth >= 0 ? source.spawnDepth : null,
     tool_use_id: matchOrNull(source.toolUseId, OPAQUE_ID),
