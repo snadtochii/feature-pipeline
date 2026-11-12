@@ -12,7 +12,7 @@ Run the checks **in order**, before any other work:
 2. `gh auth status` exits 0 — authenticated?
 3. `git remote get-url origin` matches `github.com` (both the `git@github.com:` and `https://github.com/` origin forms) — GitHub origin?
 
-`review` given a full PR URL runs checks 1 and 2 only, because the URL names the repo and no command depends on the current directory. A bare PR number and its no-argument scan run all three. `sync`, `address-review` and `pr-creation.md` always run all three; at a multi-repo workspace root, `sync` runs check 3 once per repository, after it has enumerated tickets.
+`review` given a full PR URL runs checks 1 and 2 only, because the URL names the repo and no command depends on the current directory. A bare PR number runs all three. `sync`, `address-review` and `pr-creation.md` always run all three; at a multi-repo workspace root, `sync` runs check 3 once per repository, after it has enumerated tickets.
 
 ## Fail-closed contract
 
