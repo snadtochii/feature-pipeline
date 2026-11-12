@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { UsageError } from './output.mjs';
+import { UsageError } from '../../lib/output.mjs';
 
 /** Each verb's flags; every flag takes a value. */
 export const VERB_FLAGS = {
