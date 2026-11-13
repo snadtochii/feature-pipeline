@@ -24,6 +24,18 @@ The role answers the reader's first question ("is this a review or a reply?"), a
 
 **No automation mechanics in visible text.** The label, the idempotency rule, the head SHA as an idempotency key, and any scheduling/cadence detail never appear in a visible comment. The round in the footer and the limit note ([`review-memory.md`](review-memory.md) §3) are the exceptions, because they tell the owner which pass each comment is, when a model stopped reviewing and how to resume it. A note's subject — the head it could not verify, the setup that would verify it, the inner review's result — is its content, not mechanics, and its footer is the only thing the signature adds to it. The only machine metadata that ships with a comment is the hidden marker (§2), which renders invisibly on GitHub.
 
+**Signing a note.** A note ends with two lines, both outside any fence: the note footer, then the §2 `fp-note` marker as the comment's last non-blank line.
+
+```
+_— 📝 <source> note by <Model> on behalf of <LOGIN>_
+<!-- fp-note agent=<codex|claude> source=<source> -->
+```
+
+- `<source>` is the posting caller, `ship` or `close`.
+- `<Model>` and `agent` come from the caller's runtime binding.
+- `<LOGIN>` is the printed value of one `gh api user --jq .login` call, made before the caller's first signed note and reused for the rest of its run; a caller that posts no note makes no read. The value must match `^[A-Za-z0-9-]+$` and is written as a literal in the body.
+- A failed read, or a value that fails the pattern, leaves the note unsigned, and an unsigned note is never posted. Each caller states what it does instead.
+
 ## §2 Hidden marker (machine idempotency key)
 
 Every automated review embeds one HTML comment, invisible in GitHub's rendered view, as the machine-readable idempotency key:

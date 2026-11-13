@@ -212,17 +212,7 @@ The orchestrator's evidence that a hop left the ticket green, defined once here 
 Green = the checks green at the head SHA (or the fallback green) and the close record green; Step 4's `checks` field records the source. **Merged-state revalidation stays local**: END OF RUN's integration-branch check and the parallel walk's per-merge revalidation ([`references/parallel-walk.md`](references/parallel-walk.md) §5) each validate a tree no PR's checks ran against, so they run the suite as written there — this section does not govern them.
 
 ### Signed notes (every run)
-Every issue comment the orchestrator posts — Step 2's provenance comment, and the end-of-run UI pass's evidence, part and *not verified* comments ([`references/ui-verification.md`](references/ui-verification.md) steps 3 and 5) — ends with the note signature of [`pr-comments.md`](../review/references/pr-comments.md) §1/§2, defined once here and cited by those steps:
-
-```
-_— 📝 ship note by <Model> on behalf of <LOGIN>_
-<!-- fp-note agent=<codex|claude> source=ship -->
-```
-
-- The marker is the comment's last non-blank line and the footer the line directly before it, both outside any fence. A part comment carries them where [`ui-attach.md`](../build/references/ui-attach.md) §5's part body places them.
-- `<Model>` is `Claude` for `agent=claude` and `Codex` for `agent=codex`, from the runtime bound at SETUP.
-- `<LOGIN>` is the printed value of one `gh api user --jq .login` call, made before the run's first signed post and reused for the rest of the run. It must match `^[A-Za-z0-9-]+$`, and it is written as a literal in the quoted-heredoc body, never with a leading `@`. A run that posts none of these comments makes no read.
-- A failed read, or a value that fails the pattern, means the post is not made. It is reported as that post's failure — Step 2's blockers line, the UI pass's `UI evidence <id>: not posted (login read failed)` line, or its *not verified* post's failure line — and never stops the run; the next signed post retries the read.
+Every issue comment the orchestrator posts — Step 2's provenance comment, and the end-of-run UI pass's evidence, part and *not verified* comments ([`references/ui-verification.md`](references/ui-verification.md) steps 3 and 5) — is signed per [`pr-comments.md`](../review/references/pr-comments.md) §1, *Signing a note*, with `source=ship` and the runtime bound at SETUP; a part comment carries the signature where [`ui-attach.md`](../build/references/ui-attach.md) §5's part body places it. When the login read fails, the post is not made: it is reported as that post's failure — Step 2's blockers line, the UI pass's `UI evidence <id>: not posted (login read failed)` line, or its *not verified* post's failure line — and never stops the run; the next signed post retries the read.
 
 ### AFTER EACH IMPLEMENTER RETURNS (orchestrator verifies)
 **For an integration ticket:** `git -C "<repo-path>" checkout <integration branch> && git -C "<repo-path>" pull --ff-only`, then **independently**: confirm the merge commit is on the integration branch, `gh pr view <n> --repo "<owner/repo>"` shows `MERGED`, no stray open PR remains, and Hop verification on the merged PR's head is green — the serial walk forks each ticket from the current integration head and nothing else merges in between, so the squash result is the tree its checks ran on. On a PR that reported no checks, the pre-merge Hop verification Step 3 ran is this hop's evidence and is not repeated.
