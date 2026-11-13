@@ -22,7 +22,7 @@ The role answers the reader's first question ("is this a review or a reply?"), a
 
 **The author's own manual comments carry no footer** — that absence is the tell that distinguishes a human note from an automated one. Never add a footer to anything but an automated post.
 
-**No automation mechanics in visible text.** The label, the idempotency rule, the head SHA, and any scheduling/cadence detail never appear in a visible comment. The round in the footer and the limit note ([`review-memory.md`](review-memory.md) §3) are the exceptions, because they tell the owner which pass each comment is, when a model stopped reviewing and how to resume it. A note's subject — the head it could not verify, the setup that would verify it, the inner review's result — is its content, not mechanics, and its footer is the only thing the signature adds to it. The only machine metadata that ships with a comment is the hidden marker (§2), which renders invisibly on GitHub.
+**No automation mechanics in visible text.** The label, the idempotency rule, the head SHA as an idempotency key, and any scheduling/cadence detail never appear in a visible comment. The round in the footer and the limit note ([`review-memory.md`](review-memory.md) §3) are the exceptions, because they tell the owner which pass each comment is, when a model stopped reviewing and how to resume it. A note's subject — the head it could not verify, the setup that would verify it, the inner review's result — is its content, not mechanics, and its footer is the only thing the signature adds to it. The only machine metadata that ships with a comment is the hidden marker (§2), which renders invisibly on GitHub.
 
 ## §2 Hidden marker (machine idempotency key)
 
