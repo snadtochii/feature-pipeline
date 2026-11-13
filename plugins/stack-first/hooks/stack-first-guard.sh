@@ -58,7 +58,8 @@ assign_re='^[A-Za-z_][A-Za-z0-9_]*='
 
 # Decide whether a single sub-command adds a package.
 # The manager must be the command word — the first token after any `VAR=value`
-# assignments and pass-through wrappers (env/sudo/command/exec/time/nohup and
+# assignments, shell keywords that open a command (if/then/do/else/elif/while/
+# until/!/{/( ) and pass-through wrappers (env/sudo/command/exec/time/nohup and
 # their flags) — so a manager named inside prose, an `echo` string or a grep
 # pattern is not a command. Locates the manager subcommand past any leading
 # global options (so workspace/filter forms are handled), then fires on
@@ -74,6 +75,7 @@ decide_fire() {
     local wrapped=0
     while [ "$i" -lt "$n" ]; do
         case "${toks[$i]}" in
+            if|then|do|else|elif|while|until|'!'|'{'|'(') ;;
             env|sudo|command|exec|time|nohup) wrapped=1 ;;
             -*) [ "$wrapped" -eq 1 ] || return 1 ;;
             *) [[ "${toks[$i]}" =~ $assign_re ]] || break ;;
@@ -81,7 +83,7 @@ decide_fire() {
         i=$((i + 1))
     done
     [ "$i" -lt "$n" ] || return 1
-    local mgr="${toks[$i]}"
+    local mgr="${toks[$i]#\(}"                           # `(pnpm add zod)` subshell
     case "$mgr" in
         pnpm|npm|yarn|bun) ;;
         *) return 1 ;;
@@ -113,8 +115,8 @@ decide_fire() {
     done
     [ -n "$subcmd" ] || return 1
     # Scan tokens after the subcommand for a real package argument, skipping
-    # flags, the values of value-consuming options and redirections. A lone `&`
-    # (background) or a `#` comment ends the command.
+    # flags, the values of value-consuming options and redirections. A `#`
+    # comment ends the command.
     local k=$((j + 1))
     local tok
     while [ "$k" -lt "$n" ]; do
@@ -128,7 +130,7 @@ decide_fire() {
             continue
         fi
         case "$tok" in
-            '&'|'#'*) return 1 ;;
+            '#'*) return 1 ;;
             --*=*) k=$((k + 1)) ;;                        # --save-dev=… etc — skip
             -*)
                 if value_opt "$mgr" "$tok"; then
@@ -143,7 +145,9 @@ decide_fire() {
     return 1
 }
 
-# Split the command on shell separators (&& || ; |) and evaluate each sub-command.
+# Split the command on shell separators (&& || ; | and a standalone `&`) and
+# evaluate each sub-command. A standalone `&` has whitespace before it and
+# whitespace or the line end after it, so the `&` inside `2>&1` and `&>` is not one.
 # A shadcn CLI invocation (npx/pnpm dlx/bunx/local/direct) is exempt broadly — its
 # component adds are UI scaffolding, not ecosystem-adoption decisions.
 # Pure-bash replacement (no sed): BSD sed on macOS emits a literal "n" for "\n",
@@ -154,9 +158,13 @@ subcmds="${subcmds//&&/$'\n'}"
 subcmds="${subcmds//\|\|/$'\n'}"
 subcmds="${subcmds//;/$'\n'}"
 subcmds="${subcmds//\|/$'\n'}"
+subcmds="${subcmds// & /$'\n'}"
 
 fire=0
 while IFS= read -r sub; do
+    if [[ "$sub" =~ ^(.*[[:space:]])\&[[:space:]]*$ ]]; then
+        sub="${BASH_REMATCH[1]}"                        # trailing background `&`
+    fi
     [ -z "$sub" ] && continue
     if printf '%s' "$sub" | grep -Eq '(^|[[:space:]/])shadcn(-ui)?([[:space:]]|$)'; then
         continue
