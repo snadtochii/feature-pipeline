@@ -120,12 +120,17 @@ The **part body** carries batch `<k>` ≥ 2 of a GitHub set over 50 (§6 **Batch
 <!-- feature:ui-evidence <id> part 2 -->
 
 ![FP-14 AC-3 desktop](/abs/evidence-home/FP-14-AC-3-desktop.png)
+
+<the note signature>
 ```
 
 - `<K>` is the number of batches; the post itself is part 1.
 - One image line per file in that batch, in §3 GitHub-set order. The pointer and not-attached lines ride batch 1 only, and a part never repeats a file of an earlier batch.
+- A part ends with the note signature, signed per [`pr-comments.md`](../../review/references/pr-comments.md) §1, *Signing a note*, with the posting caller's `source=` — `ship` for ship's end-of-run pass, `close` for the close stage. The part marker stays on line 2, where §8's dedupe reads it.
 
 The **manifest variant** has the same heading and marker, then the pointer line(s), then one line — `Screenshots were not attached; they are local to the run that captured them.` — and the GitHub set's paths relative to the project root as a list, in §3 GitHub-set order. A listed path is not rewritten by gh, so an absolute one would publish the local username and directory layout. It is what a fallback posts, because an attach body posted without `--attach` would leave dangling local image references; it has no part bodies.
+
+The attach and manifest variants carry no signature of their own: a caller that posts one as a comment signs the whole comment after the section, and a PR body is never signed.
 
 ## §6 Command construction
 

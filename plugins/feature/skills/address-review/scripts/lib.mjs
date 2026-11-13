@@ -24,7 +24,7 @@ export const MAX_TEXT_CHARS = 1500;
 export const MAX_LISTED_FOLLOWUPS = 20;
 
 const REVIEW_FOOTER = /^_— 🔎/u;
-const ANY_FOOTER = /^_— (?:🔎|🛠)/u;
+const ANY_FOOTER = /^_— (?:🔎|🛠|📝)/u;
 const MARKER_LINE = /^<!-- (fp-[a-z]+)(?:[ \t]+([^\n]*?))?[ \t]*-->$/;
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
 const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
