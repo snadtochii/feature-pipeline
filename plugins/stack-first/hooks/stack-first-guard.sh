@@ -49,10 +49,21 @@ value_opt() {
     return 1
 }
 
+# Shell redirections are not package arguments. A token that opens with a
+# redirection operator (`2>&1`, `>/dev/null`, `&>log`, `<in`) is skipped; a bare
+# operator (`>`, `2>>`, `&>`) is skipped together with its target word.
+redir_re='^([0-9]+|&)?[<>]'
+bare_redir_re='^([0-9]+|&)?[<>]+[&|]?$'
+assign_re='^[A-Za-z_][A-Za-z0-9_]*='
+
 # Decide whether a single sub-command adds a package.
-# Locates the manager subcommand past any leading global options (so workspace/
-# filter forms are handled), then fires on add/install/i ONLY when a real package
-# argument follows — bare `pnpm install` / `npm i` (lockfile-only) stays exempt.
+# The manager must be the command word — the first token after any `VAR=value`
+# assignments and pass-through wrappers (env/sudo/command/exec/time/nohup and
+# their flags) — so a manager named inside prose, an `echo` string or a grep
+# pattern is not a command. Locates the manager subcommand past any leading
+# global options (so workspace/filter forms are handled), then fires on
+# add/install/i ONLY when a real package argument follows — bare `pnpm install`
+# / `npm i` (lockfile-only) stays exempt, redirected or not.
 decide_fire() {
     local sub="$1"
     local -a toks
@@ -60,56 +71,74 @@ decide_fire() {
     read -r -a toks <<<"$sub" || return 1
     local n=${#toks[@]}
     local i=0
+    local wrapped=0
     while [ "$i" -lt "$n" ]; do
         case "${toks[$i]}" in
-            pnpm|npm|yarn|bun)
-                local mgr="${toks[$i]}"
-                # Locate the subcommand, skipping leading global options (and the
-                # values of value-consuming ones) between the manager and it.
-                local j=$((i + 1))
-                local subcmd=""
-                while [ "$j" -lt "$n" ]; do
-                    case "${toks[$j]}" in
-                        add|install|i)
-                            subcmd="${toks[$j]}"
-                            break
-                            ;;
-                        --*=*)
-                            j=$((j + 1))           # --opt=value, single token — skip
-                            ;;
-                        -*)
-                            if value_opt "$mgr" "${toks[$j]}"; then
-                                j=$((j + 2))       # option + its value
-                            else
-                                j=$((j + 1))       # boolean flag
-                            fi
-                            ;;
-                        *)
-                            break                  # positional that isn't a subcommand -> not an add
-                            ;;
-                    esac
-                done
-                if [ -n "$subcmd" ]; then
-                    # Scan tokens after the subcommand for a real package argument,
-                    # skipping flags and the values of value-consuming options.
-                    local k=$((j + 1))
-                    while [ "$k" -lt "$n" ]; do
-                        case "${toks[$k]}" in
-                            --*=*) k=$((k + 1)) ;;                        # --save-dev=… etc — skip
-                            -*)
-                                if value_opt "$mgr" "${toks[$k]}"; then
-                                    k=$((k + 2))
-                                else
-                                    k=$((k + 1))
-                                fi
-                                ;;
-                            *) return 0 ;;                                # package argument present -> fire
-                        esac
-                    done
-                fi
-                ;;
+            env|sudo|command|exec|time|nohup) wrapped=1 ;;
+            -*) [ "$wrapped" -eq 1 ] || return 1 ;;
+            *) [[ "${toks[$i]}" =~ $assign_re ]] || break ;;
         esac
         i=$((i + 1))
+    done
+    [ "$i" -lt "$n" ] || return 1
+    local mgr="${toks[$i]}"
+    case "$mgr" in
+        pnpm|npm|yarn|bun) ;;
+        *) return 1 ;;
+    esac
+    # Locate the subcommand, skipping leading global options (and the values of
+    # value-consuming ones) between the manager and it.
+    local j=$((i + 1))
+    local subcmd=""
+    while [ "$j" -lt "$n" ]; do
+        case "${toks[$j]}" in
+            add|install|i)
+                subcmd="${toks[$j]}"
+                break
+                ;;
+            --*=*)
+                j=$((j + 1))           # --opt=value, single token — skip
+                ;;
+            -*)
+                if value_opt "$mgr" "${toks[$j]}"; then
+                    j=$((j + 2))       # option + its value
+                else
+                    j=$((j + 1))       # boolean flag
+                fi
+                ;;
+            *)
+                break                  # positional that isn't a subcommand -> not an add
+                ;;
+        esac
+    done
+    [ -n "$subcmd" ] || return 1
+    # Scan tokens after the subcommand for a real package argument, skipping
+    # flags, the values of value-consuming options and redirections. A lone `&`
+    # (background) or a `#` comment ends the command.
+    local k=$((j + 1))
+    local tok
+    while [ "$k" -lt "$n" ]; do
+        tok="${toks[$k]}"
+        if [[ "$tok" =~ $bare_redir_re ]]; then
+            k=$((k + 2))
+            continue
+        fi
+        if [[ "$tok" =~ $redir_re ]]; then
+            k=$((k + 1))
+            continue
+        fi
+        case "$tok" in
+            '&'|'#'*) return 1 ;;
+            --*=*) k=$((k + 1)) ;;                        # --save-dev=… etc — skip
+            -*)
+                if value_opt "$mgr" "$tok"; then
+                    k=$((k + 2))
+                else
+                    k=$((k + 1))
+                fi
+                ;;
+            *) return 0 ;;                                # package argument present -> fire
+        esac
     done
     return 1
 }

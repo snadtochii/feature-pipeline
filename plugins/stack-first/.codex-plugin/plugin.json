@@ -2,7 +2,7 @@
   "name": "stack-first",
   "displayName": "Stack First",
   "description": "Stack-agnostic dependency guard: consult the preferred ecosystem before adding a library and record every ruling.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Serhii Nadtochii",
     "url": "https://github.com/snadtochii"
