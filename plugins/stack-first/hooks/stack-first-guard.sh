@@ -56,32 +56,46 @@ redir_re='^([0-9]+|&)?[<>]'
 bare_redir_re='^([0-9]+|&)?[<>]+[&|]?$'
 assign_re='^[A-Za-z_][A-Za-z0-9_]*='
 
-# Turn one separator-delimited sub-command into its simple commands, one per
-# line, normalized at the token level: a standalone `&` (background) ends a
-# command, the grouping words `(` `)` `{` `}` are dropped, and a `(` or `)`
-# glued to a word is peeled off it — so `(pnpm i)` reads as `pnpm i`, and no
-# grouping character reaches the command word or the package scan.
-split_commands() {
+# Turn the whole command into its simple commands, one per line. The only place
+# that decides where a command starts and ends:
+# - Split on the shell separators && || ; | — pure-bash replacement (no sed: BSD
+#   sed on macOS emits a literal "n" for "\n", which would defeat the split), with
+#   && and || replaced before the single | so the two-character separators win.
+# - Tokenize each part once: a standalone `&` token (background) ends a command,
+#   the grouping words `(` `)` `{` `}` are dropped, and a `(` or `)` glued to a
+#   word is peeled off it — so `(pnpm i)` reads as `pnpm i`, `2>&1` and `&>` are
+#   left alone, and no grouping character reaches the command word or the package
+#   scan.
+simple_commands() {
+    local parts="$1"
+    parts="${parts//&&/$'\n'}"
+    parts="${parts//\|\|/$'\n'}"
+    parts="${parts//;/$'\n'}"
+    parts="${parts//\|/$'\n'}"
+    local part out tok
     local -a toks
-    read -r -a toks <<<"$1" || true
-    [ "${#toks[@]}" -gt 0 ] || return 0
-    local out="" tok
-    for tok in "${toks[@]}"; do
-        case "$tok" in
-            '&')
-                printf '%s\n' "$out"
-                out=""
-                continue
-                ;;
-            '('|')'|'{'|'}') continue ;;
-        esac
-        while [[ "$tok" == '('* ]]; do tok="${tok#\(}"; done
-        while [[ "$tok" == *')' ]]; do tok="${tok%\)}"; done
-        if [ -n "$tok" ]; then
-            out="$out $tok"
-        fi
-    done
-    printf '%s\n' "$out"
+    while IFS= read -r part; do
+        toks=()
+        read -r -a toks <<<"$part" || true
+        [ "${#toks[@]}" -gt 0 ] || continue
+        out=""
+        for tok in "${toks[@]}"; do
+            case "$tok" in
+                '&')
+                    printf '%s\n' "$out"
+                    out=""
+                    continue
+                    ;;
+                '('|')'|'{'|'}') continue ;;
+            esac
+            while [[ "$tok" == '('* ]]; do tok="${tok#\(}"; done
+            while [[ "$tok" == *')' ]]; do tok="${tok%\)}"; done
+            if [ -n "$tok" ]; then
+                out="$out $tok"
+            fi
+        done
+        printf '%s\n' "$out"
+    done <<<"$parts"
 }
 
 # Decide whether a single simple command adds a package.
@@ -173,19 +187,9 @@ decide_fire() {
     return 1
 }
 
-# Split the command on shell separators (&& || ; |), then each sub-command into
-# its simple commands (split_commands), and evaluate each one.
-# A shadcn CLI invocation (npx/pnpm dlx/bunx/local/direct) is exempt broadly — its
-# component adds are UI scaffolding, not ecosystem-adoption decisions.
-# Pure-bash replacement (no sed): BSD sed on macOS emits a literal "n" for "\n",
-# which would defeat the split on the target platform. Replace && and || before the
-# single | so the multi-char separators are consumed first.
-subcmds="$cmd"
-subcmds="${subcmds//&&/$'\n'}"
-subcmds="${subcmds//\|\|/$'\n'}"
-subcmds="${subcmds//;/$'\n'}"
-subcmds="${subcmds//\|/$'\n'}"
-
+# Evaluate each simple command. A shadcn CLI invocation (npx/pnpm dlx/bunx/local/
+# direct) is exempt broadly — its component adds are UI scaffolding, not
+# ecosystem-adoption decisions.
 fire=0
 while IFS= read -r sub; do
     [ -z "$sub" ] && continue
@@ -197,10 +201,7 @@ while IFS= read -r sub; do
         break
     fi
 done <<EOF
-$(while IFS= read -r part; do split_commands "$part"; done <<PARTS
-$subcmds
-PARTS
-)
+$(simple_commands "$cmd")
 EOF
 
 if [ "$fire" -eq 1 ]; then
