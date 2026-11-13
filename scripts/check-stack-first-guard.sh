@@ -105,6 +105,12 @@ check silent 'pnpm install < /dev/null'
 check silent 'pnpm install &'
 check silent 'pnpm dev & pnpm install'
 check silent 'if true; then pnpm install --frozen-lockfile 2>&1; fi'
+check silent '( pnpm install )'
+check silent '( pnpm install --frozen-lockfile )'
+check silent '(pnpm i)'
+check silent '(pnpm install)'
+check silent '(cd web && pnpm i)'
+check silent '{ pnpm install; }'
 check silent 'pnpm install # lockfile only'
 
 # A manager that is not the command word.

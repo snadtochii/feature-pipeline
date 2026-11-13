@@ -56,10 +56,38 @@ redir_re='^([0-9]+|&)?[<>]'
 bare_redir_re='^([0-9]+|&)?[<>]+[&|]?$'
 assign_re='^[A-Za-z_][A-Za-z0-9_]*='
 
-# Decide whether a single sub-command adds a package.
+# Turn one separator-delimited sub-command into its simple commands, one per
+# line, normalized at the token level: a standalone `&` (background) ends a
+# command, the grouping words `(` `)` `{` `}` are dropped, and a `(` or `)`
+# glued to a word is peeled off it — so `(pnpm i)` reads as `pnpm i`, and no
+# grouping character reaches the command word or the package scan.
+split_commands() {
+    local -a toks
+    read -r -a toks <<<"$1" || true
+    [ "${#toks[@]}" -gt 0 ] || return 0
+    local out="" tok
+    for tok in "${toks[@]}"; do
+        case "$tok" in
+            '&')
+                printf '%s\n' "$out"
+                out=""
+                continue
+                ;;
+            '('|')'|'{'|'}') continue ;;
+        esac
+        while [[ "$tok" == '('* ]]; do tok="${tok#\(}"; done
+        while [[ "$tok" == *')' ]]; do tok="${tok%\)}"; done
+        if [ -n "$tok" ]; then
+            out="$out $tok"
+        fi
+    done
+    printf '%s\n' "$out"
+}
+
+# Decide whether a single simple command adds a package.
 # The manager must be the command word — the first token after any `VAR=value`
 # assignments, shell keywords that open a command (if/then/do/else/elif/while/
-# until/!/{/( ) and pass-through wrappers (env/sudo/command/exec/time/nohup and
+# until/!) and pass-through wrappers (env/sudo/command/exec/time/nohup and
 # their flags) — so a manager named inside prose, an `echo` string or a grep
 # pattern is not a command. Locates the manager subcommand past any leading
 # global options (so workspace/filter forms are handled), then fires on
@@ -75,7 +103,7 @@ decide_fire() {
     local wrapped=0
     while [ "$i" -lt "$n" ]; do
         case "${toks[$i]}" in
-            if|then|do|else|elif|while|until|'!'|'{'|'(') ;;
+            if|then|do|else|elif|while|until|'!') ;;
             env|sudo|command|exec|time|nohup) wrapped=1 ;;
             -*) [ "$wrapped" -eq 1 ] || return 1 ;;
             *) [[ "${toks[$i]}" =~ $assign_re ]] || break ;;
@@ -83,7 +111,7 @@ decide_fire() {
         i=$((i + 1))
     done
     [ "$i" -lt "$n" ] || return 1
-    local mgr="${toks[$i]#\(}"                           # `(pnpm add zod)` subshell
+    local mgr="${toks[$i]}"
     case "$mgr" in
         pnpm|npm|yarn|bun) ;;
         *) return 1 ;;
@@ -145,9 +173,8 @@ decide_fire() {
     return 1
 }
 
-# Split the command on shell separators (&& || ; | and a standalone `&`) and
-# evaluate each sub-command. A standalone `&` has whitespace before it and
-# whitespace or the line end after it, so the `&` inside `2>&1` and `&>` is not one.
+# Split the command on shell separators (&& || ; |), then each sub-command into
+# its simple commands (split_commands), and evaluate each one.
 # A shadcn CLI invocation (npx/pnpm dlx/bunx/local/direct) is exempt broadly — its
 # component adds are UI scaffolding, not ecosystem-adoption decisions.
 # Pure-bash replacement (no sed): BSD sed on macOS emits a literal "n" for "\n",
@@ -158,13 +185,9 @@ subcmds="${subcmds//&&/$'\n'}"
 subcmds="${subcmds//\|\|/$'\n'}"
 subcmds="${subcmds//;/$'\n'}"
 subcmds="${subcmds//\|/$'\n'}"
-subcmds="${subcmds// & /$'\n'}"
 
 fire=0
 while IFS= read -r sub; do
-    if [[ "$sub" =~ ^(.*[[:space:]])\&[[:space:]]*$ ]]; then
-        sub="${BASH_REMATCH[1]}"                        # trailing background `&`
-    fi
     [ -z "$sub" ] && continue
     if printf '%s' "$sub" | grep -Eq '(^|[[:space:]/])shadcn(-ui)?([[:space:]]|$)'; then
         continue
@@ -174,7 +197,10 @@ while IFS= read -r sub; do
         break
     fi
 done <<EOF
+$(while IFS= read -r part; do split_commands "$part"; done <<PARTS
 $subcmds
+PARTS
+)
 EOF
 
 if [ "$fire" -eq 1 ]; then
