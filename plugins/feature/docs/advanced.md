@@ -423,7 +423,31 @@ A model whose limit note is missing stays owed, so its next run posts the note. 
 
 Removing `review-round-limit` is how the owner resumes reviews on a PR past the limit: each model's rounds then count only from the removal, so each gets a new budget, and its first review covers the changes since its last reviewed head. A model that uses the new budget adds the label again and posts a new limit note. A scheduler that counts a limit note from before the removal stops both models as soon as one of them reaches the limit again.
 
-A scheduler never passes `--full`. To act on the findings, run `/feature:address-review <PR_URL> --auto --hold-decisions` from a checkout of the PR's repository: it fixes and replies with no gate, and holds only a finding that needs the owner's decision. A scheduled or `claude -p` run cannot answer a permission prompt, so allow `Bash(node '<plugin-root>/skills/address-review/scripts/threads.mjs' *)` in the settings of the project it runs in, quoted exactly as the skill writes it, with `<plugin-root>` the installed `feature` plugin's absolute directory, as under [Night dispatch](#night-dispatch). After every plugin update, `<plugin-root>` changes with the version: update the path in that rule, or the run stops at `couldn't address review`.
+A scheduler never passes `--full`. To act on the findings, it hands the PR off to `/feature:address-review <PR_URL> --auto --hold-decisions`, run from a checkout of the PR's repository: that run fixes and replies with no gate, and holds only a finding that needs the owner's decision. The paragraphs below say when a PR is owed that handoff.
+
+**When a handoff is owed.** A PR owes a handoff while address-review's thread-state reader lists a thread with `source: review` and `state: open`. A `held` thread, which waits for the owner, never makes one owed, and neither does a `fix-failed` one: a fix that keeps failing would trigger a handoff on every run. A `human`-source thread never makes one owed, and neither does a thread the reader leaves unlisted (`complete: false`). A review-source inline thread that the owner's reply re-opened is `open` again, so it does make one owed. The reader lists the oldest threads and brings an unlisted one in only as listed ones settle, so many held threads can hold later findings back until the owner answers them.
+
+**Re-check every run.** On every run, the scheduler reads the thread states of every PR it reviews: whether or not a model is owed a review this run, and not only in the run that posted the review. A PR linked to its address session after the review was posted therefore still gets its handoff. Each check costs four `gh` reads.
+
+**One handoff per open set.**
+
+- The open set is the PR's open review threads, each written as its `key`, joined with its `reply_at` when it has one, so a thread the owner re-opened after an address reply counts as a new member. The members are sorted and compared as a set, never by id order: the keys come from three REST id sequences, inline comments, reviews and issue comments, whose ids can't be compared with each other.
+- The scheduler keeps, per PR, the set it last handed off, somewhere that survives between runs.
+- A non-empty set that differs from that record gets one handoff, and the record becomes that set once the handoff is delivered. An unchanged set after a delivered handoff gets none. A send that fails leaves the record unchanged, so the next run sends again.
+- A read that fails, with exit 1 or 2 or a document carrying `error`, decides nothing for that PR: no handoff is sent, the record stays unchanged, and the next run checks again.
+- An address pass that stopped before replying leaves the set unchanged, so it is not handed off again, and the pass's own report says why it stopped. A pass that replied to some of the threads changes the set, and the changed set gets a new handoff.
+- A handoff that arrives after the threads were answered costs the address run a turn and posts nothing.
+
+**Reading the thread states.** The reader is one command:
+
+```text
+node '<plugin-root>/skills/address-review/scripts/threads.mjs' --repo <owner/repo> --pr <n>
+```
+
+It names the repository in every `gh` call, so it runs from any directory, but only from inside the installed plugin tree, because it imports the plugin's shared scripts. It prints one JSON document, defined with its exit codes in address-review's [Step 2](../skills/address-review/SKILL.md#2-read-the-thread-states). This contract keys on `complete` and on each listed thread's `key`, `source`, `state` and `reply_at`. The document also carries comment text, which anyone who can comment on the PR controls. A scheduler reads only thread keys and states, with `reply_at`, and never comment text, so it projects the output down to those fields before a model reads it.
+
+- **Permissions.** A scheduled or `claude -p` run cannot answer a permission prompt, so allow `Bash(node '<plugin-root>/skills/address-review/scripts/threads.mjs' *)`, quoted exactly as the skill writes the command, in two places: the scheduler's own settings, for its reads, and the settings of the project the address run happens in. `<plugin-root>` is the installed `feature` plugin's absolute directory, as under [Night dispatch](#night-dispatch).
+- **After every plugin update**, `<plugin-root>` changes with the version. Update the path in that rule in both places: with a stale path the scheduler's read is denied, and the address run stops at `couldn't address review`.
 
 ## Configuration reference
 
