@@ -60,6 +60,9 @@ jobs:
       - name: Setup detection fixtures
         run: bash scripts/check-setup-detect.sh
 
+      - name: Stack-first guard decision table
+        run: bash scripts/check-stack-first-guard.sh
+
       - name: Verify driver self-test
         run: node plugins/verify/drivers/browser/cli.mjs --self-test
 
