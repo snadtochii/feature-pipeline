@@ -58,6 +58,11 @@ assign_re='^[A-Za-z_][A-Za-z0-9_]*='
 
 # Turn the whole command into its simple commands, one per line. The only place
 # that decides where a command starts and ends:
+# - Cut each line's comment: from the first `#` that starts a word (line start or
+#   after whitespace) to the line end, so a separator inside a comment
+#   (`true # && pnpm add zod`) starts no command. Like the rest of the splitter it
+#   does not know about quotes, so a word-initial `#` inside a quoted string cuts
+#   the line too.
 # - Split on the shell separators && || ; | — pure-bash replacement (no sed: BSD
 #   sed on macOS emits a literal "n" for "\n", which would defeat the split), with
 #   && and || replaced before the single | so the two-character separators win.
@@ -67,7 +72,14 @@ assign_re='^[A-Za-z_][A-Za-z0-9_]*='
 #   left alone, and no grouping character reaches the command word or the package
 #   scan.
 simple_commands() {
-    local parts="$1"
+    local parts="" line
+    while IFS= read -r line; do
+        if [[ "$line" == '#'* ]]; then
+            line=""
+        fi
+        line="${line%%[[:space:]]#*}"
+        parts="$parts$line"$'\n'
+    done <<<"$1"
     parts="${parts//&&/$'\n'}"
     parts="${parts//\|\|/$'\n'}"
     parts="${parts//;/$'\n'}"
@@ -157,8 +169,7 @@ decide_fire() {
     done
     [ -n "$subcmd" ] || return 1
     # Scan tokens after the subcommand for a real package argument, skipping
-    # flags, the values of value-consuming options and redirections. A `#`
-    # comment ends the command.
+    # flags, the values of value-consuming options and redirections.
     local k=$((j + 1))
     local tok
     while [ "$k" -lt "$n" ]; do
@@ -172,7 +183,6 @@ decide_fire() {
             continue
         fi
         case "$tok" in
-            '#'*) return 1 ;;
             --*=*) k=$((k + 1)) ;;                        # --save-dev=… etc — skip
             -*)
                 if value_opt "$mgr" "$tok"; then
