@@ -20,6 +20,8 @@ const VIEWER = 'owner';
 const REVIEW_FOOTER = `_— 🔎 review by Claude on behalf of ${VIEWER}_`;
 const REVIEW_MARKER = '<!-- fp-review agent=claude head=aaaaaaa -->';
 const ADDRESS_FOOTER = `_— 🛠️ addressed by Claude on behalf of ${VIEWER}_`;
+const NOTE_FOOTER = `_— 📝 ship note by Claude on behalf of ${VIEWER}_`;
+const NOTE_MARKER = '<!-- fp-note agent=claude source=ship -->';
 
 const person = (login, type = 'User') => ({ login, type });
 const at = (minute) => `2026-11-01T10:${String(minute).padStart(2, '0')}:00Z`;
@@ -370,6 +372,22 @@ const CASES = [
     addIssue(w, { login: 'alice', body: null });
     addInline(w, { login: 'alice', body: 'Reply to a missing root.', replyTo: 424242 });
     equal(keysOf(w), [], 'no threads');
+  }],
+  ['skipped: signed notes give no thread and no count, whatever they contain', () => {
+    const w = world();
+    const signed = (text, footer = NOTE_FOOTER, marker = NOTE_MARKER) => `${text}\n\n${footer}\n${marker}`;
+    addIssue(w, { body: signed('Review stage: 4 parallel reviewers — zero findings at confidence ≥ 80') });
+    addIssue(w, { body: signed('## UI evidence\n<!-- feature:ui-evidence FP-1 -->\n**[F1]** AC-2 failed — layout shift\n![AC-2](https://example.com/ac-2.png)') });
+    addIssue(w, { body: signed('## UI evidence (part 2 of 2)\n<!-- feature:ui-evidence FP-1 part 2 -->\n![AC-9](https://example.com/ac-9.png)', `_— 📝 close note by Codex on behalf of ${VIEWER}_`, '<!-- fp-note agent=codex source=close -->') });
+    addIssue(w, { body: `Not verified at this head.\n\n${NOTE_FOOTER}\n` });
+    equal(keysOf(w), [], 'no threads');
+    equal(threadStates(surfaces(w)).counts, { open: 0, settled: 0, held: 0, fix_failed: 0 }, 'no counts');
+  }],
+  ['shapes: a note footer followed by more text is text, and the comment stays human', () => {
+    const w = world();
+    const quoting = addIssue(w, { body: `The footer should read\n${NOTE_FOOTER}\nnot the old one.` });
+    equal(keysOf(w), [`comment:${quoting.id}`], 'one thread');
+    equal(stateOf(w, `comment:${quoting.id}`).shape, 'human-issue', 'human');
   }],
   ['shapes: a tagged body with no review marker is one human thread; the viewer\'s own unmarked comment is human', () => {
     const w = world();

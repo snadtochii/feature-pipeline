@@ -71,6 +71,8 @@ The browser pass's screenshots stay on your machine unless you opt in. With atta
 - **Close stage, with `--pr`** — the PR body gains a `## UI evidence` section of screenshots. The ticket's own `06-summary.md` is unchanged: the close stage writes a separate posted-body copy for the PR.
 - **Ship's end-of-run pass** — the evidence comment carries them. A hidden marker in the comment is checked before any upload, so a resumed or re-run ship posts the evidence once per PR.
 
+Every comment posted here — ship's evidence comment, and the follow-up comments of a large set on either path — is signed as a pipeline note, so `address-review` never treats it as feedback.
+
 Enable it per project with [`git.attach_screenshots: true`](#commit-behavior), or per run with `--attach-screenshots` (accepted by `flow`, `build`, `close-stage` and `ship`; flow forwards it to the close stage, and in epic mode to every child). Neither turns a project's setting off for one run.
 
 The post shows a curated set that reads as the feature's main flow: the desktop capture of each acceptance criterion in criterion order, failed and passed alike — a mobile capture only for a criterion that failed at mobile width alone, or that has no desktop capture — then the desktop error, empty and disabled states. There is no count limit; a set above `gh`'s 50-file-per-command limit continues in follow-up comments. A file over 10 MiB is named as not attached. One line points at the full set — every capture, desktop and mobile — in the ticket's `05-tests.md`.

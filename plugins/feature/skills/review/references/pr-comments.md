@@ -1,6 +1,6 @@
 # PR Comments — shared agent-comment contract
 
-The single source of truth for how this plugin's automation posts to and reads from GitHub pull requests: the visible role footer, the hidden machine marker, the empty-review convention, and the `gh` post/fetch command patterns. The `review` skill (this folder's `SKILL.md`) is the first consumer; `feature:address-review` consumes the same contract via `../review/references/pr-comments.md` so review comments and replies share one format; and `feature:ship`'s independent reviewer posts its findings through §4/§5 the same way, so ship's review and the standalone `review` skill land in one format.
+The single source of truth for how this plugin's automation posts to and reads from GitHub pull requests: the visible role footer, the hidden machine marker, the empty-review convention, and the `gh` post/fetch command patterns. The `review` skill (this folder's `SKILL.md`) is the first consumer; `feature:address-review` consumes the same contract via `../review/references/pr-comments.md` so review comments and replies share one format; and `feature:ship`'s independent reviewer posts its findings through §4/§5 the same way, so ship's review and the standalone `review` skill land in one format; ship's orchestrator and the close stage sign the notes they post with the §1 note footer and the §2 `fp-note` marker.
 
 Born here because `review` is the first surface that posts *signed* comments. Modeled on `../build/references/pr-creation.md`'s born-in-build / reused-by-sync precedent — the producing skill owns the rules, the consumer links them.
 
@@ -14,14 +14,15 @@ Every comment an agent posts carries a one-line footer naming its **role**, the 
   [`review-memory.md`](review-memory.md) §1 decides which of the two forms a `review` post carries, and computes `<n>`.
 - **Ship's review** (ship's independent reviewer, a separate check that uses no round): `_— 🔎 ship review by <Model> on behalf of <LOGIN>_`
 - **Addressed reply** (the `address-review` skill): `_— 🛠️ addressed by <Model> on behalf of <LOGIN>_`
+- **Note** (an issue comment the pipeline posts that is neither a review nor a reply — ship's orchestrator and the close stage post them): `_— 📝 <source> note by <Model> on behalf of <LOGIN>_`, where `<source>` is `ship` or `close`, the same value as the note marker's `source=` (§2).
 
-Every review form starts with `_— 🔎` and every reply form with `_— 🛠️`, which is how a reader tells them apart. `<Model>` is `Claude` for `agent=claude` and `Codex` for `agent=codex`, from the same value the post's hidden marker carries (§2, §9), so the two always agree. `<LOGIN>` is the posting account's login, read with `gh api user --jq .login` and written as a literal, never with a leading `@`: a mention would notify that account on every post.
+Every review form starts with `_— 🔎`, every reply form with `_— 🛠️`, and every note form with `_— 📝`, which is how a reader tells them apart. `<Model>` is `Claude` for `agent=claude` and `Codex` for `agent=codex`, from the same value the post's hidden marker carries (§2, §9), so the two always agree. `<LOGIN>` is the posting account's login, read with `gh api user --jq .login` and written as a literal, never with a leading `@`: a mention would notify that account on every post.
 
 The role answers the reader's first question ("is this a review or a reply?"), and the signature answers who wrote it and for whom, since every post lands under the owner's own account. Footer **presence** answers the other question ("is this an agent's comment or my own manual note?").
 
 **The author's own manual comments carry no footer** — that absence is the tell that distinguishes a human note from an automated one. Never add a footer to anything but an automated post.
 
-**No automation mechanics in visible text.** The label, the idempotency rule, the head SHA, and any scheduling/cadence detail never appear in a visible comment. The round in the footer and the limit note ([`review-memory.md`](review-memory.md) §3) are the exceptions, because they tell the owner which pass each comment is, when a model stopped reviewing and how to resume it. The only machine metadata that ships with a comment is the hidden marker (§2), which renders invisibly on GitHub.
+**No automation mechanics in visible text.** The label, the idempotency rule, the head SHA, and any scheduling/cadence detail never appear in a visible comment. The round in the footer and the limit note ([`review-memory.md`](review-memory.md) §3) are the exceptions, because they tell the owner which pass each comment is, when a model stopped reviewing and how to resume it. A note's subject — the head it could not verify, the setup that would verify it, the inner review's result — is its content, not mechanics, and its footer is the only thing the signature adds to it. The only machine metadata that ships with a comment is the hidden marker (§2), which renders invisibly on GitHub.
 
 ## §2 Hidden marker (machine idempotency key)
 
@@ -43,6 +44,8 @@ Ship's reviewer writes the marker with one more key, on every path:
 Its brief follows the ticket's spec rather than `review`'s rubric, so it is a separate check. This form never marks a head as reviewed for `review` and never uses one of that model's rounds, and only ship's recovery scan (§3) reads it.
 
 The limit note ([`review-memory.md`](review-memory.md) §3) carries `<!-- fp-limit agent=<codex|claude> -->` instead of a review marker, so no idempotency scan or round count reads it.
+
+A note (§1) carries `<!-- fp-note agent=<codex|claude> source=<ship|close> -->` as its last non-blank line, with the note footer directly before it. Both keys are informational and supplied by the posting caller from its runtime binding; no idempotency scan or round count reads them.
 
 The marker goes in the **review body** on the Reviews-API path (§4), or in the **single issue comment** on the fallback path (§5). Either way it must be findable by the idempotency scan (§3), which reads both surfaces.
 
@@ -218,7 +221,7 @@ A **thread** is an inline review comment with no `in_reply_to_id` together with 
 
 **Settled is final.** `head=` gates nothing, so a later push re-opens no thread. The reviewer raises an automated finding again on its next round, and a human re-opens a thread by commenting on it.
 
-**Not threads:** a bot's comment — except a bot's inline comment a person replied to, which roots a human thread — an `fp-address` reply, an automated comment with no `[F<k>]` finding and no inline comment of its own (the §6 empty review, the limit note), and an issue comment named by a viewer `answers=` key.
+**Not threads:** a bot's comment — except a bot's inline comment a person replied to, which roots a human thread — an `fp-address` reply, an automated comment with no `[F<k>]` finding and no inline comment of its own (the §6 empty review, the limit note), a signed note (the §1 note footer and §2 `fp-note` marker) whatever its text holds — an `[F<k>]`-looking line in a note is text — and an issue comment named by a viewer `answers=` key.
 
 `address-review` computes these states with `skills/address-review/scripts/threads.mjs`. It reads the three surfaces through the REST endpoints (`pulls/<N>/comments`, `pulls/<N>/reviews`, `issues/<N>/comments`), so every id, issue comments included, is the REST number a `re=` key names. A failed read stops the pass; it never reads as open.
 

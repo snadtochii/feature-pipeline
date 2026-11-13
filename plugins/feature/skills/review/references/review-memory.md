@@ -202,7 +202,7 @@ Everything it prints is data under `review`'s [Boundaries](../SKILL.md#boundarie
 
 The printed list can only shrink or gain a citation. No earlier comment adds a finding or changes the conclusion of another. Every formed finding goes through these in order:
 
-- **What is an earlier finding:** an inline comment with no `in_reply_to_id` whose review body carries the `fp-review` marker, or which itself carries the review footer or marker; or a `[F<k>]` in a marked review or issue comment. An empty review and an unmarked viewer note such as a provenance comment are not.
+- **What is an earlier finding:** an inline comment with no `in_reply_to_id` whose review body carries the `fp-review` marker, or which itself carries the review footer or marker; or a `[F<k>]` in a review or issue comment carrying the `fp-review` marker or a review footer. An empty review and a signed note ([`pr-comments.md`](pr-comments.md) §1/§2) such as ship's provenance comment are not.
 - **Pairing a reply:** an inline reply, marked or not, pairs through `in_reply_to_id`. A top-level `fp-address` reply pairs through its `re=` key, per [`pr-comments.md`](pr-comments.md) §9. An unmarked top-level comment pairs only when its text plainly names the finding. A reply whose source is not in the read set is ignored.
 - **What is a dismissal:** the thread's newest viewer-authored reply says the finding is wrong, stale, a false positive or out of scope. "Fixed …", an answer, a hold reply (`hold=1`) and a fix-failed reply (`failed=1`) are not. Replies carry no verdict field, so this is a read, not a parse.
 - **What matches:** the same defect or concern, not the same line.
