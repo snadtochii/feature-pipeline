@@ -49,10 +49,76 @@ value_opt() {
     return 1
 }
 
-# Decide whether a single sub-command adds a package.
-# Locates the manager subcommand past any leading global options (so workspace/
-# filter forms are handled), then fires on add/install/i ONLY when a real package
-# argument follows — bare `pnpm install` / `npm i` (lockfile-only) stays exempt.
+# Shell redirections are not package arguments. A token that opens with a
+# redirection operator (`2>&1`, `>/dev/null`, `&>log`, `<in`) is skipped; a bare
+# operator (`>`, `2>>`, `&>`) is skipped together with its target word.
+redir_re='^([0-9]+|&)?[<>]'
+bare_redir_re='^([0-9]+|&)?[<>]+[&|]?$'
+assign_re='^[A-Za-z_][A-Za-z0-9_]*='
+
+# Turn the whole command into its simple commands, one per line. The only place
+# that decides where a command starts and ends:
+# - Cut each line's comment: from the first `#` that starts a word (line start or
+#   after whitespace) to the line end, so a separator inside a comment
+#   (`true # && pnpm add zod`) starts no command. Like the rest of the splitter it
+#   does not know about quotes, so a word-initial `#` inside a quoted string cuts
+#   the line too.
+# - Split on the shell separators && || ; | — pure-bash replacement (no sed: BSD
+#   sed on macOS emits a literal "n" for "\n", which would defeat the split), with
+#   && and || replaced before the single | so the two-character separators win.
+# - Tokenize each part once: a standalone `&` token (background) ends a command,
+#   the grouping words `(` `)` `{` `}` are dropped, and a `(` or `)` glued to a
+#   word is peeled off it — so `(pnpm i)` reads as `pnpm i`, `2>&1` and `&>` are
+#   left alone, and no grouping character reaches the command word or the package
+#   scan.
+simple_commands() {
+    local parts="" line
+    while IFS= read -r line; do
+        if [[ "$line" == '#'* ]]; then
+            line=""
+        fi
+        line="${line%%[[:space:]]#*}"
+        parts="$parts$line"$'\n'
+    done <<<"$1"
+    parts="${parts//&&/$'\n'}"
+    parts="${parts//\|\|/$'\n'}"
+    parts="${parts//;/$'\n'}"
+    parts="${parts//\|/$'\n'}"
+    local part out tok
+    local -a toks
+    while IFS= read -r part; do
+        toks=()
+        read -r -a toks <<<"$part" || true
+        [ "${#toks[@]}" -gt 0 ] || continue
+        out=""
+        for tok in "${toks[@]}"; do
+            case "$tok" in
+                '&')
+                    printf '%s\n' "$out"
+                    out=""
+                    continue
+                    ;;
+                '('|')'|'{'|'}') continue ;;
+            esac
+            while [[ "$tok" == '('* ]]; do tok="${tok#\(}"; done
+            while [[ "$tok" == *')' ]]; do tok="${tok%\)}"; done
+            if [ -n "$tok" ]; then
+                out="$out $tok"
+            fi
+        done
+        printf '%s\n' "$out"
+    done <<<"$parts"
+}
+
+# Decide whether a single simple command adds a package.
+# The manager must be the command word — the first token after any `VAR=value`
+# assignments, shell keywords that open a command (if/then/do/else/elif/while/
+# until/!) and pass-through wrappers (env/sudo/command/exec/time/nohup and
+# their flags) — so a manager named inside prose, an `echo` string or a grep
+# pattern is not a command. Locates the manager subcommand past any leading
+# global options (so workspace/filter forms are handled), then fires on
+# add/install/i ONLY when a real package argument follows — bare `pnpm install`
+# / `npm i` (lockfile-only) stays exempt, redirected or not.
 decide_fire() {
     local sub="$1"
     local -a toks
@@ -60,72 +126,80 @@ decide_fire() {
     read -r -a toks <<<"$sub" || return 1
     local n=${#toks[@]}
     local i=0
+    local wrapped=0
     while [ "$i" -lt "$n" ]; do
         case "${toks[$i]}" in
-            pnpm|npm|yarn|bun)
-                local mgr="${toks[$i]}"
-                # Locate the subcommand, skipping leading global options (and the
-                # values of value-consuming ones) between the manager and it.
-                local j=$((i + 1))
-                local subcmd=""
-                while [ "$j" -lt "$n" ]; do
-                    case "${toks[$j]}" in
-                        add|install|i)
-                            subcmd="${toks[$j]}"
-                            break
-                            ;;
-                        --*=*)
-                            j=$((j + 1))           # --opt=value, single token — skip
-                            ;;
-                        -*)
-                            if value_opt "$mgr" "${toks[$j]}"; then
-                                j=$((j + 2))       # option + its value
-                            else
-                                j=$((j + 1))       # boolean flag
-                            fi
-                            ;;
-                        *)
-                            break                  # positional that isn't a subcommand -> not an add
-                            ;;
-                    esac
-                done
-                if [ -n "$subcmd" ]; then
-                    # Scan tokens after the subcommand for a real package argument,
-                    # skipping flags and the values of value-consuming options.
-                    local k=$((j + 1))
-                    while [ "$k" -lt "$n" ]; do
-                        case "${toks[$k]}" in
-                            --*=*) k=$((k + 1)) ;;                        # --save-dev=… etc — skip
-                            -*)
-                                if value_opt "$mgr" "${toks[$k]}"; then
-                                    k=$((k + 2))
-                                else
-                                    k=$((k + 1))
-                                fi
-                                ;;
-                            *) return 0 ;;                                # package argument present -> fire
-                        esac
-                    done
-                fi
-                ;;
+            if|then|do|else|elif|while|until|'!') ;;
+            env|sudo|command|exec|time|nohup) wrapped=1 ;;
+            -*) [ "$wrapped" -eq 1 ] || return 1 ;;
+            *) [[ "${toks[$i]}" =~ $assign_re ]] || break ;;
         esac
         i=$((i + 1))
+    done
+    [ "$i" -lt "$n" ] || return 1
+    local mgr="${toks[$i]}"
+    case "$mgr" in
+        pnpm|npm|yarn|bun) ;;
+        *) return 1 ;;
+    esac
+    # Locate the subcommand, skipping leading global options (and the values of
+    # value-consuming ones) between the manager and it.
+    local j=$((i + 1))
+    local subcmd=""
+    while [ "$j" -lt "$n" ]; do
+        case "${toks[$j]}" in
+            add|install|i)
+                subcmd="${toks[$j]}"
+                break
+                ;;
+            --*=*)
+                j=$((j + 1))           # --opt=value, single token — skip
+                ;;
+            -*)
+                if value_opt "$mgr" "${toks[$j]}"; then
+                    j=$((j + 2))       # option + its value
+                else
+                    j=$((j + 1))       # boolean flag
+                fi
+                ;;
+            *)
+                break                  # positional that isn't a subcommand -> not an add
+                ;;
+        esac
+    done
+    [ -n "$subcmd" ] || return 1
+    # Scan tokens after the subcommand for a real package argument, skipping
+    # flags, the values of value-consuming options and redirections.
+    local k=$((j + 1))
+    local tok
+    while [ "$k" -lt "$n" ]; do
+        tok="${toks[$k]}"
+        if [[ "$tok" =~ $bare_redir_re ]]; then
+            k=$((k + 2))
+            continue
+        fi
+        if [[ "$tok" =~ $redir_re ]]; then
+            k=$((k + 1))
+            continue
+        fi
+        case "$tok" in
+            --*=*) k=$((k + 1)) ;;                        # --save-dev=… etc — skip
+            -*)
+                if value_opt "$mgr" "$tok"; then
+                    k=$((k + 2))
+                else
+                    k=$((k + 1))
+                fi
+                ;;
+            *) return 0 ;;                                # package argument present -> fire
+        esac
     done
     return 1
 }
 
-# Split the command on shell separators (&& || ; |) and evaluate each sub-command.
-# A shadcn CLI invocation (npx/pnpm dlx/bunx/local/direct) is exempt broadly — its
-# component adds are UI scaffolding, not ecosystem-adoption decisions.
-# Pure-bash replacement (no sed): BSD sed on macOS emits a literal "n" for "\n",
-# which would defeat the split on the target platform. Replace && and || before the
-# single | so the multi-char separators are consumed first.
-subcmds="$cmd"
-subcmds="${subcmds//&&/$'\n'}"
-subcmds="${subcmds//\|\|/$'\n'}"
-subcmds="${subcmds//;/$'\n'}"
-subcmds="${subcmds//\|/$'\n'}"
-
+# Evaluate each simple command. A shadcn CLI invocation (npx/pnpm dlx/bunx/local/
+# direct) is exempt broadly — its component adds are UI scaffolding, not
+# ecosystem-adoption decisions.
 fire=0
 while IFS= read -r sub; do
     [ -z "$sub" ] && continue
@@ -137,7 +211,7 @@ while IFS= read -r sub; do
         break
     fi
 done <<EOF
-$subcmds
+$(simple_commands "$cmd")
 EOF
 
 if [ "$fire" -eq 1 ]; then
