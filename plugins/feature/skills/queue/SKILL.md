@@ -53,6 +53,7 @@ The command prints one JSON document ([CONTRACT.md](../../scripts/dispatch/CONTR
 
 - fs-native (a missing file, a missing `mode` key, or `mode: fs-native`) → stop: `Queue stopped: night dispatch needs a server-native project — this one is fs-native. Set mode: server-native with a project (re-run /feature:setup).`
 - A config error → stop with the message storage.md gives, naming the key.
+- Any other `mode` value → stop: `Queue stopped: mode: <value> in claudedocs/tickets/config.yaml is not a storage mode — set fs-native or server-native.`
 - server-native → bind `<project-id>` = the `project` value.
 
 The server tools come from the `server-native` connector. A listed server tool that is unavailable stops the run loudly when first called: `Queue stopped: <tool> is unavailable — install the server-native connector.` There is no fallback.
@@ -81,7 +82,7 @@ A failed call stops the run: `Queue stopped: <tool> failed — <error text>. No 
 
 Print these sections in order, with ticket ids and titles. An empty section is one line saying so.
 
-- **Tonight** — the `admitted` items, each with the tickets an epic brings (`tickets`, plus `others` as "also walked"); then `not_admitted` with its reasons; then `skips` with reason and detail. A `stale` skip gets the hint "untag and retag to reset its clock". `not backlog` covers tickets already in progress or in review.
+- **Tonight** — the `admitted` items, each with the tickets an epic brings (`tickets`, plus `others` as "also walked"); then `not_admitted` with its reasons; then `skips` with reason and detail. A `stale` skip gets the hint "untag it, then tag it in a later /feature:queue run to reset its clock" — once untagged it is listed under **Could join** only from the next run. `not backlog` covers tickets already in progress or in review.
 - **Room** — `open_prs`/`max_open_prs`, `tickets_admitted`/`max_tickets_per_run`, and `caps.reason` when set. `open_prs: null` → "admission unknown: open PRs could not be counted".
 - **Preconditions** — each failing precondition, as "would block tonight if still true at run time". For `git_base` and `git_clean`, add that they describe this checkout now.
 - **Could join** — the `eligible` items whose spec is present, numbered from 1. An epic lists its `tickets` beneath it; an eligible child whose epic is eligible too is listed under that epic with the hint "or tag the epic to run the whole chain". An item with a `stale` detail gets "tagging resets the <max_age_days>-day clock". Below the numbered list, unnumbered, the eligible items with no spec, as "no spec — run /feature:discover first"; they cannot be picked, although the dispatcher alone would admit them once tagged.
@@ -132,7 +133,7 @@ With an inbox pick, continue to step 8.
 
 ### 8. Hand off to discover
 
-Invoke `Skill` with `feature:discover`, passing a one-paragraph description written from the picked item's body, ending with `(from inbox <short_ref>)`. Before the call, print that re-running `/feature:queue` afterwards offers the new ticket for tagging. Discover takes the conversation over, and the queue run ends there. This skill never creates a ticket and never marks an item promoted.
+Invoke `Skill` with `feature:discover`, passing a one-paragraph description written from the picked item's body, ending with `(from inbox <short_ref>)`. Before the call, print that re-running `/feature:queue` afterwards offers the new ticket for tagging, and that the inbox item stays under **Needs discovery first** until it is marked promoted outside this skill. Discover takes the conversation over, and the queue run ends there. This skill never creates a ticket and never marks an item promoted.
 
 **Done when** discover is invoked.
 
@@ -142,7 +143,7 @@ Every stop is one line starting `Queue stopped:`.
 
 | Condition | Outcome |
 |---|---|
-| fs-native project, or a config error | Stop before any shell or server call (step 1) |
+| fs-native project, a config error, or an unknown `mode` value | Stop before any shell or server call (step 1) |
 | A path holding a single quote | Stop before the command (Roots and the command) |
 | The command exits 1 — server unreachable, a non-git root, an invalid `dispatch:` block | Stop with its error; no server call (step 2) |
 | `gh` cannot list the open pull requests | Admission unknown; every list is still shown (step 4) |
