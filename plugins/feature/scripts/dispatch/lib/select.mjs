@@ -1,7 +1,8 @@
 // Selection and admission for the dispatcher (CONTRACT.md §7–§8).
 //
 // Pure functions over plain data and an injected `now`: ticket rows in,
-// candidates, skips and an admitted prefix out. Nothing here touches the
+// candidates, skips, the untagged rows eligible if tagged, and an admitted
+// prefix out. Both selections run one §7 table. Nothing here touches the
 // network, the filesystem or a clock.
 //
 // Private to the implementation: only dispatch.mjs is a command.
@@ -45,7 +46,26 @@ export function compareRows(a, b) {
  * in `compareRows` order. `others` holds an epic's non-terminal children outside
  * `tickets`, which the same `ship` session walks.
  */
-export function selectCandidates(rows, { tag, maxAgeDays, now }) {
+export function selectCandidates(rows, options) {
+  return partition(rows, options, { tagged: true, judgeStaleness: true });
+}
+
+/**
+ * The untagged, non-terminal rows that would be candidates if each were tagged,
+ * in `compareRows` order. Each item is a candidate plus `stale`: the staleness
+ * detail, or null. Writing the tag refreshes `updated_at`, so staleness is
+ * reported rather than judged.
+ */
+export function selectEligible(rows, options) {
+  return partition(rows, options, { tagged: false, judgeStaleness: false }).candidates;
+}
+
+/**
+ * Run the §7 table over the rows whose tagged state equals `tagged`. A child of
+ * a tagged epic is covered whichever pool it is in. With `judgeStaleness` off,
+ * a stale row stays a candidate carrying its detail and adds no note.
+ */
+function partition(rows, { tag, maxAgeDays, now }, { tagged, judgeStaleness }) {
   const nowMs = now.getTime();
   const byId = new Map(rows.map((row) => [row.id, row]));
   const childrenOf = new Map();
@@ -71,7 +91,9 @@ export function selectCandidates(rows, { tag, maxAgeDays, now }) {
   const staleness = (row) => {
     const updated = Date.parse(row.updated_at);
     if (Number.isNaN(updated)) {
-      notes.push(`${row.id}: unparseable updated_at — treated as stale`);
+      if (judgeStaleness) {
+        notes.push(`${row.id}: unparseable updated_at — treated as stale`);
+      }
       return 'updated_at unparseable';
     }
     const ageDays = (nowMs - updated) / DAY_MS;
@@ -79,10 +101,13 @@ export function selectCandidates(rows, { tag, maxAgeDays, now }) {
   };
 
   const skip = (row, reason, detail = null) => skips.push({ id: row.id, reason, detail });
-  const candidate = (row, tickets, others = []) => candidates.push({ id: row.id, kind: row.kind, tickets, others, created_at: row.created_at });
+  const candidate = (row, tickets, others, stale) => {
+    const item = { id: row.id, kind: row.kind, tickets, others, created_at: row.created_at };
+    candidates.push(judgeStaleness ? item : { ...item, stale });
+  };
 
   for (const row of [...rows].sort(compareRows)) {
-    if (!isTagged(row) || TERMINAL.has(row.status)) {
+    if (isTagged(row) !== tagged || TERMINAL.has(row.status)) {
       continue;
     }
     if (row.kind === 'epic') {
@@ -101,12 +126,12 @@ export function selectCandidates(rows, { tag, maxAgeDays, now }) {
         continue;
       }
       const stale = staleness(row);
-      if (stale !== null) {
+      if (judgeStaleness && stale !== null) {
         skip(row, 'stale', stale);
         continue;
       }
       const others = children.filter((child) => child.status !== 'backlog' && !TERMINAL.has(child.status));
-      candidate(row, backlog.map((child) => child.id).sort(compareIds), others.map((child) => child.id).sort(compareIds));
+      candidate(row, backlog.map((child) => child.id).sort(compareIds), others.map((child) => child.id).sort(compareIds), stale);
       continue;
     }
     const parent = row.parent_id !== null ? byId.get(row.parent_id) : undefined;
@@ -124,11 +149,11 @@ export function selectCandidates(rows, { tag, maxAgeDays, now }) {
       continue;
     }
     const stale = staleness(row);
-    if (stale !== null) {
+    if (judgeStaleness && stale !== null) {
       skip(row, 'stale', stale);
       continue;
     }
-    candidate(row, [row.id]);
+    candidate(row, [row.id], [], stale);
   }
   return { candidates, skips, notes };
 }

@@ -25,7 +25,7 @@ import { LOCK_NAME, RECLAIM_NAME, STALE_MS, UNREADABLE_GRACE_MS, acquireLock, gi
 import { onPath } from './preconditions.mjs';
 import { countOpenPrs, prSlots } from './prs.mjs';
 import { renderReport } from './report.mjs';
-import { admit, compareIds, selectCandidates } from './select.mjs';
+import { admit, compareIds, selectCandidates, selectEligible } from './select.mjs';
 import { READ_NAMES, listTickets, resolveServerAccess } from './server.mjs';
 import { RUN_ID_RE, newRunId, projectNameFor, stateDirFor } from './state.mjs';
 import { shipArgv, syncArgv } from './dispatch.mjs';
@@ -487,6 +487,34 @@ const CASES = [
     equal(['ABC-10', 'ABC-2', 'B-1', 'ABC-1'].sort(compareIds), ['ABC-1', 'ABC-2', 'ABC-10', 'B-1'], 'id order');
   }],
 
+  ['selection: untagged rows eligible if tagged', () => {
+    const options = { tag: TAG, maxAgeDays: 14, now: NOW };
+    const eligible = selectEligible(FIXTURE_ROWS, options);
+    equal(eligible.map((e) => [e.id, e.kind, e.tickets, e.others, e.stale]), [
+      ['ABC-60', 'solo', ['ABC-60'], [], null],
+      ['ABC-50', 'epic', ['ABC-51'], [], null],
+    ], 'eligible over the fixture: covered children, terminal and tagged rows absent');
+    equal(Object.keys(eligible[0]).sort(), ['created_at', 'id', 'kind', 'others', 'stale', 'tickets'], 'eligible item shape');
+    equal(Object.keys(selectCandidates(FIXTURE_ROWS, options).candidates[0]).sort(), ['created_at', 'id', 'kind', 'others', 'tickets'], 'candidate item shape');
+    const local = selectEligible([
+      row('ABC-90', { tags: [], updated_at: '2026-08-01T00:00:00.000Z' }),
+      row('ABC-91', { tags: [], updated_at: 'not a date' }),
+      row('ABC-92', { tags: [], status: 'in-progress' }),
+      row('ABC-93', { tags: [], blocked_by: ['ABC-99'] }),
+      row('ABC-94', { kind: 'epic', tags: [], created_at: '2026-10-02T00:00:00.000Z' }),
+      row('ABC-95', { kind: 'child', parent_id: 'ABC-94', tags: [], created_at: '2026-10-02T00:00:00.000Z' }),
+      row('ABC-96', { kind: 'epic', tags: [], created_at: '2026-10-03T00:00:00.000Z' }),
+      row('ABC-97', { kind: 'child', parent_id: 'ABC-96', tags: [], blocked_by: ['ABC-92'], created_at: '2026-10-03T00:00:00.000Z' }),
+      row('ABC-98'),
+    ], options);
+    equal(local.map((e) => [e.id, e.kind, e.tickets, e.stale]), [
+      ['ABC-90', 'solo', ['ABC-90'], 'updated 74 days ago'],
+      ['ABC-91', 'solo', ['ABC-91'], 'updated_at unparseable'],
+      ['ABC-94', 'epic', ['ABC-95'], null],
+      ['ABC-95', 'child', ['ABC-95'], null],
+    ], 'stale rows listed with their detail; not backlog, blocked, externally blocked epic and tagged rows absent');
+  }],
+
   ['caps: open-PR count and admission', () => {
     const counted = countOpenPrs({
       openPrs: [
@@ -670,7 +698,8 @@ const CASES = [
     const inbox = [];
     const seen = [];
     try {
-      await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') }, inbox, seen }), async (url) => {
+      const untagged = row('ABC-3', { tags: [], updated_at: new Date().toISOString() });
+      await withStub(stubHandler({ rows: [...e2eRows(), untagged], tickets: { 'ABC-1': shippedRow('ABC-1') }, inbox, seen }), async (url) => {
         const env = worldEnv(w, url);
         const lockDir = path.join(gitCommonDir(w.repo), LOCK_NAME);
 
@@ -680,6 +709,7 @@ const CASES = [
         const p = planned.doc;
         equal([p.verb, p.ok, p.admitted.map((i) => i.id), p.not_admitted, p.skips.map((s) => s.id)], ['plan', true, ['ABC-1'], [{ id: 'ABC-2', reason: 'ticket cap' }], ['ABC-9']], 'plan document');
         equal(p.caps.open_prs, 1, 'open PR counted by title');
+        equal(p.eligible.map((e) => [e.id, e.tickets, e.stale]), [['ABC-3', ['ABC-3'], null]], 'plan lists the untagged row eligible if tagged');
         equal(p.preconditions.map((c) => c.name), ['claude', 'config', 'gh', 'git_base', 'git_clean', 'node', 'server', 'state_dir'], 'precondition names');
         assert(!fs.existsSync(path.join(w.home, '.feature-pipeline')) && !fs.existsSync(lockDir), 'plan wrote state or a lock');
 
