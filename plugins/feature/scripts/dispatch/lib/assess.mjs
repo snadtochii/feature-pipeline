@@ -7,15 +7,15 @@
 
 import { loadDispatchConfig } from './config.mjs';
 import { countOpenPrs, listOpenPrs, prSlots } from './prs.mjs';
-import { admit, selectCandidates } from './select.mjs';
+import { admit, selectCandidates, selectEligible } from './select.mjs';
 import { listTickets, resolveServerAccess } from './server.mjs';
 
 /**
  * Decide what a run would dispatch. `runs` is the runs.json history; a caller
  * that already read the configuration and resolved the server access passes
  * them as `config` and `access`, and their notes are then its own.
- * Returns `{ config, server, gh, candidates, admitted, notAdmitted, skips,
- * caps, notes }`; `gh` is `{ok, detail?}`. Throws ComputeError when the
+ * Returns `{ config, server, gh, candidates, eligible, admitted, notAdmitted,
+ * skips, caps, notes }`; `gh` is `{ok, detail?}`. Throws ComputeError when the
  * configuration or the server says the answer cannot be computed.
  */
 export async function assess({ projectRoot, env, now, runs, fetchImpl, config: loaded, access: resolved }) {
@@ -37,6 +37,7 @@ export async function assess({ projectRoot, env, now, runs, fetchImpl, config: l
     server: { ok: true, detail: `HTTP ${listed.status}, ${listed.rows.length} tickets` },
     gh: prs.ok ? { ok: true } : { ok: false, detail: prs.detail },
     candidates: selection.candidates,
+    eligible: selectEligible(listed.rows, { tag, maxAgeDays, now }),
     admitted: admission.admitted,
     notAdmitted: admission.notAdmitted,
     skips: selection.skips,

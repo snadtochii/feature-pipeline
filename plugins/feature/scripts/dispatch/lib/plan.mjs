@@ -30,6 +30,7 @@ export async function plan({ projectRoot, env = process.env, now = new Date(), f
     project: { id: result.config.project, name },
     config: result.config.dispatch,
     candidates: result.candidates,
+    eligible: result.eligible,
     admitted: result.admitted,
     not_admitted: result.notAdmitted,
     skips: result.skips,

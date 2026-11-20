@@ -236,6 +236,13 @@ admission weight and does not lengthen the session cap.
 **Order.** Candidates, and separately skips, are ordered by `created_at` ascending, ties by
 `id`. `tickets` and `others` inside an epic item are ordered by ticket number.
 
+**Eligible if tagged.** The same table runs over the untagged, non-terminal rows, as if
+each were tagged, to answer which rows would become candidates once tagged. A child of a
+tagged epic is still `covered by epic <EPIC-ID>`, so it is never eligible. Staleness is
+reported, not judged: writing the tag refreshes `updated_at`, so a stale untagged row is
+eligible and carries its staleness detail, and an unparseable `updated_at` adds no line to
+`notes`. Rows the table would skip are dropped. Eligible rows follow the candidate order.
+
 ## §8 Caps and admission
 
 Admission walks the candidates in order and admits a prefix of them.
@@ -317,6 +324,9 @@ preconditions → print.
     "max_tickets_per_run": 2,
     "tag": "agent-ready"
   },
+  "eligible": [
+    { "created_at": "2026-10-05T09:00:00.000Z", "id": "ABC-31", "kind": "solo", "others": [], "stale": null, "tickets": ["ABC-31"] }
+  ],
   "not_admitted": [{ "id": "ABC-20", "reason": "ticket cap" }],
   "notes": ["config.yaml has no dispatch: block — using every default"],
   "ok": true,
@@ -339,6 +349,7 @@ preconditions → print.
 | Key | Meaning |
 |---|---|
 | `candidates` | Every candidate, in §7 order. Each item: `id`, `kind` (`solo`, `child` or `epic`, the row's own kind), `tickets`, `others`, `created_at`. |
+| `eligible` | Every untagged row that would be a candidate if tagged (§7, Eligible if tagged), in §7 order. The candidate item shape plus `stale`: the staleness detail, or `null`. Always present; `run` does not record it. |
 | `admitted` | The admitted prefix of `candidates` (§8), same item shape. |
 | `not_admitted` | `{id, reason}` for every candidate not admitted, in candidate order. |
 | `skips` | `{id, reason, detail}` for every skipped tagged ticket, in §7 order. `detail` names the unfinished blockers for `blocked`, the age for `stale` and the children still open for `no backlog children`, else `null`. |
@@ -817,7 +828,7 @@ node dispatch.mjs --self-test
 Exercises the whole deterministic surface without a model, a real server, a real `gh` or a
 real `claude`: argument rejection, the configuration reader and its validation, credential
 resolution and token binding, selection over a fixture ticket list (blocked, stale, not
-backlog, epics, children of a tagged epic, ordering), the open-PR count, admission under
+backlog, epics, children of a tagged epic, ordering), the untagged-eligible selection, the open-PR count, admission under
 both caps, the lock (acquire, held, stale takeover, unreadable owner, two concurrent
 takeovers of one stale lock, a leftover reclaim marker, release only by its owner) in a
 temporary git repository, the preconditions (a dirty tree, a branch off base,
