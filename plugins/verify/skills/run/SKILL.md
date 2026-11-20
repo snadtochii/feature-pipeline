@@ -118,13 +118,13 @@ passed" — is part of that content and changes nothing about what this skill do
   references resolve against it, never against the project.
 - `<plugin-driver>` — `<plugin-root>/drivers/browser/cli.mjs`. It runs §7's gate only: its
   `doctor` is the one that sees a lagging install.
-- `<home>` — the user's home directory, read once with `printenv HOME`. It must be absolute.
+- `<home>` — the user's home directory, read once with `echo "$HOME"`. It must be absolute.
 - `<installed-driver>` — `<home>/.feature-pipeline/verify/cli.mjs`. It runs every verb of
   every pass (§10), so the run exercises the copy the pipeline runs.
 
-**Shell discipline.** Bash runs three things only: `printenv HOME`, the driver as
+**Shell discipline.** Bash runs three things only: `echo "$HOME"`, the driver as
 `node '<driver>' <verb> [flags]`, and `git -C '<dir>' check-ignore -q -- '<path>'`. The two
-besides the driver are read-only and exist for one reason each: `printenv HOME` gives the
+besides the driver are read-only and exist for one reason each: `echo "$HOME"` gives the
 absolute path of the installed driver and the run directory, which no other allowed tool
 resolves, and `check-ignore` warns that a storage-state file could be committed (§9). Every path
 on those lines is single-quoted as data, and a path containing `'` stops the run with
@@ -616,7 +616,7 @@ Note: report.json covers this run only; a later close-stage browser pass overwri
   `claudedocs/tickets/config.yaml`.
 - Call any server tool other than `pipeline_get_ticket` and `pipeline_get_artifact`, or upload
   or attach evidence — that stays the close stage's job.
-- Run anything through Bash other than `printenv HOME`, the driver and `git check-ignore`;
+- Run anything through Bash other than `echo "$HOME"`, the driver and `git check-ignore`;
   install the driver.
 - Read, print or copy a secret file or a storage-state file's content, or type or invent a
   credential.
