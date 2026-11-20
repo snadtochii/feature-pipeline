@@ -482,7 +482,9 @@ Decide the case, first match:
    b. each of its `items`, one line: `id` and `outcome`; for `shipped`, its `pr_url`; for
       `stuck`, its `reason`, its `pr_url` when set, and `claude --resume <session_id>` when
       `session_id` is set; for `not dispatched`, its `reason`;
-   c. the report path, <home>/.feature-pipeline/dispatch/<project-name>/reports/<run_id>.md.
+   c. the report path, <home>/.feature-pipeline/dispatch/<project-name>/reports/<run_id>.md;
+   d. each line of that report's `## Notes` section, as written, when it lists any: the
+      permission-denial, failing-checks and `ship-failed` notes are there, not in `runs.json`.
 4. Otherwise: report "no run recorded in the last 24 hours — run plan to see why; a run
    refused before its lock leaves no record".
 
