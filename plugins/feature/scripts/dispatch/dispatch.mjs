@@ -8,6 +8,7 @@
 // Usage:
 //   dispatch.mjs plan --project-root <abs-path>
 //   dispatch.mjs run  --project-root <abs-path>
+//   dispatch.mjs start --project-root <abs-path>
 //   dispatch.mjs --self-test
 // Output: exactly one sorted-key JSON document on stdout; child sessions write
 // only to their log files.
@@ -30,6 +31,7 @@ installTeardown();
 const VERBS = {
   plan: async (input) => (await import('./lib/plan.mjs')).plan(input),
   run: async (input) => (await import('./lib/run.mjs')).run(input),
+  start: async (input) => (await import('./lib/start.mjs')).start(input),
 };
 
 async function main(argv) {

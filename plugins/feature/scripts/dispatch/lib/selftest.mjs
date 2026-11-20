@@ -210,10 +210,10 @@ function e2eRows() {
 /**
  * A routing stand-in for the server, answering a request that carries the
  * bearer token (403 otherwise): the ticket list, one ticket from `tickets`
- * (404 when absent), the project list, and the inbox capture, whose bodies
- * are pushed to `inbox`.
+ * (404 when absent), and the inbox capture, whose bodies are pushed to
+ * `inbox`. Every request is pushed to `seen`.
  */
-function stubHandler({ rows = [], tickets = {}, projects = [{ id: PROJECT_ID, name: 'my-app' }], inbox = [], inboxStatus = 201, seen = [] } = {}) {
+function stubHandler({ rows = [], tickets = {}, inbox = [], inboxStatus = 201, seen = [] } = {}) {
   return (req, res) => {
     seen.push({ method: req.method, url: req.url, authorization: req.headers.authorization });
     const send = (status, body) => {
@@ -232,8 +232,6 @@ function stubHandler({ rows = [], tickets = {}, projects = [{ id: PROJECT_ID, na
     } else if (req.method === 'GET' && one !== null) {
       const ticket = tickets[decodeURIComponent(one[1])];
       send(ticket === undefined ? 404 : 200, ticket ?? {});
-    } else if (req.method === 'GET' && pathname === '/api/projects') {
-      send(200, projects);
     } else if (req.method === 'POST' && pathname === '/api/inbox') {
       let body = '';
       req.on('data', (chunk) => {
@@ -306,6 +304,9 @@ const CASES = [
         [['run', '--project-root', dir, '--project-root', dir], 'flag given twice'],
         [['run', '--project-root', dir, '--force'], 'unknown flag'],
         [['plan', '--project-root', dir, 'extra'], 'unexpected argument'],
+        [['start'], 'start needs --project-root'],
+        [['start', '--project-root', 'relative/dir'], 'must be an absolute path'],
+        [['start', '--project-root', dir, '--force'], 'unknown flag'],
       ];
       for (const [args, fragment] of cases) {
         const res = await runEntry(args, { env: { PATH: '/usr/bin:/bin', HOME: dir } });
@@ -667,8 +668,9 @@ const CASES = [
   ['end to end: plan answers and writes nothing; run ships, records, reports, posts and releases', async () => {
     const w = world('e2e', { ghOut: JSON.stringify([{ number: 1, title: 'ABC-9: open', url: 'https://g/9' }]) });
     const inbox = [];
+    const seen = [];
     try {
-      await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') }, inbox }), async (url) => {
+      await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') }, inbox, seen }), async (url) => {
         const env = worldEnv(w, url);
         const lockDir = path.join(gitCommonDir(w.repo), LOCK_NAME);
 
@@ -700,7 +702,8 @@ const CASES = [
         assert(!ran.stdout.includes(TOKEN) && !report.includes(TOKEN), 'token in output or report');
         equal(inbox.length, 1, 'one inbox item');
         const item = inbox[0].body;
-        equal([item.source, item.project, item.metadata], ['feature:dispatch', 'my-app', { project_id: PROJECT_ID, run_id: r.run_id }], 'inbox item fields');
+        equal([item.source, item.project_id, item.metadata, 'project' in item], ['feature:dispatch', PROJECT_ID, { project_id: PROJECT_ID, run_id: r.run_id }, false], 'inbox item fields');
+        assert(!seen.some((s) => new URL(s.url, 'http://stub.invalid').pathname === '/api/projects'), 'a request reached /api/projects');
         equal(item.body.split('\n')[0], `Night dispatch ${r.run_id}: 1 shipped, 0 stuck, 2 skipped`, 'inbox first line');
         assert(!item.body.includes(TOKEN), 'token in the inbox body');
         const calls = fs.readFileSync(w.files.FAKE_CLAUDE_ARGS, 'utf8').split('--\n').filter(Boolean).map((call) => call.split('\n').filter(Boolean));

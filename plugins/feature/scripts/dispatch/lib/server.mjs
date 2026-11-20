@@ -223,32 +223,11 @@ export async function getTicket({ access, projectId, ticketId, fetchImpl = fetch
 }
 
 /**
- * The server's registry name for the project UUID: `{ name, note }`, `name`
- * null with a `note` when it cannot be resolved. Never throws.
+ * Capture one inbox item, filed under the existing project `projectId` names:
+ * `{ ok, detail }`. Never throws.
  */
-export async function findProjectName({ access, projectId, fetchImpl = fetch, timeoutMs = REQUEST_TIMEOUT_MS }) {
-  let body;
-  try {
-    ({ body } = await request(access, { route: '/projects', fetchImpl, timeoutMs }));
-  } catch (err) {
-    return { name: null, note: `project name not resolved: ${err.status ? `HTTP ${err.status}` : err.message}` };
-  }
-  const want = projectId.toLowerCase();
-  const match = Array.isArray(body)
-    ? body.find((project) => project !== null && typeof project === 'object' && typeof project.id === 'string' && project.id.toLowerCase() === want)
-    : undefined;
-  if (match === undefined || !isSet(match.name)) {
-    return { name: null, note: `project name not resolved: the server lists no project ${projectId}` };
-  }
-  return { name: match.name, note: null };
-}
-
-/**
- * Capture one inbox item: `{ ok, detail }`. Never throws; the body is sent as
- * given, `project` only when it is set.
- */
-export async function captureInbox({ access, body, project, metadata, fetchImpl = fetch, timeoutMs = REQUEST_TIMEOUT_MS }) {
-  const payload = { body, source: 'feature:dispatch', metadata, ...(isSet(project) ? { project } : {}) };
+export async function captureInbox({ access, body, projectId, metadata, fetchImpl = fetch, timeoutMs = REQUEST_TIMEOUT_MS }) {
+  const payload = { body, source: 'feature:dispatch', project_id: projectId, metadata };
   try {
     const { status } = await request(access, { method: 'POST', route: '/inbox', body: payload, parse: false, fetchImpl, timeoutMs });
     return { ok: true, detail: `HTTP ${status}` };
@@ -258,28 +237,20 @@ export async function captureInbox({ access, body, project, metadata, fetchImpl 
 }
 
 /**
- * Send a run's inbox item: resolve the project's registry name, then capture.
- * Returns the `notes` lines the attempt produced — none when the item went out
- * with its project. Never throws.
+ * Send a run's inbox item, filed under the configured project. Returns the
+ * `notes` lines the attempt produced — none when the item went out. Never
+ * throws.
  */
 export async function sendInbox({ access, projectId, runId, body, fetchImpl = fetch, timeoutMs = REQUEST_TIMEOUT_MS }) {
-  const notes = [];
-  const project = await findProjectName({ access, projectId, fetchImpl, timeoutMs });
-  if (project.note !== null) {
-    notes.push(`inbox item sent without a project: ${project.note}`);
-  }
   const sent = await captureInbox({
     access,
     body,
-    project: project.name,
+    projectId,
     metadata: { project_id: projectId, run_id: runId },
     fetchImpl,
     timeoutMs,
   });
-  if (!sent.ok) {
-    notes.push(`inbox capture failed: ${sent.detail}`);
-  }
-  return notes;
+  return sent.ok ? [] : [`inbox capture failed: ${sent.detail}`];
 }
 
 export const SIGNAL_REQUEST_TIMEOUT_MS = 5_000;
@@ -289,13 +260,12 @@ const INBOX_HELPER = fileURLToPath(new URL('./inbox-send.mjs', import.meta.url))
 /**
  * `sendInbox` from a synchronous context — the teardown of a signalled run,
  * where no promise settles before the process exits. A helper `node` process
- * makes the requests, each with a 5-second timeout; the request, token
- * included, reaches it on stdin, never in its arguments or environment, and
- * the wait is bounded at 12 seconds. Returns the same `notes` lines. Never
- * throws.
+ * makes the request with a 5-second timeout; the request, token included,
+ * reaches it on stdin, never in its arguments or environment, and the wait is
+ * bounded at 7 seconds. Returns the same `notes` lines. Never throws.
  */
 export function sendInboxSync({ access, projectId, runId, body, env, timeoutMs = SIGNAL_REQUEST_TIMEOUT_MS }) {
-  const waitMs = 2 * timeoutMs + SIGNAL_SEND_SLACK_MS;
+  const waitMs = timeoutMs + SIGNAL_SEND_SLACK_MS;
   const child = spawnSync(process.execPath, [INBOX_HELPER], {
     input: JSON.stringify({ access, projectId, runId, body, timeoutMs }),
     env,

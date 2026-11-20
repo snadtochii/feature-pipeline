@@ -20,6 +20,7 @@ server's ticket state.
 ```text
 node <plugin-root>/scripts/dispatch/dispatch.mjs plan --project-root <abs-path>
 node <plugin-root>/scripts/dispatch/dispatch.mjs run  --project-root <abs-path>
+node <plugin-root>/scripts/dispatch/dispatch.mjs start --project-root <abs-path>
 node <plugin-root>/scripts/dispatch/dispatch.mjs --self-test
 ```
 
@@ -28,6 +29,7 @@ node <plugin-root>/scripts/dispatch/dispatch.mjs --self-test
 | `<plugin-root>` | The installed `feature` plugin's root directory. |
 | `plan` | §9. Answers what a run would do, acquiring nothing, writing nothing and starting no session. |
 | `run` | §10. Takes the lock, runs `sync` and one `ship` session per admitted item, records the run, writes its report and sends it to the inbox. |
+| `start` | §10, `start`. Starts `run` for the same project detached, in a session of its own, and answers with its pid at once. |
 | `--project-root` | The project to dispatch for: an absolute path to an existing directory inside a git repository. |
 | `--self-test` | §13. Takes no verb and no other flag. |
 
@@ -68,8 +70,8 @@ content of the credential file, or a URL with userinfo in it (§6).
 
 | Code | Meaning | Document |
 |---|---|---|
-| `0` | An answer was computed. This includes **nothing to dispatch** — no eligible ticket or a cap already met — and a run whose items ended `stuck` (§10). For `plan`, it includes a failed precondition (`ok: false`). | The verb's document from §9–§10. |
-| `1` | The answer could not be computed: the project is not server-native, the configuration is invalid, the server is unreachable or rejects the request, the project root is not in a git repository, the lock is held by a live run, the state directory cannot be written, a precondition failed during `run`, the first `sync` session failed, `gh` cannot list the open pull requests during `run`, or the process was interrupted by a signal. | `{"error": "<reason>"}` |
+| `0` | An answer was computed. This includes **nothing to dispatch** — no eligible ticket or a cap already met — and a run whose items ended `stuck` (§10). For `plan`, it includes a failed precondition (`ok: false`). For `start`, it means the run was started, whatever that run then does. | The verb's document from §9–§10. |
+| `1` | The answer could not be computed: `start` could not spawn the run, the project is not server-native, the configuration is invalid, the server is unreachable or rejects the request, the project root is not in a git repository, the lock is held by a live run, the state directory cannot be written, a precondition failed during `run`, the first `sync` session failed, `gh` cannot list the open pull requests during `run`, or the process was interrupted by a signal. | `{"error": "<reason>"}` |
 | `2` | The invocation was wrong: no verb or an unknown verb, an unknown or repeated flag, a missing or empty `--project-root`, a relative path, a path that is not an existing directory, or `--self-test` with anything beside it. | `{"error": "<reason>"}` |
 
 A caller distinguishes "the night ran" from "the dispatcher could not run" by the exit code
@@ -90,12 +92,12 @@ directory; anything else exits 2. There is no working-directory resolution to re
 (§5); the environment and the credential file (§6); the state directory (§12); the output
 of the processes it starts.
 
-**What it requests.** The ticket list, one ticket, the project list and the inbox capture
-from the personal server (§6, §10). `plan` requests the ticket list only.
+**What it requests.** The ticket list, one ticket and the inbox capture from the personal
+server (§6, §10). `plan` requests the ticket list only; `start` requests nothing.
 
 **What it writes, and where.** The lock directory inside the repository's git common
 directory (§11) and the state directory under `$HOME/.feature-pipeline/dispatch/` (§12),
-session logs included. `run` writes both; `plan` writes neither. The dispatcher itself
+session logs included. `run` writes both; `plan` and `start` write neither. The dispatcher itself
 never writes into the project's working tree; the sessions it starts work in the worktrees
 `ship` creates.
 
@@ -107,7 +109,9 @@ directory:
 - `gh pr list` (open pull requests, §8), `gh auth status` (the preconditions) and
   `gh pr view` and `gh pr checks` (a pull request's state, base branch, `ship-failed` label
   and failing checks, §10);
-- `claude`, during `run` only, with exactly the two argument vectors in §10.
+- `claude`, during `run` only, with exactly the two argument vectors in §10;
+- the running Node binary with `dispatch.mjs run --project-root <abs-path>`, during `start`
+  only, detached into a session of its own (§10, `start`).
 
 Two exceptions to the working directory, both run in the dispatcher's own working
 directory and only after a signal: `ps -o stat= -p <pid>`, while the signal stops a
@@ -181,8 +185,7 @@ set, has a 10-second timeout, and follows no redirect.
 |---|---|
 | `GET <base>/api/pipeline/tickets?project_id=<project>` | The ticket list (§7) and the reachability probe. |
 | `GET <base>/api/pipeline/tickets/<id>?project_id=<project>` | One ticket's row after its session (§10). A 404 counts as a failed read. |
-| `GET <base>/api/projects` | The project's registry name for the inbox item (§10). |
-| `POST <base>/api/inbox` | The inbox item (§10), a JSON body. |
+| `POST <base>/api/inbox` | The inbox item (§10), a JSON body carrying the configured `project_id`. |
 
 The ticket list's outcomes:
 
@@ -628,7 +631,7 @@ line `no inbox item: the server failed the precondition`. The item is
 {
   "body": "Night dispatch 2026-10-14-a1b2c3: 1 shipped, 0 stuck, 2 skipped\n\n# Dispatch run 2026-10-14-a1b2c3\n…",
   "metadata": { "project_id": "5b0c8a52-3f0e-4c41-9a43-2f1d7f3c9e10", "run_id": "2026-10-14-a1b2c3" },
-  "project": "my-app",
+  "project_id": "5b0c8a52-3f0e-4c41-9a43-2f1d7f3c9e10",
   "source": "feature:dispatch"
 }
 ```
@@ -636,18 +639,18 @@ line `no inbox item: the server failed the precondition`. The item is
 - `body` is one summary line, a blank line, and the report (§12). The summary line is
   `Night dispatch <run-id>: <n> shipped, <m> stuck, <k> skipped`, where `<k>` counts the
   skips, the candidates not admitted and the items left `not dispatched`.
-- `project` is the registry name the server itself returns for the configured project id
-  from `GET <base>/api/projects`. When that request fails or lists no such project, the key
-  is left out and a `notes` line says why — the dispatcher never sends a name of its own,
-  since an unknown name registers a new project.
-- A failed capture adds a `notes` line to the report written afterwards; it never changes
-  the exit code.
+- `project_id` is the configured project's UUID (§5), so the server files the item under
+  that existing project. The body never carries a `project` name: the server takes one or
+  the other, and an unknown name registers a new project. A server that refuses the field
+  or knows no project with that id rejects the capture, which costs only the item.
+- A failed capture adds the `notes` line `inbox capture failed: <HTTP status or reason>` to
+  the report written afterwards; it never changes the exit code.
 
 **On a signal** the run is recorded first, so a kill that follows still finds its record
 and report. The item is then sent by a helper process — the running Node binary with the
 dispatcher's private inbox helper, which receives the request, token included, on its
-stdin — making the same two requests with a 5-second timeout each; the dispatcher waits
-for it at most 12 seconds. Notes from that attempt are written into the report again. A
+stdin — making the same request with a 5-second timeout; the dispatcher waits for it at
+most 7 seconds. Notes from that attempt are written into the report again. A
 signal that arrives while the item is already being sent does not send a second one and
 adds the `notes` line `inbox item not confirmed: <reason> while it was being sent`; one
 that arrives before the server access resolved sends nothing and adds
@@ -664,6 +667,35 @@ outcome `stopped` and an `error` line, best effort, then releases the lock. A fa
 write that record or report is appended to the error message, never substituted for it. A
 run that decided but could not write its record or report exits 1 naming what was not
 written. A run refused because the lock is held writes nothing.
+
+### `start`
+
+```text
+node dispatch.mjs start --project-root <abs-path>
+```
+
+`start` is for a caller whose own session ends before a night does, such as an
+agent-session scheduler. It spawns the running Node binary with
+`dispatch.mjs run --project-root <abs-path>` — an argument vector, the project root as the
+working directory — detached into a session and process group of its own, with every
+standard descriptor on `/dev/null`, and returns as soon as the process exists. A hangup or
+a kill sent to the caller's process group does not reach it, and it needs no `setsid`
+binary. `start` itself takes no lock, reads no configuration, requests nothing and writes
+nothing.
+
+Its document:
+
+| Key | Meaning |
+|---|---|
+| `verb` | `"start"`. |
+| `ok` | `true`. |
+| `pid` | The started run's process id. |
+
+The run it starts is this section's `run` in every respect, and its result exists only in
+`runs.json` and its report (§12): its own document goes nowhere. A run refused before the
+lock — a held lock, a project root outside a git repository — leaves no record, no report and no inbox item, so a caller that finds neither a record nor
+the lock runs `plan` to see why. A second `start` while a run holds the lock therefore
+prints a pid whose run then exits on the lock.
 
 ## §11 Lock
 
@@ -797,8 +829,10 @@ injected runner, the finish predicate and every stuck reason over fixture
 ticket states (labelled and unlabelled pull requests included), the `sync` status, the exact argument vectors, the session runner's caps,
 escalation, group kill and timer clamp against stand-in `claude` scripts with millisecond
 caps, the report sections, the inbox body's shape, the signal-path inbox helper against an
-unreachable server, the sorted-key document shape, and end-to-end `plan` and `run`
-invocations — shipped, a child merged into an integration branch, an epic's one direct
+unreachable server, the sorted-key document shape, `start`'s detached spawn (its exact
+argument vector and options over an injected spawn, a spawn failure, and a stand-in script
+started in a process group of its own), and end-to-end `plan`, `run` and `start`
+invocations — a `start` whose run is refused before the lock and leaves nothing, shipped, a child merged into an integration branch, an epic's one direct
 child, stuck, no open integration pull request, a pull request open into another branch, a
 walked child that did not merge beside a reused integration pull request, a direct pull
 request with failing checks, a labelled direct pull request that ships with a note while the

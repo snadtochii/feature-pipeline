@@ -79,7 +79,7 @@ git -C "<repo-root>" worktree list
 
 - **`<wt-path>` is already registered** → **adopt it**; print one line naming the path, then run **step 4's verification only** (not its copy — the files are already there) and skip to step 6. A prior run (or a crash) provisioned it, so re-provisioning would fail and re-copying could clobber work. Adopting also skips step 2's prompt — the user answered that question when the worktree was created, and re-asking on every resume is noise on the flag's most common repeat path.
 
-  Re-running the verification is what keeps the exclusion list alive across a resume. That list is per-run state, so a crash after provisioning but before the commit would otherwise leave a worktree holding a copied secrets file this run has never checked, and `commit.md` §1 would stage it with an empty exclusion list. Re-deriving costs one `check-ignore` per `.worktreeinclude` match — all local — and is authoritative even when the recorded list is stale or predates the field.
+  Re-running the verification is what keeps the exclusion list alive across a resume. That list is per-run state, so a crash after provisioning but before the commit would otherwise leave a worktree holding a copied secrets file this run has never checked, and `commit.md` §1 would stage it with an empty exclusion list. Re-deriving costs one local `ls-files` call and is authoritative even when the recorded list is stale or predates the field.
 - **`<branch>` exists but has no worktree** (pushed pre-crash, its worktree pruned) → note it now; step 3 uses the re-attach form instead of `-b`.
 
 ### Step 2 — Preconditions on the main checkout
@@ -111,13 +111,25 @@ Any other `git worktree add` failure → stop and report the git error verbatim.
 
 Copy every file matching a `.worktreeinclude` pattern from `<repo-root>` into `<wt-path>`, preserving relative paths — the contract's copy-then-setup order. No `.worktreeinclude` file → skip.
 
-**Then verify, per copied path — do not assume.** The worktree was cut from `origin/<BASE_BRANCH>`, so it evaluates ignore rules against **the base branch's committed `.gitignore`**, while the patterns that selected these files were written for **the main checkout's working-tree `.gitignore`**. Whenever the two differ — a `.gitignore` written but never committed, an ignore line added on the current feature branch and not yet merged, a nested `.gitignore` inside an untracked directory — a file that is ignored in the main checkout arrives **unignored** in the worktree. `commit.md` §1's `git add -A` then sweeps it, and on `--pr` that path runs unattended through `git push` and `gh pr create`. `.worktreeinclude` exists to carry exactly the files that must not be committed, so this is the one check standing between a copied `.env` and a public PR.
+Each copy is a `Bash` call of its own, with absolute paths written unquoted, never chained to another command with `&&`, `;`, `|` or a `[ -f … ]` test:
 
 ```bash
-git -C "<wt-path>" check-ignore -q "<rel-path>" || echo "not ignored: <rel-path>"
+cp <repo-root>/<rel-path> <wt-path>/<rel-path>
 ```
 
-Any path that comes back **not ignored** → print one line naming the file and the remedy (`commit its .gitignore entry to <BASE_BRANCH>`), and add it to the run's **exclusion list**, which [`commit.md`](commit.md) §1 applies as `git reset -q -- "<rel-path>"` at every commit this run makes. This generalizes `commit.md` §1's single-path `auth.storage_state` backstop to the actual set of files provisioning moves.
+- **Missing parent directory** in `<wt-path>` → a `mkdir -p <wt-path>/<rel-dir>` call of its own first.
+- **A pattern matching a directory** → one `cp -R <repo-root>/<rel-path> <wt-path>/<rel-path>` call per directory, under the same rule.
+- **A path holding whitespace or a shell metacharacter** → the quoted form, `cp "<repo-root>/<rel-path>" "<wt-path>/<rel-path>"`. An env-read guard that exempts only the bare form may refuse it.
+
+The bare form is load-bearing: a guard hook that refuses commands naming a secrets file typically exempts a standalone `cp <src> <dst>` and nothing else, so a compound line holding the same copy is refused whole.
+
+**Then verify, once, after every copy — do not assume.** The worktree was cut from `origin/<BASE_BRANCH>`, so it evaluates ignore rules against **the base branch's committed `.gitignore`**, while the patterns that selected these files were written for **the main checkout's working-tree `.gitignore`**. Whenever the two differ — a `.gitignore` written but never committed, an ignore line added on the current feature branch and not yet merged, a nested `.gitignore` inside an untracked directory — a file that is ignored in the main checkout arrives **unignored** in the worktree. `commit.md` §1's `git add -A` then sweeps it, and on `--pr` that path runs unattended through `git push` and `gh pr create`. `.worktreeinclude` exists to carry exactly the files that must not be committed, so this is the one check standing between a copied `.env` and a public PR.
+
+```bash
+git -C "<wt-path>" ls-files --others --modified --exclude-standard
+```
+
+The command names no file, so a guard keyed on command text lets it through. It prints every untracked path the worktree does not ignore, and every tracked path whose content differs from the base branch's — a copy over a file the base branch still tracks, its untracking not yet merged. A copied path in that output — a `.worktreeinclude` match, or a file under a copied directory — is **not ignored**; a copied path missing from it is ignored, or tracked with the base branch's content, and stays off the list. Output paths that are no copy, such as files a resumed build created, are not this check's concern. Git C-quotes a path holding a non-ASCII byte, `"`, `\` or a control character: its line is wrapped in double quotes, with backslash escapes such as `\303\251` for `é`. Unquote such a line before comparing it with the copied paths, never compare it as printed: a quoted line read literally matches no copy and reads that copy as ignored. Each copied path that comes back **not ignored** → print one line naming the file and the remedy (`commit its .gitignore entry to <BASE_BRANCH>`), and add it to the run's **exclusion list**, which [`commit.md`](commit.md) §1 applies as `git reset -q -- "<rel-path>"` at every commit this run makes. This generalizes `commit.md` §1's single-path `auth.storage_state` backstop to the actual set of files provisioning moves.
 
 Write the list to the caller's worktree record too (build: the `## Worktree` block's `excluded:` field), so a resumed run can see what a prior pass found. Treat that record as a **hint, not the source of truth** — step 1's adopt path re-derives the list, because a record can be stale, absent, or predate the field, and an empty list silently disables the guard.
 
@@ -143,7 +155,7 @@ Storage-mode detection reads `claudedocs/tickets/config.yaml`. A worktree that n
 Walk up from `<wt-path>` looking for `claudedocs/tickets/config.yaml`:
 
 - **Found anywhere on the chain** → nothing to do. This is the normal case for a multi-repo workspace, where the worktrees sit under the workspace root alongside the repos and the walk-up reaches the workspace-level file; it is also the case for a repo that tracks `claudedocs/`, whose copy came along with the branch.
-- **Not found, and `<repo-root>/claudedocs/tickets/config.yaml` exists** → copy it to `<wt-path>/claudedocs/tickets/config.yaml`. Conditional on purpose: an unconditional copy would overwrite a tracked file and dirty the worktree's tree.
+- **Not found, and `<repo-root>/claudedocs/tickets/config.yaml` exists** → copy it to `<wt-path>/claudedocs/tickets/config.yaml`, with step 4's standalone `mkdir -p` and `cp` calls. Conditional on purpose: an unconditional copy would overwrite a tracked file and dirty the worktree's tree.
 - **Not found, and there is no source to copy** → continue; §1 already keeps such a project eligible.
 
 Storage-mode requirements on the resolved file — whether the no-source case is a valid no-op or a hard stop, and what the file must declare: build's [`storage-fs.md`](storage-fs.md) / [`storage-server.md`](storage-server.md) §11, for the mode detected at the caller's start.
