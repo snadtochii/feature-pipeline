@@ -283,7 +283,9 @@ and every candidate is not admitted with reason `open PRs unknown` (in `plan`; `
 |---|---|
 | `open_prs` | The count above, or `null` when it could not be computed. |
 | `max_open_prs`, `max_tickets_per_run` | The configured caps. |
+| `free_pr_slots` | `max_open_prs` minus `open_prs`, never below 0, or `null` when `open_prs` is. |
 | `tickets_admitted` | Sum of the admitted items' ticket weights. |
+| `tickets_tagged` | Sum of every candidate's ticket weight, admitted or not. |
 | `reason` | Why admission stopped or could not start — `max_open_prs reached (<n>/<max>)` (also when the cap is already met and there is no candidate), `max_tickets_per_run reached (<n>/<max>)`, `max_tickets_per_run has no room for <ID> (<n>/<max>, needs <weight>)`, `open PRs could not be counted` — or `null` when no cap stopped admission. |
 
 ## §9 `plan`
@@ -310,11 +312,13 @@ preconditions → print.
     { "created_at": "2026-10-03T09:00:00.000Z", "id": "ABC-20", "kind": "epic", "others": [], "tickets": ["ABC-21", "ABC-22"] }
   ],
   "caps": {
+    "free_pr_slots": 2,
     "max_open_prs": 3,
     "max_tickets_per_run": 2,
     "open_prs": 1,
     "reason": "max_tickets_per_run has no room for ABC-20 (1/2, needs 2)",
-    "tickets_admitted": 1
+    "tickets_admitted": 1,
+    "tickets_tagged": 3
   },
   "config": {
     "max_age_days": 14,
@@ -555,7 +559,7 @@ for every stuck item with a session id.
 
 ```json
 {
-  "caps": { "max_open_prs": 3, "max_tickets_per_run": 2, "open_prs": 1, "reason": null, "tickets_admitted": 1 },
+  "caps": { "free_pr_slots": 2, "max_open_prs": 3, "max_tickets_per_run": 2, "open_prs": 1, "reason": null, "tickets_admitted": 1, "tickets_tagged": 1 },
   "config": {
     "max_age_days": 14,
     "max_open_prs": 3,
@@ -641,7 +645,7 @@ line `no inbox item: the server failed the precondition`. The item is
 ```json
 {
   "body": "Night dispatch 2026-10-14-a1b2c3: 1 shipped, 0 stuck, 2 skipped\n\n# Dispatch run 2026-10-14-a1b2c3\n…",
-  "metadata": { "project_id": "5b0c8a52-3f0e-4c41-9a43-2f1d7f3c9e10", "run_id": "2026-10-14-a1b2c3" },
+  "metadata": { "run_id": "2026-10-14-a1b2c3" },
   "project_id": "5b0c8a52-3f0e-4c41-9a43-2f1d7f3c9e10",
   "source": "feature:dispatch"
 }

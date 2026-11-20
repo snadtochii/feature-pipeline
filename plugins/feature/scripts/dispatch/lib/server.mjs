@@ -223,34 +223,18 @@ export async function getTicket({ access, projectId, ticketId, fetchImpl = fetch
 }
 
 /**
- * Capture one inbox item, filed under the existing project `projectId` names:
- * `{ ok, detail }`. Never throws.
- */
-export async function captureInbox({ access, body, projectId, metadata, fetchImpl = fetch, timeoutMs = REQUEST_TIMEOUT_MS }) {
-  const payload = { body, source: 'feature:dispatch', project_id: projectId, metadata };
-  try {
-    const { status } = await request(access, { method: 'POST', route: '/inbox', body: payload, parse: false, fetchImpl, timeoutMs });
-    return { ok: true, detail: `HTTP ${status}` };
-  } catch (err) {
-    return { ok: false, detail: err.status ? `HTTP ${err.status}` : err.message };
-  }
-}
-
-/**
- * Send a run's inbox item, filed under the configured project. Returns the
- * `notes` lines the attempt produced — none when the item went out. Never
- * throws.
+ * Send a run's inbox item, filed under the existing project `projectId` names.
+ * Returns the `notes` lines the attempt produced — none when the item went
+ * out. Never throws.
  */
 export async function sendInbox({ access, projectId, runId, body, fetchImpl = fetch, timeoutMs = REQUEST_TIMEOUT_MS }) {
-  const sent = await captureInbox({
-    access,
-    body,
-    projectId,
-    metadata: { project_id: projectId, run_id: runId },
-    fetchImpl,
-    timeoutMs,
-  });
-  return sent.ok ? [] : [`inbox capture failed: ${sent.detail}`];
+  const payload = { body, source: 'feature:dispatch', project_id: projectId, metadata: { run_id: runId } };
+  try {
+    await request(access, { method: 'POST', route: '/inbox', body: payload, parse: false, fetchImpl, timeoutMs });
+    return [];
+  } catch (err) {
+    return [`inbox capture failed: ${err.status ? `HTTP ${err.status}` : err.message}`];
+  }
 }
 
 export const SIGNAL_REQUEST_TIMEOUT_MS = 5_000;

@@ -121,8 +121,8 @@ For each picked ticket, in the order echoed:
 
 When any tag changed, run the command again and print **Tonight** and **Room** again from the new document. Then warn from its `not_admitted`, which is the dispatcher's own admission decision ([CONTRACT.md](../../scripts/dispatch/CONTRACT.md) §8); the skill computes no capacity of its own. An empty `not_admitted` → no warning. Otherwise list each id with its reason, then one line per reason present:
 
-- `ticket cap` → `<n> tickets are tagged for a run that takes <max_tickets_per_run>; the rest wait for later nights in creation order.`, `<n>` being the sum of `tickets` lengths over all `candidates`.
-- `pr cap` → `<c> items are tagged and <free> pull-request slots are free; the rest wait for later nights in creation order.`, `<c>` being the number of `candidates` and `<free>` being `max_open_prs` − `open_prs`, never below 0.
+- `ticket cap` → `<tickets_tagged> tickets are tagged for a run that takes <max_tickets_per_run>; the rest wait for later nights in creation order.`
+- `pr cap` → `<c> items are tagged and <free_pr_slots> pull-request slots are free; the rest wait for later nights in creation order.`, `<c>` being the number of `candidates`.
 - `open PRs unknown` → "admission unknown: open PRs could not be counted".
 
 End the warning with `A tagged item still waiting after <max_age_days> days is skipped as stale.`

@@ -47,7 +47,22 @@ export function compareRows(a, b) {
  * `tickets`, which the same `ship` session walks.
  */
 export function selectCandidates(rows, options) {
-  return partition(rows, options, { tagged: true, judgeStaleness: true });
+  const { candidates: pool, skips } = partition(rows, options, 'tagged');
+  const candidates = [];
+  const notes = [];
+  for (const { stale, ...item } of pool) {
+    if (stale === null) {
+      candidates.push(item);
+      continue;
+    }
+    if (stale === UNPARSEABLE) {
+      notes.push(`${item.id}: unparseable updated_at — treated as stale`);
+    }
+    skips.push({ id: item.id, reason: 'stale', detail: stale });
+  }
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  skips.sort((a, b) => compareRows(byId.get(a.id), byId.get(b.id)));
+  return { candidates, skips, notes };
 }
 
 /**
@@ -57,15 +72,20 @@ export function selectCandidates(rows, options) {
  * reported rather than judged.
  */
 export function selectEligible(rows, options) {
-  return partition(rows, options, { tagged: false, judgeStaleness: false }).candidates;
+  return partition(rows, options, 'untagged').candidates;
 }
 
+const UNPARSEABLE = 'updated_at unparseable';
+
 /**
- * Run the §7 table over the rows whose tagged state equals `tagged`. A child of
- * a tagged epic is covered whichever pool it is in. With `judgeStaleness` off,
- * a stale row stays a candidate carrying its detail and adds no note.
+ * Run the §7 table, staleness aside, over the `pool` of rows: `'tagged'` or
+ * `'untagged'`. A child of a tagged epic is covered whichever pool it is in.
+ * Every candidate carries `stale`, the staleness detail or null, and the caller
+ * decides what a stale candidate costs. Returns `{ candidates, skips }`, both in
+ * `compareRows` order.
  */
-function partition(rows, { tag, maxAgeDays, now }, { tagged, judgeStaleness }) {
+function partition(rows, { tag, maxAgeDays, now }, pool) {
+  const tagged = pool === 'tagged';
   const nowMs = now.getTime();
   const byId = new Map(rows.map((row) => [row.id, row]));
   const childrenOf = new Map();
@@ -80,7 +100,6 @@ function partition(rows, { tag, maxAgeDays, now }, { tagged, judgeStaleness }) {
   const isTagged = (row) => row.tags.includes(tag);
   const candidates = [];
   const skips = [];
-  const notes = [];
 
   const waitingOn = (ids) =>
     [...new Set(ids)]
@@ -91,20 +110,15 @@ function partition(rows, { tag, maxAgeDays, now }, { tagged, judgeStaleness }) {
   const staleness = (row) => {
     const updated = Date.parse(row.updated_at);
     if (Number.isNaN(updated)) {
-      if (judgeStaleness) {
-        notes.push(`${row.id}: unparseable updated_at — treated as stale`);
-      }
-      return 'updated_at unparseable';
+      return UNPARSEABLE;
     }
     const ageDays = (nowMs - updated) / DAY_MS;
     return ageDays > maxAgeDays ? `updated ${Math.floor(ageDays)} days ago` : null;
   };
 
   const skip = (row, reason, detail = null) => skips.push({ id: row.id, reason, detail });
-  const candidate = (row, tickets, others, stale) => {
-    const item = { id: row.id, kind: row.kind, tickets, others, created_at: row.created_at };
-    candidates.push(judgeStaleness ? item : { ...item, stale });
-  };
+  const candidate = (row, tickets, others) =>
+    candidates.push({ id: row.id, kind: row.kind, tickets, others, created_at: row.created_at, stale: staleness(row) });
 
   for (const row of [...rows].sort(compareRows)) {
     if (isTagged(row) !== tagged || TERMINAL.has(row.status)) {
@@ -125,13 +139,8 @@ function partition(rows, { tag, maxAgeDays, now }, { tagged, judgeStaleness }) {
         skip(row, 'blocked', `waiting on ${waiting.join(', ')}`);
         continue;
       }
-      const stale = staleness(row);
-      if (judgeStaleness && stale !== null) {
-        skip(row, 'stale', stale);
-        continue;
-      }
       const others = children.filter((child) => child.status !== 'backlog' && !TERMINAL.has(child.status));
-      candidate(row, backlog.map((child) => child.id).sort(compareIds), others.map((child) => child.id).sort(compareIds), stale);
+      candidate(row, backlog.map((child) => child.id).sort(compareIds), others.map((child) => child.id).sort(compareIds));
       continue;
     }
     const parent = row.parent_id !== null ? byId.get(row.parent_id) : undefined;
@@ -148,14 +157,9 @@ function partition(rows, { tag, maxAgeDays, now }, { tagged, judgeStaleness }) {
       skip(row, 'blocked', `waiting on ${waiting.join(', ')}`);
       continue;
     }
-    const stale = staleness(row);
-    if (judgeStaleness && stale !== null) {
-      skip(row, 'stale', stale);
-      continue;
-    }
-    candidate(row, [row.id], [], stale);
+    candidate(row, [row.id], []);
   }
-  return { candidates, skips, notes };
+  return { candidates, skips };
 }
 
 /**
@@ -168,11 +172,12 @@ export function admit(candidates, { openPrs, maxOpenPrs, maxTicketsPerRun }) {
   const notAdmitted = [];
   let tickets = 0;
   let reason = null;
+  const ticketsTagged = candidates.reduce((sum, item) => sum + item.tickets.length, 0);
   if (openPrs === null) {
     return {
       admitted,
       notAdmitted: candidates.map((item) => ({ id: item.id, reason: 'open PRs unknown' })),
-      caps: caps(null, maxOpenPrs, 0, maxTicketsPerRun, 'open PRs could not be counted'),
+      caps: caps(null, maxOpenPrs, 0, ticketsTagged, maxTicketsPerRun, 'open PRs could not be counted'),
     };
   }
   if (openPrs >= maxOpenPrs) {
@@ -199,14 +204,16 @@ export function admit(candidates, { openPrs, maxOpenPrs, maxTicketsPerRun }) {
     admitted.push(item);
     tickets += weight;
   }
-  return { admitted, notAdmitted, caps: caps(openPrs, maxOpenPrs, tickets, maxTicketsPerRun, reason) };
+  return { admitted, notAdmitted, caps: caps(openPrs, maxOpenPrs, tickets, ticketsTagged, maxTicketsPerRun, reason) };
 }
 
-function caps(openPrs, maxOpenPrs, ticketsAdmitted, maxTicketsPerRun, reason) {
+function caps(openPrs, maxOpenPrs, ticketsAdmitted, ticketsTagged, maxTicketsPerRun, reason) {
   return {
     open_prs: openPrs,
     max_open_prs: maxOpenPrs,
+    free_pr_slots: openPrs === null ? null : Math.max(0, maxOpenPrs - openPrs),
     tickets_admitted: ticketsAdmitted,
+    tickets_tagged: ticketsTagged,
     max_tickets_per_run: maxTicketsPerRun,
     reason,
   };

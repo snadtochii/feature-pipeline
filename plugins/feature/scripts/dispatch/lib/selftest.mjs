@@ -566,6 +566,10 @@ const CASES = [
     equal(ids(admit([epic, solo('S')], { openPrs: 0, maxOpenPrs: 3, maxTicketsPerRun: 1 })), [['E-1'], ['S:ticket cap'], 'max_tickets_per_run reached (3/1)'], 'first epic exemption');
     equal(ids(admit([solo('S'), epic, solo('T')], { openPrs: 0, maxOpenPrs: 3, maxTicketsPerRun: 2 })), [['S'], ['E-1:ticket cap', 'T:ticket cap'], 'max_tickets_per_run has no room for E-1 (1/2, needs 3)'], 'no younger jump-ahead');
     equal(ids(admit([solo('S')], { openPrs: null, maxOpenPrs: 3, maxTicketsPerRun: 2 })), [[], ['S:open PRs unknown'], 'open PRs could not be counted'], 'gh unknown');
+    const room = (result) => [result.caps.tickets_tagged, result.caps.free_pr_slots];
+    equal(room(admit([solo('S'), epic, solo('T')], { openPrs: 1, maxOpenPrs: 3, maxTicketsPerRun: 2 })), [5, 2], 'tagged weight counts every candidate, free slots before admission');
+    equal(room(admit([solo('S')], { openPrs: 4, maxOpenPrs: 3, maxTicketsPerRun: 2 })), [1, 0], 'free slots never below 0');
+    equal(room(admit([solo('S')], { openPrs: null, maxOpenPrs: 3, maxTicketsPerRun: 2 })), [1, null], 'free slots unknown with open PRs');
   }],
 
   ['lock: acquire, held, takeover, unreadable owner, release by owner only', () => {
@@ -732,7 +736,7 @@ const CASES = [
         assert(!ran.stdout.includes(TOKEN) && !report.includes(TOKEN), 'token in output or report');
         equal(inbox.length, 1, 'one inbox item');
         const item = inbox[0].body;
-        equal([item.source, item.project_id, item.metadata, 'project' in item], ['feature:dispatch', PROJECT_ID, { project_id: PROJECT_ID, run_id: r.run_id }, false], 'inbox item fields');
+        equal([item.source, item.project_id, item.metadata, 'project' in item], ['feature:dispatch', PROJECT_ID, { run_id: r.run_id }, false], 'inbox item fields');
         assert(!seen.some((s) => new URL(s.url, 'http://stub.invalid').pathname === '/api/projects'), 'a request reached /api/projects');
         equal(item.body.split('\n')[0], `Night dispatch ${r.run_id}: 1 shipped, 0 stuck, 2 skipped`, 'inbox first line');
         assert(!item.body.includes(TOKEN), 'token in the inbox body');
