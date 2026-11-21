@@ -254,7 +254,7 @@ Stage skills handle their own ticket resolution and validation; flow is not in t
 
 Resumption is auto-detected — see "Resumption auto-detection" above, including how the user signals "start fresh".
 
-When the close stage's verdict is `partial` or `stuck`, its verdict gate presents `accept-as-partial | continue-with-hint | abort` — the close stage subagent pauses with that menu, flow relays it and the choice (`references/stage-briefs.md` §5). On `continue-with-hint` the close stage returns the user's hint, and flow spawns implement again with it in `<HINT_BLOCK>`, then review and close — the §11 chain loops through flow, with no count cap because every round needs a relayed decision. A later `/feature:flow <id> --hint "<text>"` on a partially built or already-closed ticket is the other way to thread a note in: the run enters at implement with the hint.
+When the close stage's verdict is `partial` or `stuck`, its verdict gate presents `accept-as-partial | continue-with-hint | abort`, led by `draft-pr` when the close stage offers it under `--defer-decisions` — the close stage subagent pauses with that menu, flow relays it and the choice (`references/stage-briefs.md` §5). On `continue-with-hint` the close stage returns the user's hint, and flow spawns implement again with it in `<HINT_BLOCK>`, then review and close — the §11 chain loops through flow, with no count cap because every round needs a relayed decision. A later `/feature:flow <id> --hint "<text>"` on a partially built or already-closed ticket is the other way to thread a note in: the run enters at implement with the hint.
 
 ## Error Handling
 

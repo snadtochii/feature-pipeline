@@ -97,12 +97,13 @@ _— 📝 close note by <Model> on behalf of <LOGIN>_
 ```
 
 - Questions appear in ID order, open ones only, each with its kind in the heading.
-- **Comment delimiters.** Outside a fence, every `<!--` and `-->` in rendered Context and Options text is written as `&lt;!--` and `--&gt;`: an unescaped `<!--` opens an HTML comment that hides everything up to the marker's `-->`, footer included. Text inside a fence is left as it is.
+- **Comment delimiters.** Outside a fence, every `<!--` and `-->` in any rendered field — the heading's summary, Context, Options and Outcomes — is written as `&lt;!--` and `--&gt;`: an unescaped `<!--` opens an HTML comment that hides everything up to the marker's `-->`, footer included. Text inside a fence is left as it is.
+- **Open fences.** A rendered field that leaves a fence open — copied tester output with an unclosed ```` ``` ````, say — is followed by a closing fence line of the same character, at least as long as the one it opened, so the footer and the marker never sit inside a fence.
 - **Out-of-scope security findings.** A question whose source is a `[security]` finding dismissed as outside `02-plan.md`'s scope renders as its heading, its `path:line` and the line `Security finding on code this change does not touch — details in 07-questions.md on the ticket.`, with no Context, Options or Outcomes: it describes code already on the base branch, and the comment is public wherever the repository is. The artifact keeps the full block.
 - The last two lines are the note footer and the marker, both outside any fence, the marker the last non-blank line. `<Model>`, `agent` and `<LOGIN>` follow `pr-comments.md` §1; a failed or invalid login read means no comment body is written, and the caller records why.
 - `blocking=` and `suggestions=` equal the artifact header's counts.
 - **Size.** A body over 65,000 characters drops suggestion blocks from the end until it fits, and adds the line `<k> suggestions omitted — see 07-questions.md on the ticket.` above the footer, where `<k>` is the number dropped. Blocking questions are never dropped, and the marker keeps the full counts.
-- **Idempotency.** The poster scans the viewer's own issue comments on the PR for the marker prefix and posts only when it is absent, as one Bash call aimed at the repository root:
+- **Idempotency.** The poster scans the viewer's own issue comments on the PR for a questions marker naming the ticket, whichever runtime posted it, and posts only when there is none, as one Bash call aimed at the repository root:
 
   ```bash
   cd "<root>" || exit 2
@@ -112,14 +113,14 @@ _— 📝 close note by <Model> on behalf of <LOGIN>_
     || { echo "questions scan failed" >&2; exit 2; }
   printf '%s' "$PR_JSON" \
     | jq -r --arg viewer "$VIEWER" '.comments[] | select(.author.login == $viewer) | .body' \
-    | grep -qF -- '<!-- fp-questions agent=<a> source=close ticket=<TICKET-ID> '
+    | grep -qE -- '<!-- fp-questions agent=(claude|codex) source=close ticket=<TICKET-ID> '
   rc=$?
   if [ "$rc" -eq 0 ]; then echo "already-posted"; exit 0; fi
   if [ "$rc" -ne 1 ]; then echo "questions scan failed" >&2; exit 2; fi
   gh pr comment "<N>" --body-file "<posted body>"
   ```
 
-  `<N>` is the PR number, parsed as an integer from the PR's URL; the marker prefix is the one the caller names, a literal because its `agent` and `ticket=` values are validated (§5); `VIEWER` and `PR_JSON` are loaded by command substitution, as in `pr-comments.md` §3. `already-posted` means the comment exists. Exit 2, or a failed post, posts nothing more: the PR stands, and the caller records why.
+  `<N>` is the PR number, parsed as an integer from the PR's URL; `<TICKET-ID>` is the ticket ID the caller names, written into the pattern as a literal because it is validated (§5), and the pattern matches either `agent` value, so a re-entry under the other runtime finds the comment and the PR keeps one; `VIEWER` and `PR_JSON` are loaded by command substitution, as in `pr-comments.md` §3. `already-posted` means the comment exists. Exit 2, or a failed post, posts nothing more: the PR stands, and the caller records why.
 
 ## §5 Untrusted text
 
