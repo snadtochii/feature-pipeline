@@ -151,7 +151,7 @@ A CAS failure follows [`storage-server.md`](storage-server.md) §CAS conflict do
 ## Transition 5 — Open-PR (in-progress → in-review)
 
 **Invoked by**:
-- `close-stage` at its verdict gate on verdict `pass` with `--pr`, after a pull request has been opened for the work — the close stage resolves it at the gate and its finalizer child performs it, alongside the branch/push and the `gh pr create` call in build's `pr-creation.md` reference. This transition owns the status flip.
+- `close-stage` at its verdict gate on verdict `pass` with `--pr`, or on a `partial` or `stuck` verdict whose `draft-pr` choice was taken, after a pull request — a draft on `draft-pr` — has been opened for the work — the close stage resolves it at the gate and its finalizer child performs it, alongside the branch/push and the `gh pr create` call in build's `pr-creation.md` reference. This transition owns the status flip.
 - `ship`'s orchestrator, on every run, once a ticket's PR is confirmed open and correctly based (`ship/references/storage-server.md` §6).
 
 Ticket lands here when its PR is open but not yet merged — a **non-terminal** state. The work is finished from the pipeline's perspective, but "done" would misrepresent it: an open PR can be reworked or closed.
@@ -199,9 +199,11 @@ This is the canonical mapping the close stage uses at its verdict gate. The deci
 | `pass` (no `--pr`) | no commit (prompt declined, `git.commit: never`, or `--no-commit`)  | T2               | Status → `done`; no git commit. Same row result as above. |
 | `pass` + `--pr` | non-interactive ship | T5             | Status → `in-review`; branch pushed + PR opened; `pr_url` recorded on the row. The `--pr` flag and the push/`gh pr create` live in build's `pr-creation.md` reference; T5 owns the status flip. |
 | at `in-review` | re-invocation, PR merged + landed | T6 | Status → `done`. Merge detection (`gh pr view`) runs in the close stage's `in-review` merge-check row; a `MERGED` result that has **landed on `<base>`** fires T6 (a merge only into an integration branch whose PR has not merged into `<base>` does not). |
+| `partial` | `draft-pr` (offered under `--defer-decisions`) | T5 | Status → `in-review`; branch pushed + draft PR opened; questions comment posted; `pr_url` recorded on the row. T5's `from: [in-progress, partial-completion]` already covers this source. On degradation (no PR opened): T4, then T2, with the commit on the branch. |
 | `partial` | `accept-as-partial`  | T4, then T2               | Status flips to `partial-completion` (terminal); T2 then has nothing further to write. |
 | `partial` | `continue-with-hint` | T4                        | Status flips to `partial-completion`; the ticket re-enters implement with the hint. |
 | `partial` | `abort`              | T3                        | Status → `backlog`. Epic row may revert (inverse all-children check). |
+| `stuck`   | `draft-pr` (offered under `--defer-decisions`) | T5 | Same as `partial → draft-pr`.                                           |
 | `stuck`   | `accept-as-partial`  | T4, then T2               | Same as `partial → accept-as-partial`.                                  |
 | `stuck`   | `continue-with-hint` | T4                        | Same as `partial → continue-with-hint`.                                 |
 | `stuck`   | `abort`              | T3                        | Same as `partial → abort`.                                              |
@@ -217,7 +219,7 @@ Used by future tooling (notably the epic-mode flow walker) to inspect aggregate 
 Read the ticket's `status` — the row field via `pipeline_get_ticket`. Possible values:
 - `backlog` — not yet started.
 - `in-progress` — currently in the pipeline.
-- `in-review` — the verdict was `pass` with `--pr`; PR open, awaiting merge. An **epic child** can be `in-review` while its epic row is still `in-progress` (a sibling is mid-build or not yet started, so the Epic-review condition keeps the epic row at `in-progress`) — the child row's status is the signal. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking — build's merged-sibling clause in ticket-resolution Step 6 tests the child's PR and the checkout, not this status), but included in every resolution and resumption path.
+- `in-review` — the verdict was `pass` with `--pr`, or `partial`/`stuck` with the `draft-pr` choice (a draft PR, awaiting the owner's answers); PR open, awaiting merge. An **epic child** can be `in-review` while its epic row is still `in-progress` (a sibling is mid-build or not yet started, so the Epic-review condition keeps the epic row at `in-progress`) — the child row's status is the signal. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking — build's merged-sibling clause in ticket-resolution Step 6 tests the child's PR and the checkout, not this status), but included in every resolution and resumption path.
 - `done` — completed cleanly.
 - `partial-completion` — finalized but with un-fixable failures (treated as terminal for aggregate calculations).
 - `cancelled` — abandoned (treated as terminal).

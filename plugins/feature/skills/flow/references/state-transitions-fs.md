@@ -210,7 +210,7 @@ A repeat `continue-with-hint` round overwrites `partial-completion` with itself 
 ## Transition 5 — Open-PR (in-progress → review)
 
 **Invoked by**:
-- `close-stage` at its verdict gate on verdict `pass` with `--pr`, after a pull request has been opened for the work — the close stage resolves it at the gate and its finalizer child performs it, alongside the branch/push and the `gh pr create` call in build's `pr-creation.md` reference. This transition owns the folder move + status flag.
+- `close-stage` at its verdict gate on verdict `pass` with `--pr`, or on a `partial` or `stuck` verdict whose `draft-pr` choice was taken, after a pull request — a draft on `draft-pr` — has been opened for the work — the close stage resolves it at the gate and its finalizer child performs it, alongside the branch/push and the `gh pr create` call in build's `pr-creation.md` reference. This transition owns the folder move + status flag.
 - `ship`'s orchestrator, on every run, once a ticket's PR is confirmed open and correctly based (`ship/references/storage-fs.md` §6).
 
 Ticket lands here when its PR is open but not yet merged — a **non-terminal** state. The work is finished from the pipeline's perspective, but "done" would misrepresent it: an open PR can be reworked or closed.
@@ -272,9 +272,11 @@ This is the canonical mapping the close stage uses at its verdict gate. The deci
 | `pass` (no `--pr`) | no commit (prompt declined, `git.commit: never`, or `--no-commit`)  | T2               | Folder → `done/`; status `done`; no git commit. Same folder/frontmatter result as above. |
 | `pass` + `--pr` | non-interactive ship | T5             | Folder → `review/`; status `in-review`; branch pushed + PR opened. The `--pr` flag and the push/`gh pr create` live in build's `pr-creation.md` reference; T5 owns the folder move + status. |
 | in `review/` | re-invocation, PR merged + landed | T6 | Folder → `done/`; status `done`. Merge detection (`gh pr view`) runs in the close stage's `review/` merge-check row; a `MERGED` result that has **landed on `<base>`** fires T6 (a merge only into an integration branch whose PR has not merged into `<base>` does not). |
+| `partial` | `draft-pr` (offered under `--defer-decisions`) | T5 | Folder → `review/`; status `in-review`; branch pushed + draft PR opened; questions comment posted. On degradation (no PR opened): T4, then T2, with the commit on the branch. |
 | `partial` | `accept-as-partial`  | T4, then T2               | Status flips to `partial-completion`; then folder → `done/`, preserving that status. |
 | `partial` | `continue-with-hint` | T4                        | Status flips to `partial-completion`; folder stays in `in-progress/`; the ticket re-enters implement with the hint. |
 | `partial` | `abort`              | T3                        | Folder → `backlog/`; status `backlog`. Epic subtree may move back (inverse all-children check). |
+| `stuck`   | `draft-pr` (offered under `--defer-decisions`) | T5 | Same as `partial → draft-pr`.                                           |
 | `stuck`   | `accept-as-partial`  | T4, then T2               | Same as `partial → accept-as-partial`.                                  |
 | `stuck`   | `continue-with-hint` | T4                        | Same as `partial → continue-with-hint`.                                 |
 | `stuck`   | `abort`              | T3                        | Same as `partial → abort`.                                              |
@@ -290,7 +292,7 @@ Used by future tooling (notably the epic-mode flow walker) to inspect aggregate 
 Read the ticket's `status` from `<ticket-folder>/01-spec.md` frontmatter. Possible values:
 - `backlog` — not yet started.
 - `in-progress` — currently in the pipeline.
-- `in-review` — the verdict was `pass` with `--pr`; PR open, awaiting merge. A **solo** ticket lives in `review/`; an **epic child** can be `in-review` while its subtree is still in `in-progress/` (a sibling is mid-build or not yet started, so the Epic-review condition keeps the epic out of `review/`). So `in-review` is found by frontmatter `status`, not by folder location alone. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking — build's merged-sibling clause in ticket-resolution Step 6 tests the child's PR and the checkout, not this status), but included in every folder search and resumption path.
+- `in-review` — the verdict was `pass` with `--pr`, or `partial`/`stuck` with the `draft-pr` choice (a draft PR, awaiting the owner's answers); PR open, awaiting merge. A **solo** ticket lives in `review/`; an **epic child** can be `in-review` while its subtree is still in `in-progress/` (a sibling is mid-build or not yet started, so the Epic-review condition keeps the epic out of `review/`). So `in-review` is found by frontmatter `status`, not by folder location alone. **Non-terminal**: excluded from every done-equivalent / terminal set (epic aggregation, blocker-unblocking — build's merged-sibling clause in ticket-resolution Step 6 tests the child's PR and the checkout, not this status), but included in every folder search and resumption path.
 - `done` — completed cleanly.
 - `partial-completion` — finalized but with un-fixable failures (treated as terminal for aggregate calculations).
 - `cancelled` — abandoned (lives in `done/` per the discover convention; treated as terminal).

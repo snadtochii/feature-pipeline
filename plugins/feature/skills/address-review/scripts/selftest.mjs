@@ -383,6 +383,13 @@ const CASES = [
     equal(keysOf(w), [], 'no threads');
     equal(threadStates(surfaces(w)).counts, { open: 0, settled: 0, held: 0, fix_failed: 0 }, 'no counts');
   }],
+  ['skipped: a signed questions comment gives no thread, whatever its questions say', () => {
+    const w = world();
+    const questions = '## Open questions — FP-1\n\n1 blocking, 0 suggestions.\n\n### Q1 — Detail pane closes the dialog (blocking)\n**[F1]** AC-3 failed — the conflict copy is never visible';
+    addIssue(w, { body: `${questions}\n\n_— 📝 close note by Claude on behalf of ${VIEWER}_\n<!-- fp-questions agent=claude source=close ticket=FP-1 blocking=1 suggestions=0 -->` });
+    equal(keysOf(w), [], 'no threads');
+    equal(threadStates(surfaces(w)).counts, { open: 0, settled: 0, held: 0, fix_failed: 0 }, 'no counts');
+  }],
   ['shapes: a note footer followed by more text is text, and the comment stays human', () => {
     const w = world();
     const quoting = addIssue(w, { body: `The footer should read\n${NOTE_FOOTER}\nnot the old one.` });

@@ -1,6 +1,6 @@
 # PR Comments — shared agent-comment contract
 
-The single source of truth for how this plugin's automation posts to and reads from GitHub pull requests: the visible role footer, the hidden machine marker, the empty-review convention, and the `gh` post/fetch command patterns. The `review` skill (this folder's `SKILL.md`) is the first consumer; `feature:address-review` consumes the same contract via `../review/references/pr-comments.md` so review comments and replies share one format; and `feature:ship`'s independent reviewer posts its findings through §4/§5 the same way, so ship's review and the standalone `review` skill land in one format; ship's orchestrator and the close stage sign the notes they post with the §1 note footer and the §2 `fp-note` marker.
+The single source of truth for how this plugin's automation posts to and reads from GitHub pull requests: the visible role footer, the hidden machine marker, the empty-review convention, and the `gh` post/fetch command patterns. The `review` skill (this folder's `SKILL.md`) is the first consumer; `feature:address-review` consumes the same contract via `../review/references/pr-comments.md` so review comments and replies share one format; and `feature:ship`'s independent reviewer posts its findings through §4/§5 the same way, so ship's review and the standalone `review` skill land in one format; ship's orchestrator and the close stage sign the notes they post with the §1 note footer and the §2 `fp-note` marker, and the close stage's questions comment ([`../../flow/references/owner-questions.md`](../../flow/references/owner-questions.md) §4) is a close note that carries the §2 `fp-questions` marker instead.
 
 Born here because `review` is the first surface that posts *signed* comments. Modeled on `../build/references/pr-creation.md`'s born-in-build / reused-by-sync precedent — the producing skill owns the rules, the consumer links them.
 
@@ -24,7 +24,7 @@ The role answers the reader's first question ("is this a review or a reply?"), a
 
 **No automation mechanics in visible text.** The label, the idempotency rule, the head SHA as an idempotency key, and any scheduling/cadence detail never appear in a visible comment. The round in the footer and the limit note ([`review-memory.md`](review-memory.md) §3) are the exceptions, because they tell the owner which pass each comment is, when a model stopped reviewing and how to resume it. A note's subject — the head it could not verify, the setup that would verify it, the inner review's result — is its content, not mechanics, and its footer is the only thing the signature adds to it. The only machine metadata that ships with a comment is the hidden marker (§2), which renders invisibly on GitHub.
 
-**Signing a note.** A note ends with two lines, both outside any fence: the note footer, then the §2 `fp-note` marker as the comment's last non-blank line.
+**Signing a note.** A note ends with two lines, both outside any fence: the note footer, then the §2 `fp-note` marker as the comment's last non-blank line — `fp-questions` for the close stage's questions comment (§2).
 
 ```
 _— 📝 <source> note by <Model> on behalf of <LOGIN>_
@@ -58,6 +58,8 @@ Its brief follows the ticket's spec rather than `review`'s rubric, so it is a se
 The limit note ([`review-memory.md`](review-memory.md) §3) carries `<!-- fp-limit agent=<codex|claude> -->` instead of a review marker, so no idempotency scan or round count reads it.
 
 A note (§1) carries `<!-- fp-note agent=<codex|claude> source=<ship|close> -->` as its last non-blank line, with the note footer directly before it. Both keys are informational and supplied by the posting caller from its runtime binding; no idempotency scan or round count reads them.
+
+The close stage's questions comment is a note whose last non-blank line is `<!-- fp-questions agent=<codex|claude> source=close ticket=<TICKET-ID> blocking=<n> suggestions=<m> -->` in place of `fp-note`, with the note footer directly before it. Its keys are load-bearing: `ticket` and the two counts are what a reader of a run's drafts counts from without reading the questions, and the finalizer's post is keyed on the marker's prefix through `ticket=`. The body, the counts and that scan are [`../../flow/references/owner-questions.md`](../../flow/references/owner-questions.md) §4; no `review` idempotency scan or round count reads it.
 
 The marker goes in the **review body** on the Reviews-API path (§4), or in the **single issue comment** on the fallback path (§5). Either way it must be findable by the idempotency scan (§3), which reads both surfaces.
 
@@ -233,7 +235,7 @@ A **thread** is an inline review comment with no `in_reply_to_id` together with 
 
 **Settled is final.** `head=` gates nothing, so a later push re-opens no thread. The reviewer raises an automated finding again on its next round, and a human re-opens a thread by commenting on it.
 
-**Not threads:** a bot's comment — except a bot's inline comment a person replied to, which roots a human thread — an `fp-address` reply, an automated comment with no `[F<k>]` finding and no inline comment of its own (the §6 empty review, the limit note), a signed note (the §1 note footer and §2 `fp-note` marker) whatever its text holds — an `[F<k>]`-looking line in a note is text — and an issue comment named by a viewer `answers=` key.
+**Not threads:** a bot's comment — except a bot's inline comment a person replied to, which roots a human thread — an `fp-address` reply, an automated comment with no `[F<k>]` finding and no inline comment of its own (the §6 empty review, the limit note), a signed note (the §1 note footer and a §2 `fp-note` or `fp-questions` marker) whatever its text holds — an `[F<k>]`-looking line in a note is text — and an issue comment named by a viewer `answers=` key.
 
 `address-review` computes these states with `skills/address-review/scripts/threads.mjs`. It reads the three surfaces through the REST endpoints (`pulls/<N>/comments`, `pulls/<N>/reviews`, `issues/<N>/comments`), so every id, issue comments included, is the REST number a `re=` key names. A failed read stops the pass; it never reads as open.
 
