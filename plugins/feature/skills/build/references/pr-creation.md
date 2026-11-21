@@ -1,12 +1,12 @@
 # PR Creation
 
-The close stage hands this to its `feature:finalizer` child at the verdict gate (`close-stage/SKILL.md`, finalizer handoff) on verdict `pass` when `--pr` is present, after implement, review and the test checkpoint pass. The child runs the branch → commit → push → open-PR sequence non-interactively (the `--pr` flag is the user's authorization for the outward-facing push), finalizes the ticket into `review/` via Transition 5 on success, and degrades to a local commit + `done/` (Transition 2) when GitHub tooling is unavailable — never crashing the verdict gate.
+The close stage hands this to its `feature:finalizer` child at the verdict gate (`close-stage/SKILL.md`, finalizer handoff) on verdict `pass` when `--pr` is present, after implement, review and the test checkpoint pass, and on the `draft-pr` choice a `partial` or `stuck` close offers under `--defer-decisions`. The child runs the branch → commit → push → open-PR sequence non-interactively (the `--pr` flag is the user's authorization for the outward-facing push), finalizes the ticket into `review/` via Transition 5 on success, and degrades to a local commit + `done/` per §5's degradation row (Transition 2; on the draft ending, Transition 4 then Transition 2) when GitHub tooling is unavailable — never crashing the verdict gate.
 
 Neither the close stage nor its finalizer has a `Skill` tool, so the branch conventions are inlined here rather than borrowed from a separate skill; the commit mechanics (staging + message) live in the shared [`commit.md`](commit.md). All git/gh work runs inline via `Bash`.
 
 ## When it runs
 
-- The full sequence (§0–§5): only on verdict `pass` with `--pr`, and it is the finalizer that runs it. On `partial`/`stuck`, or without `--pr`, this reference is not used — the verdict gate's commit-mode dispatch (`close-stage/SKILL.md`, verdict gate and finalizer handoff, driven by the bound `commit_mode`) applies instead.
+- The full sequence (§0–§5): only on verdict `pass` with `--pr` and on the close stage's `draft --pr` ending (a `partial` or `stuck` verdict whose `draft-pr` choice was taken), and it is the finalizer that runs it. On any other `partial`/`stuck` ending, or without `--pr`, this reference is not used — the verdict gate's commit-mode dispatch (`close-stage/SKILL.md`, verdict gate and finalizer handoff, driven by the bound `commit_mode`) applies instead.
 - The **Merge predicate** section only: referenced by the close stage's `review/` merge-check row, which runs on every invocation of a `review/` ticket regardless of whether `--pr` is on the command line. That row is a resumption check rather than post-gate work, so the close stage runs the predicate itself; the finalizer is not involved.
 
 ## Repository root
@@ -17,7 +17,7 @@ Neither the close stage nor its finalizer has a `Skill` tool, so the branch conv
 
 Run the shared check sequence from [`../../review/references/gh-preconditions.md`](../../review/references/gh-preconditions.md) before any branch/push work, in order; first failure → degrade (do NOT proceed to push). Its origin check runs against the repository root: `git -C "<root>" remote get-url origin`. Only the sequence is shared — that reference's fail-closed contract (change nothing, exit cleanly) does **not** apply here; §0's consequence is its own:
 
-On any failure: still create the branch + local commit (§1–§3, skipping push/PR), print one specific line (e.g. `--pr: gh not installed — committed to <branch>, finalized to done/.`), finalize via Transition 2 (`done/`), and record the reason in `06-summary.md`. Never abort the verdict gate.
+On any failure: still create the branch + local commit (§1–§3, skipping push/PR), print one specific line (e.g. `--pr: gh not installed — committed to <branch>, finalized to done/.`), finalize per §5's degradation row (`done/`), and record the reason in `06-summary.md`. Never abort the verdict gate.
 
 ## §1 Detect base + decide the branch
 
@@ -78,7 +78,7 @@ case "$SPEC_TITLE" in
 esac
 cd "<root>" && gh pr create --base "<base>" --title "$PR_TITLE" --body-file "<06-summary.md path>"
 ```
-- Ready PR (no `--draft`).
+- **Ready or draft.** On `pass --pr` the PR is ready (no `--draft`). On `draft --pr` the command gains `--draft` and nothing else changes: the title keeps its `<TICKET-ID>:` prefix, and the body is `06-summary.md`. A repository that refuses a draft fails `gh pr create`, which degrades as below. No pipeline step merges a draft.
 - **Title** = `<TICKET-ID>: <01-spec.md title>` — the `<TICKET-ID>:` prefix mirrors the commit-message convention ([`commit.md`](commit.md) §2) and is **required** by the §Merge predicate's ID-keyed lookup, which filters on `title startswith "<TICKET-ID>:"`; a prefix-less title makes `sync` miss the PR. **Body** = `06-summary.md` passed via `--body-file` (no shell interpolation of arbitrary text).
 - **Epic child**: title = `<CHILD-ID>: <child title>` (same ID-prefix rule, using the child's own ID); prepend a one-line lead `Part of epic <EPIC-ID> (<epic-slug>).` to the body file; the commit references the child ID.
 - Capture the PR URL from `gh pr create` stdout.
@@ -88,6 +88,7 @@ cd "<root>" && gh pr create --base "<base>" --title "$PR_TITLE" --body-file "<06
   - **gh exits non-zero on the attach command** → keep its stdout, then reconcile before any retry ([`ui-attach.md`](ui-attach.md) §7): a PR URL on stdout, or an open PR for `<branch>` (`gh pr view "<branch>" --json url,state`), means the PR was created with the uploads that succeeded — that is a **success** for §5 (capture the URL, link it, Transition 5), with the partial-attach outcome line in `notes`. Only with no PR created is `gh pr create` retried once from the manifest posted body without `--attach`; a failed retry degrades as below.
   - **Part bodies listed** → only when this run created the PR, a partial attach included; a PR found open on re-entry gets no part. Post each part in batch order with `gh pr comment "<N>" --body-file "<part body>"` and that part's `--attach` arguments, per [`ui-attach.md`](ui-attach.md) §6 **Batches**, `<N>` parsed as an integer from the PR URL gh printed or read with `gh pr view "<branch>" --json number`. A part whose command exits non-zero is reconciled with [`ui-attach.md`](ui-attach.md) §8's read, per its §7: the PR stands, the part is never retried, and the finalizer's result is unaffected. A manifest-only post, a failed attach that fell back to the manifest, or a degraded run posts no part.
   - Either way the posted bodies already carry the epic lead line, so nothing is prepended to them, and the attach posted body is never sent without its `--attach` arguments. The `Screenshots:` outcome line ([`ui-attach.md`](ui-attach.md) §7), its count summed across the PR body and its parts, goes into the result's `notes`.
+- **Questions comment** — only when the finalizer prompt names its posted body, on `pass --pr` and `draft --pr` alike. Once the PR exists, created by this run or found open, the body is posted with [`../../flow/references/owner-questions.md`](../../flow/references/owner-questions.md) §4's idempotency scan and `gh pr comment "<N>" --body-file "<posted body>"`, `<N>` parsed as an integer from the PR URL, before the §5 linkage. A failed scan or post never fails the result, and a degraded run posts nothing.
 - **Push rejected**, or **`gh pr create` fails after a successful push** → degrade: report (branch is pushed; PR not opened, with the reason), finalize `done/`, record in `06-summary.md`.
 
 **Injection discipline**: branch slug sanitized to `[a-z0-9-]`; PR title and ticket ID loaded into variables via command substitution from `01-spec.md` (NOT pasted into `"..."` literals — a double-quoted assignment doesn't neutralize backticks / `$()` / quotes) and concatenated into `$PR_TITLE`; PR body via `--body-file`; each `--attach` value passed [`ui-attach.md`](ui-attach.md) §3's name filter and §4's path gate; no `eval`. The push is outward-facing and is authorized only by `--pr`.
@@ -99,8 +100,8 @@ Where `id`, `title`, and the `--body-file` path come from — the `sed` reads ab
 ## §5 Finalize
 
 - **Success** (PR opened, URL captured) → Transition 5 (`in-progress → review`, status `in-review`). Append the linkage lines below (where the summary lives and what else the mode records: the close stage's [`storage-fs.md`](../../close-stage/references/storage-fs.md) / [`storage-server.md`](../../close-stage/references/storage-server.md) §6, for the detected mode). The user-facing PR line is the close stage's: it prints it from the finalizer's result (`close-stage/SKILL.md` §6).
-- **Degradation** (any precondition/push/PR failure) → Transition 2 (`done/`). Append the degraded linkage lines below. Print the specific degradation line. A degraded run opens no PR, so it attaches nothing.
-- The verdict stays `pass` in both cases — degradation is not a failed close.
+- **Degradation** (any precondition/push/PR failure) → Transition 2 (`done/`) on `pass --pr`; on `draft --pr`, Transition 4 then Transition 2, so the ticket lands `partial-completion` with its commit on the branch. Append the degraded linkage lines below. Print the specific degradation line. A degraded run opens no PR, so it attaches and posts nothing.
+- The verdict stays the one the close stage set in both cases — degradation is not a failed close.
 
 **The linkage lines — the one definition.** Appended to `06-summary.md` as one block after a blank line, each at column 0 with a lowercase key, and with no list marker, bold, backticks or trailing text:
 

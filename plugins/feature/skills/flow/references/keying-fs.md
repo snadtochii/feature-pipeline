@@ -22,7 +22,7 @@ The resumption routing table's signals are read from the ticket folder:
 ## §3 Start-fresh and invalidation
 
 - **The user's start-fresh signal** is deleting `02-plan.md` (and any downstream `03-`/`04-`/`05-`/`06-` files) from the ticket folder; git is the version-history layer if a backup is wanted.
-- **SETUP's downstream invalidation** checks the folder for `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` when `02-plan.md` is absent, and deletes each present file — the one skill-side artifact deletion in the pipeline (the Delete artifact operation in [`storage-fs.md`](storage-fs.md)).
+- **SETUP's downstream invalidation** checks the folder for `03-implementation.md` / `04-review.md` / `05-tests.md` / `06-summary.md` when `02-plan.md` is absent, and deletes each present file, together with `07-questions.md` when present — the one skill-side artifact deletion in the pipeline (the Delete artifact operation in [`storage-fs.md`](storage-fs.md)).
 
 ## §4 Artifact layout
 
