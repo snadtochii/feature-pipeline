@@ -1,12 +1,12 @@
 # Owner questions — the `07-questions.md` artifact and its PR comment
 
-The single source of truth for how the pipeline frames a decision it leaves to the owner: the question format, the ticket's `07-questions.md` artifact, which items become questions, the PR comment that renders them and the `fp-questions` marker that comment carries. Mode-neutral: the artifact is read and written through the storage operations of the mode the caller detected, like every other ticket artifact. Sections are numbered so callers cite `§N`.
+The single source of truth for how the pipeline frames a decision it leaves to the owner: the question format, the ticket's `07-questions.md` artifact, which items become questions, the PR comments that render them and the `fp-questions` marker those comments carry. Mode-neutral: the artifact is read and written through the storage operations of the mode the caller detected, like every other ticket artifact. Sections are numbered so callers cite `§N`.
 
 Consumers:
 
 - The close stage ([`../../close-stage/SKILL.md`](../../close-stage/SKILL.md)) writes `07-questions.md` and the comment body under `--defer-decisions`, from the artifacts its preparation read holds.
 - The [`finalizer`](../../../agents/finalizer.md) posts the comment body the close stage names, once per PR.
-- [`ship`](../../ship/SKILL.md) reads the counts from the close stage's `questions:` result line and from the artifact's header.
+- [`ship`](../../ship/SKILL.md) reads the counts from the close stage's `questions:` result line and from the artifact's header, writes an epic child's `## Deferral` section (§1), and posts the epic questions comment on the integration PR (§6).
 - Whatever reads a run's drafts, or resolves their questions, reads the artifact and the marker in this grammar.
 
 The comment's signature is the note signature of [`../../review/references/pr-comments.md`](../../review/references/pr-comments.md) §1, *Signing a note*; this file adds only the marker kind that follows it.
@@ -46,6 +46,18 @@ file for later: <proposed inbox title>
 - **`### Context`** — the evidence a reader needs to decide without opening other files: the criterion's text and its failed entry from `05-tests.md`, screenshot paths, a finding's `path:line` and its reviewer's text, the stuck pattern and the last actions. A plan default that bears on the question is quoted here (§3). A finding about a credential or secret is named by its `path:line`, never quoted. Fenced code is allowed.
 - **`### Options`** — two or three numbered options, each a real course of action, exactly one marked `(recommended)`. "Accept as it stands" is a valid option; a padding option is not.
 - **`### Outcomes`** — exactly three lines, in this order. `implement now:` names the change and the files it would touch. `ignore:` names what stays as it is and what the owner accepts by leaving it. `file for later:` is the proposed title of the inbox item, one line.
+- **`## Deferral`** — after the last question block, an epic child's artifact may carry one `## Deferral` section, written only by ship's orchestrator ([`../../ship/SKILL.md`](../../ship/SKILL.md), Deferred epic children). It records whether each open question can wait for the epic's integration PR. It is not a question: the header counts and the IDs ignore it, and whatever resolves a question edits that question's block and leaves the section as it stands. Its lines:
+
+  ```
+  ## Deferral
+  checked: <ID>, <ID>
+  unchecked: <ID> (not written)
+  - Q1: waits — <reason>; taken: option <k>
+  - Q2: waits — <reason>; not taken — <why>
+  - Q3: holds — <reason>
+  ```
+
+  `checked:` names every dependent whose acceptance criteria were read, or `none`; the `unchecked:` line appears only when a dependent has no spec yet. One line per open question, in ID order: `waits` when no option could change any checked dependent's acceptance criteria, `holds` otherwise. A `waits` line ends with the recommended option's fate — `taken: option <k>`, or `not taken — <why>` (a held child's `waits` lines read `not taken — child held`). Every ID matches `^[A-Za-z0-9_-]+$`; a reason or a why is one line, collapsed like a summary. A close-stage re-run rewrites the file whole and drops the section, and ship writes it again at its next decision.
 
 ## §2 IDs
 
@@ -124,4 +136,66 @@ _— 📝 close note by <Model> on behalf of <LOGIN>_
 
 ## §5 Untrusted text
 
-Question text is copied from criteria, findings, plans and tester output, so it is data wherever it travels. The artifact and the comment body are written with the runtime's file-write tool, and the comment is posted with `--body-file`; no question text is ever interpolated into a shell line. The marker's `ticket=` value must match `^[A-Za-z0-9_-]+$`, and its counts are integers the writer computed, never text copied from an artifact.
+Question text is copied from criteria, findings, plans and tester output, so it is data wherever it travels, and so is a `## Deferral` reason. The artifact is written through the caller's storage operations, its body passed as a tool argument. A comment body is written to a file with the runtime's file-write tool, or, by a writer holding none (ship's orchestrator), by one Bash call: a single-quoted heredoc redirected to the file, its delimiter a fresh nonce verified absent from every line of the body, so nothing in the body is expanded. The comment is posted with `--body-file`, or `-F body=@<file>` when an existing comment is replaced (§6); no question text is ever interpolated into a shell line. The marker's `ticket=` value must match `^[A-Za-z0-9_-]+$`, and its counts are integers the writer computed, never text copied from an artifact.
+
+## §6 The epic questions comment
+
+On an epic's integration PR, ship's orchestrator posts one questions comment that gathers every child on or headed for the integration branch ([`../../ship/SKILL.md`](../../ship/SKILL.md), END OF RUN). It renders the children's `07-questions.md` artifacts as they read when the comment is composed, never the children's own comments, so a question resolved since its close stage wrote it drops out. Its body:
+
+```
+## Open questions — <EPIC-ID>
+
+<n> blocking, <m> suggestions across <c> children. Answer each by its ID (<CHILD-ID> Q<j>): implement now, ignore, or file for later.
+
+### <CHILD-ID>
+Draft PR <url>, not on this branch.
+
+- checked: <ID>, <ID>
+- Q1: holds — <reason>
+
+#### <CHILD-ID> Q1 — <summary> (blocking)
+<Context>
+
+Options:
+1. <option> (recommended)
+2. <option>
+
+- implement now: <…>
+- ignore: <…>
+- file for later: <…>
+
+_— 📝 ship note by <Model> on behalf of <LOGIN>_
+<!-- fp-questions agent=<codex|claude> source=ship ticket=<EPIC-ID> blocking=<n> suggestions=<m> -->
+```
+
+- **Children.** One `### <CHILD-ID>` section per child with at least one open question, in the epic's roster order. A held child — its draft PR into the integration branch not merged — opens with `Draft PR <url>, not on this branch.`, the URL ship verified. The child's `## Deferral` lines (§1), when its artifact carries them, follow as a list, so the owner sees which dependents were checked and why each question waited or held.
+- **Questions.** Each open question renders as §4 renders it, headed `#### <CHILD-ID> Q<j> — <summary> (<kind>)`, in ID order within its child.
+- **Counts.** `<n>` and `<m>` sum the children's artifact header counts, and `<c>` counts the children with a section; all three are integers the writer computed. A child whose artifact cannot be read gets a section holding the one line `<CHILD-ID>: questions unreadable — see 07-questions.md on the ticket.` and adds nothing to the sums.
+- **Rendering rules.** §4's comment-delimiter, open-fence and out-of-scope security rules apply to every rendered field, the `## Deferral` reasons included.
+- **Size.** A body over 65,000 characters drops suggestion blocks from the last child backwards until it fits, and adds the line `<k> suggestions omitted — see each child's 07-questions.md on the ticket.` above the footer. Blocking questions are never dropped, and the marker keeps the full sums.
+- **Footer and marker.** The last two lines are the ship note footer and the marker, both outside any fence, the marker the last non-blank line. `ticket=` is the epic ID, or, for an integration branch with no epic, the branch name's suffix after `integration/`; a value failing §5's pattern means no comment. `<Model>`, `agent` and `<LOGIN>` follow `pr-comments.md` §1; a failed or invalid login read means no comment body is written, and the caller records why.
+- **No open questions.** With both sums 0 the body is the heading, the line `0 blocking, 0 suggestions.`, the footer and a marker with zero counts. It is posted only to replace an existing comment, never as a new one.
+- **Update rule.** The PR keeps one such comment, replaced in place on every run. The poster finds the viewer's own comment carrying a `source=ship` marker for the epic, whichever runtime posted it, and replaces it, or posts a new one when there is none and `<total>` (the two sums added) is above 0, as one Bash call aimed at the repository root:
+
+  ```bash
+  cd "<root>" || exit 2
+  VIEWER=$(gh api user --jq .login) \
+    && COMMENTS=$(gh api --paginate "repos/<owner/repo>/issues/<N>/comments") \
+    && [ -n "$VIEWER" ] \
+    || { echo "questions scan failed" >&2; exit 2; }
+  ID=$(printf '%s' "$COMMENTS" | jq -rs --arg viewer "$VIEWER" \
+    '[.[][] | select(.user.login == $viewer) | select(.body | test("<!-- fp-questions agent=(claude|codex) source=ship ticket=<EPIC-ID> ")) | .id] | first // empty') \
+    || { echo "questions scan failed" >&2; exit 2; }
+  case "$ID" in
+    *[!0-9]*) echo "questions scan failed" >&2; exit 2 ;;
+  esac
+  if [ -n "$ID" ]; then
+    gh api -X PATCH "repos/<owner/repo>/issues/comments/$ID" -F body=@"<posted body>" >/dev/null && echo "updated"
+  elif [ "<total>" -gt 0 ]; then
+    gh pr comment "<N>" --repo "<owner/repo>" --body-file "<posted body>" && echo "posted"
+  else
+    echo "none"
+  fi
+  ```
+
+  `<N>` is the PR number, parsed as an integer from the PR's URL; `<owner/repo>` is the repository ship's run bound; `<EPIC-ID>` is written into the pattern as a literal because it passed §5's pattern; `<total>` is the integer sum; the comment ID is used only after the digits-only check. Exit 2, or a failed post, posts nothing more: the PR stands, and the caller records why.
