@@ -8,16 +8,20 @@
 // integration branch or an epic's one direct child, get stuck, stop on a walked
 // child that did not merge, fail their first
 // `sync`, refuse a dirty tree, survive a failed inbox capture, are signalled
-// mid-session, and leave the checkout off its base branch.
+// mid-session, and leave the checkout off its base branch; and `start`'s
+// detached spawn, over an injected spawn and against a stand-in script.
 // The shared helpers come in as `kit` from selftest.mjs, so neither module
 // imports the other's bindings at load time. No case starts a real `claude`.
 //
 // Private to the implementation: only dispatch.mjs is a command.
 
 import { spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+
+import { ComputeError } from '../../lib/output.mjs';
 
 import { ITEM_ID_RE, shipArgv, syncArgv } from './dispatch.mjs';
 import { classifyPr, decideItem, inboxBody, resumeHint, summaryLine, syncStatus } from './finish.mjs';
@@ -25,6 +29,7 @@ import { BASE_BRANCH_RE, checkPreconditions, gitBase, gitClean } from './precond
 import { failingChecks, openPrFromHead, prState } from './prs.mjs';
 import { sendInboxSync } from './server.mjs';
 import { MAX_TIMER_MS, startSession, timerDelay } from './session.mjs';
+import { start, startSpawnArgs } from './start.mjs';
 import { applyLine, newSessionFacts, parseJsonResult } from './stream.mjs';
 
 const FORBIDDEN_FLAGS = ['--parallel', '--bare', '--settings', '--allowedTools', '--permission-mode'];
@@ -431,12 +436,12 @@ export function sessionCases(kit) {
     ['end to end: a failed inbox capture is a note, not an exit', async () => {
       const w = world('e2e-inbox');
       try {
-        await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') }, projects: [], inboxStatus: 500 }), async (url) => {
+        await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') }, inboxStatus: 500 }), async (url) => {
           const res = await runEntry(['run', '--project-root', w.repo], { env: worldEnv(w, url) });
           assert(res.status === 0, `inbox 500: exit ${res.status} ${res.stdout}`);
           const report = fs.readFileSync(res.doc.report, 'utf8');
           assert(report.includes('- inbox capture failed: HTTP 500'), 'capture failure note');
-          assert(report.includes(`project name not resolved: the server lists no project ${PROJECT_ID}`), 'project-name note');
+          assert(!report.includes('without a project') && !report.includes('project name'), 'a project-lookup note');
           assert(!report.includes(TOKEN), 'token in the report');
         });
       } finally {
@@ -467,7 +472,7 @@ export function sessionCases(kit) {
           equal([runs[0].outcome, runs[0].items.map((i) => [i.outcome, i.reason, i.session_id])], ['stopped', [['stuck', 'interrupted', 'sess-int']]], 'interrupted record');
           equal(inbox.length, 1, 'a signalled run still sends its inbox item');
           const item = inbox[0].body;
-          equal([item.source, item.project, item.metadata.run_id], ['feature:dispatch', 'my-app', runs[0].run_id], 'signal inbox item fields');
+          equal([item.source, item.project_id, item.metadata.run_id, 'project' in item], ['feature:dispatch', PROJECT_ID, runs[0].run_id, false], 'signal inbox item fields');
           equal(item.body.split('\n')[0], `Night dispatch ${runs[0].run_id}: 0 shipped, 1 stuck, 2 skipped`, 'signal inbox first line');
           assert(item.body.includes('interrupted by SIGTERM') && !item.body.includes(TOKEN), 'signal inbox body');
           const report = fs.readFileSync(path.join(w.stateDir, 'reports', `${runs[0].run_id}.md`), 'utf8');
@@ -495,7 +500,7 @@ export function sessionCases(kit) {
         env: { PATH: process.env.PATH },
         timeoutMs: 2_000,
       });
-      equal(notes, [`inbox item sent without a project: project name not resolved: server unreachable at ${origin}`, `inbox capture failed: server unreachable at ${origin}`], 'helper notes');
+      equal(notes, [`inbox capture failed: server unreachable at ${origin}`], 'helper notes');
       assert(!notes.join('\n').includes(TOKEN), 'token in the helper notes');
     }],
 
@@ -706,6 +711,77 @@ export function sessionCases(kit) {
         });
       } finally {
         fs.rmSync(w.dir, { recursive: true, force: true });
+      }
+    }],
+
+    ['start: one detached, unreferenced spawn of run with an argument vector', async () => {
+      const root = tempDir('start-args');
+      try {
+        const env = { PATH: process.env.PATH };
+        const expected = [process.execPath, ['/x/dispatch.mjs', 'run', '--project-root', root], { cwd: root, detached: true, stdio: 'ignore', env }];
+        equal(startSpawnArgs({ projectRoot: root, scriptPath: '/x/dispatch.mjs', env }), expected, 'spawn arguments');
+        const calls = [];
+        let unrefs = 0;
+        const spawned = (...call) => {
+          calls.push(call);
+          const child = new EventEmitter();
+          child.pid = 4242;
+          child.unref = () => {
+            unrefs += 1;
+          };
+          setImmediate(() => child.emit('spawn'));
+          return child;
+        };
+        equal(await start({ projectRoot: root, scriptPath: '/x/dispatch.mjs', env, spawnImpl: spawned }), { verb: 'start', ok: true, pid: 4242 }, 'start document');
+        equal([calls, unrefs], [[expected], 1], 'one spawn, unreferenced');
+        const refused = () => {
+          const child = new EventEmitter();
+          setImmediate(() => child.emit('error', new Error('spawn ENOENT')));
+          return child;
+        };
+        const err = await start({ projectRoot: root, env, spawnImpl: refused }).then(() => null, (e) => e);
+        assert(err instanceof ComputeError && err.message === 'could not start run: spawn ENOENT', `spawn failure: ${err?.message}`);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }],
+
+    ['start: the started process leads its own process group and gets run --project-root', async () => {
+      const dir = tempDir('start-real');
+      let pid = null;
+      try {
+        const standIn = path.join(dir, 'stand-in.mjs');
+        const out = path.join(dir, 'argv.json');
+        fs.writeFileSync(standIn, "import fs from 'node:fs';\nfs.writeFileSync(process.env.START_OUT, JSON.stringify(process.argv.slice(2)));\nsetTimeout(() => {}, 10_000);\n");
+        const doc = await start({ projectRoot: dir, scriptPath: standIn, env: { PATH: process.env.PATH, START_OUT: out } });
+        pid = doc.pid;
+        assert(Number.isInteger(pid) && pid > 0, `pid: ${pid}`);
+        assert(await until(() => fs.existsSync(out) && fs.readFileSync(out, 'utf8') !== '', 5_000), 'the stand-in never started');
+        equal(JSON.parse(fs.readFileSync(out, 'utf8')), ['run', '--project-root', dir], 'stand-in argv');
+        const pgid = spawnSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim();
+        equal(pgid, String(pid), 'process group of the started process');
+      } finally {
+        if (pid !== null && alive(pid)) {
+          process.kill(pid, 'SIGKILL');
+        }
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }],
+
+    ['end to end: start answers with a pid, and a run refused before the lock leaves nothing', async () => {
+      const dir = tempDir('start-e2e');
+      let pid = null;
+      try {
+        const res = await runEntry(['start', '--project-root', dir], { env: { PATH: process.env.PATH, HOME: dir } });
+        assert(res.status === 0 && res.doc?.ok === true && res.doc.verb === 'start' && Number.isInteger(res.doc.pid), `start: exit ${res.status} ${res.stdout}`);
+        pid = res.doc.pid;
+        assert(await until(() => !alive(pid), 10_000), 'the started run never exited');
+        equal(fs.readdirSync(dir), [], 'files left by a run refused before the lock');
+      } finally {
+        if (pid !== null && alive(pid)) {
+          process.kill(pid, 'SIGKILL');
+        }
+        fs.rmSync(dir, { recursive: true, force: true });
       }
     }],
   ];

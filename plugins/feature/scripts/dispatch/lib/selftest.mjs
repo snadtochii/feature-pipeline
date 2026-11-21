@@ -25,7 +25,7 @@ import { LOCK_NAME, RECLAIM_NAME, STALE_MS, UNREADABLE_GRACE_MS, acquireLock, gi
 import { onPath } from './preconditions.mjs';
 import { countOpenPrs, prSlots } from './prs.mjs';
 import { renderReport } from './report.mjs';
-import { admit, compareIds, selectCandidates } from './select.mjs';
+import { admit, compareIds, selectCandidates, selectEligible } from './select.mjs';
 import { READ_NAMES, listTickets, resolveServerAccess } from './server.mjs';
 import { RUN_ID_RE, newRunId, projectNameFor, stateDirFor } from './state.mjs';
 import { shipArgv, syncArgv } from './dispatch.mjs';
@@ -210,10 +210,10 @@ function e2eRows() {
 /**
  * A routing stand-in for the server, answering a request that carries the
  * bearer token (403 otherwise): the ticket list, one ticket from `tickets`
- * (404 when absent), the project list, and the inbox capture, whose bodies
- * are pushed to `inbox`.
+ * (404 when absent), and the inbox capture, whose bodies are pushed to
+ * `inbox`. Every request is pushed to `seen`.
  */
-function stubHandler({ rows = [], tickets = {}, projects = [{ id: PROJECT_ID, name: 'my-app' }], inbox = [], inboxStatus = 201, seen = [] } = {}) {
+function stubHandler({ rows = [], tickets = {}, inbox = [], inboxStatus = 201, seen = [] } = {}) {
   return (req, res) => {
     seen.push({ method: req.method, url: req.url, authorization: req.headers.authorization });
     const send = (status, body) => {
@@ -232,8 +232,6 @@ function stubHandler({ rows = [], tickets = {}, projects = [{ id: PROJECT_ID, na
     } else if (req.method === 'GET' && one !== null) {
       const ticket = tickets[decodeURIComponent(one[1])];
       send(ticket === undefined ? 404 : 200, ticket ?? {});
-    } else if (req.method === 'GET' && pathname === '/api/projects') {
-      send(200, projects);
     } else if (req.method === 'POST' && pathname === '/api/inbox') {
       let body = '';
       req.on('data', (chunk) => {
@@ -306,6 +304,9 @@ const CASES = [
         [['run', '--project-root', dir, '--project-root', dir], 'flag given twice'],
         [['run', '--project-root', dir, '--force'], 'unknown flag'],
         [['plan', '--project-root', dir, 'extra'], 'unexpected argument'],
+        [['start'], 'start needs --project-root'],
+        [['start', '--project-root', 'relative/dir'], 'must be an absolute path'],
+        [['start', '--project-root', dir, '--force'], 'unknown flag'],
       ];
       for (const [args, fragment] of cases) {
         const res = await runEntry(args, { env: { PATH: '/usr/bin:/bin', HOME: dir } });
@@ -486,6 +487,34 @@ const CASES = [
     equal(['ABC-10', 'ABC-2', 'B-1', 'ABC-1'].sort(compareIds), ['ABC-1', 'ABC-2', 'ABC-10', 'B-1'], 'id order');
   }],
 
+  ['selection: untagged rows eligible if tagged', () => {
+    const options = { tag: TAG, maxAgeDays: 14, now: NOW };
+    const eligible = selectEligible(FIXTURE_ROWS, options);
+    equal(eligible.map((e) => [e.id, e.kind, e.tickets, e.others, e.stale]), [
+      ['ABC-60', 'solo', ['ABC-60'], [], null],
+      ['ABC-50', 'epic', ['ABC-51'], [], null],
+    ], 'eligible over the fixture: covered children, terminal and tagged rows absent');
+    equal(Object.keys(eligible[0]).sort(), ['created_at', 'id', 'kind', 'others', 'stale', 'tickets'], 'eligible item shape');
+    equal(Object.keys(selectCandidates(FIXTURE_ROWS, options).candidates[0]).sort(), ['created_at', 'id', 'kind', 'others', 'tickets'], 'candidate item shape');
+    const local = selectEligible([
+      row('ABC-90', { tags: [], updated_at: '2026-08-01T00:00:00.000Z' }),
+      row('ABC-91', { tags: [], updated_at: 'not a date' }),
+      row('ABC-92', { tags: [], status: 'in-progress' }),
+      row('ABC-93', { tags: [], blocked_by: ['ABC-99'] }),
+      row('ABC-94', { kind: 'epic', tags: [], created_at: '2026-10-02T00:00:00.000Z' }),
+      row('ABC-95', { kind: 'child', parent_id: 'ABC-94', tags: [], created_at: '2026-10-02T00:00:00.000Z' }),
+      row('ABC-96', { kind: 'epic', tags: [], created_at: '2026-10-03T00:00:00.000Z' }),
+      row('ABC-97', { kind: 'child', parent_id: 'ABC-96', tags: [], blocked_by: ['ABC-92'], created_at: '2026-10-03T00:00:00.000Z' }),
+      row('ABC-98'),
+    ], options);
+    equal(local.map((e) => [e.id, e.kind, e.tickets, e.stale]), [
+      ['ABC-90', 'solo', ['ABC-90'], 'updated 74 days ago'],
+      ['ABC-91', 'solo', ['ABC-91'], 'updated_at unparseable'],
+      ['ABC-94', 'epic', ['ABC-95'], null],
+      ['ABC-95', 'child', ['ABC-95'], null],
+    ], 'stale rows listed with their detail; not backlog, blocked, externally blocked epic and tagged rows absent');
+  }],
+
   ['caps: open-PR count and admission', () => {
     const counted = countOpenPrs({
       openPrs: [
@@ -537,6 +566,10 @@ const CASES = [
     equal(ids(admit([epic, solo('S')], { openPrs: 0, maxOpenPrs: 3, maxTicketsPerRun: 1 })), [['E-1'], ['S:ticket cap'], 'max_tickets_per_run reached (3/1)'], 'first epic exemption');
     equal(ids(admit([solo('S'), epic, solo('T')], { openPrs: 0, maxOpenPrs: 3, maxTicketsPerRun: 2 })), [['S'], ['E-1:ticket cap', 'T:ticket cap'], 'max_tickets_per_run has no room for E-1 (1/2, needs 3)'], 'no younger jump-ahead');
     equal(ids(admit([solo('S')], { openPrs: null, maxOpenPrs: 3, maxTicketsPerRun: 2 })), [[], ['S:open PRs unknown'], 'open PRs could not be counted'], 'gh unknown');
+    const room = (result) => [result.caps.tickets_tagged, result.caps.free_pr_slots];
+    equal(room(admit([solo('S'), epic, solo('T')], { openPrs: 1, maxOpenPrs: 3, maxTicketsPerRun: 2 })), [5, 2], 'tagged weight counts every candidate, free slots before admission');
+    equal(room(admit([solo('S')], { openPrs: 4, maxOpenPrs: 3, maxTicketsPerRun: 2 })), [1, 0], 'free slots never below 0');
+    equal(room(admit([solo('S')], { openPrs: null, maxOpenPrs: 3, maxTicketsPerRun: 2 })), [1, null], 'free slots unknown with open PRs');
   }],
 
   ['lock: acquire, held, takeover, unreadable owner, release by owner only', () => {
@@ -667,8 +700,10 @@ const CASES = [
   ['end to end: plan answers and writes nothing; run ships, records, reports, posts and releases', async () => {
     const w = world('e2e', { ghOut: JSON.stringify([{ number: 1, title: 'ABC-9: open', url: 'https://g/9' }]) });
     const inbox = [];
+    const seen = [];
     try {
-      await withStub(stubHandler({ rows: e2eRows(), tickets: { 'ABC-1': shippedRow('ABC-1') }, inbox }), async (url) => {
+      const untagged = row('ABC-3', { tags: [], updated_at: new Date().toISOString() });
+      await withStub(stubHandler({ rows: [...e2eRows(), untagged], tickets: { 'ABC-1': shippedRow('ABC-1') }, inbox, seen }), async (url) => {
         const env = worldEnv(w, url);
         const lockDir = path.join(gitCommonDir(w.repo), LOCK_NAME);
 
@@ -678,6 +713,7 @@ const CASES = [
         const p = planned.doc;
         equal([p.verb, p.ok, p.admitted.map((i) => i.id), p.not_admitted, p.skips.map((s) => s.id)], ['plan', true, ['ABC-1'], [{ id: 'ABC-2', reason: 'ticket cap' }], ['ABC-9']], 'plan document');
         equal(p.caps.open_prs, 1, 'open PR counted by title');
+        equal(p.eligible.map((e) => [e.id, e.tickets, e.stale]), [['ABC-3', ['ABC-3'], null]], 'plan lists the untagged row eligible if tagged');
         equal(p.preconditions.map((c) => c.name), ['claude', 'config', 'gh', 'git_base', 'git_clean', 'node', 'server', 'state_dir'], 'precondition names');
         assert(!fs.existsSync(path.join(w.home, '.feature-pipeline')) && !fs.existsSync(lockDir), 'plan wrote state or a lock');
 
@@ -700,7 +736,8 @@ const CASES = [
         assert(!ran.stdout.includes(TOKEN) && !report.includes(TOKEN), 'token in output or report');
         equal(inbox.length, 1, 'one inbox item');
         const item = inbox[0].body;
-        equal([item.source, item.project, item.metadata], ['feature:dispatch', 'my-app', { project_id: PROJECT_ID, run_id: r.run_id }], 'inbox item fields');
+        equal([item.source, item.project_id, item.metadata, 'project' in item], ['feature:dispatch', PROJECT_ID, { run_id: r.run_id }, false], 'inbox item fields');
+        assert(!seen.some((s) => new URL(s.url, 'http://stub.invalid').pathname === '/api/projects'), 'a request reached /api/projects');
         equal(item.body.split('\n')[0], `Night dispatch ${r.run_id}: 1 shipped, 0 stuck, 2 skipped`, 'inbox first line');
         assert(!item.body.includes(TOKEN), 'token in the inbox body');
         const calls = fs.readFileSync(w.files.FAKE_CLAUDE_ARGS, 'utf8').split('--\n').filter(Boolean).map((call) => call.split('\n').filter(Boolean));

@@ -183,6 +183,7 @@ Not every stage runs as a subagent. The rule:
 | `triage` (standalone advisory inbox classifier; reads inbox items and tickets and writes triage assessments through the `ps` connector, whatever the storage mode; spawns no subagents) | |
 | `incident` (standalone alert investigator; reads the service's runbook and code, queries logs through its own script, and writes only its report under `claudedocs/incidents/`; asks nothing; spawns no subagents) | |
 | `insights` (standalone run reporter; runs its one script, which reads the Claude Code session store and the ticket trees and writes only its digest cache and one HTML report under `~/.feature-pipeline/insights/`; asks nothing; spawns no subagents) | |
+| `queue` (standalone next-run planner for night dispatch; server-native only; runs `dispatch.mjs plan`, reads tickets and `promotion_ready` inbox items through the `ps` connector, and writes only the dispatch tag on the owner's confirmed picks; spawns no subagents) | |
 | `setup` (interactive project-configuration dialogue; runs the detection script, writes config after approved diffs; `--check` is its read-only doctor, which asks nothing and writes nothing; spawns no subagents) | |
 
 **Rule:** run in main context only when you need *interactivity* or *plan mode* from the user's own session. Otherwise prefer a subagent — it keeps the main context clean. A stage that needs a decision while running as a subagent does not move to main context; it pauses and flow relays the decision (`stage-briefs.md` §5).

@@ -16,6 +16,7 @@ import { UsageError } from '../../lib/output.mjs';
 export const VERB_FLAGS = {
   plan: ['project-root'],
   run: ['project-root'],
+  start: ['project-root'],
 };
 
 const REQUIRED = ['project-root'];

@@ -1,7 +1,8 @@
 // Selection and admission for the dispatcher (CONTRACT.md §7–§8).
 //
 // Pure functions over plain data and an injected `now`: ticket rows in,
-// candidates, skips and an admitted prefix out. Nothing here touches the
+// candidates, skips, the untagged rows eligible if tagged, and an admitted
+// prefix out. Both selections run one §7 table. Nothing here touches the
 // network, the filesystem or a clock.
 //
 // Private to the implementation: only dispatch.mjs is a command.
@@ -45,7 +46,46 @@ export function compareRows(a, b) {
  * in `compareRows` order. `others` holds an epic's non-terminal children outside
  * `tickets`, which the same `ship` session walks.
  */
-export function selectCandidates(rows, { tag, maxAgeDays, now }) {
+export function selectCandidates(rows, options) {
+  const { candidates: pool, skips } = partition(rows, options, 'tagged');
+  const candidates = [];
+  const notes = [];
+  for (const { stale, ...item } of pool) {
+    if (stale === null) {
+      candidates.push(item);
+      continue;
+    }
+    if (stale === UNPARSEABLE) {
+      notes.push(`${item.id}: unparseable updated_at — treated as stale`);
+    }
+    skips.push({ id: item.id, reason: 'stale', detail: stale });
+  }
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  skips.sort((a, b) => compareRows(byId.get(a.id), byId.get(b.id)));
+  return { candidates, skips, notes };
+}
+
+/**
+ * The untagged, non-terminal rows that would be candidates if each were tagged,
+ * in `compareRows` order. Each item is a candidate plus `stale`: the staleness
+ * detail, or null. Writing the tag refreshes `updated_at`, so staleness is
+ * reported rather than judged.
+ */
+export function selectEligible(rows, options) {
+  return partition(rows, options, 'untagged').candidates;
+}
+
+const UNPARSEABLE = 'updated_at unparseable';
+
+/**
+ * Run the §7 table, staleness aside, over the `pool` of rows: `'tagged'` or
+ * `'untagged'`. A child of a tagged epic is covered whichever pool it is in.
+ * Every candidate carries `stale`, the staleness detail or null, and the caller
+ * decides what a stale candidate costs. Returns `{ candidates, skips }`, both in
+ * `compareRows` order.
+ */
+function partition(rows, { tag, maxAgeDays, now }, pool) {
+  const tagged = pool === 'tagged';
   const nowMs = now.getTime();
   const byId = new Map(rows.map((row) => [row.id, row]));
   const childrenOf = new Map();
@@ -60,7 +100,6 @@ export function selectCandidates(rows, { tag, maxAgeDays, now }) {
   const isTagged = (row) => row.tags.includes(tag);
   const candidates = [];
   const skips = [];
-  const notes = [];
 
   const waitingOn = (ids) =>
     [...new Set(ids)]
@@ -71,18 +110,18 @@ export function selectCandidates(rows, { tag, maxAgeDays, now }) {
   const staleness = (row) => {
     const updated = Date.parse(row.updated_at);
     if (Number.isNaN(updated)) {
-      notes.push(`${row.id}: unparseable updated_at — treated as stale`);
-      return 'updated_at unparseable';
+      return UNPARSEABLE;
     }
     const ageDays = (nowMs - updated) / DAY_MS;
     return ageDays > maxAgeDays ? `updated ${Math.floor(ageDays)} days ago` : null;
   };
 
   const skip = (row, reason, detail = null) => skips.push({ id: row.id, reason, detail });
-  const candidate = (row, tickets, others = []) => candidates.push({ id: row.id, kind: row.kind, tickets, others, created_at: row.created_at });
+  const candidate = (row, tickets, others) =>
+    candidates.push({ id: row.id, kind: row.kind, tickets, others, created_at: row.created_at, stale: staleness(row) });
 
   for (const row of [...rows].sort(compareRows)) {
-    if (!isTagged(row) || TERMINAL.has(row.status)) {
+    if (isTagged(row) !== tagged || TERMINAL.has(row.status)) {
       continue;
     }
     if (row.kind === 'epic') {
@@ -98,11 +137,6 @@ export function selectCandidates(rows, { tag, maxAgeDays, now }) {
       const waiting = waitingOn([...row.blocked_by, ...external]);
       if (waiting.length > 0) {
         skip(row, 'blocked', `waiting on ${waiting.join(', ')}`);
-        continue;
-      }
-      const stale = staleness(row);
-      if (stale !== null) {
-        skip(row, 'stale', stale);
         continue;
       }
       const others = children.filter((child) => child.status !== 'backlog' && !TERMINAL.has(child.status));
@@ -123,14 +157,9 @@ export function selectCandidates(rows, { tag, maxAgeDays, now }) {
       skip(row, 'blocked', `waiting on ${waiting.join(', ')}`);
       continue;
     }
-    const stale = staleness(row);
-    if (stale !== null) {
-      skip(row, 'stale', stale);
-      continue;
-    }
-    candidate(row, [row.id]);
+    candidate(row, [row.id], []);
   }
-  return { candidates, skips, notes };
+  return { candidates, skips };
 }
 
 /**
@@ -143,11 +172,12 @@ export function admit(candidates, { openPrs, maxOpenPrs, maxTicketsPerRun }) {
   const notAdmitted = [];
   let tickets = 0;
   let reason = null;
+  const ticketsTagged = candidates.reduce((sum, item) => sum + item.tickets.length, 0);
   if (openPrs === null) {
     return {
       admitted,
       notAdmitted: candidates.map((item) => ({ id: item.id, reason: 'open PRs unknown' })),
-      caps: caps(null, maxOpenPrs, 0, maxTicketsPerRun, 'open PRs could not be counted'),
+      caps: caps(null, maxOpenPrs, 0, ticketsTagged, maxTicketsPerRun, 'open PRs could not be counted'),
     };
   }
   if (openPrs >= maxOpenPrs) {
@@ -174,14 +204,16 @@ export function admit(candidates, { openPrs, maxOpenPrs, maxTicketsPerRun }) {
     admitted.push(item);
     tickets += weight;
   }
-  return { admitted, notAdmitted, caps: caps(openPrs, maxOpenPrs, tickets, maxTicketsPerRun, reason) };
+  return { admitted, notAdmitted, caps: caps(openPrs, maxOpenPrs, tickets, ticketsTagged, maxTicketsPerRun, reason) };
 }
 
-function caps(openPrs, maxOpenPrs, ticketsAdmitted, maxTicketsPerRun, reason) {
+function caps(openPrs, maxOpenPrs, ticketsAdmitted, ticketsTagged, maxTicketsPerRun, reason) {
   return {
     open_prs: openPrs,
     max_open_prs: maxOpenPrs,
+    free_pr_slots: openPrs === null ? null : Math.max(0, maxOpenPrs - openPrs),
     tickets_admitted: ticketsAdmitted,
+    tickets_tagged: ticketsTagged,
     max_tickets_per_run: maxTicketsPerRun,
     reason,
   };
